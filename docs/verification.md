@@ -51,3 +51,12 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 - Python test command: `PYTHONPATH=tools python3 -m unittest discover -s tests -p 'test_*.py' -v`.
 - Result: PASS, 13 tests covering image creation, CP/M file extents, duplicate/disk-full preservation, CLI operation, archive link parsing, host restrictions, Microsoft-download blocking and provenance retention.
 - SD card formatting/mounting, Finder copy, firmware mounting and hardware PIP execution remain untested. Raw disk images are size/structure-checked only; source documentation must establish geometry and sector ordering. IMD/TD0 conversion is unsupported.
+
+## CP/M HOST transfer utility — 2026-10-04
+
+- Reassembled `components/cpmCore/os/host/HOST.ASM` with z80asm 1.8; a second assembly was byte-identical to the checked-in `HOST.COM` (3,267 bytes, SHA-256 `bd74d9248023a2b082f8050208de8546febfdf353ad7dcaf868ab8bffe697758`).
+- Regenerated `littlefs/cpm/system.dsk` with `tools/buildCpmDisk.py`; its size is 256,256 bytes and SHA-256 is `960bfe752fc8489441c246b6a88d7764ffcec0f8e17255101acbcca8570aebb7`. Updated `main/cpmMachine.c` to require this exact hash.
+- Host test command: `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`.
+- Result: PASS under AddressSanitizer and UndefinedBehaviorSanitizer. The genuine CCP/BDOS guest ran `HOST DIR`; imported and exported a 777-byte binary containing NUL, `0x1A`, high-bit bytes and CR/LF with exact-byte equality; refused a duplicate destination; and refused an existing `.HST` sidecar while the E: directory still showed that sidecar afterward.
+- ESP-IDF 6.0.2 ESP32-S3 `build`: PASS. `retroHost.bin` is 0xDEA00 bytes, within the 3 MiB app partition.
+- This verifies the host guest emulator path only. USER-area rejection after launching HOST in USER 1, cancellation/error cleanup, full E: media, physical SD and ESP32 transfer remain separate acceptance items. No device was flashed.

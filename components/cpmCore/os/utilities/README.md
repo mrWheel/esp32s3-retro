@@ -1,6 +1,6 @@
 # CP/M utility files
 
-The `.COM` and `.HLP` files in this directory are the CP/M 2.2 utility set from
+Except for the project-authored `HOST.COM` noted below, the `.COM` and `.HLP` files in this directory are the CP/M 2.2 utility set from
 [`wwarthen/RomWBW`](https://github.com/wwarthen/RomWBW/tree/bbe7fd84ebdbf6e64929e81c09cf4887bfcce4d9),
 pinned to commit `bbe7fd84ebdbf6e64929e81c09cf4887bfcce4d9`. The files are
 unmodified copies of that distribution's binaries. They are included for this
@@ -40,3 +40,10 @@ itself as a CP/M 3.0 utility; its execution under this CP/M 2.2 BDOS has not
 been validated. The host tests verify all listed files are present in A:'s
 directory and exercise resident commands, PIP copying to E:, and ERA/REN on
 E:. They do not establish hardware runtime compatibility for every utility.
+
+`HOST.COM` is project-authored Z80 code in `../host/HOST.COM`, not part of the
+RomWBW distribution. Its source is `../host/HOST.ASM`; install `z80asm` with
+Homebrew and rebuild it with the command in `tools/README.md`. The disk builder
+installs this binary alongside the utilities listed above. Its source and
+binary hashes are listed in `SHA256SUMS.txt`; the full transfer ABI and
+exact-length sidecar are documented in `designCPM.md`.

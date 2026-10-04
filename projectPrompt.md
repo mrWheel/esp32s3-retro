@@ -329,6 +329,8 @@ Equivalent utilities/protocols are defined in each machine design.
 
 The common host supplies an emulator-neutral exchange service. Prefer having the guest OS create/read its own guest files. For example, CP/M HOST.COM should receive/send bytes through a virtual host interface and use BDOS for its CP/M file operations. The host should not edit CP/M directory structures merely to transfer an individual file.
 
+The common exchange operations are `QUERY`, `DIR`, `GET`, `PUT` and `ABORT`. QUERY negotiates a protocol version and capability bits before other operations. Transfers are streamed with a 32-bit exact byte length and CRC-32; implementations must not load a whole file into RAM. `GET` reports a final status after its data and checksum. `PUT` carries the expected checksum, writes to a temporary file, verifies length/checksum, and publishes the final file only on success. Existing targets are never overwritten implicitly. Names are validated by the machine adapter and may not escape that machine's exchange directory. Missing media, invalid names, existing targets, I/O/checksum failures and cancellation must be distinguishable to the guest. Each machine design defines how these operations are transported and how guest record-oriented file sizes preserve exact byte lengths.
+
 ## 16. File Transfer menu mode
 
 Selecting:

@@ -1,4 +1,5 @@
 #include "cpmGuest.h"
+#include "hostExchange.h"
 #include <string.h>
 
 enum
@@ -363,8 +364,12 @@ static void serviceBios(cpmGuest *guest, uint8_t function)
 
 static uint8_t readPort(void *context, uint8_t port)
 {
-  (void)context;
-  (void)port;
+  cpmGuest *guest = context;
+  if ((port == hostExchangePort || port == hostExchangeAbortPort) &&
+      guest->host.exchangePortInput != NULL)
+  {
+    return guest->host.exchangePortInput(guest->host.context, port);
+  }
   return 0xFF;
 }
 
@@ -374,6 +379,11 @@ static void writePort(void *context, uint8_t port, uint8_t value)
   if (port == cpmBiosServicePort)
   {
     serviceBios(guest, value);
+  }
+  else if ((port == hostExchangePort || port == hostExchangeAbortPort) &&
+           guest->host.exchangePortOutput != NULL)
+  {
+    guest->host.exchangePortOutput(guest->host.context, port, value);
   }
 }
 

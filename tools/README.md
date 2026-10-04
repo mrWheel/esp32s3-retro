@@ -6,6 +6,8 @@
 
 `buildCpmDisk.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance, non-commercial use scope and per-file hashes are in `components/cpmCore/os/utilities/README.md`; the image SHA-256 is in the project checksum inventory. No SD work image is generated; E: requires a separately prepared matching CP/M image.
 
+`HOST.COM` is project-authored Z80 source at `components/cpmCore/os/host/HOST.ASM`. To rebuild it on macOS, install the Z80 assembler with `brew install z80asm`, then run `z80asm -o components/cpmCore/os/host/HOST.COM components/cpmCore/os/host/HOST.ASM`. Rebuild `system.dsk` with `python3 tools/buildCpmDisk.py` after assembling. The checked-in COM image and source are both covered by the SHA-256 inventory.
+
 ## Prepare an E: work disk on macOS
 
 `cpmDiskImage.py` creates an empty raw CP/M 2.2 image using the firmware's exact geometry: 77 tracks, 26 128-byte records per track, two reserved tracks, 1 KiB blocks, 64 directory entries, and allocation blocks 0–242. It uses only the Python standard library.

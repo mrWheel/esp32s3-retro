@@ -1,5 +1,6 @@
 #include "cpmMachine.h"
 #include "cpmGuest.h"
+#include "hostExchange.h"
 #include "hostConsole.h"
 #include "imageFile.h"
 #include "esp_log.h"
@@ -20,12 +21,13 @@ static const char *diskPaths[cpmDiskDriveCount] = {
 };
 static const uint8_t systemHeader[cpmSystemHeaderSize] = {'R', 'E', 'T', 'R', 'O', 'C', 'P', 'M', 1, 1, 0x00, 0xC4,
                                                           0x00, 0xCC, 0x00, 0xDA};
-static const uint8_t expectedSystemDiskHash[32] = {0x73, 0xC5, 0x6E, 0x9F, 0x49, 0x29, 0x2F, 0x8C,
-                                                   0x9C, 0x8A, 0xC1, 0x53, 0x0C, 0xBC, 0xF5, 0x79,
-                                                   0x93, 0x00, 0x25, 0x3F, 0x58, 0x03, 0xD5, 0x5B,
-                                                   0x88, 0x37, 0x78, 0x7C, 0xFB, 0x8E, 0x1E, 0x28};
+static const uint8_t expectedSystemDiskHash[32] = {0x96, 0x0B, 0xFE, 0x75, 0x2F, 0xC8, 0x48, 0x94,
+                                                   0x41, 0xC2, 0x46, 0xB6, 0xA8, 0x8D, 0x77, 0x64,
+                                                   0xFF, 0xCE, 0xC0, 0xF8, 0xE1, 0x72, 0x55, 0x10,
+                                                   0x1A, 0xCB, 0xCC, 0xA8, 0x57, 0x0A, 0xEB, 0xB7};
 static imageFile diskImages[cpmDiskDriveCount];
 static cpmGuest guest;
+static hostExchange exchangeService;
 static bool guestReady;
 
 static bool consoleAvailable(void *context)
@@ -81,6 +83,16 @@ static void guestYield(void *context)
 {
   (void)context;
   vTaskDelay(1);
+}
+
+static uint8_t exchangePortInput(void *context, uint8_t port)
+{
+  return hostExchangePortInput(context, port);
+}
+
+static void exchangePortOutput(void *context, uint8_t port, uint8_t value)
+{
+  hostExchangePortOutput(context, port, value);
 }
 
 static void openOptionalDiskImages(void)
@@ -289,20 +301,30 @@ esp_err_t cpmMachineInitialize(void)
 
   openOptionalDiskImages();
 
+  if (!hostExchangeInitialize(&exchangeService, "/sdcard/retro/exchange/cpm"))
+  {
+    ESP_LOGE(tag, "Could not initialize the CP/M exchange service");
+    closeDiskImages();
+    return ESP_FAIL;
+  }
+
   const cpmHostOps host = {.consoleAvailable = consoleAvailable,
                            .consoleRead = consoleRead,
                            .consoleWrite = consoleWrite,
                            .diskDriveAvailable = diskDriveAvailable,
                            .diskReadRecord = diskReadRecord,
                            .diskWriteRecord = diskWriteRecord,
+                           .exchangePortInput = exchangePortInput,
+                           .exchangePortOutput = exchangePortOutput,
                            .yield = guestYield,
-                           .context = NULL};
+                           .context = &exchangeService};
   bool guestInitialized =
       cpmGuestInitialize(&guest, &host, systemBinaries, systemBinaries + cpmCcpSize);
   free(systemBinaries);
   if (!guestInitialized)
   {
     ESP_LOGE(tag, "Could not allocate or initialize CP/M guest memory");
+    hostExchangeClose(&exchangeService);
     closeDiskImages();
     return ESP_ERR_NO_MEM;
   }
@@ -331,5 +353,6 @@ void cpmMachineRun(void)
   puts("\nCP/M stopped.");
   cpmGuestDestroy(&guest);
   guestReady = false;
+  hostExchangeClose(&exchangeService);
   closeDiskImages();
 }

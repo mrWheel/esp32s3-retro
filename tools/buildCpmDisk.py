@@ -25,6 +25,7 @@ UTILITY_FILES = (
     "RMAC.COM",
     "STAT.COM",
     "SUBMIT.COM",
+    "HOST.COM",
     "XREF.COM",
     "XSUB.COM",
     "ZSID.COM",
@@ -138,7 +139,8 @@ def build_disk(project_root: Path, output_path: Path) -> None:
         next_directory_entry,
     )
     for filename in UTILITY_FILES:
-        utility_path = utility_directory / filename
+        source_directory = cpm_directory / "host" if filename == "HOST.COM" else utility_directory
+        utility_path = source_directory / filename
         if not utility_path.is_file():
             raise FileNotFoundError(f"Missing CP/M utility resource: {utility_path}")
         next_block, next_directory_entry = add_file(

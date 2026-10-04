@@ -34,6 +34,8 @@ typedef struct
                          uint8_t record[cpmDiskSectorSize]);
   bool (*diskWriteRecord)(void *context, uint8_t drive, uint16_t track, uint16_t sector,
                           const uint8_t record[cpmDiskSectorSize]);
+  uint8_t (*exchangePortInput)(void *context, uint8_t port);
+  void (*exchangePortOutput)(void *context, uint8_t port, uint8_t value);
   void (*yield)(void *context);
   void *context;
 } cpmHostOps;

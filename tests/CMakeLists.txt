@@ -6,6 +6,7 @@ add_executable(
   hostTests
   hostTests.c
   ../components/hostCore/hostCore.c
+  ../components/hostCore/hostExchange.c
   ../components/cpmCore/cpmCpu.c
   ../components/cpmCore/cpmGuest.c
   ../components/z80/z80.c
