@@ -46,11 +46,6 @@ td, th
 <body>
 <h1>Retro File Transfer</h1>
 <p>Files stay in the exchange folder. Press ENTER in the USB terminal to stop.</p>
-<form id="login">
-<label>Access token <input id="token" type="password" autocomplete="off" required maxlength="32"></label>
-<button>Connect</button>
-</form>
-<section id="browser" hidden>
 <h2 id="location">/exchange/</h2>
 <button id="up">Parent folder</button><button id="refresh">Refresh</button>
 <form id="upload">
@@ -61,15 +56,11 @@ td, th
 <thead><tr><th>Name</th><th>Bytes</th><th>Actions</th></tr></thead>
 <tbody id="entries"></tbody>
 </table>
-</section>
 <p id="status" role="status" aria-live="polite"></p>
 <script>
 "use strict";
-let accessToken = location.hash.slice(1);
 let currentPath = "";
 const element = (id) => document.getElementById(id);
-history.replaceState(null, "", "/");
-element("token").value = accessToken;
 
 function showStatus(message)
 {
@@ -86,8 +77,7 @@ async function api(path, options = {})
   const response = await fetch(path,
   {
     ...options,
-    credentials: "same-origin",
-    headers: {"X-Retro-Token": accessToken, ...(options.headers || {})}
+    headers: options.headers || {}
   });
   if (!response.ok)
   {
@@ -161,21 +151,6 @@ async function run(action)
   }
 }
 
-async function connect()
-{
-  accessToken = element("token").value;
-  await api("/api/session", {method: "POST"});
-  element("login").hidden = true;
-  element("browser").hidden = false;
-  await refresh();
-  showStatus("Connected");
-}
-
-element("login").onsubmit = (event) =>
-{
-  event.preventDefault();
-  run(connect);
-};
 element("refresh").onclick = () => run(refresh);
 element("up").onclick = () => run(async () =>
 {
@@ -216,10 +191,7 @@ element("upload").onsubmit = (event) =>
     }
   });
 };
-if (accessToken)
-{
-  run(connect);
-}
+run(refresh);
 </script>
 </body>
 </html>

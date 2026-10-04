@@ -61,7 +61,7 @@ RESET always enters the main menu. Type **one digit then ENTER**. CRLF is treate
 
 Choice **6** checks FAT32/layout before starting WiFi. The **only** connection/provisioning implementation is `michmich/esp-idf-wifi-provisioner` **0.4.0**. Configure its defaults under **Component config → WiFi Provisioner**. By default its setup AP is open; on a trusted network join **Retro-Setup** and open `http://192.168.4.1/` if the captive page does not appear. You may configure an AP password in menuconfig; the host does not print it. Credentials belong to the provisioner's NVS storage.
 
-After station connection, the console prints `http://DEVICE_IP:8080/#SESSION_TOKEN`. Open the complete URL. The fragment supplies a random 128-bit access token and is removed from the address bar after loading. An HttpOnly SameSite=Strict session cookie enables direct, streamed browser downloads. Upload/delete also require a custom token header; there is no cross-origin API permission. Each File Transfer session gets a new token. Tokens are access credentials: share the URL only intentionally.
+After station connection, the console prints `http://DEVICE_IP/`. The File Transfer server uses standard HTTP port 80 and has no password, key, or login step. Anyone on the connected WiFi network can browse, upload, download, and delete files under `/retro/exchange/` while File Transfer is active. Use it only on a trusted network.
 
 The GUI lists names/sizes, opens directories, uploads one file, downloads directly to the browser and confirms deletion. Only `/retro/exchange/` is reachable. There is no image access, directory deletion, mkdir or rename API. Create extra exchange subdirectories on the PC if desired.
 
@@ -73,11 +73,11 @@ The initial supported per-file upload/image limit is **2 GiB minus one byte**, m
 
 Press **ENTER** to stop the application server. The stop flag interrupts active transfers, files are closed, temporary uploads are discarded, and the menu resumes after the HTTP task stops. Socket receive/send timeout is 2 seconds; SD errors/timeouts can add delay. The HTTP task serializes file operations, so there are no concurrent uploads or image mutations.
 
-**WiFi remains running after the first selection of 6.** This is explicitly allowed by the specification. The provisioner is started once per boot in a worker task, so its connection wait cannot block the USB menu. If you leave before provisioning finishes, its setup portal may remain available, but the application file server is stopped. The application uses port 8080/control port 32769; the unchanged provisioner uses port 80/default control port 32768.
+**WiFi remains running after the first selection of 6.** This is explicitly allowed by the specification. The provisioner is started once per boot in a worker task, so its connection wait cannot block the USB menu. If you leave before provisioning finishes, its setup portal may remain available, but the application file server is stopped. The application server uses the ESP-IDF HTTP server defaults (port 80 and control port 32768). The provisioner's setup server also uses port 80, but it is stopped after provisioning completes before the application server starts.
 
 On connection loss the application file server stops. Version 0.4.0 does not provide a reliable ongoing reconnect/cancel lifecycle: reset to retry if the connection does not recover. This project deliberately does not implement a competing WiFi connection manager or repeatedly tear down/start the provisioner. See `docs/thirdParty.md` for the source-review details. Physical RESET is also the way to stop all WiFi activity.
 
-This is plain HTTP for a **trusted local network**, not an internet-facing service; access tokens and file contents are not transport-encrypted. The mandatory upstream provisioning portal has its own security behavior and is separate from the token-protected file server.
+This is unauthenticated plain HTTP for a **trusted local network**, not an internet-facing service; file contents are not transport-encrypted. The mandatory upstream provisioning portal has its own security behavior and is separate from the File Transfer server.
 
 ## Code map and extension boundary
 
@@ -89,7 +89,7 @@ This is plain HTTP for a **trusted local network**, not an internet-facing servi
 - `main/imageFile.*`: generic trusted-host file open/size/bounded read/write/flush/close, no guest semantics. Zero-initialize `imageFile`, close before reuse, use one owner. Read-only writes fail; ranges outside existing files fail. Paths must come from trusted machine definitions; never pass raw HTTP input to this API.
 - `components/hostCore`: pure C path validation/resolution, marker parser and ENTER parser. `pathResolve` is the common exchange path boundary for future guest adapters as well as HTTP.
 - `main/network.*`: public provisioner API wrapper, event observation only; no duplicated credentials or custom WiFi connection code.
-- `main/fileTransfer.*`, `main/web.html`: authenticated exchange-only HTTP and GUI.
+- `main/fileTransfer.*`, `main/web.html`: unauthenticated exchange-only HTTP and GUI.
 - `littlefs/`: resource directories with plain README files only.
 - `design*.md`: explicitly marked missing-design placeholders. Obtain the complete authoritative design before implementing that machine.
 
@@ -110,7 +110,7 @@ ctest --test-dir build-host --output-on-failure
 On hardware, while File Transfer is active:
 
 ```sh
-python tools/transferTest.py 'http://DEVICE_IP:8080/#SESSION_TOKEN'
+python tools/transferTest.py 'http://DEVICE_IP/'
 ```
 
-This explicitly creates unique test files in `exchange/common`, verifies binary SHA-256 round trips including an 8 MiB file, zero bytes and spaces, rejects traversal/overwrite/unauthenticated access, interrupts an upload, and deletes only its own test files. It is an acceptance test supplied for later execution, not a claimed result.
+This test creates unique files in `exchange/common`, verifies binary SHA-256 round trips for zero-byte, space-containing and 8 MiB files, verifies unauthenticated access, rejects traversal and overwrite attempts, interrupts an upload, and deletes only its own test files. It is an acceptance test supplied for later execution, not a claimed result.

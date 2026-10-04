@@ -102,8 +102,8 @@ void systemMenuRun(void)
       if (connected && fileTransferActive() && strcmp(address, previousAddress) != 0)
       {
         snprintf(previousAddress, sizeof(previousAddress), "%s", address);
-        printf("\nWiFi connected: %s\nOpen: http://%s:8080/#%s\n", address, address, fileTransferToken());
-        puts("The URL contains a temporary access token. Use a trusted local network.");
+        printf("\nWiFi connected: %s\nOpen: http://%s/\n", address, address);
+        puts("Anyone on this WiFi network can access the exchange files while File Transfer is active.");
         puts("Press ENTER to stop File Transfer and return to the main menu.");
       }
       if (!connected && !timeoutShown && esp_timer_get_time() - transferStarted > 120000000)

@@ -8,23 +8,17 @@ import urllib.parse
 
 def transferTest():
   parser = argparse.ArgumentParser(description="Hardware HTTP acceptance test. Creates and deletes unique files in exchange/common.")
-  parser.add_argument("url", help="The full URL printed on the USB terminal, including its token fragment")
+  parser.add_argument("url", help="The URL printed on the USB terminal, for example http://192.168.1.50/")
   arguments = parser.parse_args()
   address = urllib.parse.urlsplit(arguments.url)
-  if address.scheme != "http" or not address.hostname or len(address.fragment) != 32:
-    parser.error("Use the full http://device:8080/#token URL")
-  cookie = ""
-  token = address.fragment
+  if address.scheme != "http" or not address.hostname or address.fragment:
+    parser.error("Use the plain http://device/ URL without a token")
   prefix = "hostTest-" + os.urandom(6).hex()
   createdPaths = []
 
-  def request(method, path, data=None, authenticated=True, extraHeaders=None):
-    connection = http.client.HTTPConnection(address.hostname, address.port or 8080, timeout=30)
-    headers = {}
-    if authenticated:
-      headers = {"Cookie": cookie, "X-Retro-Token": token}
-    if extraHeaders:
-      headers.update(extraHeaders)
+  def request(method, path, data=None, extraHeaders=None):
+    connection = http.client.HTTPConnection(address.hostname, address.port or 80, timeout=30)
+    headers = extraHeaders or {}
     connection.request(method, path, body=data, headers=headers)
     response = connection.getresponse()
     status = response.status
@@ -36,11 +30,7 @@ def transferTest():
   def fileUrl(path):
     return "/api/file?path=" + urllib.parse.quote(path, safe="")
 
-  status, headers, content = request("POST", "/api/session", b"")
-  assert status == 200, (status, content)
-  cookie = headers["Set-Cookie"].split(";", 1)[0]
   try:
-    assert request("GET", "/api/list?path=common", authenticated=False)[0] == 403
     assert request("GET", "/api/list?path=common")[0] == 200
     for suffix, data in [("zero.bin", b""), ("space name.bin", bytes(range(256)) * 64), ("large.bin", os.urandom(8 * 1024 * 1024))]:
       path = "common/" + prefix + "-" + suffix
@@ -56,12 +46,12 @@ def transferTest():
       assert request("GET", "/api/file?path=" + attack)[0] == 400
       assert request("DELETE", "/api/file?path=" + attack)[0] == 400
     interruptedPath = "common/" + prefix + "-interrupted.bin"
-    connection = socket.create_connection((address.hostname, address.port or 8080), timeout=10)
-    head = "PUT " + fileUrl(interruptedPath) + " HTTP/1.1\r\nHost: " + address.netloc + "\r\nCookie: " + cookie + "\r\nX-Retro-Token: " + token + "\r\nContent-Length: 1048576\r\n\r\n"
+    connection = socket.create_connection((address.hostname, address.port or 80), timeout=10)
+    head = "PUT " + fileUrl(interruptedPath) + " HTTP/1.1\r\nHost: " + address.netloc + "\r\nContent-Length: 1048576\r\n\r\n"
     connection.sendall(head.encode("ascii") + b"partial")
     connection.close()
     assert request("GET", fileUrl(interruptedPath))[0] == 404
-    print("PASS: authentication, overwrite refusal, traversal, interrupted upload")
+    print("PASS: unauthenticated exchange access, overwrite refusal, traversal, interrupted upload")
   finally:
     for path in createdPaths:
       status, headers, content = request("DELETE", fileUrl(path))

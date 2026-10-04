@@ -2,7 +2,6 @@
 #include "hostCore.h"
 #include "storage.h"
 #include "esp_http_server.h"
-#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdatomic.h>
@@ -21,7 +20,6 @@ extern const unsigned char webEnd[] asm("_binary_web_html_end");
 
 static httpd_handle_t server;
 static atomic_bool stopping;
-static char sessionToken[33];
 static const char *temporaryPath = "/sdcard/retro/exchange/.upload-part";
 
 static esp_err_t respond(httpd_req_t *request, const char *status, const char *message)
@@ -32,60 +30,11 @@ static esp_err_t respond(httpd_req_t *request, const char *status, const char *m
   return httpd_resp_sendstr(request, message);
 }
 
-static bool tokenEquals(const char *candidate)
-{
-  if (strlen(candidate) != 32)
-  {
-    return false;
-  }
-  unsigned difference = 0;
-  for (size_t index = 0; index < 32; ++index)
-  {
-    difference |= (unsigned char)candidate[index] ^ (unsigned char)sessionToken[index];
-  }
-  return difference == 0;
-}
-
-static bool headerAuthorized(httpd_req_t *request)
-{
-  char token[40];
-  return httpd_req_get_hdr_value_str(request, "X-Retro-Token", token, sizeof(token)) == ESP_OK && tokenEquals(token);
-}
-
-static bool cookieAuthorized(httpd_req_t *request)
-{
-  char cookie[256];
-  if (httpd_req_get_hdr_value_str(request, "Cookie", cookie, sizeof(cookie)) != ESP_OK)
-  {
-    return false;
-  }
-  char *context = NULL;
-  char *item = strtok_r(cookie, ";", &context);
-  while (item != NULL)
-  {
-    while (*item == ' ')
-    {
-      ++item;
-    }
-    if (strncmp(item, "retroSession=", 13) == 0 && tokenEquals(item + 13))
-    {
-      return true;
-    }
-    item = strtok_r(NULL, ";", &context);
-  }
-  return false;
-}
-
-static bool authorize(httpd_req_t *request, bool mutation)
+static bool acceptingRequests(httpd_req_t *request)
 {
   if (atomic_load(&stopping))
   {
     respond(request, "503 Service Unavailable", "File Transfer is stopping");
-    return false;
-  }
-  if (!cookieAuthorized(request) || (mutation && !headerAuthorized(request)))
-  {
-    respond(request, "403 Forbidden", "Session expired or access token missing");
     return false;
   }
   return true;
@@ -116,22 +65,10 @@ static esp_err_t pageHandler(httpd_req_t *request)
   return httpd_resp_send(request, (const char *)webStart, webEnd - webStart - 1);
 }
 
-static esp_err_t sessionHandler(httpd_req_t *request)
-{
-  if (atomic_load(&stopping) || !headerAuthorized(request))
-  {
-    return respond(request, "403 Forbidden", "Invalid session token");
-  }
-  char cookie[128];
-  snprintf(cookie, sizeof(cookie), "retroSession=%s; HttpOnly; SameSite=Strict; Path=/", sessionToken);
-  httpd_resp_set_hdr(request, "Set-Cookie", cookie);
-  return respond(request, "200 OK", "Session opened");
-}
-
 static esp_err_t listHandler(httpd_req_t *request)
 {
   char path[absolutePathCapacity];
-  if (!authorize(request, false) || !resolveRequest(request, path, sizeof(path)))
+  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path)))
   {
     return ESP_OK;
   }
@@ -187,7 +124,7 @@ static esp_err_t listHandler(httpd_req_t *request)
 static esp_err_t downloadHandler(httpd_req_t *request)
 {
   char path[absolutePathCapacity];
-  if (!authorize(request, false) || !resolveRequest(request, path, sizeof(path)))
+  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path)))
   {
     return ESP_OK;
   }
@@ -235,7 +172,7 @@ static esp_err_t downloadHandler(httpd_req_t *request)
 static esp_err_t uploadHandler(httpd_req_t *request)
 {
   char path[absolutePathCapacity];
-  if (!authorize(request, true) || !resolveRequest(request, path, sizeof(path)))
+  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path)))
   {
     return ESP_FAIL;
   }
@@ -325,7 +262,7 @@ static esp_err_t uploadHandler(httpd_req_t *request)
 static esp_err_t deleteHandler(httpd_req_t *request)
 {
   char path[absolutePathCapacity];
-  if (!authorize(request, true) || !resolveRequest(request, path, sizeof(path)))
+  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path)))
   {
     return ESP_OK;
   }
@@ -355,16 +292,8 @@ esp_err_t fileTransferStart(void)
   {
     return ESP_FAIL;
   }
-  unsigned char randomBytes[16];
-  esp_fill_random(randomBytes, sizeof(randomBytes));
-  for (size_t index = 0; index < sizeof(randomBytes); ++index)
-  {
-    snprintf(sessionToken + index * 2, 3, "%02x", randomBytes[index]);
-  }
   atomic_store(&stopping, false);
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.server_port = 8080;
-  config.ctrl_port = 32769;
   config.stack_size = 12288;
   config.max_open_sockets = 3;
   config.lru_purge_enable = true;
@@ -377,7 +306,6 @@ esp_err_t fileTransferStart(void)
     return result;
   }
   const httpd_uri_t handlers[] = {{.uri = "/", .method = HTTP_GET, .handler = pageHandler},
-                                  {.uri = "/api/session", .method = HTTP_POST, .handler = sessionHandler},
                                   {.uri = "/api/list", .method = HTTP_GET, .handler = listHandler},
                                   {.uri = "/api/file", .method = HTTP_GET, .handler = downloadHandler},
                                   {.uri = "/api/file", .method = HTTP_PUT, .handler = uploadHandler},
@@ -402,15 +330,9 @@ void fileTransferStop(void)
     httpd_stop(server);
     server = NULL;
   }
-  memset(sessionToken, 0, sizeof(sessionToken));
 }
 
 bool fileTransferActive(void)
 {
   return server != NULL;
-}
-
-const char *fileTransferToken(void)
-{
-  return sessionToken;
 }
