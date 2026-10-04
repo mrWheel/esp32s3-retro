@@ -1,7 +1,11 @@
 #include "machineRegistry.h"
+#include "cpmGuest.h"
+#include "cpmMachine.h"
 #include "storage.h"
 #include <stdio.h>
 #include <sys/stat.h>
+
+static const machineResource cpmResources[] = {{"/littlefs/cpm/system.dsk", cpmSystemImageSize}};
 
 static machineState probeMachine(const retroMachine *machine)
 {
@@ -40,7 +44,8 @@ static void runPlaceholder(void)
 }
 
 static const retroMachine machines[] = {
-    {"CP/M 2.2", "cpm", "designCP_M.md", false, false, NULL, 0, probeMachine, initializePlaceholder, runPlaceholder},
+    {"CP/M 2.2", "cpm", "designCPM.md", true, false, cpmResources, 1, cpmMachineProbe, cpmMachineInitialize,
+     cpmMachineRun},
     {"UCSD Pascal", "ucsd", "designUCSD.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
      runPlaceholder},
     {"Apple II", "apple2", "designAppleII.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
@@ -71,7 +76,7 @@ void machineInspectResources(void)
   {
     char path[64];
     snprintf(path, sizeof(path), "/littlefs/%s", machines[index].id);
-    printf("%s: %s; boot filenames await %s\n", path,
+    printf("%s: %s; design: %s\n", path,
            storageDirectoryExists(path) ? "directory present" : "directory missing", machines[index].design);
   }
 }

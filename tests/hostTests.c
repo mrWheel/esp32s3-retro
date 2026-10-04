@@ -1,6 +1,7 @@
 #include "hostCore.h"
 #include "imageFile.h"
 #include "cpmCpu.h"
+#include "cpmGuest.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -203,6 +204,155 @@ static void testCpmCpu(void)
   assert(!cpu.initialized && cpu.memory == NULL);
 }
 
+typedef struct
+{
+  imageFile *disk;
+  const char *input;
+  size_t inputLength;
+  size_t inputPosition;
+  char output[8192];
+  size_t outputLength;
+  bool outputOverflow;
+} cpmGuestFixture;
+
+static bool cpmTestConsoleAvailable(void *context)
+{
+  cpmGuestFixture *fixture = context;
+  return fixture->inputPosition < fixture->inputLength;
+}
+
+static int cpmTestConsoleRead(void *context)
+{
+  cpmGuestFixture *fixture = context;
+  return fixture->inputPosition < fixture->inputLength ? (unsigned char)fixture->input[fixture->inputPosition++] : -1;
+}
+
+static void cpmTestConsoleWrite(void *context, uint8_t character)
+{
+  cpmGuestFixture *fixture = context;
+  if (fixture->outputLength + 1 >= sizeof(fixture->output))
+  {
+    fixture->outputOverflow = true;
+    return;
+  }
+  fixture->output[fixture->outputLength++] = (char)character;
+  fixture->output[fixture->outputLength] = '\0';
+}
+
+static bool cpmTestDiskRead(void *context, uint8_t drive, uint16_t track, uint16_t sector,
+                            uint8_t record[cpmDiskSectorSize])
+{
+  cpmGuestFixture *fixture = context;
+  if (drive != 0 || track >= cpmDiskTracks || sector >= cpmDiskSectorsPerTrack)
+  {
+    return false;
+  }
+  uint64_t recordIndex = (uint64_t)track * cpmDiskSectorsPerTrack + sector;
+  return imageReadAt(fixture->disk, recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize);
+}
+
+static void cpmTestYield(void *context)
+{
+  (void)context;
+}
+
+static size_t countOccurrences(const char *text, const char *needle)
+{
+  size_t count = 0;
+  size_t needleLength = strlen(needle);
+  while ((text = strstr(text, needle)) != NULL)
+  {
+    ++count;
+    text += needleLength;
+  }
+  return count;
+}
+
+static void testCpmGuestBoot(void)
+{
+  imageFile disk = {0};
+  assert(imageOpen(&disk, CPM_SYSTEM_IMAGE_PATH, true));
+  assert(imageSize(&disk) == cpmSystemImageSize);
+  uint8_t ccpImage[cpmCcpSize];
+  uint8_t bdosImage[cpmBdosSize];
+  assert(imageReadAt(&disk, 0, ccpImage, sizeof(ccpImage)));
+  assert(imageReadAt(&disk, sizeof(ccpImage), bdosImage, sizeof(bdosImage)));
+
+  cpmGuestFixture fixture = {.disk = &disk};
+  const cpmHostOps host = {.consoleAvailable = cpmTestConsoleAvailable,
+                           .consoleRead = cpmTestConsoleRead,
+                           .consoleWrite = cpmTestConsoleWrite,
+                           .diskReadRecord = cpmTestDiskRead,
+                           .yield = cpmTestYield,
+                           .context = &fixture};
+  cpmGuest guest = {0};
+  assert(cpmGuestInitialize(&guest, &host, ccpImage, bdosImage));
+  assert(cpmGuestColdBoot(&guest));
+  assert(guest.cpu.memory[0x0000] == 0xC3 && guest.cpu.memory[0x0001] == 0x03 && guest.cpu.memory[0x0002] == 0xDA);
+  assert(guest.cpu.memory[0x0005] == 0xC3 && guest.cpu.memory[0x0006] == 0x06 && guest.cpu.memory[0x0007] == 0xCC);
+  assert(guest.cpu.memory[0xDA90 + 10] == 0xA0 && guest.cpu.memory[0xDA90 + 11] == 0xDA);
+  assert(guest.cpu.memory[0xDAA0] == 26 && guest.cpu.memory[0xDAA1] == 0);
+  assert(guest.cpu.memory[0xDAA2] == 3 && guest.cpu.memory[0xDAA3] == 7);
+  assert(guest.cpu.memory[0xDAA4] == 0 && guest.cpu.memory[0xDAA5] == 242);
+  assert(guest.cpu.memory[0xDAA6] == 0 && guest.cpu.memory[0xDAA7] == 63);
+  assert(guest.cpu.memory[0xDAA8] == 0 && guest.cpu.memory[0xDAA9] == 192);
+  assert(guest.cpu.memory[0xDAAA] == 0 && guest.cpu.memory[0xDAAB] == 16);
+  assert(guest.cpu.memory[0xDAAC] == 0 && guest.cpu.memory[0xDAAD] == 2);
+
+  size_t instructions = 0;
+  while (countOccurrences(fixture.output, "A>") < 1 && instructions < 500000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(countOccurrences(fixture.output, "A>") == 1);
+
+  fixture.input = "DIR\r";
+  fixture.inputLength = 4;
+  fixture.inputPosition = 0;
+  while (countOccurrences(fixture.output, "A>") < 2 && instructions < 2000000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(countOccurrences(fixture.output, "A>") == 2);
+  assert(strstr(fixture.output, "HELLO    COM") != NULL);
+
+  fixture.input = "HELLO\r";
+  fixture.inputLength = 6;
+  fixture.inputPosition = 0;
+  while ((countOccurrences(fixture.output, "A>") < 3 ||
+          strstr(fixture.output, "HELLO FROM CP/M 2.2") == NULL) &&
+         instructions < 5000000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 5000000);
+  assert(strstr(fixture.output, "HELLO FROM CP/M 2.2") != NULL);
+  assert(countOccurrences(fixture.output, "A>") >= 3);
+  assert(!fixture.outputOverflow);
+
+  const uint8_t invalidDmaProgram[] = {0x0E, 0x01, 0xCD, 0x1B, 0xDA, 0x0E, 0x00, 0xCD, 0x1B, 0xDA,
+                                      0x01, 0xC1, 0xFF, 0xCD, 0x24, 0xDA, 0xCD, 0x27, 0xDA, 0x76};
+  assert(cpmCpuLoad(&guest.cpu, 0x0100, invalidDmaProgram, sizeof(invalidDmaProgram)));
+  guest.cpu.processor.pc = 0x0100;
+  guest.cpu.processor.sp = 0x0200;
+  while (!guest.cpu.processor.halted)
+  {
+    assert(cpmGuestStep(&guest));
+  }
+  assert(guest.selectedDrive == 0);
+  assert(guest.cpu.processor.a == 1);
+  assert(guest.cpu.processor.h == 0xDA && guest.cpu.processor.l == 0x90);
+
+  cpmGuestDestroy(&guest);
+  assert(imageClose(&disk));
+}
+
 int main(void)
 {
   testPaths();
@@ -210,6 +360,7 @@ int main(void)
   testMenu();
   testImages();
   testCpmCpu();
+  testCpmGuestBoot();
   puts("PASS: host utilities and Z80-backed CP/M CPU memory, instruction and port callbacks");
   return 0;
 }

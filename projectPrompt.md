@@ -6,7 +6,7 @@ This is the authoritative project-wide specification for the ESP32-S3 Retro Comp
 
 It does NOT define emulator internals. Read this file plus the complete machine-specific design before implementing a machine:
 
-- CP/M 2.2     -> designCP_M.md
+- CP/M 2.2     -> designCPM.md
 - UCSD Pascal  -> designUCSD.md
 - Apple II     -> designAppleII.md
 - MP/M II      -> designMPM.md
@@ -539,7 +539,7 @@ HOST-M1 is done when:
 7. machine registry/probe framework exists.
 8. menu works and every selection requires ENTER.
 9. unavailable states can be displayed/handled.
-10. all five emulator choices show Not implemented yet and return on ENTER.
+10. at the HOST-M1 baseline, all five emulator choices show Not implemented yet and return on ENTER.
 11. File Transfer checks SD before WiFi.
 12. michmich/esp-idf-wifi-provisioner 0.4.0 is pinned/integrated.
 13. stored credentials reconnect.
@@ -548,6 +548,7 @@ HOST-M1 is done when:
 16. separate Retro File Transfer HTTP server starts.
 17. /retro/exchange/ is browsable.
 18. upload works.
+
 19. download works.
 20. delete works with confirmation.
 21. traversal outside exchange is blocked.
@@ -558,6 +559,8 @@ HOST-M1 is done when:
 26. WiFi may be stopped.
 27. main menu works again without RESET.
 28. no CPU emulator has been imported merely to complete HOST-M1.
+
+HOST-M1 was the pre-emulator baseline. The current CP/M milestone supersedes item 10 for menu choice 1: CP/M is available when its boot image validates; choices 2–5 remain placeholders. This does not imply that ESP32-S3 hardware acceptance has been completed.
 
 ## 26. HOST-M1 tests
 
@@ -677,7 +680,7 @@ esp32s3-retro/
   partitions.csv
   README.md
   projectPrompt.md
-  designCP_M.md
+  designCPM.md
   designUCSD.md
   designAppleII.md
   designMPM.md
@@ -737,4 +740,4 @@ The host is ready for CP/M development only when:
 - emulator placeholders work;
 - no emulator implementation was invented as part of HOST-M1.
 
-Then begin CP/M according to designCP_M.md.
+Then begin CP/M according to designCPM.md.

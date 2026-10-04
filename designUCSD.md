@@ -10,7 +10,7 @@ Deliver the real p-System command environment with editor, Pascal compiler and e
 
 ## Project-wide contract
 
-`projectPrompt.md` is the authority for host architecture and coding rules. Its latest recovered revision was delivered as `projectPrompt_v2.md`; use the canonical name in the project. These documents specialize that contract, not replace it. Companion documents are `designCP_M.md`, `designUCSD.md`, `designAppleII.md`, `designMPM.md` and `designSWTPC.md`. KIM-1 is removed.
+`projectPrompt.md` is the authority for host architecture and coding rules. Its latest recovered revision was delivered as `projectPrompt_v2.md`; use the canonical name in the project. These documents specialize that contract, not replace it. Companion documents are `designCPM.md`, `designUCSD.md`, `designAppleII.md`, `designMPM.md` and `designSWTPC.md`. KIM-1 is removed.
 
 The fixed main menu is:
 

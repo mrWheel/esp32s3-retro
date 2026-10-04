@@ -1,6 +1,6 @@
 # ESP32-S3 Retro Computer — HOST-M1
 
-Native ESP-IDF **6.0.2** host project. All five machines are placeholders. No CPU, ROM, guest OS, disk geometry or guest filesystem has been implemented or bundled.
+Native ESP-IDF **6.0.2** host project. CP/M 2.2 now boots genuine CCP/BDOS to `A>` in the host guest tests and is wired into the ESP32-S3 firmware. Its LittleFS A: image is read-only. UCSD Pascal, Apple II, MP/M II and SWTPC 6800 remain placeholders. Hardware boot and performance have not been verified.
 
 `projectPrompt.md` contains the complete specification supplied in this conversation, with Markdown formatting. It is authoritative. The exact dependency constraint `==0.4.0` deliberately tightens the specification's caret example so the mandatory provisioner cannot upgrade silently.
 
@@ -57,7 +57,9 @@ CR, LF and CRLF line endings are accepted. Missing marker, wrong version, non-FA
 
 ## Menu and File Transfer
 
-RESET always enters the main menu. Type **one digit then ENTER**. CRLF is treated as one ENTER, backspace is supported, overflow and invalid input are rejected. Choices 1–5 report `Not implemented yet.` and wait for ENTER. They never enter emulator code.
+RESET always enters the main menu. Type **one digit then ENTER**. CRLF is treated as one ENTER, backspace is supported, overflow and invalid input are rejected. Choice 1 starts CP/M when its LittleFS system image validates. Choices 2–5 report `Not implemented yet.` and wait for ENTER.
+
+CP/M uses a genuine 64 KiB CCP/BDOS build on the vendored Z80, a virtual BIOS, and a raw 77-track read-only A: image. `DIR` lists the included `HELLO.COM` smoke-test program; running `HELLO` verifies transient loading and warm boot. The image can be regenerated with `python tools/buildCpmDisk.py`. See `designCPM.md` and `components/cpmCore/os/README.md` for memory map, source provenance and current limits.
 
 Choice **6** checks FAT32/layout before starting WiFi. The **only** connection/provisioning implementation is `michmich/esp-idf-wifi-provisioner` **0.4.0**. Configure its defaults under **Component config → WiFi Provisioner**. By default its setup AP is open; on a trusted network join **Retro-Setup** and open `http://192.168.4.1/` if the captive page does not appear. You may configure an AP password in menuconfig; the host does not print it. Credentials belong to the provisioner's NVS storage.
 
@@ -84,22 +86,24 @@ This is unauthenticated plain HTTP for a **trusted local network**, not an inter
 - `main/main.c`: minimum startup, LittleFS inspection, SD validation, menu.
 - `main/hostConsole.*`: common USB Serial/JTAG abstraction. No TinyUSB.
 - `main/systemMenu.*`: line-confirmed state machine and File Transfer lifecycle.
-- `main/machineRegistry.*`: five compiled registry entries, state/probe/init/run hooks, required-resource descriptions. Empty resource lists mean unknown design requirements, not fabricated boot files.
+- `main/machineRegistry.*`: five compiled registry entries, state/probe/init/run hooks and required-resource descriptions.
+- `main/cpmMachine.*` and `components/cpmCore/cpmGuest.c`: CP/M machine lifecycle, guest BIOS, LittleFS A: record reads and cooperative Z80 execution.
 - `main/storage.*`: SDSPI, strict FAT32/layout checks, read-only LittleFS preparation (no auto-format).
 - `main/imageFile.*`: generic trusted-host file open/size/bounded read/write/flush/close, no guest semantics. Zero-initialize `imageFile`, close before reuse, use one owner. Read-only writes fail; ranges outside existing files fail. Paths must come from trusted machine definitions; never pass raw HTTP input to this API.
 - `components/hostCore`: pure C path validation/resolution, marker parser and ENTER parser. `pathResolve` is the common exchange path boundary for future guest adapters as well as HTTP.
 - `main/network.*`: public provisioner API wrapper, event observation only; no duplicated credentials or custom WiFi connection code.
 - `main/fileTransfer.*`, `main/web.html`: unauthenticated exchange-only HTTP and GUI.
-- `littlefs/`: resource directories with plain README files only.
-- `design*.md`: explicitly marked missing-design placeholders. Obtain the complete authoritative design before implementing that machine.
+- `littlefs/cpm/`: generated, read-only CP/M A: image and provenance notes; its SHA-256 is in `SHA256SUMS.txt`.
+- `components/cpmCore/os/`: pinned genuine CP/M 2.2 source, license and assembled CCP/BDOS outputs.
+- `designCPM.md`: CP/M architecture, memory map, disk profile, limitations and verification log. Other `design*.md` documents describe machines not yet implemented.
 
 The only project snake_case entry point is ESP-IDF's required `app_main`; ESP-IDF types, fields, symbols, linker names and configuration keys keep their mandated upstream spelling. All project-owned identifiers use lowerCamelCase. Source formatting is Allman/2 spaces; upstream sources remain untouched. Project code comments, where present, must use standalone `//—` lines; tooling/configuration syntax follows its language requirements.
 
 ## Verification
 
-See `docs/verification.md` for actual results and pending hardware acceptance. A complete build is **not claimed**. Build completion was deferred to VSCode at the user's request.
+See `docs/verification.md` for actual results and pending hardware acceptance. The ESP-IDF 6.0.2 firmware build has completed successfully. No firmware was flashed; hardware verification is still pending.
 
-Portable tests (optional, require a host C compiler and CMake):
+Portable tests (require a host C compiler and CMake) include a genuine guest boot:
 
 ```sh
 cmake -S tests -B build-host

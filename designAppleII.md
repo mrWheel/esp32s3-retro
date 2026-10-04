@@ -4,7 +4,7 @@ Revision: 2026-10-04. Status: new design baseline; source-reviewed architecture,
 
 ## Purpose and provenance
 
-This new document follows the engineering-memory structure of `designCP_M.md` and `designUCSD.md` and the latest recovered projectPrompt decisions. It is not a recovered earlier Apple II attachment. The original projectPrompt attachment was unavailable; this baseline uses its retrieved decision summary and the current explicit requirements. Resolve any additional rules in the actual projectPrompt before coding.
+This new document follows the engineering-memory structure of `designCPM.md` and `designUCSD.md` and the latest recovered projectPrompt decisions. It is not a recovered earlier Apple II attachment. The original projectPrompt attachment was unavailable; this baseline uses its retrieved decision summary and the current explicit requirements. Resolve any additional rules in the actual projectPrompt before coding.
 
 Apple II is menu option **3**, started by `3` + `[Enter]`. KIM-1 is removed. Complete common HOST-M1, CP/M and UCSD acceptance before implementing this machine. The target is an Apple II-family text workstation for BASIC, editors, assemblers and filesystem tools using an 80×24 ANSI/VT100 USB terminal.
 
@@ -12,7 +12,7 @@ The proposed concrete machine is an **unenhanced Apple IIe with NMOS 6502 and ex
 
 ## Project-wide contract
 
-`projectPrompt.md` is the authority for host architecture and coding rules. Its latest recovered revision was delivered as `projectPrompt_v2.md`; use the canonical name in the project. These documents specialize that contract, not replace it. Companion documents are `designCP_M.md`, `designUCSD.md`, `designAppleII.md`, `designMPM.md` and `designSWTPC.md`. KIM-1 is removed.
+`projectPrompt.md` is the authority for host architecture and coding rules. Its latest recovered revision was delivered as `projectPrompt_v2.md`; use the canonical name in the project. These documents specialize that contract, not replace it. Companion documents are `designCPM.md`, `designUCSD.md`, `designAppleII.md`, `designMPM.md` and `designSWTPC.md`. KIM-1 is removed.
 
 The fixed main menu is:
 
