@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Retro: build",
+      "type": "shell",
+      "command": "idf.py build",
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": ["$gcc"],
+      "group": {"kind": "build", "isDefault": true}
+    },
+    {
+      "label": "Retro: menuconfig",
+      "type": "shell",
+      "command": "idf.py menuconfig",
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "Retro: host tests",
+      "type": "shell",
+      "command": "cmake -S tests -B build-host && cmake --build build-host && ctest --test-dir build-host --output-on-failure",
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": ["$gcc"]
+    }
+  ]
+}

@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retro File Transfer</title>
+<style>
+body
+{
+  max-width: 850px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  font: 16px system-ui, sans-serif;
+  color: #edf3f7;
+  background: #15212b;
+}
+button, input
+{
+  padding: .6rem;
+  margin: .25rem;
+  font: inherit;
+}
+a
+{
+  color: #90ddcf;
+}
+table
+{
+  width: 100%;
+  border-collapse: collapse;
+}
+td, th
+{
+  padding: .65rem;
+  border-bottom: 1px solid #53616d;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+#status
+{
+  min-height: 2rem;
+  white-space: pre-wrap;
+}
+</style>
+</head>
+<body>
+<h1>Retro File Transfer</h1>
+<p>Files stay in the exchange folder. Press ENTER in the USB terminal to stop.</p>
+<form id="login">
+<label>Access token <input id="token" type="password" autocomplete="off" required maxlength="32"></label>
+<button>Connect</button>
+</form>
+<section id="browser" hidden>
+<h2 id="location">/exchange/</h2>
+<button id="up">Parent folder</button><button id="refresh">Refresh</button>
+<form id="upload">
+<input id="file" type="file" required><button id="send">Upload</button>
+</form>
+<p>Existing files are never overwritten. Names must begin with a letter or digit; use letters, digits, spaces, dots, underscores or hyphens (64 characters per name). No trailing space or dot.</p>
+<table>
+<thead><tr><th>Name</th><th>Bytes</th><th>Actions</th></tr></thead>
+<tbody id="entries"></tbody>
+</table>
+</section>
+<p id="status" role="status" aria-live="polite"></p>
+<script>
+"use strict";
+let accessToken = location.hash.slice(1);
+let currentPath = "";
+const element = (id) => document.getElementById(id);
+history.replaceState(null, "", "/");
+element("token").value = accessToken;
+
+function showStatus(message)
+{
+  element("status").textContent = message;
+}
+
+function childPath(name)
+{
+  return currentPath ? currentPath + "/" + name : name;
+}
+
+async function api(path, options = {})
+{
+  const response = await fetch(path,
+  {
+    ...options,
+    credentials: "same-origin",
+    headers: {"X-Retro-Token": accessToken, ...(options.headers || {})}
+  });
+  if (!response.ok)
+  {
+    throw new Error(await response.text());
+  }
+  return response;
+}
+
+async function refresh()
+{
+  const response = await api("/api/list?path=" + encodeURIComponent(currentPath));
+  const entries = await response.json();
+  element("location").textContent = "/exchange/" + currentPath;
+  element("entries").replaceChildren();
+  entries.sort((first, second) => Number(second.directory) - Number(first.directory) || first.name.localeCompare(second.name));
+  for (const entry of entries)
+  {
+    const row = document.createElement("tr");
+    const nameCell = document.createElement("td");
+    const sizeCell = document.createElement("td");
+    const actions = document.createElement("td");
+    const path = childPath(entry.name);
+    nameCell.textContent = entry.name;
+    sizeCell.textContent = entry.directory ? "Folder" : String(entry.size);
+    if (entry.directory)
+    {
+      const openButton = document.createElement("button");
+      openButton.textContent = "Open";
+      openButton.onclick = () => run(async () =>
+      {
+        currentPath = path;
+        await refresh();
+      });
+      actions.append(openButton);
+    }
+    else
+    {
+      const download = document.createElement("a");
+      download.textContent = "Download";
+      download.href = "/api/file?path=" + encodeURIComponent(path);
+      download.download = entry.name;
+      const deleteButton = document.createElement("button");
+      deleteButton.textContent = "Delete";
+      deleteButton.onclick = () => run(async () =>
+      {
+        if (!confirm("Delete " + entry.name + "? This cannot be undone."))
+        {
+          return;
+        }
+        await api("/api/file?path=" + encodeURIComponent(path), {method: "DELETE"});
+        await refresh();
+        showStatus("Deleted " + entry.name);
+      });
+      actions.append(download, deleteButton);
+    }
+    row.append(nameCell, sizeCell, actions);
+    element("entries").append(row);
+  }
+  element("up").disabled = !currentPath;
+}
+
+async function run(action)
+{
+  try
+  {
+    await action();
+  }
+  catch (error)
+  {
+    showStatus(error.message || "Connection lost. Check the USB terminal.");
+  }
+}
+
+async function connect()
+{
+  accessToken = element("token").value;
+  await api("/api/session", {method: "POST"});
+  element("login").hidden = true;
+  element("browser").hidden = false;
+  await refresh();
+  showStatus("Connected");
+}
+
+element("login").onsubmit = (event) =>
+{
+  event.preventDefault();
+  run(connect);
+};
+element("refresh").onclick = () => run(refresh);
+element("up").onclick = () => run(async () =>
+{
+  currentPath = currentPath.split("/").slice(0, -1).join("/");
+  await refresh();
+});
+element("upload").onsubmit = (event) =>
+{
+  event.preventDefault();
+  run(async () =>
+  {
+    const file = element("file").files[0];
+    if (!file)
+    {
+      return;
+    }
+    if (file.size > 2147483647)
+    {
+      throw new Error("Maximum file size is 2 GiB minus 1 byte.");
+    }
+    element("send").disabled = true;
+    showStatus("Uploading " + file.name + "...");
+    try
+    {
+      await api("/api/file?path=" + encodeURIComponent(childPath(file.name)),
+      {
+        method: "PUT",
+        headers: {"Content-Type": "application/octet-stream"},
+        body: file
+      });
+      await refresh();
+      showStatus("Upload complete: " + file.name);
+      element("file").value = "";
+    }
+    finally
+    {
+      element("send").disabled = false;
+    }
+  });
+};
+if (accessToken)
+{
+  run(connect);
+}
+</script>
+</body>
+</html>

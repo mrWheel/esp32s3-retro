@@ -1,0 +1,18 @@
+menu "Retro Host hardware"
+  config RETRO_SD_MOSI
+    int "SD SPI MOSI GPIO"
+    range 0 48
+    default 11
+  config RETRO_SD_MISO
+    int "SD SPI MISO GPIO"
+    range 0 48
+    default 13
+  config RETRO_SD_CLK
+    int "SD SPI clock GPIO"
+    range 0 48
+    default 12
+  config RETRO_SD_CS
+    int "SD SPI chip select GPIO"
+    range 0 48
+    default 10
+endmenu
