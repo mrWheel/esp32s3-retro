@@ -206,7 +206,9 @@ static void testCpmCpu(void)
 
 typedef struct
 {
-  imageFile *disk;
+  imageFile *disks[cpmDiskDriveCount];
+  bool availableDrives[cpmDiskDriveCount];
+  bool writableDrives[cpmDiskDriveCount];
   const char *input;
   size_t inputLength;
   size_t inputPosition;
@@ -239,16 +241,37 @@ static void cpmTestConsoleWrite(void *context, uint8_t character)
   fixture->output[fixture->outputLength] = '\0';
 }
 
+static bool cpmTestDiskDriveAvailable(void *context, uint8_t drive)
+{
+  cpmGuestFixture *fixture = context;
+  return drive < cpmDiskDriveCount && fixture->availableDrives[drive];
+}
+
 static bool cpmTestDiskRead(void *context, uint8_t drive, uint16_t track, uint16_t sector,
                             uint8_t record[cpmDiskSectorSize])
 {
   cpmGuestFixture *fixture = context;
-  if (drive != 0 || track >= cpmDiskTracks || sector >= cpmDiskSectorsPerTrack)
+  if (drive >= cpmDiskDriveCount || fixture->disks[drive] == NULL || track >= cpmDiskTracks ||
+      sector >= cpmDiskSectorsPerTrack)
   {
     return false;
   }
   uint64_t recordIndex = (uint64_t)track * cpmDiskSectorsPerTrack + sector;
-  return imageReadAt(fixture->disk, recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize);
+  return imageReadAt(fixture->disks[drive], recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize);
+}
+
+static bool cpmTestDiskWrite(void *context, uint8_t drive, uint16_t track, uint16_t sector,
+                             const uint8_t record[cpmDiskSectorSize])
+{
+  cpmGuestFixture *fixture = context;
+  if (drive >= cpmDiskDriveCount || fixture->disks[drive] == NULL || !fixture->writableDrives[drive] ||
+      track >= cpmDiskTracks || sector >= cpmDiskSectorsPerTrack)
+  {
+    return false;
+  }
+  uint64_t recordIndex = (uint64_t)track * cpmDiskSectorsPerTrack + sector;
+  return imageWriteAt(fixture->disks[drive], recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize) &&
+         imageFlush(fixture->disks[drive]);
 }
 
 static void cpmTestYield(void *context)
@@ -271,6 +294,18 @@ static size_t countOccurrences(const char *text, const char *needle)
 static void testCpmGuestBoot(void)
 {
   imageFile disk = {0};
+  char writableDiskPath[] = "cpm-write-test-XXXXXX";
+  int writableDiskDescriptor = mkstemp(writableDiskPath);
+  assert(writableDiskDescriptor >= 0);
+  assert(ftruncate(writableDiskDescriptor, cpmSystemImageSize) == 0);
+  close(writableDiskDescriptor);
+  imageFile writableDisk = {0};
+  assert(imageOpen(&writableDisk, writableDiskPath, false));
+  uint8_t emptyDirectory[cpmDiskDirectoryEntries * 32];
+  memset(emptyDirectory, 0xE5, sizeof(emptyDirectory));
+  uint64_t directoryOffset = 2U * cpmDiskSectorsPerTrack * cpmDiskSectorSize;
+  assert(imageWriteAt(&writableDisk, directoryOffset, emptyDirectory, sizeof(emptyDirectory)));
+  assert(imageFlush(&writableDisk));
   assert(imageOpen(&disk, CPM_SYSTEM_IMAGE_PATH, true));
   assert(imageSize(&disk) == cpmSystemImageSize);
   uint8_t ccpImage[cpmCcpSize];
@@ -278,11 +313,15 @@ static void testCpmGuestBoot(void)
   assert(imageReadAt(&disk, 0, ccpImage, sizeof(ccpImage)));
   assert(imageReadAt(&disk, sizeof(ccpImage), bdosImage, sizeof(bdosImage)));
 
-  cpmGuestFixture fixture = {.disk = &disk};
+  cpmGuestFixture fixture = {.disks = {[0] = &disk, [1] = &disk, [4] = &writableDisk},
+                             .availableDrives = {[0] = true, [1] = true, [4] = true},
+                             .writableDrives = {[4] = true}};
   const cpmHostOps host = {.consoleAvailable = cpmTestConsoleAvailable,
                            .consoleRead = cpmTestConsoleRead,
                            .consoleWrite = cpmTestConsoleWrite,
+                           .diskDriveAvailable = cpmTestDiskDriveAvailable,
                            .diskReadRecord = cpmTestDiskRead,
+                           .diskWriteRecord = cpmTestDiskWrite,
                            .yield = cpmTestYield,
                            .context = &fixture};
   cpmGuest guest = {0};
@@ -298,6 +337,18 @@ static void testCpmGuestBoot(void)
   assert(guest.cpu.memory[0xDAA8] == 0 && guest.cpu.memory[0xDAA9] == 192);
   assert(guest.cpu.memory[0xDAAA] == 0 && guest.cpu.memory[0xDAAB] == 16);
   assert(guest.cpu.memory[0xDAAC] == 0 && guest.cpu.memory[0xDAAD] == 2);
+  const uint16_t dphAddresses[cpmDiskDriveCount] = {0xDA90, 0xDB60, 0xDC20, 0xDCE0, 0xDDA0};
+  for (uint8_t drive = 1; drive < cpmDiskDriveCount; ++drive)
+  {
+    uint16_t dphAddress = dphAddresses[drive];
+    assert(guest.cpu.memory[dphAddress + 8] == (uint8_t)(dphAddress + 0x10));
+    assert(guest.cpu.memory[dphAddress + 9] == (uint8_t)((dphAddress + 0x10) >> 8));
+    assert(guest.cpu.memory[dphAddress + 10] == 0xA0 && guest.cpu.memory[dphAddress + 11] == 0xDA);
+    assert(guest.cpu.memory[dphAddress + 12] == (uint8_t)(dphAddress + 0x90));
+    assert(guest.cpu.memory[dphAddress + 13] == (uint8_t)((dphAddress + 0x90) >> 8));
+    assert(guest.cpu.memory[dphAddress + 14] == (uint8_t)(dphAddress + 0xA0));
+    assert(guest.cpu.memory[dphAddress + 15] == (uint8_t)((dphAddress + 0xA0) >> 8));
+  }
 
   size_t instructions = 0;
   while (countOccurrences(fixture.output, "A>") < 1 && instructions < 500000)
@@ -319,12 +370,30 @@ static void testCpmGuestBoot(void)
   }
   assert(countOccurrences(fixture.output, "A>") == 2);
   assert(strstr(fixture.output, "HELLO    COM") != NULL);
+  const char *expectedUtilities[] = {
+      "ASM.COM", "DDT.COM", "DUMP.COM", "ED.COM", "HELP.COM", "HELP.HLP", "LIB.COM", "LINK.COM",
+      "LOAD.COM", "MAC.COM", "PIP.COM", "RMAC.COM", "STAT.COM", "SUBMIT.COM", "WELCOME.TXT", "XREF.COM",
+      "XSUB.COM", "ZSID.COM",
+  };
+  for (size_t index = 0; index < sizeof(expectedUtilities) / sizeof(expectedUtilities[0]); ++index)
+  {
+    const char *extension = strchr(expectedUtilities[index], '.');
+    assert(extension != NULL);
+    char name[9] = {0};
+    size_t nameLength = (size_t)(extension - expectedUtilities[index]);
+    assert(nameLength <= 8);
+    memcpy(name, expectedUtilities[index], nameLength);
+    char expectedEntry[13];
+    assert(snprintf(expectedEntry, sizeof(expectedEntry), "%-8s %s", name, extension + 1) <
+           (int)sizeof(expectedEntry));
+    assert(strstr(fixture.output, expectedEntry) != NULL);
+  }
 
-  fixture.input = "HELLO\r";
-  fixture.inputLength = 6;
+  size_t priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  fixture.input = "TYPE WELCOME.TXT\r";
+  fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
-  while ((countOccurrences(fixture.output, "A>") < 3 ||
-          strstr(fixture.output, "HELLO FROM CP/M 2.2") == NULL) &&
+  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
          instructions < 5000000)
   {
     size_t executed = cpmGuestRunFor(&guest, 10000);
@@ -332,15 +401,247 @@ static void testCpmGuestBoot(void)
     instructions += executed;
   }
   assert(instructions < 5000000);
+  assert(strstr(fixture.output, "CP/M utilities are installed.") != NULL);
+
+  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  fixture.input = "USER 1\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 && instructions < 6000000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 6000000);
+
+  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  fixture.input = "DIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  while ((countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 ||
+          strstr(fixture.output, "NO FILE") == NULL) &&
+         instructions < 6500000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 6500000);
+
+  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  fixture.input = "USER 0\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 && instructions < 7000000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 7000000);
+
+  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  size_t userDirectoryEntries = countOccurrences(fixture.output, "HELLO    COM");
+  fixture.input = "DIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  while ((countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 ||
+          countOccurrences(fixture.output, "HELLO    COM") == userDirectoryEntries) &&
+         instructions < 7500000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 7500000);
+
+  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  fixture.input = "HELLO\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  while ((countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 ||
+          strstr(fixture.output, "HELLO FROM CP/M 2.2") == NULL) &&
+         instructions < 7000000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 7000000);
   assert(strstr(fixture.output, "HELLO FROM CP/M 2.2") != NULL);
-  assert(countOccurrences(fixture.output, "A>") >= 3);
   assert(!fixture.outputOverflow);
+
+  size_t priorDirectoryEntries = countOccurrences(fixture.output, "HELLO    COM");
+  size_t priorDrivePrompts = countOccurrences(fixture.output, "B>");
+  fixture.input = "B:\rDIR\r";
+  fixture.inputLength = 7;
+  fixture.inputPosition = 0;
+  while ((countOccurrences(fixture.output, "B>") < priorDrivePrompts + 2 ||
+          countOccurrences(fixture.output, "HELLO    COM") == priorDirectoryEntries) &&
+         instructions < 7000000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 7000000);
+  assert(strstr(fixture.output, "B>") != NULL);
+  assert(countOccurrences(fixture.output, "HELLO    COM") > priorDirectoryEntries);
+
+  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  fixture.input = "PIP E:=A:HELLO.COM\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 && instructions < 12000000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 12000000);
+  priorDirectoryEntries = countOccurrences(fixture.output, "HELLO    COM");
+  fixture.input = "E:\rDIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  size_t priorWorkPrompts = countOccurrences(fixture.output, "E>");
+  while ((countOccurrences(fixture.output, "E>") < priorWorkPrompts + 2 ||
+          countOccurrences(fixture.output, "HELLO    COM") == priorDirectoryEntries) &&
+         instructions < 15000000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 15000000);
+  assert(countOccurrences(fixture.output, "HELLO    COM") > priorDirectoryEntries);
+  assert(!fixture.outputOverflow);
+
+  priorWorkPrompts = countOccurrences(fixture.output, "E>");
+  fixture.input = "REN GREETING.COM=HELLO.COM\rDIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  while ((countOccurrences(fixture.output, "E>") < priorWorkPrompts + 2 ||
+          strstr(fixture.output, "GREETING COM") == NULL) &&
+         instructions < 18000000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 18000000);
+  assert(strstr(fixture.output, "GREETING COM") != NULL);
+
+  size_t priorGreetingEntries = countOccurrences(fixture.output, "GREETING COM");
+  priorWorkPrompts = countOccurrences(fixture.output, "E>");
+  fixture.input = "ERA GREETING.COM\rDIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 2 && instructions < 21000000)
+  {
+    size_t executed = cpmGuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 21000000);
+  assert(countOccurrences(fixture.output, "GREETING COM") == priorGreetingEntries);
+
+  const uint8_t selectDriveProgram[] = {0x0E, 0x01, 0xCD, 0x1B, 0xDA, 0x76};
+  assert(cpmCpuLoad(&guest.cpu, 0x0100, selectDriveProgram, sizeof(selectDriveProgram)));
+  guest.cpu.processor.pc = 0x0100;
+  guest.cpu.processor.sp = 0x0200;
+  while (!guest.cpu.processor.halted)
+  {
+    assert(cpmGuestStep(&guest));
+  }
+  assert(guest.selectedDrive == 1);
+  assert(guest.cpu.processor.h == 0xDB && guest.cpu.processor.l == 0x60);
+
+  const uint8_t rejectUnavailableDriveProgram[] = {0x0E, 0x02, 0xCD, 0x1B, 0xDA, 0x76};
+  assert(cpmCpuLoad(&guest.cpu, 0x0100, rejectUnavailableDriveProgram, sizeof(rejectUnavailableDriveProgram)));
+  guest.cpu.processor.pc = 0x0100;
+  guest.cpu.processor.sp = 0x0200;
+  guest.cpu.processor.halted = false;
+  while (!guest.cpu.processor.halted)
+  {
+    assert(cpmGuestStep(&guest));
+  }
+  assert(guest.selectedDrive == 1);
+  assert(guest.cpu.processor.h == 0 && guest.cpu.processor.l == 0);
+
+  fixture.availableDrives[4] = true;
+  const uint8_t selectLastDriveProgram[] = {0x0E, 0x04, 0xCD, 0x1B, 0xDA, 0x76};
+  assert(cpmCpuLoad(&guest.cpu, 0x0100, selectLastDriveProgram, sizeof(selectLastDriveProgram)));
+  guest.cpu.processor.pc = 0x0100;
+  guest.cpu.processor.sp = 0x0200;
+  guest.cpu.processor.halted = false;
+  while (!guest.cpu.processor.halted)
+  {
+    assert(cpmGuestStep(&guest));
+  }
+  assert(guest.selectedDrive == 4);
+  assert(guest.cpu.processor.h == 0xDD && guest.cpu.processor.l == 0xA0);
+
+  const uint8_t rejectOutOfRangeDriveProgram[] = {0x0E, 0x05, 0xCD, 0x1B, 0xDA, 0x76};
+  assert(cpmCpuLoad(&guest.cpu, 0x0100, rejectOutOfRangeDriveProgram, sizeof(rejectOutOfRangeDriveProgram)));
+  guest.cpu.processor.pc = 0x0100;
+  guest.cpu.processor.sp = 0x0200;
+  guest.cpu.processor.halted = false;
+  while (!guest.cpu.processor.halted)
+  {
+    assert(cpmGuestStep(&guest));
+  }
+  assert(guest.selectedDrive == 4);
+  assert(guest.cpu.processor.h == 0 && guest.cpu.processor.l == 0);
+
+  const uint8_t writeDiskRecordProgram[] = {
+      0x0E, 0x04, 0xCD, 0x1B, 0xDA, 0x01, 0x00, 0x00, 0xCD, 0x1E, 0xDA, 0x01, 0x00,
+      0x00, 0xCD, 0x21, 0xDA, 0x01, 0x00, 0x02, 0xCD, 0x24, 0xDA, 0xCD, 0x2A, 0xDA, 0x76};
+  const uint8_t expectedRecordPrefix[] = {0x5A, 0xA5, 0xC3, 0x3C};
+  memcpy(guest.cpu.memory + 0x0200, expectedRecordPrefix, sizeof(expectedRecordPrefix));
+  assert(cpmCpuLoad(&guest.cpu, 0x0100, writeDiskRecordProgram, sizeof(writeDiskRecordProgram)));
+  guest.cpu.processor.pc = 0x0100;
+  guest.cpu.processor.sp = 0x0300;
+  guest.cpu.processor.halted = false;
+  while (!guest.cpu.processor.halted)
+  {
+    assert(cpmGuestStep(&guest));
+  }
+  assert(guest.selectedDrive == 4 && guest.cpu.processor.a == 0);
+  uint8_t actualRecord[cpmDiskSectorSize];
+  assert(imageReadAt(&writableDisk, 0, actualRecord, sizeof(actualRecord)));
+  assert(memcmp(actualRecord, expectedRecordPrefix, sizeof(expectedRecordPrefix)) == 0);
+
+  const uint8_t rejectReadOnlyWriteProgram[] = {
+      0x0E, 0x00, 0xCD, 0x1B, 0xDA, 0x01, 0x00, 0x00, 0xCD, 0x1E, 0xDA, 0x01, 0x00,
+      0x00, 0xCD, 0x21, 0xDA, 0x01, 0x00, 0x02, 0xCD, 0x24, 0xDA, 0xCD, 0x2A, 0xDA, 0x76};
+  assert(cpmCpuLoad(&guest.cpu, 0x0100, rejectReadOnlyWriteProgram, sizeof(rejectReadOnlyWriteProgram)));
+  guest.cpu.processor.pc = 0x0100;
+  guest.cpu.processor.sp = 0x0300;
+  guest.cpu.processor.halted = false;
+  while (!guest.cpu.processor.halted)
+  {
+    assert(cpmGuestStep(&guest));
+  }
+  assert(guest.selectedDrive == 0 && guest.cpu.processor.a == 1);
+
+  const uint8_t selectSystemDriveProgram[] = {0x0E, 0x00, 0xCD, 0x1B, 0xDA, 0x76};
+  assert(cpmCpuLoad(&guest.cpu, 0x0100, selectSystemDriveProgram, sizeof(selectSystemDriveProgram)));
+  guest.cpu.processor.pc = 0x0100;
+  guest.cpu.processor.sp = 0x0200;
+  guest.cpu.processor.halted = false;
+  while (!guest.cpu.processor.halted)
+  {
+    assert(cpmGuestStep(&guest));
+  }
+  assert(guest.selectedDrive == 0);
 
   const uint8_t invalidDmaProgram[] = {0x0E, 0x01, 0xCD, 0x1B, 0xDA, 0x0E, 0x00, 0xCD, 0x1B, 0xDA,
                                       0x01, 0xC1, 0xFF, 0xCD, 0x24, 0xDA, 0xCD, 0x27, 0xDA, 0x76};
   assert(cpmCpuLoad(&guest.cpu, 0x0100, invalidDmaProgram, sizeof(invalidDmaProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0200;
+  guest.cpu.processor.halted = false;
   while (!guest.cpu.processor.halted)
   {
     assert(cpmGuestStep(&guest));
@@ -351,6 +652,8 @@ static void testCpmGuestBoot(void)
 
   cpmGuestDestroy(&guest);
   assert(imageClose(&disk));
+  assert(imageClose(&writableDisk));
+  unlink(writableDiskPath);
 }
 
 int main(void)

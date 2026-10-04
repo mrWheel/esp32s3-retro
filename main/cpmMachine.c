@@ -11,13 +11,20 @@
 
 static const char *tag = "cpmMachine";
 static const char *systemDiskPath = "/littlefs/cpm/system.dsk";
+static const char *diskPaths[cpmDiskDriveCount] = {
+    "/littlefs/cpm/system.dsk",
+    "/sdcard/retro/images/cpm/languages.dsk",
+    "/sdcard/retro/images/cpm/tools.dsk",
+    "/sdcard/retro/images/cpm/archive.dsk",
+    "/sdcard/retro/images/cpm/work.dsk",
+};
 static const uint8_t systemHeader[cpmSystemHeaderSize] = {'R', 'E', 'T', 'R', 'O', 'C', 'P', 'M', 1, 1, 0x00, 0xC4,
                                                           0x00, 0xCC, 0x00, 0xDA};
-static const uint8_t expectedSystemDiskHash[32] = {0xA6, 0x51, 0x47, 0x0E, 0x4C, 0xF5, 0xB2, 0xC4,
-                                                   0x0B, 0xA1, 0xC7, 0x36, 0xE8, 0xD5, 0x34, 0xEE,
-                                                   0xAA, 0x96, 0x79, 0x63, 0x1D, 0xD2, 0xF3, 0x37,
-                                                   0x65, 0xD1, 0x53, 0xD7, 0xB3, 0xE6, 0xBD, 0x8D};
-static imageFile systemDisk;
+static const uint8_t expectedSystemDiskHash[32] = {0x73, 0xC5, 0x6E, 0x9F, 0x49, 0x29, 0x2F, 0x8C,
+                                                   0x9C, 0x8A, 0xC1, 0x53, 0x0C, 0xBC, 0xF5, 0x79,
+                                                   0x93, 0x00, 0x25, 0x3F, 0x58, 0x03, 0xD5, 0x5B,
+                                                   0x88, 0x37, 0x78, 0x7C, 0xFB, 0x8E, 0x1E, 0x28};
+static imageFile diskImages[cpmDiskDriveCount];
 static cpmGuest guest;
 static bool guestReady;
 
@@ -39,22 +46,75 @@ static void consoleWrite(void *context, uint8_t character)
   hostConsolePutChar((char)character);
 }
 
+static bool diskDriveAvailable(void *context, uint8_t drive)
+{
+  (void)context;
+  return drive < cpmDiskDriveCount && diskImages[drive].file != NULL;
+}
+
 static bool diskReadRecord(void *context, uint8_t drive, uint16_t track, uint16_t sector,
                            uint8_t record[cpmDiskSectorSize])
 {
   (void)context;
-  if (drive != 0 || track >= cpmDiskTracks || sector >= cpmDiskSectorsPerTrack)
+  if (drive >= cpmDiskDriveCount || track >= cpmDiskTracks || sector >= cpmDiskSectorsPerTrack)
   {
     return false;
   }
   uint64_t recordIndex = (uint64_t)track * cpmDiskSectorsPerTrack + sector;
-  return imageReadAt(&systemDisk, recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize);
+  return imageReadAt(&diskImages[drive], recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize);
+}
+
+static bool diskWriteRecord(void *context, uint8_t drive, uint16_t track, uint16_t sector,
+                            const uint8_t record[cpmDiskSectorSize])
+{
+  (void)context;
+  if (drive >= cpmDiskDriveCount || track >= cpmDiskTracks || sector >= cpmDiskSectorsPerTrack)
+  {
+    return false;
+  }
+  uint64_t recordIndex = (uint64_t)track * cpmDiskSectorsPerTrack + sector;
+  return imageWriteAt(&diskImages[drive], recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize) &&
+         imageFlush(&diskImages[drive]);
 }
 
 static void guestYield(void *context)
 {
   (void)context;
   vTaskDelay(1);
+}
+
+static void openOptionalDiskImages(void)
+{
+  for (uint8_t drive = 1; drive < cpmDiskDriveCount; ++drive)
+  {
+    uint64_t size;
+    if (!resourceSize(diskPaths[drive], &size))
+    {
+      continue;
+    }
+    if (size != cpmSystemImageSize)
+    {
+      ESP_LOGE(tag, "Ignoring CP/M %c: image %s: size=%llu, expected=%u", 'A' + drive, diskPaths[drive],
+               (unsigned long long)size, (unsigned)cpmSystemImageSize);
+      continue;
+    }
+    bool readOnly = drive != cpmDiskDriveCount - 1;
+    if (!imageOpen(&diskImages[drive], diskPaths[drive], readOnly))
+    {
+      ESP_LOGE(tag, "Could not open CP/M %c: image: %s", 'A' + drive, diskPaths[drive]);
+    }
+  }
+}
+
+static void closeDiskImages(void)
+{
+  for (uint8_t drive = 0; drive < cpmDiskDriveCount; ++drive)
+  {
+    if (diskImages[drive].file != NULL && !imageClose(&diskImages[drive]))
+    {
+      ESP_LOGE(tag, "Failed to close CP/M %c: image: %s", 'A' + drive, diskPaths[drive]);
+    }
+  }
 }
 
 static bool readSystemImageHeader(imageFile *image)
@@ -180,24 +240,24 @@ esp_err_t cpmMachineInitialize(void)
     ESP_LOGE(tag, "CP/M guest is already initialized");
     return ESP_FAIL;
   }
-  if (!imageOpen(&systemDisk, systemDiskPath, true))
+  if (!imageOpen(&diskImages[0], systemDiskPath, true))
   {
     ESP_LOGE(tag, "Could not open CP/M system image: %s", systemDiskPath);
     return ESP_FAIL;
   }
 
-  if (!readSystemImageHeader(&systemDisk))
+  if (!readSystemImageHeader(&diskImages[0]))
   {
-    if (imageSize(&systemDisk) != cpmSystemImageSize)
+    if (imageSize(&diskImages[0]) != cpmSystemImageSize)
     {
       ESP_LOGE(tag, "Invalid CP/M system image %s: size=%llu, expected=%u", systemDiskPath,
-               (unsigned long long)imageSize(&systemDisk), (unsigned)cpmSystemImageSize);
+               (unsigned long long)imageSize(&diskImages[0]), (unsigned)cpmSystemImageSize);
     }
     else
     {
       ESP_LOGE(tag, "Invalid CP/M system image header signature: %s", systemDiskPath);
     }
-    if (!imageClose(&systemDisk))
+    if (!imageClose(&diskImages[0]))
     {
       ESP_LOGE(tag, "Failed to close invalid CP/M system image");
     }
@@ -209,28 +269,32 @@ esp_err_t cpmMachineInitialize(void)
   if (systemBinaries == NULL)
   {
     ESP_LOGE(tag, "Could not allocate %u bytes for CP/M system binaries", (unsigned)systemBinarySize);
-    if (!imageClose(&systemDisk))
+    if (!imageClose(&diskImages[0]))
     {
       ESP_LOGE(tag, "Failed to close CP/M system image after allocation failure");
     }
     return ESP_ERR_NO_MEM;
   }
-  if (!imageReadAt(&systemDisk, 0, systemBinaries, cpmCcpSize) ||
-      !imageReadAt(&systemDisk, cpmCcpSize, systemBinaries + cpmCcpSize, cpmBdosSize))
+  if (!imageReadAt(&diskImages[0], 0, systemBinaries, cpmCcpSize) ||
+      !imageReadAt(&diskImages[0], cpmCcpSize, systemBinaries + cpmCcpSize, cpmBdosSize))
   {
     ESP_LOGE(tag, "Failed reading CP/M system binaries from %s", systemDiskPath);
     free(systemBinaries);
-    if (!imageClose(&systemDisk))
+    if (!imageClose(&diskImages[0]))
     {
       ESP_LOGE(tag, "Failed to close CP/M system image after a read error");
     }
     return ESP_FAIL;
   }
 
+  openOptionalDiskImages();
+
   const cpmHostOps host = {.consoleAvailable = consoleAvailable,
                            .consoleRead = consoleRead,
                            .consoleWrite = consoleWrite,
+                           .diskDriveAvailable = diskDriveAvailable,
                            .diskReadRecord = diskReadRecord,
+                           .diskWriteRecord = diskWriteRecord,
                            .yield = guestYield,
                            .context = NULL};
   bool guestInitialized =
@@ -239,10 +303,7 @@ esp_err_t cpmMachineInitialize(void)
   if (!guestInitialized)
   {
     ESP_LOGE(tag, "Could not allocate or initialize CP/M guest memory");
-    if (!imageClose(&systemDisk))
-    {
-      ESP_LOGE(tag, "Failed to close CP/M system image after initialization failure");
-    }
+    closeDiskImages();
     return ESP_ERR_NO_MEM;
   }
   guestReady = true;
@@ -270,8 +331,5 @@ void cpmMachineRun(void)
   puts("\nCP/M stopped.");
   cpmGuestDestroy(&guest);
   guestReady = false;
-  if (!imageClose(&systemDisk))
-  {
-    puts("Failed to close the CP/M disk image cleanly.");
-  }
+  closeDiskImages();
 }

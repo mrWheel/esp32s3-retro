@@ -20,6 +20,7 @@ enum
   cpmDiskSectorSize = 128,
   cpmDiskBlockSize = 1024,
   cpmDiskDirectoryEntries = 64,
+  cpmDiskDriveCount = 5,
   cpmDmaAddress = 0x0080
 };
 
@@ -28,8 +29,11 @@ typedef struct
   bool (*consoleAvailable)(void *context);
   int (*consoleRead)(void *context);
   void (*consoleWrite)(void *context, uint8_t character);
+  bool (*diskDriveAvailable)(void *context, uint8_t drive);
   bool (*diskReadRecord)(void *context, uint8_t drive, uint16_t track, uint16_t sector,
                          uint8_t record[cpmDiskSectorSize]);
+  bool (*diskWriteRecord)(void *context, uint8_t drive, uint16_t track, uint16_t sector,
+                          const uint8_t record[cpmDiskSectorSize]);
   void (*yield)(void *context);
   void *context;
 } cpmHostOps;

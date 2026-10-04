@@ -1,6 +1,6 @@
 # designCPM.md — CP/M 2.2 engineering memory
 
-Revision: 2026-10-04. Status: the user reports that CP/M boots on the ESP32-S3, `DIR` works, and `HELLO` runs. Host guest tests and the ESP-IDF firmware build also pass. SD-backed guest drives, editor/compiler workflow, and remaining milestones are not implemented or verified.
+Revision: 2026-10-04. Status: the user reports that CP/M boots on the ESP32-S3, `DIR` works, and `HELLO` runs. Host tests cover the utility-filled A: image, resident CCP commands, PIP/ERA/REN on writable E:, and BIOS selection/write protection. Mac-side Python tools now create a DPB-matched empty E: image and add local or selected archive files to it. Actual SD-card mounting and hardware drive tests remain outstanding; editor/compiler workflows and compatibility of every bundled utility are not yet verified.
 
 ## Provenance and purpose
 
@@ -82,13 +82,11 @@ Implemented and verified:
 - The upstream core's `prelim.com`, `zexdoc.cim`, and `zexall.cim` instruction exercisers pass.
 - The complete ESP-IDF 6.0.2 project builds for ESP32-S3 with the CP/M core component included.
 - `components/cpmCore/cpmGuest.c` installs and runs the genuine CCP and BDOS, CP/M page zero, the 17-entry BIOS jump table and the 8-inch single-sided single-density DPB.
-- `main/cpmMachine.c` probes and opens the immutable LittleFS A: image, connects USB console and disk-record callbacks, and schedules guest execution cooperatively.
-- Host tests run the guest CCP/BDOS on the Z80 core through cold boot, `DIR`, `HELLO.COM`, and WBOOT back to the CCP prompt. Tests also verify page-zero vectors, DPB bytes, invalid-drive selection and a rejected out-of-range DMA.
+- `main/cpmMachine.c` probes and opens the immutable LittleFS A: image, mounts optional SD images on B:–E:, connects USB console and disk-record callbacks, and schedules guest execution cooperatively.
+- Host tests run the guest CCP/BDOS on the Z80 core through cold boot, `DIR`, `TYPE`, `USER`, `PIP`, `REN`, `ERA`, `HELLO.COM`, and WBOOT. They verify utility directory entries, copying a file to E:, separate drive DPHs, read-only A: writes, invalid-drive selection and a rejected out-of-range DMA.
 - The ESP-IDF 6.0.2 ESP32-S3 firmware build completes with the LittleFS image; the image is 0xDD9E0 bytes, below the 3 MiB app partition.
 
-The user has now reported successful CP/M boot and command execution on their ESP32-S3: `A>` appears, `DIR` works, and `HELLO` runs. The CP/M menu entry is available when the LittleFS resource validates. This confirms the user's observed A: smoke test, but does not establish SD-drive support, writable media, editor/compiler operation, or the remaining CP/M acceptance gates.
-
-**Next step: implement CP/M B: as a read-only SD-backed drive.** Only A: is currently present in the BIOS. Before preparing a software disk, first add and test the B: drive mapping, safe image opening, and a disk definition whose geometry matches the BIOS. Then test the image on hardware before adding writable media.
+The user has reported successful CP/M boot and command execution on their ESP32-S3: `A>` appears, `DIR` works, and `HELLO` runs. The expanded B:–E: mapping and E: write path are host-tested, but SD-drive support, writable media and application compatibility have not been tested on hardware.
 
 Guest addresses span `$0000–$FFFF`. The assembled binary lengths and observed load addresses establish this 64 KiB layout:
 
@@ -114,12 +112,12 @@ Guest addresses span `$0000–$FFFF`. The assembled binary lengths and observed 
 
 The DPH has no translation table. Its directory buffer, DPB, CSV and ALV pointers match the locations above. The 128-byte default DMA and transient program entry at `$0100` are retained. The BIOS service port is project-defined and is not a physical hardware port.
 
-The A: image is 77 tracks × 26 logical 128-byte records, two reserved tracks, 1 KiB allocation blocks, 64 directory entries, and read-only. Its DPB is SPT=26, BSH=3, BLM=7, EXM=0, DSM=242, DRM=63, AL0=`$C0`, AL1=0, CKS=16, OFF=2. The disk builder places the directory at absolute track 2 and `HELLO.COM` in allocation block 2. All disk offsets are bounded to the image. This profile passes host tests, and the user reports that it boots and runs the smoke-test commands on the ESP32-S3. Its release-specific manual audit and full hardware acceptance remain open.
+The A: image is 77 tracks × 26 logical 128-byte records, two reserved tracks, 1 KiB allocation blocks, 64 directory entries, and read-only. Its DPB is SPT=26, BSH=3, BLM=7, EXM=0, DSM=242, DRM=63, AL0=`$C0`, AL1=0, CKS=16, OFF=2. The disk builder places the directory at absolute track 2, `HELLO.COM` in allocation block 2, and the included utilities in validated CP/M extents/blocks. All disk offsets are bounded to the image; the builder enforces the 243-block DPB capacity. The profile passes host tests, and the user reports that it boots and runs the smoke-test commands on the ESP32-S3. Its release-specific manual audit and full hardware acceptance remain open.
 
 ### Startup and restart
 
 1. The registry probes `littlefs/cpm/system.dsk` for its exact size and image signature.
-2. Initialization reads CCP/BDOS from the reserved image tracks, initializes the CPU and opens A: read-only.
+2. Initialization reads CCP/BDOS from the reserved image tracks, initializes the CPU, opens A: read-only and mounts any valid optional SD images on B:–E:.
 3. Cold BOOT initializes page zero and transfers control to the genuine CCP.
 4. WBOOT reinstalls CCP, BDOS and BIOS state and returns to CCP, not the host menu.
 5. Physical ESP32 reset re-enters the main menu.
@@ -130,19 +128,50 @@ Do not accept printing `A>` from host code as a successful boot. The probe valid
 
 Implement the CP/M 2.2 jump-table order and calling conventions for BOOT, WBOOT, CONST, CONIN, CONOUT, LIST, PUNCH, READER, HOME, SELDSK, SETTRK, SETSEC, SETDMA, READ, WRITE, LISTST and SECTRAN. Keep unsupported peripheral behavior explicit and deterministic. CONST is nonblocking; CONIN waits cooperatively. Disk errors must return the documented failure status. An invalid drive must not alias A:.
 
-The BIOS owns guest DPH/DPB structures; the host owns image byte I/O. BIOS functions use the CP/M 2.2 order and a guest `OUT ($FE),A` service stub, where A is the function index. READ uses bounded CP/M logical 128-byte records with zero-based track/sector offsets into this declared raw image. SECTRAN is identity because the DPH translation pointer is zero. WRITE returns CP/M failure because LittleFS A: is read-only; LIST/PUNCH are deterministic no-ops and READER returns EOF (`$1A`). CONST is nonblocking, while CONIN waits cooperatively. Host tests cover basic directory/file reads, warm boot and DMA bounds. The current BIOS accepts only drive A:; SELDSK returns no DPH for every other drive, and disk reads reject nonzero drive numbers. B:–E: are not yet connected to SD. Track/sector conventions, all status paths and the read-only error need the release-specific Digital Research BIOS manual audit; the [BIOS index](https://www.seasip.info/Cpm/bios.html) is a navigation aid, not a substitute.
+The BIOS owns guest DPH/DPB structures; the host owns image byte I/O. BIOS functions use the CP/M 2.2 order and a guest `OUT ($FE),A` service stub, where A is the function index. READ uses bounded CP/M logical 128-byte records with zero-based track/sector offsets into the declared raw image. SECTRAN is identity because the DPH translation pointer is zero. WRITE returns CP/M failure on read-only A:–D: and writes/flushed records on E:. LIST/PUNCH are deterministic no-ops and READER returns EOF (`$1A`). CONST is nonblocking, while CONIN waits cooperatively. Each drive has a separate DPH, directory buffer, CSV and ALV; all use the validated 8-inch SSSD DPB. SELDSK returns no DPH for unavailable or out-of-range drives, and a rejected selection does not change the currently selected drive. The host mounts matching SD images on B:–E: when available. Host tests cover BIOS drive selection, CCP commands and a PIP copy to E:. Track/sector conventions, all status paths and write behavior need the release-specific Digital Research BIOS manual audit; the [BIOS index](https://www.seasip.info/Cpm/bios.html) is a navigation aid, not a substitute.
 
 ### Drives and capacity
 
 | Drive | Storage | Role | Initial access |
 |---|---|---|---|
 | A: | LittleFS minimal `cpm/system.dsk` | Boot, CCP/BDOS/BIOS and essential commands | RO |
-| B: | Planned `/retro/images/cpm/languages.dsk` | Language tools | Not implemented |
-| C: | Planned `/retro/images/cpm/tools.dsk` | Assemblers/editors/utilities | Not implemented |
-| D: | Planned `/retro/images/cpm/archive.dsk` | Larger software volume | Not implemented |
-| E: | Planned `/retro/images/cpm/work.dsk` | Source, builds, results | Not implemented |
+| B: | `/retro/images/cpm/languages.dsk` | Language tools | RO, optional |
+| C: | `/retro/images/cpm/tools.dsk` | Assemblers/editors/utilities | RO, optional |
+| D: | `/retro/images/cpm/archive.dsk` | Larger software volume | RO, optional |
+| E: | `/retro/images/cpm/work.dsk` | Source, builds, results | RW, optional |
 
-These role-based filenames are proposed canonical defaults, not recovered existing assets. Putting an image file at one of these SD paths does not make it a CP/M drive yet. The host currently has no mapping from SD image files to BIOS drives. Do not expect B: to work until the B: BIOS, SD image backend, drive probing and matching geometry are implemented and tested. A: remains read-only.
+These role-based filenames are proposed canonical defaults, not recovered existing assets. For B:–E: the firmware accepts a raw image exactly 256,256 bytes long, with the same 77-track × 26-sector × 128-byte geometry and DPB as A:. B:–D: are opened read-only; E: is opened read/write. Missing, inaccessible or wrong-sized files are unavailable and SELDSK will reject them. E: must be initialized as a CP/M filesystem before use; firmware does not create SD images. A: remains read-only. The system disk's `SUBMIT.COM` build expects `$$$.SUB` on A:, so batch submission cannot write its required scratch file with the current access policy.
+
+#### Preparing E: on macOS
+
+`tools/cpmDiskImage.py` creates a blank, preformatted CP/M filesystem image; it does not partition or format the physical SD card. On a Mac, first use `tools/prepareSd.py` on an already FAT32-formatted card to create the expected `/retro/images/cpm/` directory tree. Replace `/Volumes/SDCARD` in the examples with the card's actual mounted volume name:
+
+```sh
+python3 tools/prepareSd.py /Volumes/SDCARD
+python3 tools/cpmDiskImage.py create ~/Desktop/work.dsk
+python3 tools/cpmDiskImage.py add ~/Desktop/work.dsk /path/to/MBASIC.COM
+python3 tools/cpmDiskImage.py list ~/Desktop/work.dsk
+cp ~/Desktop/work.dsk /Volumes/SDCARD/retro/images/cpm/work.dsk
+```
+
+The resulting image is exactly 256,256 bytes and uses this BIOS profile: 77 tracks, 26 128-byte records per track, two reserved tracks, 1 KiB allocation blocks, a 64-entry directory and CP/M allocation block numbers 0–242. `create` refuses to replace an existing file unless `--force` is supplied. `add` accepts local files whose host basenames meet the CP/M 8.3 filename restrictions; `--name MBASIC.COM` can assign a CP/M name when the host filename differs. Additions are validated and written atomically: invalid names, duplicate names, full directories and disk-full requests leave the original image unchanged. Use `list` to check contents before copying the image.
+
+Copy the completed `work.dsk` to `retro/images/cpm/work.dsk` on the SD card, eject it safely in macOS, and then install the card in the ESP32-S3. At the CP/M prompt, enter `E:` and run `DIR`; then run `PIP E:TEST.TXT=A:WELCOME.TXT` to check that E: accepts writes. Firmware only mounts E: if the image is exactly the supported size and the host file opens read/write. Do not use `PIP A:...=...` for a write test: A: is intentionally read-only. `STAT` may display R/W based on CP/M's in-memory protection vector and does not prove that a host file is writable; the BIOS and host file mode enforce actual A: protection.
+
+#### Importing software or disk images
+
+`tools/fetchCpmSoftware.py list INDEX_URL` displays links and adjacent descriptions on an HTML archive index. Its `add` command downloads one explicitly selected file or explicitly selected ZIP members, adds those files to an existing matching image, preserves the original download unchanged, and records the source/index URLs, fetch timestamp, sizes, selected member names, SHA-256 and supplied rights reference in `cpm-resource-manifest.json`. ZIP member paths are read as archive data and are never extracted to the host filesystem. For example:
+
+```sh
+python3 tools/fetchCpmSoftware.py list http://cpmarchives.classiccmp.org/cpm/mirrors/www.retroarchive.org/cpm/lang/lang.htm
+python3 tools/fetchCpmSoftware.py add INDEX_URL --link SLR180.ZIP --member SLR180.COM \
+  --image ~/Desktop/work.dsk --archive-dir ~/Desktop/cpm-archives \
+  --rights-evidence "URL or citation for the terms applicable to this specific package"
+```
+
+The archive's presence is not evidence of a license. The importing commands require a user-supplied rights reference, but do not evaluate it. They block the known Microsoft listings, including `Mbasic.com`; MBASIC 5.21 must be supplied as a local file for which the user has valid rights and added with `cpmDiskImage.py add`. Do not download or redistribute proprietary software based only on an archive listing.
+
+The `disk` subcommand can copy a selected complete raw CP/M image to a new destination only when its size equals the target image size and its directory/allocation structure passes validation; `--force` is required to replace an existing destination. This structural check does not prove a raw image's sector ordering or disk-profile agreement, so check its accompanying documentation before use. The utilities do not convert ImageDisk `.IMD`, TeleDisk `.TD0`, or other archival floppy formats. Do not rename those files to `.DSK` or mount them as raw images. All archive and image operations are workstation-side; no network download or SD-card operation occurs on the ESP32.
 
 Each disk profile must define image byte length, sector ordering, logical SPT, BSH, BLM, EXM, DSM, DRM, AL0/AL1, CKS and OFF; corresponding DPH pointers and buffer lengths must agree. Derive capacity from the actual DPB and reserved tracks. Validate directory allocation, extent encoding and allocation-vector storage together. Document a matching host image-creation recipe and disk definition. Do not recycle a DPB from another image just because its size matches.
 
@@ -154,9 +183,11 @@ The host provides an 80×24 ANSI/VT100-compatible USB terminal path. CP/M consol
 
 A representative software set includes ASM/DDT, PIP/STAT and at least one editor and language toolchain selected from available licensed resources (for example BDS C or Microsoft BASIC-80/MBASIC). Candidate places to research include the [Unofficial CP/M Web Site binary archive](https://www.cpm.z80.de/binary.html) and [RetroArchive's CP/M collection](https://www.retroarchive.org/cpm/). These are discovery sources, not blanket permissions: check the license or redistribution terms for each individual compiler, BASIC implementation, utility and disk image before downloading, modifying, or sharing it. The CP/M redistribution clarification does not automatically license unrelated applications.
 
-Keep each download unchanged as an archival original and record its source URL, package/version, date, license evidence and SHA-256. Identify the container and disk geometry before conversion. A `.IMD` or `.TD0` archival floppy image is not a raw image and must not be renamed to `.dsk`; inspect/convert it with a tool that supports its format, preserving an original copy. For loose `.COM`, `.BAS` or compiler files, build a CP/M filesystem image with a matching disk definition, rather than copying files directly into a disk-image file. The [cpmtools project](https://github.com/lipro-cpm4l/cpmtools) is a candidate for creating/listing/inserting files in disk images, but its disk definition must match the target BIOS profile exactly. No cpmtools disk definition or imported software image has yet been validated for this machine.
+The current A: image includes the DRI CP/M 2.2 command set from the pinned [RomWBW](https://github.com/wwarthen/RomWBW) utility collection: ASM, DDT, DUMP, ED, HELP, LIB, LINK, LOAD, MAC, PIP, RMAC, STAT, SUBMIT, XREF, XSUB and ZSID, plus HELP.HLP. CCP-resident `ERA`, `REN`, `TYPE`, `USER` and `DIR` are not separate COM files; `WELCOME.TXT` demonstrates `TYPE`. There is no separate `SDIR.COM` or `SHOW.COM` in this CP/M 2.2 set: use resident `DIR` for directory listing and `STAT` for disk status. See `components/cpmCore/os/utilities/README.md` for source pin, binary hashes, compatibility notes and the scope of the DRI non-commercial utility use. The patched `SUBMIT.COM` targets A: for `$$$.SUB`; it remains present but cannot perform submission on read-only A: until replaced with a compatible variant.
 
-Once SD-backed B: exists, stage the prepared image file under `/retro/images/cpm/` on the FAT32 card (for example `languages.dsk`) and have the firmware mount it as B:. Until then, software can only be researched and prepared on a computer; it cannot be selected from CP/M. Preserve exact versions, licensing, source, hashes, geometry and terminal patches in the eventual resource documentation. Availability in an archive is not proof that a program runs on this machine.
+Keep each download unchanged as an archival original and record its source URL, package/version, date, license evidence and SHA-256. `fetchCpmSoftware.py` records this provenance for resources imported through it; manually obtained files added with `cpmDiskImage.py` must be documented separately. Identify the container and disk geometry before conversion. A `.IMD` or `.TD0` archival floppy image is not a raw image and must not be renamed to `.dsk`; inspect/convert it with a tool that supports its format, preserving an original copy. For loose `.COM`, `.BAS` or compiler files, use `cpmDiskImage.py add` to place the file in an image matching this BIOS profile, rather than copying files directly into a disk-image file. The [cpmtools project](https://github.com/lipro-cpm4l/cpmtools) remains an alternative candidate, but its disk definition must match the target BIOS profile exactly.
+
+The firmware has host-tested mappings for optional SD-backed B:–E: images. To use prepared software, copy the matching image to its documented `/retro/images/cpm/` path and select the corresponding drive in CP/M. This path is implemented but still requires verification with a real SD card and ESP32-S3; successful host tests and image parsing are not hardware acceptance. Preserve exact versions, licensing, source, hashes, geometry and terminal patches in the resource documentation. Availability in an archive or a structurally valid image is not proof that a program runs on this machine.
 
 ## Guest exchange utility
 
@@ -182,7 +213,7 @@ The genuine CP/M guest boot, A: disk profile and BIOS pass the host guest tests;
 | CP-M2 | External Z80 integrated; CPU tests, 64 KiB memory/port and genuine guest boot tests recorded |
 | CP-M3 | BIOS ABI, memory map, DPH/DPB and loader host-validated; release-manual and hardware audit open |
 | CP-M4 | Host-tested LittleFS A: reaches genuine A>; DIR, transient command and warm boot work; ESP32 test open |
-| CP-M5 | Implement/test SD-backed B: read-only image first, then qualify additional drives, RW behavior, missing media, RO errors and persistence |
+| CP-M5 | Host-tested B:–E: mapping is implemented, with E: writes; test real SD images on ESP32-S3, then qualify missing media, read-only errors, persistence and hardware write recovery |
 | CP-M6 | 80×24 editor plus assemble/compile/run workflow works on ESP32 |
 | CP-M7 | Large-disk profile justified; first/last records, extents, directory-full and disk-full tested |
 | CP-M8 | HOST.COM import/export and browser staging; length metadata and binary hashes verified |
@@ -202,7 +233,7 @@ Definition of Done: every gate has evidence, no unresolved data-corruption issue
 | CP-DEC-006 | Selected | Pin `superzazu/z80` at `d64fe10a2274e5e40019b1086bf7d8990cbc5f23` under MIT; retain the unmodified shared core and keep the CP/M adapter separate |
 | CP-DEC-007 | Candidate | Evaluate the licensed CP/M 2.2 OEM redistribution disk (`cpm22red.zip`, SHA-256 recorded above); do not treat the 8-inch ImageDisk archive as a target-ready system disk |
 | CP-DEC-008 | Confirmed by user report | CP/M reaches `A>` on the user's ESP32-S3; `DIR` and `HELLO` work. Record as user-observed hardware smoke test, not as independently reproduced full acceptance |
-| CP-DEC-009 | Required next | Do not promise SD software disks are usable until a BIOS drive maps to an SD image and a matching CP/M disk definition has passed read tests |
+| CP-DEC-009 | Host implementation complete; hardware validation pending | BIOS maps optional B:–E: images, and workstation tools create images matching the CP/M DPB. Do not claim SD software disks are hardware-usable until a real card/image passes ESP32 drive-selection, directory, read and write-protection tests |
 
 ## Issue log
 
@@ -212,7 +243,7 @@ Definition of Done: every gate has evidence, no unresolved data-corruption issue
 | CP-ISSUE-002 | OPEN | Derive and test large-disk geometry; do not infer capacity from host FAT32 |
 | CP-ISSUE-003 | OPEN | Freeze exchange ports and exact-length metadata; never strip trailing binary bytes heuristically |
 | CP-ISSUE-004 | OPEN | Verify editor terminal personality and physical USB behavior; no unmeasured speed promises |
-| CP-ISSUE-005 | OPEN | Implement CP/M B: over SD, initially read-only; validate path, image size, profile/DPB agreement, directory listing, transient loading and first/last record reads. Do not stage software expecting `B:` to work before this is closed |
+| CP-ISSUE-005 | OPEN; BIOS MAPPING HOST-TESTED | Optional B:–E: slots are mapped to the documented SD paths and reject images with a nonmatching size. Still validate actual disk images, image-profile agreement, directory listing, transient loading, first/last record reads and read-only failures on ESP32-S3. Do not stage software expecting a drive to work until its image is installed and tested |
 | CP-ISSUE-006 | OPEN | Select individually licensed compiler/BASIC packages and record source, version, terms and hashes; do not assume CP/M OS rights cover application software |
 
 For CP-ISSUE-001 the observed sequence was: reference behaviour—genuine CCP/BDOS should present `A>` and execute internal `DIR` and a transient command; hypothesis—the pinned assembled CCP/BDOS and 8-inch SSSD profile can run with the new BIOS; experiment—run the real guest under the vendored Z80, with disk and console callbacks; result—`A>`, `DIR`, `HELLO.COM`, and WBOOT passed in the host suite; conclusion—the host BIOS/image contract is sufficient for this test; root cause of the earlier missing boot was the absent guest/BIOS/resource integration; fix—add the guest BIOS, fixed read-only system image, and registry integration; regression verification—CP-VERIFY-007; do not repeat—do not treat the archived ImageDisk file as the target raw image or claim hardware acceptance from a host run.
@@ -231,5 +262,8 @@ For every other issue append the full engineering-memory chain, evidence and reg
 | CP-VERIFY-006 | NOT RUN | Persistence, storage fault recovery, repeated launch/exit and resource budget |
 | CP-VERIFY-007 | HOST PASS; FIRMWARE BUILD PASS; HARDWARE NOT RUN | 2026-10-04, macOS host, project Z80 commit `d64fe10a2274e5e40019b1086bf7d8990cbc5f23`, CP/M source commit `01018abbccce0bdf4874b0b2ed1a048c5fcc2987`, ESP-IDF 6.0.2, board/terminal not used: `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure` passed under ASan/UBSan. It executed genuine CCP/BDOS cold boot, `DIR`, `HELLO.COM` output and WBOOT, plus page-zero/DPB and invalid-drive/DMA checks. A subsequent ESP-IDF `build` succeeded; `retroHost.bin` was 0xDD9E0 bytes. The deterministic A: image SHA-256 is `a651470e4cf5b2c40ba1c736e8d534eeaa9679631dd2f33765d153d7b3e6bd8d` in `SHA256SUMS.txt`. No flash, physical terminal, throughput, or hardware boot test was performed |
 | CP-VERIFY-008 | USER-REPORTED HARDWARE SMOKE TEST PASS; DETAILS INCOMPLETE | On 2026-10-04 the user reported: boot reaches CP/M, `DIR` works and `HELLO` runs on the ESP32-S3. Expected result was `A>` followed by the requested commands completing; actual result was reported as successful. Board model/revision, firmware commit, ESP-IDF version, terminal, exact input transcript and evidence path were not supplied. Do not infer B:–E: support, writable media or full application compatibility from this smoke test |
+| CP-VERIFY-009 | HOST PASS; FIRMWARE BUILD PASS; HARDWARE NOT RUN | 2026-10-04, macOS host and ESP-IDF 6.0.2 build: the host test selects B: through the BIOS, runs the genuine CCP's `B:` and `DIR` commands using the A: image as a fixture, verifies separate DPH buffer pointers for B:–E:, selects E:, and confirms unavailable C: and out-of-range F: are rejected without changing the selected drive. No actual SD image, SD card, board or terminal was used; B:–E: hardware operation remains open |
+| CP-VERIFY-010 | HOST PASS; FIRMWARE BUILD PASS; HARDWARE NOT RUN | 2026-10-04, macOS host: regenerated `system.dsk` with 19 named files across 20 extents and 147 allocated blocks; image size/header/hash and source-file reconstruction were checked. ASan/UBSan host suite passed genuine CCP `DIR`, `TYPE`, `USER`, PIP copy to E:, and `REN`/`ERA` on E:, along with A: write protection and drive selection. The ESP-IDF 6.0.2 ESP32-S3 build passed (`retroHost.bin` 0xDDE90 bytes). See `docs/verification.md`. No SD card, board, or terminal was used; `HELP.COM` compatibility and SUBMIT's read-only-A scratch-file constraint remain open |
+| CP-VERIFY-011 | HOST PASS; SD/HARDWARE NOT RUN | 2026-10-04, macOS host: Python tools create the exact 256,256-byte empty CP/M image, add local files into CP/M extents, reject invalid names, duplicates and disk-full writes without damaging the existing image, and validate selected disk-image geometry. Archive tooling lists the specified RetroArchive index, selects same-host links, reads explicitly chosen ZIP members without extracting paths, preserves original downloads, and records source/license evidence and hashes. Microsoft archive entries are blocked; no proprietary binary was downloaded. Thirteen Python unit tests passed. No SD card or hardware was used |
 
 Development references: [superzazu/z80](https://github.com/superzazu/z80), [z80pack reference system](https://github.com/udo-munk/z80pack). Record the actual reference commit and image hashes before reproducing its behavior.

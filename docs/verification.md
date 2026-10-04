@@ -4,7 +4,7 @@
 
 - Host test command: `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`.
 - Result: PASS with AddressSanitizer and UndefinedBehaviorSanitizer. The test executed the genuine CCP and BDOS on the vendored Z80 through cold boot to `A>`, internal `DIR`, the transient `HELLO.COM`, and WBOOT back to CCP. It also checked page-zero jumps, DPH/DPB values, invalid-drive rejection and out-of-range DMA failure.
-- Resource: `littlefs/cpm/system.dsk`, 256,256 bytes; SHA-256 `a651470e4cf5b2c40ba1c736e8d534eeaa9679631dd2f33765d153d7b3e6bd8d` is checked at runtime. CCP/BDOS provenance and hashes are in `components/cpmCore/os/README.md`.
+- Resource at this checkpoint: `littlefs/cpm/system.dsk`, 256,256 bytes; SHA-256 `73c56e9f49292f8c9c8ac1530cbcf5799300253f5803d55b8837787cfb8e1e28` is checked at runtime. CCP/BDOS provenance and hashes are in `components/cpmCore/os/README.md`.
 - Firmware build: ESP-IDF 6.0.2 `build` succeeded for ESP32-S3 and generated `retroHost.bin` at 0xDD9E0 bytes. The integrated LittleFS partition image includes the CP/M resource.
 - Board, physical terminal and hardware runtime: NOT RUN. No firmware or partition was flashed.
 
@@ -33,3 +33,21 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 10. Test full/nearly-full card, network disconnect, stalled/aborted HTTP client, and reset during upload. No partial final file should appear.
 11. Press ENTER during upload and download; verify server closure, temporary cleanup and responsive menu; repeat entry/exit at least 20 times and inspect free heap.
 12. Measure CP/M instruction throughput, watchdog health, terminal behavior and working editor/assembler/compiler workflow on the actual board.
+
+## CP/M utility image and writable work drive — 2026-10-04
+
+- Generated `littlefs/cpm/system.dsk` with `tools/buildCpmDisk.py`. Image size is 256,256 bytes and SHA-256 is `73c56e9f49292f8c9c8ac1530cbcf5799300253f5803d55b8837787cfb8e1e28`, now pinned by `cpmMachine.c`.
+- Independently inspected its CP/M directory/extents and reconstructed data blocks: 20 directory extents for 19 files, all required source files match their padded 128-byte records, 147 allocated blocks are within the DPB's valid blocks 2–242, and the image header/size are correct.
+- Host command: `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`.
+- Result: PASS under ASan/UBSan. The genuine guest lists the utilities, exercises resident `TYPE` and `USER`, performs `PIP E:=A:HELLO.COM`, then `REN` and `ERA` on E:. BIOS tests also verify E: record writes and A: write rejection. This is a host fixture, not a physical SD card.
+- ESP-IDF 6.0.2 ESP32-S3 build: PASS; `retroHost.bin` is 0xDDE90 bytes, within the 3 MiB app partition.
+- Source pin, individual utility SHA-256 values and compatibility notes are in `components/cpmCore/os/utilities/README.md`. `HELP.COM` identifies as a CP/M 3.0 utility and has not been proven against this CP/M 2.2 BDOS. `SUBMIT.COM` writes `$$$.SUB` to read-only A: and is not usable until that assumption is addressed. No separate SDIR/SHOW binaries are included; resident `DIR` and `STAT` are the available directory/status commands.
+- Hardware SD-media tests remain to be run. No device was flashed.
+
+## Mac CP/M disk and archive tools — 2026-10-04
+
+- `tools/cpmDiskImage.py` creates empty 256,256-byte raw images matching the BIOS's 77-track, 26-sector, 128-byte-record DPB and can add/list CP/M 8.3 files. Additions validate extent and block allocations and replace the disk file atomically only after all checks succeed.
+- `tools/fetchCpmSoftware.py` listed the user-specified RetroArchive language index successfully. It selects links from that index, requires per-import rights evidence, blocks identified Microsoft software, explicitly selects ZIP members without extracting paths, preserves original downloads, and records URLs, license-evidence text, timestamps and SHA-256 values in a JSON manifest. No copyrighted archive binary was downloaded during validation.
+- Python test command: `PYTHONPATH=tools python3 -m unittest discover -s tests -p 'test_*.py' -v`.
+- Result: PASS, 13 tests covering image creation, CP/M file extents, duplicate/disk-full preservation, CLI operation, archive link parsing, host restrictions, Microsoft-download blocking and provenance retention.
+- SD card formatting/mounting, Finder copy, firmware mounting and hardware PIP execution remain untested. Raw disk images are size/structure-checked only; source documentation must establish geometry and sector ordering. IMD/TD0 conversion is unsupported.
