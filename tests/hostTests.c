@@ -1,5 +1,6 @@
 #include "hostCore.h"
 #include "imageFile.h"
+#include "cpmCpu.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -148,12 +149,67 @@ static void testImages(void)
   unlink(filePath);
 }
 
+typedef struct
+{
+  uint8_t inputValue;
+  uint8_t inputPort;
+  uint8_t outputValue;
+  uint8_t outputPort;
+} portFixture;
+
+static uint8_t testPortInput(void *context, uint8_t port)
+{
+  portFixture *fixture = context;
+  fixture->inputPort = port;
+  return fixture->inputValue;
+}
+
+static void testPortOutput(void *context, uint8_t port, uint8_t value)
+{
+  portFixture *fixture = context;
+  fixture->outputPort = port;
+  fixture->outputValue = value;
+}
+
+static void testCpmCpu(void)
+{
+  cpmCpu cpu = {0};
+  portFixture ports = {.inputValue = 0xA5};
+  const uint8_t program[] = {0x3E, 0x5A, 0x32, 0xFF, 0xFF, 0xDB, 0x42, 0xD3, 0x43, 0x76};
+  uint8_t value;
+
+  assert(!cpmCpuInitialize(NULL, testPortInput, testPortOutput, &ports));
+  assert(!cpmCpuInitialize(&cpu, NULL, testPortOutput, &ports));
+  assert(!cpmCpuInitialize(&cpu, testPortInput, NULL, &ports));
+  assert(cpmCpuInitialize(&cpu, testPortInput, testPortOutput, &ports));
+  assert(cpmCpuLoad(&cpu, 0, program, sizeof(program)));
+  assert(!cpmCpuLoad(&cpu, UINT16_MAX, program, 2));
+  assert(!cpmCpuLoad(&cpu, 0, NULL, 1));
+  assert(cpmCpuWriteMemory(&cpu, UINT16_MAX, 0xC3));
+  assert(cpmCpuReadMemory(&cpu, UINT16_MAX, &value) && value == 0xC3);
+  assert(!cpmCpuReadMemory(&cpu, 0, NULL));
+
+  assert(cpmCpuStep(&cpu));
+  assert(cpmCpuStep(&cpu));
+  assert(cpmCpuReadMemory(&cpu, UINT16_MAX, &value) && value == 0x5A);
+  assert(cpmCpuStep(&cpu));
+  assert(cpu.processor.a == 0xA5 && ports.inputPort == 0x42);
+  assert(cpmCpuStep(&cpu));
+  assert(ports.outputPort == 0x43 && ports.outputValue == 0xA5);
+  assert(cpmCpuStep(&cpu) && cpu.processor.halted);
+  assert(cpu.processor.pc == sizeof(program));
+  assert(!cpmCpuStep(NULL));
+  cpmCpuDestroy(&cpu);
+  assert(!cpu.initialized && cpu.memory == NULL);
+}
+
 int main(void)
 {
   testPaths();
   testLayout();
   testMenu();
   testImages();
-  puts("PASS: traversal, 50000 path fuzz cases, layout variants, ENTER parsing, bounded binary image I/O");
+  testCpmCpu();
+  puts("PASS: host utilities and Z80-backed CP/M CPU memory, instruction and port callbacks");
   return 0;
 }

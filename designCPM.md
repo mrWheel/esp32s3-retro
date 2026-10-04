@@ -1,6 +1,6 @@
 # designCP_M.md — CP/M 2.2 engineering memory
 
-Revision: 2026-10-04. Status: reconstructed design baseline; implementation unverified.
+Revision: 2026-10-04. Status: Z80 CPU foundation implemented and verified by host tests and an ESP-IDF build; CP/M guest boot is the next step and remains unverified.
 
 ## Provenance and purpose
 
@@ -66,6 +66,24 @@ menu 1 + Enter → availability check → cpmMachine
 
 Use `superzazu/z80` as the preserved preferred core. Its upstream repository describes C99, MIT licensing and zexdoc/zexall success; rerun suitable tests on the pinned integration. UCSD must reuse this core component but have independent machine state and boot resources. Do not substitute RunCPM or intercept BDOS to implement a FAT-backed fake CP/M. A small guest BIOS with explicit virtual I/O is permitted; CCP and BDOS remain genuine guest code. [Core source](https://github.com/superzazu/z80).
 
+The selected Z80 source is pinned to upstream commit `d64fe10a2274e5e40019b1086bf7d8990cbc5f23` (MIT, copyright 2019 Nicolas Allemand). The project keeps the upstream `z80.c`, `z80.h` and `LICENSE` unchanged in `components/z80/`; project integration lives in `components/cpmCore/`. The current adapter allocates one 64 KiB address space, delegates all port operations to explicit callbacks and executes one instruction per call. It does not define CP/M port assignments or a BIOS.
+
+Candidate CP/M system resource: the [CP/M 2.2 OEM redistribution disk](https://web.archive.org/web/20231210010648/http://www.cpm.z80.de/binary.html), listed as `download/cpm22red.zip`. The archived ZIP contains `CPM22RED.IMD`, a 124,686-byte ImageDisk-format image; the ZIP SHA-256 observed during inspection was `8d49d9477ee53b5ca08b9be161cc46a854e8c17032525be7159361380bfbc1f7`. The site's [license clarification, updated 9 July 2022](https://web.archive.org/web/20231219054614/http://www.cpm.z80.de/license.html), reproduces Bryan Sparks' statement on behalf of DRDOS, Inc. granting nonexclusive rights to use, distribute, modify, enhance and otherwise make CP/M and its derivatives available. This identifies a promising legally authorized upstream candidate, not an approved boot image: its contents, image geometry, CCP/BDOS build, and BIOS compatibility still require verification, and the target BIOS must be separately implemented. Do not copy the archived image into LittleFS as `system.dsk` without that work.
+
+## Current implementation status and next step
+
+The following foundation is implemented and verified:
+
+- The unmodified `superzazu/z80` core is vendored with its MIT license at the pinned commit above.
+- `components/cpmCore/` supplies per-instance 64 KiB guest memory, bounded image loading, memory access, explicit input/output port callbacks, and one-instruction stepping. The adapter requires zero-initialized instances and provides explicit destruction.
+- Host unit tests pass for bounded memory loading, both ends of the address space, instruction execution, port input/output, and adapter lifecycle. The test build enables AddressSanitizer and UndefinedBehaviorSanitizer.
+- The upstream core's `prelim.com`, `zexdoc.cim`, and `zexall.cim` instruction exercisers pass.
+- The complete ESP-IDF 6.0.2 project builds for ESP32-S3 with the CP/M core component included.
+
+This is CPU-foundation progress, not a bootable CP/M machine. No CP/M CCP/BDOS system image has been integrated, no target BIOS or disk profile is implemented, and the candidate ImageDisk archive has not been converted or boot-tested. The machine remains unavailable in the menu; no device flashing or hardware runtime test has been performed.
+
+**Next step: make CP/M actually bootable.** Inspect the licensed candidate image and identify a compatible genuine CP/M 2.2 CCP/BDOS build, then define and implement its target BIOS, loader, memory map and initial disk profile from verified references. Establish a reproducible resource-conversion/build process and first demonstrate a genuine CP/M `A>` prompt in a desktop reference before testing the firmware on the ESP32-S3. Do not claim boot success based on a host-generated prompt.
+
 Guest addresses are 16-bit across `$0000–$FFFF`. Load the system at addresses determined by the selected 64K CP/M build, not guessed constants. Document CCP, BDOS, BIOS, stack, buffers, allocation vectors and transient-program boundary in a linker/map artifact. Page zero must contain the correct warm-boot and BDOS entry jumps, I/O byte/current-drive state and standard default FCB/DMA locations. Preserve a 128-byte default DMA area at `$0080`, and program loading at `$0100`. Protect host memory even when guest software supplies bad addresses; apply explicit guest wrap semantics where the CPU requires them.
 
 ### Startup and restart
@@ -124,7 +142,7 @@ CP/M 2.2 file sizes are record-oriented. Do not promise arbitrary-byte-length bi
 
 ## Milestones and acceptance gates
 
-All statuses are PLANNED; this document records no executed emulator tests.
+The Z80 core and 64 KiB CPU adapter are integrated and host-tested; the ESP32-S3 firmware build succeeds. This is partial CP-M2 evidence only: no CP/M BIOS, integrated system image, boot, disk profile or ESP32 hardware execution has been verified. CP-M1 and the remaining machine gates are still open. The immediate next milestone is a reproducible boot of genuine CP/M to `A>` using an inspected system image and a matching BIOS.
 
 | ID | Deliverable and exit evidence |
 |---|---|
@@ -149,12 +167,14 @@ Definition of Done: every gate has evidence, no unresolved data-corruption issue
 | CP-DEC-003 | Updated | Shared HOST-M1 File Transfer and local guest bridge supersede older USB-transfer proposals |
 | CP-DEC-004 | Required | Guest-compatible DPB controls maximum size; 32/64 MB examples are not accepted geometries |
 | CP-DEC-005 | Proposed | Exact-byte exchange metadata addresses CP/M record padding; common ABI must ratify details |
+| CP-DEC-006 | Selected | Pin `superzazu/z80` at `d64fe10a2274e5e40019b1086bf7d8990cbc5f23` under MIT; retain the unmodified shared core and keep the CP/M adapter separate |
+| CP-DEC-007 | Candidate | Evaluate the licensed CP/M 2.2 OEM redistribution disk (`cpm22red.zip`, SHA-256 recorded above); do not treat the 8-inch ImageDisk archive as a target-ready system disk |
 
 ## Issue log
 
 | ID | State | Problem / next evidence / do not repeat |
 |---|---|---|
-| CP-ISSUE-001 | OPEN | Select and hash the exact 64K system/BIOS image; do not mix unrelated boot and DPB configurations |
+| CP-ISSUE-001 | OPEN | Inspect the candidate CP/M 2.2 OEM disk, identify/hash the exact CCP/BDOS build, and implement/verify a matching target BIOS; do not install the 8-inch archive as a raw disk image |
 | CP-ISSUE-002 | OPEN | Derive and test large-disk geometry; do not infer capacity from host FAT32 |
 | CP-ISSUE-003 | OPEN | Freeze exchange ports and exact-length metadata; never strip trailing binary bytes heuristically |
 | CP-ISSUE-004 | OPEN | Verify editor terminal personality and physical USB behavior; no unmeasured speed promises |
@@ -165,8 +185,8 @@ For each issue append the full engineering-memory chain, evidence and regression
 
 | ID | Status | Required evidence |
 |---|---|---|
-| CP-VERIFY-001 | SOURCE-REVIEW | Preferred core repository inspected 2026-10-04; upstream claims are not target test results |
-| CP-VERIFY-002 | NOT RUN | CPU suite plus memory/port integration tests |
+| CP-VERIFY-001 | SOURCE-REVIEW | On 2026-10-04, inspected `superzazu/z80` README, API and MIT license at commit `d64fe10a2274e5e40019b1086bf7d8990cbc5f23`; inspected the CP/M OEM candidate listing and the 2022 rights clarification. Neither source review nor upstream rights statement is an ESP32 test result |
+| CP-VERIFY-002 | HOST PASS; ESP32 NOT RUN | macOS host, based on workspace commit `7acf63f3fcf473bb438c4c0dff154fa29afe466f`: `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`; additionally, in the pinned upstream checkout, `make && ./z80_tests` passed preliminary, zexdoc and zexall suites. The new adapter test covers full 16-bit memory endpoints, bounded loading, instruction execution and port callbacks. No board, terminal or CP/M resource was used; the firmware changes are uncommitted, and this does not close ESP32 CPU verification |
 | CP-VERIFY-003 | NOT RUN | Cold boot, warm boot and command execution on desktop and ESP32 |
 | CP-VERIFY-004 | NOT RUN | All drive boundaries, DPB consistency, RO and media failure |
 | CP-VERIFY-005 | NOT RUN | Editor/compiler and exact-byte/record-mode transfers |
