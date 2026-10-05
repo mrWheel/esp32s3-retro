@@ -65,15 +65,15 @@ To create E: on a Mac, run `python3 tools/cpmDiskImage.py create ~/Desktop/work.
 
 Choice **6** checks FAT32/layout before starting WiFi. The **only** connection/provisioning implementation is `michmich/esp-idf-wifi-provisioner` **0.4.0**. Configure its defaults under **Component config → WiFi Provisioner**. By default its setup AP is open; on a trusted network join **Retro-Setup** and open `http://192.168.4.1/` if the captive page does not appear. You may configure an AP password in menuconfig; the host does not print it. Credentials belong to the provisioner's NVS storage.
 
-After station connection, the console prints `http://DEVICE_IP/`. The File Transfer server uses standard HTTP port 80 and has no password, key, or login step. Anyone on the connected WiFi network can browse, upload, download, and delete files under `/retro/exchange/` while File Transfer is active. Use it only on a trusted network.
+After station connection, the console prints `http://DEVICE_IP/`. The File Transfer server uses standard HTTP port 80 and has no password, key, or login step. Anyone on the connected WiFi network can browse, upload, download, and delete files under `/retro/exchange/` and `/retro/images/` on the physical SD card while File Transfer is active. Use it only on a trusted network.
 
-The GUI lists names/sizes, opens directories, uploads one file, downloads directly to the browser and confirms deletion. Only `/retro/exchange/` is reachable. There is no image access, directory deletion, mkdir or rename API. Create extra exchange subdirectories on the PC if desired.
+The GUI lists each name with its complete `/sdcard/retro/...` path and size, opens directories, uploads one file, downloads files with a basic byte/percentage progress indicator, and confirms deletion. All operations are directly on the physical SD card. Select a machine and transfer type: loose files are stored in `/retro/exchange/<machine>/` (for CP/M, `HOST DIR` reads `/retro/exchange/cpm/`), while disk images are stored in `/retro/images/<machine>/`. Image files are transferred whole and unchanged. There is no directory deletion, mkdir or rename API. Create extra subdirectories on the PC if desired.
 
 Names: ASCII letter/digit first, then letters/digits/spaces/dots/underscores/hyphens, up to 64 characters per component and 255 per relative path; no trailing dot/space. Unsupported names already on the card are omitted from the GUI. Names are never silently converted for guests. Hidden `.upload-part` is reserved for a single upload and cannot be requested via the API.
 
 Uploads/downloads use 4096-byte firmware buffers. Uploads use raw binary HTTP PUT, not multipart conversion. Existing files are rejected; delete explicitly first. A completed upload is synced and closed before same-volume rename. Cancellation removes its temporary file; a power-loss leftover is removed when the next File Transfer session starts. FAT32 cannot promise crash-atomic metadata under sudden power loss. Keep power stable and back up important files.
 
-The initial supported per-file upload/image limit is **2 GiB minus one byte**, matching conservative signed offset handling in this build. This supports large images without claiming guest compatibility. No 140/160/360 KB limit exists. Download/list use bounded firmware memory; the GUI holds only directory metadata.
+The transfer limit is **4 GiB minus 2 bytes**, just below FAT32's maximum. ESP-IDF's HTTP parser treats the maximum 32-bit Content-Length value as a sentinel, so the application rejects that one size rather than risk creating an incomplete file. Uploads and downloads stream through bounded firmware buffers; the browser reports progress during transfer. This permits large images without claiming guest compatibility. No 140/160/360 KB limit exists.
 
 Press **ENTER** to stop the application server. The stop flag interrupts active transfers, files are closed, temporary uploads are discarded, and the menu resumes after the HTTP task stops. Socket receive/send timeout is 2 seconds; SD errors/timeouts can add delay. The HTTP task serializes file operations, so there are no concurrent uploads or image mutations.
 
@@ -92,9 +92,9 @@ This is unauthenticated plain HTTP for a **trusted local network**, not an inter
 - `main/cpmMachine.*` and `components/cpmCore/cpmGuest.c`: CP/M machine lifecycle, guest BIOS, LittleFS A: record reads and cooperative Z80 execution.
 - `main/storage.*`: SDSPI, strict FAT32/layout checks, read-only LittleFS preparation (no auto-format).
 - `main/imageFile.*`: generic trusted-host file open/size/bounded read/write/flush/close, no guest semantics. Zero-initialize `imageFile`, close before reuse, use one owner. Read-only writes fail; ranges outside existing files fail. Paths must come from trusted machine definitions; never pass raw HTTP input to this API.
-- `components/hostCore`: pure C path validation/resolution, marker parser and ENTER parser. `pathResolve` is the common exchange path boundary for future guest adapters as well as HTTP.
+- `components/hostCore`: pure C path validation/resolution, marker parser and ENTER parser. `pathResolve` is the exchange path boundary for guest adapters; the browser image server separately confines paths to `/retro/images/`.
 - `main/network.*`: public provisioner API wrapper, event observation only; no duplicated credentials or custom WiFi connection code.
-- `main/fileTransfer.*`, `main/web.html`: unauthenticated exchange-only HTTP and GUI.
+- `main/fileTransfer.*`, `main/web.html`: unauthenticated HTTP transfer and GUI for SD-card exchange files and disk images.
 - `littlefs/cpm/`: generated, read-only CP/M A: image and provenance notes; its SHA-256 is in `SHA256SUMS.txt`.
 - `components/cpmCore/os/`: pinned genuine CP/M 2.2 source, license and assembled CCP/BDOS outputs.
 - `designCPM.md`: CP/M architecture, memory map, disk profile, limitations and verification log. Other `design*.md` documents describe machines not yet implemented.

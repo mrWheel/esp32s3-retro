@@ -41,24 +41,46 @@ td, th
   min-height: 2rem;
   white-space: pre-wrap;
 }
+progress
+{
+  width: min(100%, 32rem);
+  height: 1.25rem;
+}
 </style>
 </head>
 <body>
 <h1>Retro File Transfer</h1>
-<p>Files stay in the exchange folder. Press ENTER in the USB terminal to stop.</p>
-<h2 id="location">/exchange/</h2>
+<p>Choose a machine and whether you are transferring a disk image or loose files. Disk images go to /retro/images/&lt;machine&gt;/; loose files go to /retro/exchange/&lt;machine&gt;/.</p>
+<label for="machine">Machine:</label>
+<select id="machine">
+<option value="cpm">CP/M</option>
+<option value="ucsd">UCSD Pascal</option>
+<option value="apple2">Apple II</option>
+<option value="mpm">MP/M II</option>
+<option value="swtpc">SWTPC 6800</option>
+</select>
+<label for="area">Transfer type:</label>
+<select id="area">
+<option value="exchange">Loose files (/retro/exchange/)</option>
+<option value="images">Disk image (/retro/images/)</option>
+</select>
+<h2 id="location">/sdcard/retro/exchange/cpm/</h2>
 <button id="up">Parent folder</button><button id="refresh">Refresh</button>
 <form id="upload">
 <input id="file" type="file" required><button id="send">Upload</button>
 </form>
-<p>Existing files are never overwritten. Names must begin with a letter or digit; use letters, digits, spaces, dots, underscores or hyphens (64 characters per name). No trailing space or dot.</p>
+<p>Existing files are never overwritten. Every listed item shows its full SD-card VFS path. Names must begin with a letter or digit; use letters, digits, spaces, dots, underscores or hyphens (64 characters per name). No trailing space or dot.</p>
 <table>
-<thead><tr><th>Name</th><th>Bytes</th><th>Actions</th></tr></thead>
+<thead><tr><th>Name</th><th>SD-card path</th><th>Bytes</th><th>Actions</th></tr></thead>
 <tbody id="entries"></tbody>
 </table>
+<progress id="progress" max="100" value="0" hidden></progress>
+<p id="progressText" aria-live="polite"></p>
 <p id="status" role="status" aria-live="polite"></p>
 <script>
 "use strict";
+let currentArea = "exchange";
+let currentMachine = "cpm";
 let currentPath = "";
 const element = (id) => document.getElementById(id);
 
@@ -70,6 +92,39 @@ function showStatus(message)
 function childPath(name)
 {
   return currentPath ? currentPath + "/" + name : name;
+}
+
+function apiPath(path)
+{
+  const machinePath = currentMachine + (path ? "/" + path : "");
+  return "?area=" + currentArea + "&path=" + encodeURIComponent(machinePath);
+}
+
+function areaRoot()
+{
+  return currentArea === "images" ? "/sdcard/retro/images/" + currentMachine :
+    "/sdcard/retro/exchange/" + currentMachine;
+}
+
+function showLocation()
+{
+  const suffix = currentPath ? "/" + currentPath : "/";
+  element("location").textContent = areaRoot() + suffix;
+}
+
+function showProgress(label, loaded, total)
+{
+  const progress = element("progress");
+  progress.hidden = false;
+  progress.value = total > 0 ? Math.min(100, loaded / total * 100) : 0;
+  const percentage = total > 0 ? " (" + Math.floor(loaded / total * 100) + "%)" : "";
+  element("progressText").textContent = label + ": " + loaded + " / " + total + " bytes" + percentage;
+}
+
+function hideProgress()
+{
+  element("progress").hidden = true;
+  element("progressText").textContent = "";
 }
 
 async function api(path, options = {})
@@ -88,19 +143,21 @@ async function api(path, options = {})
 
 async function refresh()
 {
-  const response = await api("/api/list?path=" + encodeURIComponent(currentPath));
+  const response = await api("/api/list" + apiPath(currentPath));
   const entries = await response.json();
-  element("location").textContent = "/exchange/" + currentPath;
+  showLocation();
   element("entries").replaceChildren();
   entries.sort((first, second) => Number(second.directory) - Number(first.directory) || first.name.localeCompare(second.name));
   for (const entry of entries)
   {
     const row = document.createElement("tr");
     const nameCell = document.createElement("td");
+    const pathCell = document.createElement("td");
     const sizeCell = document.createElement("td");
     const actions = document.createElement("td");
     const path = childPath(entry.name);
     nameCell.textContent = entry.name;
+    pathCell.textContent = areaRoot() + "/" + path;
     sizeCell.textContent = entry.directory ? "Folder" : String(entry.size);
     if (entry.directory)
     {
@@ -115,10 +172,28 @@ async function refresh()
     }
     else
     {
-      const download = document.createElement("a");
+      const download = document.createElement("button");
       download.textContent = "Download";
-      download.href = "/api/file?path=" + encodeURIComponent(path);
-      download.download = entry.name;
+      download.onclick = () => run(async () =>
+      {
+        download.disabled = true;
+        try
+        {
+          const blob = await transfer("GET", path, null, entry.size, entry.name);
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = entry.name;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+          showStatus("Download complete: " + areaRoot() + "/" + path);
+        }
+        finally
+        {
+          download.disabled = false;
+          hideProgress();
+        }
+      });
       const deleteButton = document.createElement("button");
       deleteButton.textContent = "Delete";
       deleteButton.onclick = () => run(async () =>
@@ -127,16 +202,56 @@ async function refresh()
         {
           return;
         }
-        await api("/api/file?path=" + encodeURIComponent(path), {method: "DELETE"});
+        await api("/api/file" + apiPath(path), {method: "DELETE"});
         await refresh();
         showStatus("Deleted " + entry.name);
       });
       actions.append(download, deleteButton);
     }
-    row.append(nameCell, sizeCell, actions);
+    row.append(nameCell, pathCell, sizeCell, actions);
     element("entries").append(row);
   }
   element("up").disabled = !currentPath;
+}
+
+function transfer(method, path, file, expectedSize, fileName)
+{
+  const request = new XMLHttpRequest();
+  request.open(method, "/api/file" + apiPath(path));
+  request.responseType = "blob";
+  if (method === "PUT")
+  {
+    request.setRequestHeader("Content-Type", "application/octet-stream");
+  }
+  request.upload.onprogress = (event) =>
+  {
+    if (method === "PUT")
+    {
+      showProgress("Uploading " + fileName, event.loaded, event.lengthComputable ? event.total : file.size);
+    }
+  };
+  request.onprogress = (event) =>
+  {
+    if (method === "GET")
+    {
+      showProgress("Downloading " + fileName, event.loaded, event.lengthComputable ? event.total : expectedSize);
+    }
+  };
+  return new Promise((resolve, reject) =>
+  {
+    request.onload = async () =>
+    {
+      if (request.status >= 200 && request.status < 300)
+      {
+        resolve(request.response);
+        return;
+      }
+      reject(new Error(await request.response.text()));
+    };
+    request.onerror = () => reject(new Error("Connection lost. Check the USB terminal."));
+    request.onabort = () => reject(new Error("Transfer cancelled."));
+    request.send(file);
+  });
 }
 
 async function run(action)
@@ -167,27 +282,33 @@ element("upload").onsubmit = (event) =>
     {
       return;
     }
-    if (file.size > 2147483647)
+    if (file.size > 4294967294)
     {
-      throw new Error("Maximum file size is 2 GiB minus 1 byte.");
+      throw new Error("Maximum file size is 4 GiB minus 2 bytes.");
+    };
+    function selectionChanged()
+    {
+      currentArea = element("area").value;
+      currentMachine = element("machine").value;
+      currentPath = "";
+      run(refresh);
     }
+    element("area").onchange = selectionChanged;
+    element("machine").onchange = selectionChanged;
     element("send").disabled = true;
     showStatus("Uploading " + file.name + "...");
+    showProgress("Uploading " + file.name, 0, file.size);
     try
     {
-      await api("/api/file?path=" + encodeURIComponent(childPath(file.name)),
-      {
-        method: "PUT",
-        headers: {"Content-Type": "application/octet-stream"},
-        body: file
-      });
+      await transfer("PUT", childPath(file.name), file, file.size, file.name);
       await refresh();
-      showStatus("Upload complete: " + file.name);
+      showStatus("Upload complete: " + areaRoot() + "/" + childPath(file.name));
       element("file").value = "";
     }
     finally
     {
       element("send").disabled = false;
+      hideProgress();
     }
   });
 };

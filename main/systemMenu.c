@@ -103,7 +103,7 @@ void systemMenuRun(void)
       {
         snprintf(previousAddress, sizeof(previousAddress), "%s", address);
         printf("\nWiFi connected: %s\nOpen: http://%s/\n", address, address);
-        puts("Anyone on this WiFi network can access the exchange files while File Transfer is active.");
+        puts("Anyone on this WiFi network can access SD-card exchange files and disk images while File Transfer is active.");
         puts("Press ENTER to stop File Transfer and return to the main menu.");
       }
       if (!connected && !timeoutShown && esp_timer_get_time() - transferStarted > 120000000)

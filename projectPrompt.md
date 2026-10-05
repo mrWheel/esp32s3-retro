@@ -315,6 +315,13 @@ guest filesystem
 
 The browser does not need to understand CP/M, UCSD, ProDOS, FLEX, etc.
 
+The File Transfer GUI also manages files directly on the SD card. The user selects a machine and transfer type:
+
+- Loose files use `/retro/exchange/<machine>/` and are visible to that machine's guest transfer utility. For CP/M, `HOST DIR` lists `/retro/exchange/cpm/`.
+- Disk images use `/retro/images/<machine>/`, for example `/retro/images/cpm/`.
+
+These are separate destinations on the same physical SD card; disk images are not staged through the exchange directory.
+
 ## 15. Guest transfer contract
 
 Each emulator may have a small native guest utility. CP/M could for example provide:
@@ -433,12 +440,15 @@ Do not modify the provisioner to embed our file GUI. Verify actual provisioning-
 The first GUI is deliberately simple and must provide:
 
 - list current permitted directory;
-- navigate exchange subdirectories;
+- navigate subdirectories under both permitted SD roots;
 - upload;
 - download;
 - delete with confirmation;
 - filename and size;
-- useful success/error responses.
+- full `/sdcard/retro/...` path next to each listed filename;
+- useful success/error responses;
+- basic byte/percentage progress for uploads and downloads;
+- machine selection (`cpm`, `ucsd`, `apple2`, `mpm`, `swtpc`) and transfer type (loose file or disk image), selecting the matching exchange or image directory.
 
 Optional later: mkdir, rename, multi-upload, checksums, free-space display, image backup/restore.
 
@@ -446,15 +456,13 @@ Do not delay the first working version for optional features.
 
 ### Scope and security
 
-Initially expose ONLY:
+The browser file server exposes only `/retro/exchange/` and `/retro/images/` on the physical SD card. It must not access LittleFS or any other SD path. The GUI must let the user select a machine (`cpm`, `ucsd`, `apple2`, `mpm`, or `swtpc`) and a transfer type. Loose files go under `/retro/exchange/<machine>/` so the selected guest can access them (CP/M `HOST DIR` reads `/retro/exchange/cpm/`); disk images go under `/retro/images/<machine>/`. The GUI must show each item's full VFS path (for example `/sdcard/retro/exchange/cpm/FILE.TXT`) beside its name. File Transfer runs separately from emulators, so browser writes cannot modify an active guest disk image.
 
-/retro/exchange/
-
-Do not expose the entire SD card or permit browser writes to /retro/images/.
-
-Normalize and validate every requested path. Reject ../, encoded traversal, absolute-path escape, and any resolved path outside /retro/exchange/.
+Normalize and validate every requested path. Reject ../, encoded traversal, absolute-path escape, and any resolved path outside the two permitted roots.
 
 Never directly concatenate an untrusted URL path into a filesystem path.
+
+For uploads, resolve the selected machine and transfer type to `/retro/exchange/<machine>/` or `/retro/images/<machine>/`. The default GUI selection is CP/M loose files, `/retro/exchange/cpm/`. Show the full `/sdcard/retro/...` destination in the GUI and report it after successful upload.
 
 ### Uploads
 
@@ -470,9 +478,11 @@ Transfers are byte-preserving. Never automatically change CR/LF, character sets,
 
 A binary upload/download round trip must preserve SHA-256.
 
+The HTTP transfer size limit is 4 GiB minus 2 bytes. ESP-IDF's HTTP parser reserves the maximum 32-bit `Content-Length` value as a sentinel; reject that value rather than risk accepting an incomplete upload.
+
 ## 20. Filename rules
 
-FAT32 exchange names may be more capable than guest filenames. The common web GUI does not silently rename files for a guest.
+FAT32 exchange and image names may be more capable than guest filenames. The browser GUI does not silently rename files.
 
 Guest-specific naming/type conversion belongs in its machine design/guest utility.
 
@@ -598,7 +608,11 @@ File Transfer:
 - stored-credential reconnect;
 - page loads;
 - text upload/download;
-- binary upload/download + SHA-256 equality;
+- binary SD-card disk-image upload/download + SHA-256 equality;
+- CP/M loose-file upload to `/retro/exchange/cpm/` is visible to `HOST DIR`;
+- selected-machine loose files and disk images reach their respective `/retro/exchange/<machine>/` and `/retro/images/<machine>/` directories;
+- every listed file shows its full `/sdcard/retro/...` path;
+- upload/download progress is displayed while bytes are transferred;
 - zero-byte file;
 - spaces in filename;
 - delete confirmation;
@@ -731,8 +745,16 @@ The host is ready for CP/M development only when:
 - only the pinned michmich/esp-idf-wifi-provisioner 0.4.0 is used for WiFi provisioning/connection;
 - captive provisioning and stored-credential reconnect work;
 - application File Transfer server starts after network connection;
-- only /retro/exchange/ is exposed;
+- only /retro/exchange/ and /retro/images/ on the physical SD card are exposed by the browser file server;
+- loose files upload to /retro/exchange/<selected-machine>/;
+- disk images upload to /retro/images/<selected-machine>/;
+- each listed filename has its full /sdcard/retro path shown alongside it;
+- the GUI defaults to CP/M loose files at /retro/exchange/cpm/;
+- upload/download sizes above 4 GiB minus 2 bytes are rejected;
 - upload/download/delete work;
+- complete disk-image files upload to and download from the physical SD card with visible progress;
+- the GUI defaults to CP/M loose files at /retro/exchange/cpm/;
+- upload/download sizes above 4 GiB minus 2 bytes are rejected;
 - binary integrity is proven;
 - traversal is blocked;
 - large files stream;

@@ -20,7 +20,24 @@ extern const unsigned char webEnd[] asm("_binary_web_html_end");
 
 static httpd_handle_t server;
 static atomic_bool stopping;
-static const char *temporaryPath = "/sdcard/retro/exchange/.upload-part";
+static const char *exchangeTemporaryPath = "/sdcard/retro/exchange/.upload-part";
+static const char *imageTemporaryPath = "/sdcard/retro/images/.upload-part";
+
+typedef enum
+{
+  exchangeArea,
+  imageArea
+} fileArea;
+
+static const char *areaRoot(fileArea area)
+{
+  return area == imageArea ? "/sdcard/retro/images" : "/sdcard/retro/exchange";
+}
+
+static const char *areaTemporaryPath(fileArea area)
+{
+  return area == imageArea ? imageTemporaryPath : exchangeTemporaryPath;
+}
 
 static esp_err_t respond(httpd_req_t *request, const char *status, const char *message)
 {
@@ -40,13 +57,77 @@ static bool acceptingRequests(httpd_req_t *request)
   return true;
 }
 
-static bool resolveRequest(httpd_req_t *request, char *absolute, size_t capacity)
+static bool resolveRequest(httpd_req_t *request, char *absolute, size_t capacity, fileArea *area)
 {
   char query[800];
-  if (httpd_req_get_url_query_str(request, query, sizeof(query)) != ESP_OK || strncmp(query, "path=", 5) != 0 ||
-      strchr(query + 5, '&') != NULL || !pathResolve(query + 5, absolute, capacity))
+  const char *encodedPath;
+  char relative[relativePathCapacity];
+  if (httpd_req_get_url_query_str(request, query, sizeof(query)) != ESP_OK)
   {
-    respond(request, "400 Bad Request", "Invalid exchange path");
+    respond(request, "400 Bad Request", "Invalid SD-card path");
+    return false;
+  }
+  if (strncmp(query, "area=exchange&path=", sizeof("area=exchange&path=") - 1) == 0)
+  {
+    *area = exchangeArea;
+    encodedPath = query + sizeof("area=exchange&path=") - 1;
+  }
+  else if (strncmp(query, "area=images&path=", sizeof("area=images&path=") - 1) == 0)
+  {
+    *area = imageArea;
+    encodedPath = query + sizeof("area=images&path=") - 1;
+  }
+  else
+  {
+    respond(request, "400 Bad Request", "Invalid SD-card area");
+    return false;
+  }
+  if (strchr(encodedPath, '&') != NULL || !pathDecode(encodedPath, relative, sizeof(relative)))
+  {
+    respond(request, "400 Bad Request", "Invalid SD-card path");
+    return false;
+  }
+  int length = snprintf(absolute, capacity, "%s%s%s", areaRoot(*area), relative[0] ? "/" : "", relative);
+  if (length < 0 || (size_t)length >= capacity)
+  {
+    respond(request, "400 Bad Request", "SD-card path is too long");
+    return false;
+  }
+  return true;
+}
+
+static bool uploadLengthIsSupported(httpd_req_t *request)
+{
+  size_t headerLength = httpd_req_get_hdr_value_len(request, "Content-Length");
+  if (headerLength == 0 || headerLength >= 11)
+  {
+    respond(request, "400 Bad Request", "A valid Content-Length header is required");
+    return false;
+  }
+  char header[11];
+  if (httpd_req_get_hdr_value_str(request, "Content-Length", header, sizeof(header)) != ESP_OK)
+  {
+    respond(request, "400 Bad Request", "Cannot read Content-Length header");
+    return false;
+  }
+  uint64_t contentLength = 0;
+  for (size_t index = 0; index < headerLength; ++index)
+  {
+    if (header[index] < '0' || header[index] > '9')
+    {
+      respond(request, "400 Bad Request", "Invalid Content-Length header");
+      return false;
+    }
+    contentLength = contentLength * 10 + (uint64_t)(header[index] - '0');
+  }
+  if (contentLength > UINT32_MAX - 1U)
+  {
+    respond(request, "413 Content Too Large", "Maximum upload size is 4 GiB minus 2 bytes");
+    return false;
+  }
+  if (contentLength != request->content_len)
+  {
+    respond(request, "400 Bad Request", "HTTP body length does not match Content-Length");
     return false;
   }
   return true;
@@ -68,7 +149,8 @@ static esp_err_t pageHandler(httpd_req_t *request)
 static esp_err_t listHandler(httpd_req_t *request)
 {
   char path[absolutePathCapacity];
-  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path)))
+  fileArea area;
+  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path), &area))
   {
     return ESP_OK;
   }
@@ -90,8 +172,8 @@ static esp_err_t listHandler(httpd_req_t *request)
     }
     char child[absolutePathCapacity];
     int length = snprintf(child, sizeof(child), "%s/%s", path, entry->d_name);
-    if (length < 0 || (size_t)length >= sizeof(child) ||
-        strlen(child + strlen("/sdcard/retro/exchange/")) >= relativePathCapacity)
+    size_t rootLength = strlen(areaRoot(area));
+    if (length < 0 || (size_t)length >= sizeof(child) || strlen(child + rootLength + 1) >= relativePathCapacity)
     {
       continue;
     }
@@ -124,7 +206,8 @@ static esp_err_t listHandler(httpd_req_t *request)
 static esp_err_t downloadHandler(httpd_req_t *request)
 {
   char path[absolutePathCapacity];
-  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path)))
+  fileArea area;
+  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path), &area))
   {
     return ESP_OK;
   }
@@ -133,9 +216,9 @@ static esp_err_t downloadHandler(httpd_req_t *request)
   {
     return respond(request, "404 Not Found", "File unavailable");
   }
-  if (info.st_size < 0 || (uint64_t)info.st_size > 2147483647U)
+  if (info.st_size < 0 || (uint64_t)info.st_size > UINT32_MAX - 1U)
   {
-    return respond(request, "413 Content Too Large", "HOST-M1 transfer limit is 2 GiB minus 1 byte");
+    return respond(request, "413 Content Too Large", "Maximum transfer size is 4 GiB minus 2 bytes");
   }
   FILE *file = fopen(path, "rb");
   if (file == NULL)
@@ -172,13 +255,13 @@ static esp_err_t downloadHandler(httpd_req_t *request)
 static esp_err_t uploadHandler(httpd_req_t *request)
 {
   char path[absolutePathCapacity];
-  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path)))
+  fileArea area;
+  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path), &area))
   {
     return ESP_FAIL;
   }
-  if (request->content_len > 2147483647U)
+  if (!uploadLengthIsSupported(request))
   {
-    respond(request, "413 Content Too Large", "HOST-M1 transfer limit is 2 GiB minus 1 byte");
     return ESP_FAIL;
   }
   struct stat info;
@@ -205,6 +288,7 @@ static esp_err_t uploadHandler(httpd_req_t *request)
     respond(request, "404 Not Found", "Destination directory missing");
     return ESP_FAIL;
   }
+  const char *temporaryPath = areaTemporaryPath(area);
   int descriptor = open(temporaryPath, O_WRONLY | O_CREAT | O_EXCL, 0600);
   if (descriptor < 0)
   {
@@ -262,7 +346,8 @@ static esp_err_t uploadHandler(httpd_req_t *request)
 static esp_err_t deleteHandler(httpd_req_t *request)
 {
   char path[absolutePathCapacity];
-  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path)))
+  fileArea area;
+  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path), &area))
   {
     return ESP_OK;
   }
@@ -288,7 +373,8 @@ esp_err_t fileTransferStart(void)
   {
     return ESP_ERR_INVALID_STATE;
   }
-  if (unlink(temporaryPath) != 0 && errno != ENOENT)
+  if ((unlink(exchangeTemporaryPath) != 0 && errno != ENOENT) ||
+      (unlink(imageTemporaryPath) != 0 && errno != ENOENT))
   {
     return ESP_FAIL;
   }
