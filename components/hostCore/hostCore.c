@@ -107,7 +107,7 @@ bool pathResolve(const char *encoded, char *absolute, size_t capacity)
   {
     return false;
   }
-  int length = snprintf(absolute, capacity, "/sdcard/retro/exchange%s%s", relative[0] ? "/" : "", relative);
+  int length = snprintf(absolute, capacity, "/microSD/retro/exchange%s%s", relative[0] ? "/" : "", relative);
   return length >= 0 && (size_t)length < capacity;
 }
 

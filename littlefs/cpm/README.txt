@@ -15,15 +15,18 @@ directory command; STAT supplies disk status in place of a separate SHOW.COM
 or SDIR.COM. SUBMIT.COM is included, but its patched build writes $$$.SUB on
 read-only A: and cannot submit jobs with the current access policy.
 
-Optional SD images map to B:–E: at /retro/images/cpm/languages.dsk,
-tools.dsk, archive.dsk and work.dsk. Images must be exactly 256,256 bytes and
-match this profile. B:–D: are read-only; E: is read/write. The firmware does
-not create the images. Prepare an empty work.dsk on a Mac with
-python3 tools/cpmDiskImage.py create ~/Desktop/work.dsk, add licensed local
-programs with python3 tools/cpmDiskImage.py add, then copy it to
-/Volumes/SDCARD/retro/images/cpm/work.dsk and safely eject the card. See
-tools/README.md for downloading rights-cleared programs and disk images.
-Switch to E: before writing files with PIP, ERA or REN.
+Optional SD images map to B:–F: using /retro/images/cpm/drives.cfg. The config
+maps a drive letter to an image path, RO/RW access and SYSTEM/LARGE disk
+profile. SYSTEM is 256,256 bytes (77 tracks × 26 128-byte sectors); LARGE is
+512,512 bytes (77 tracks × 52 sectors, 2 KiB allocation blocks and 128
+directory entries). Each of B:–F: may use either profile. Create a standard
+256 KiB image with: python3 tools/cpmDiskImage.py create --profile SYSTEM x.dsk. The included prepareSd.py creates a sample drives.cfg
+without replacing an existing one. Create a writable work image with
+python3 tools/cpmDiskImage.py create --profile LARGE ~/Desktop/work.dsk, add
+licensed local programs with python3 tools/cpmDiskImage.py add, copy it to the
+path configured for E:, then safely eject the card. A: remains available from
+LittleFS even when the SD card or drives.cfg is missing or invalid. See
+tools/README.md for configuration, image creation and software rights details.
 
 HOST DIR lists files in /retro/exchange/cpm. HOST GET NAME.EXT copies a host
 file into the current CP/M drive; HOST PUT NAME.EXT copies it back. Transfer

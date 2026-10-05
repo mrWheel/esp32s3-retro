@@ -13,16 +13,26 @@ enum
   cpmBiosAddress = 0xDA00,
   cpmBiosServicePort = 0xFE,
   cpmSystemImageSize = 256256,
+  cpmLargeImageSize = 512512,
   cpmSystemHeaderOffset = cpmCcpSize + cpmBdosSize,
   cpmSystemHeaderSize = 16,
   cpmDiskTracks = 77,
   cpmDiskSectorsPerTrack = 26,
+  cpmLargeDiskSectorsPerTrack = 52,
   cpmDiskSectorSize = 128,
   cpmDiskBlockSize = 1024,
   cpmDiskDirectoryEntries = 64,
-  cpmDiskDriveCount = 5,
+  cpmLargeDiskBlockSize = 2048,
+  cpmLargeDiskDirectoryEntries = 128,
+  cpmDiskDriveCount = 6,
   cpmDmaAddress = 0x0080
 };
+
+typedef enum
+{
+  cpmDiskProfileSystem,
+  cpmDiskProfileLarge
+} cpmDiskProfile;
 
 typedef struct
 {
@@ -30,6 +40,7 @@ typedef struct
   int (*consoleRead)(void *context);
   void (*consoleWrite)(void *context, uint8_t character);
   bool (*diskDriveAvailable)(void *context, uint8_t drive);
+  bool (*diskDriveProfile)(void *context, uint8_t drive, cpmDiskProfile *profile);
   bool (*diskReadRecord)(void *context, uint8_t drive, uint16_t track, uint16_t sector,
                          uint8_t record[cpmDiskSectorSize]);
   bool (*diskWriteRecord)(void *context, uint8_t drive, uint16_t track, uint16_t sector,
@@ -49,6 +60,7 @@ typedef struct
   uint16_t currentTrack;
   uint16_t currentSector;
   uint16_t dmaAddress;
+  cpmDiskProfile diskProfiles[cpmDiskDriveCount];
   uint8_t selectedDrive;
   uint8_t keyboardCharacter;
   bool keyboardCharacterAvailable;

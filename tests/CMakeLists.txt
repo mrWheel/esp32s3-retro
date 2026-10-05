@@ -10,6 +10,7 @@ add_executable(
   ../components/cpmCore/cpmCpu.c
   ../components/cpmCore/cpmGuest.c
   ../components/z80/z80.c
+  ../main/cpmDriveConfig.c
   ../main/imageFile.c
 )
 target_include_directories(hostTests PRIVATE ../components/hostCore/include ../components/cpmCore/include

@@ -20,8 +20,8 @@ extern const unsigned char webEnd[] asm("_binary_web_html_end");
 
 static httpd_handle_t server;
 static atomic_bool stopping;
-static const char *exchangeTemporaryPath = "/sdcard/retro/exchange/.upload-part";
-static const char *imageTemporaryPath = "/sdcard/retro/images/.upload-part";
+static const char *exchangeTemporaryPath = "/microSD/retro/exchange/.upload-part";
+static const char *imageTemporaryPath = "/microSD/retro/images/.upload-part";
 
 typedef enum
 {
@@ -31,7 +31,7 @@ typedef enum
 
 static const char *areaRoot(fileArea area)
 {
-  return area == imageArea ? "/sdcard/retro/images" : "/sdcard/retro/exchange";
+  return area == imageArea ? "/microSD/retro/images" : "/microSD/retro/exchange";
 }
 
 static const char *areaTemporaryPath(fileArea area)
@@ -258,22 +258,20 @@ static esp_err_t uploadHandler(httpd_req_t *request)
   fileArea area;
   if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path), &area))
   {
-    return ESP_FAIL;
+    return ESP_OK;
   }
   if (!uploadLengthIsSupported(request))
   {
-    return ESP_FAIL;
+    return ESP_OK;
   }
   struct stat info;
   if (stat(path, &info) == 0)
   {
-    respond(request, "409 Conflict", "Destination exists; delete explicitly before uploading");
-    return ESP_FAIL;
+    return respond(request, "409 Conflict", "Destination exists; delete explicitly before uploading");
   }
   if (errno != ENOENT)
   {
-    respond(request, "500 Internal Server Error", "Cannot inspect destination");
-    return ESP_FAIL;
+    return respond(request, "500 Internal Server Error", "Cannot inspect destination");
   }
   char parent[absolutePathCapacity];
   snprintf(parent, sizeof(parent), "%s", path);
@@ -285,15 +283,13 @@ static esp_err_t uploadHandler(httpd_req_t *request)
   *separator = '\0';
   if (!storageDirectoryExists(parent))
   {
-    respond(request, "404 Not Found", "Destination directory missing");
-    return ESP_FAIL;
+    return respond(request, "404 Not Found", "Destination directory missing");
   }
   const char *temporaryPath = areaTemporaryPath(area);
   int descriptor = open(temporaryPath, O_WRONLY | O_CREAT | O_EXCL, 0600);
   if (descriptor < 0)
   {
-    respond(request, "507 Insufficient Storage", "Cannot create temporary file; check SD and free space");
-    return ESP_FAIL;
+    return respond(request, "507 Insufficient Storage", "Cannot create temporary file; check SD and free space");
   }
   size_t remaining = request->content_len;
   char buffer[4096];
@@ -302,6 +298,11 @@ static esp_err_t uploadHandler(httpd_req_t *request)
   {
     size_t requested = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
     int received = httpd_req_recv(request, buffer, requested);
+    if (received == HTTPD_SOCK_ERR_TIMEOUT)
+    {
+      //-- SD writes can stall the receive loop; retry instead of aborting.
+      continue;
+    }
     if (received <= 0)
     {
       success = false;
@@ -339,8 +340,7 @@ static esp_err_t uploadHandler(httpd_req_t *request)
     return respond(request, "201 Created", "Upload complete");
   }
   unlink(temporaryPath);
-  respond(request, "500 Internal Server Error", "Upload aborted or write failed; no final file created");
-  return ESP_FAIL;
+  return respond(request, "500 Internal Server Error", "Upload aborted or write failed; no final file created");
 }
 
 static esp_err_t deleteHandler(httpd_req_t *request)

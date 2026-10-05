@@ -63,7 +63,7 @@ static bool mountCard(void)
   device.host_id = SPI2_HOST;
   esp_vfs_fat_mount_config_t mountConfig = {
       .format_if_mount_failed = false, .max_files = 6, .allocation_unit_size = 16384};
-  esp_err_t result = esp_vfs_fat_sdspi_mount("/sdcard", &host, &device, &mountConfig, &sdCard);
+  esp_err_t result = esp_vfs_fat_sdspi_mount("/microSD", &host, &device, &mountConfig, &sdCard);
   if (result != ESP_OK)
   {
     sdCard = NULL;
@@ -78,7 +78,7 @@ bool storageRefresh(void)
   layoutReady = false;
   if (sdCard != NULL)
   {
-    esp_err_t result = esp_vfs_fat_sdcard_unmount("/sdcard", sdCard);
+    esp_err_t result = esp_vfs_fat_sdcard_unmount("/microSD", sdCard);
     if (result != ESP_OK)
     {
       statusText = "SD unmount failed; reset before retrying";
@@ -99,7 +99,7 @@ bool storageRefresh(void)
     statusText = "SD must use FAT32 (FAT12/FAT16/exFAT are not accepted)";
     return false;
   }
-  FILE *file = fopen("/sdcard/retro/layout.txt", "rb");
+  FILE *file = fopen("/microSD/retro/layout.txt", "rb");
   if (file == NULL)
   {
     statusText = "Missing /retro/layout.txt; copy the supplied SD layout";
@@ -120,7 +120,7 @@ bool storageRefresh(void)
     for (size_t machine = 0; machine < 5; ++machine)
     {
       char path[96];
-      snprintf(path, sizeof(path), "/sdcard/retro/%s/%s", groups[group], machineIds[machine]);
+      snprintf(path, sizeof(path), "/microSD/retro/%s/%s", groups[group], machineIds[machine]);
       if (!storageDirectoryExists(path))
       {
         snprintf(statusDetail, sizeof(statusDetail), "Missing required directory: %s", path);
@@ -129,7 +129,7 @@ bool storageRefresh(void)
       }
     }
   }
-  if (!storageDirectoryExists("/sdcard/retro/exchange/common") || !storageDirectoryExists("/sdcard/retro/backup"))
+  if (!storageDirectoryExists("/microSD/retro/exchange/common") || !storageDirectoryExists("/microSD/retro/backup"))
   {
     statusText = "SD layout incomplete: exchange/common or backup is missing";
     return false;

@@ -1,5 +1,5 @@
 idf_component_register(
-  SRCS "main.c" "systemMenu.c" "hostConsole.c" "imageFile.c" "storage.c" "machineRegistry.c" "network.c"
+  SRCS "cpmDriveConfig.c" "main.c" "systemMenu.c" "hostConsole.c" "imageFile.c" "storage.c" "machineRegistry.c" "network.c"
     "fileTransfer.c" "cpmMachine.c"
   INCLUDE_DIRS "."
   PRIV_REQUIRES hostCore cpmCore esp_driver_usb_serial_jtag esp_driver_spi esp_driver_sdspi

@@ -143,7 +143,7 @@ def zip_members(archive_data, selected_members):
         if not matches:
             raise ArchiveError(f"ZIP member not found: {member_name}")
         info = matches[0]
-        if info.file_size > cpmDiskImage.IMAGE_SIZE:
+        if info.file_size > cpmDiskImage.MAX_IMAGE_SIZE:
             raise ArchiveError(f"ZIP member is larger than one CP/M disk: {member_name}")
         try:
             contents = archive.read(info)

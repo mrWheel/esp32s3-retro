@@ -1,6 +1,6 @@
 # Host tools
 
-`prepareSd.py` (Python 3.9+) adds the documented layout to an already formatted/mounted FAT32 card. It does not format, delete, make disk images or rewrite an incompatible layout marker. Run with the card mount root as its sole argument.
+`prepareSd.py` (Python 3.9+) adds the documented layout and a default CP/M `drives.cfg` to an already formatted/mounted FAT32 card. It does not format, delete, make disk images, overwrite an existing drive configuration or rewrite an incompatible layout marker. Run with the card mount root as its sole argument.
 
 `transferTest.py` exercises an actual running device using the session URL displayed on USB. It creates uniquely named files in exchange/common and removes only those files. Do not run it during manual transfers. Its 8 MiB payload intentionally exceeds normal ESP32-S3 internal RAM; the test PC can hold it in memory, while the device must stream.
 
@@ -8,23 +8,23 @@
 
 `HOST.COM` is project-authored Z80 source at `components/cpmCore/os/host/HOST.ASM`. To rebuild it on macOS, install the Z80 assembler with `brew install z80asm`, then run `z80asm -o components/cpmCore/os/host/HOST.COM components/cpmCore/os/host/HOST.ASM`. Rebuild `system.dsk` with `python3 tools/buildCpmDisk.py` after assembling. The checked-in COM image and source are both covered by the SHA-256 inventory.
 
-## Prepare an E: work disk on macOS
+## Prepare CP/M disk images on macOS
 
-`cpmDiskImage.py` creates an empty raw CP/M 2.2 image using the firmware's exact geometry: 77 tracks, 26 128-byte records per track, two reserved tracks, 1 KiB blocks, 64 directory entries, and allocation blocks 0–242. It uses only the Python standard library.
+`cpmDiskImage.py` creates empty raw CP/M 2.2 images for either supported profile. `SYSTEM` uses 77 tracks × 26 128-byte records, two reserved tracks, 1 KiB blocks and 64 directory entries. `LARGE` uses 77 tracks × 52 128-byte records, two reserved tracks, 2 KiB blocks and 128 directory entries. Both profiles use allocation blocks 0–242. It uses only the Python standard library.
 
 ```sh
 python3 tools/prepareSd.py /Volumes/SDCARD
-python3 tools/cpmDiskImage.py create ~/Desktop/work.dsk
+python3 tools/cpmDiskImage.py create --profile LARGE ~/Desktop/work.dsk
 python3 tools/cpmDiskImage.py add ~/Desktop/work.dsk ~/Downloads/MBASIC.COM
 python3 tools/cpmDiskImage.py list ~/Desktop/work.dsk
 cp ~/Desktop/work.dsk /Volumes/SDCARD/retro/images/cpm/work.dsk
 ```
 
-The local-file `add` step accepts ordinary files with valid CP/M 8.3 names; use `--name MBASIC.COM` if the host filename needs changing. Create refuses to overwrite an existing image unless `--force` is supplied. `add` preserves the image if a file is invalid, duplicated, or does not fit. Copy the finished `work.dsk` to the shown SD path and safely eject the card before inserting it in the ESP32-S3. At the CP/M prompt, switch to `E:` and use `DIR`; a write-enabled CP/M image is required.
+The local-file `add` step accepts ordinary files with valid CP/M 8.3 names; use `--name MBASIC.COM` if the host filename needs changing. Create refuses to overwrite an existing image unless `--force` is supplied. `add` preserves the image if a file is invalid, duplicated, or does not fit. `prepareSd.py` writes `retro/images/cpm/drives.cfg` only when it does not already exist; edit that file to choose the drive letter, image path, `RO`/`RW` access and `SYSTEM`/`LARGE` profile. Copy the finished `work.dsk` to the path named by that configuration and safely eject the card before inserting it in the ESP32-S3. At the CP/M prompt, switch to `E:` and use `DIR`; a write-enabled CP/M image is required.
 
 ## Import resources from an HTML archive
 
-`fetchCpmSoftware.py` can display an HTML index, fetch one selected link, select members from ZIP files, and add approved individual files to a work image. It also installs a raw disk image only if it is exactly 256,256 bytes and its directory/allocation structure validates. It does not convert ImageDisk `.IMD`, TeleDisk `.TD0`, or arbitrary foreign geometries.
+`fetchCpmSoftware.py` can display an HTML index, fetch one selected link, select members from ZIP files, and add approved individual files to a work image. It also installs a raw disk image only if it matches one of the supported image sizes and its directory/allocation structure validates. It does not convert ImageDisk `.IMD`, TeleDisk `.TD0`, or arbitrary foreign geometries.
 
 ```sh
 python3 tools/fetchCpmSoftware.py list http://cpmarchives.classiccmp.org/cpm/mirrors/www.retroarchive.org/cpm/lang/lang.htm

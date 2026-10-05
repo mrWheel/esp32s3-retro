@@ -1,5 +1,6 @@
 #include "cpmMachine.h"
 #include "cpmGuest.h"
+#include "cpmDriveConfig.h"
 #include "hostExchange.h"
 #include "hostConsole.h"
 #include "imageFile.h"
@@ -11,14 +12,7 @@
 #include <string.h>
 
 static const char *tag = "cpmMachine";
-static const char *systemDiskPath = "/littlefs/cpm/system.dsk";
-static const char *diskPaths[cpmDiskDriveCount] = {
-    "/littlefs/cpm/system.dsk",
-    "/sdcard/retro/images/cpm/languages.dsk",
-    "/sdcard/retro/images/cpm/tools.dsk",
-    "/sdcard/retro/images/cpm/archive.dsk",
-    "/sdcard/retro/images/cpm/work.dsk",
-};
+static const char *driveConfigPath = "/microSD/retro/images/cpm/drives.cfg";
 static const uint8_t systemHeader[cpmSystemHeaderSize] = {'R', 'E', 'T', 'R', 'O', 'C', 'P', 'M', 1, 1, 0x00, 0xC4,
                                                           0x00, 0xCC, 0x00, 0xDA};
 static const uint8_t expectedSystemDiskHash[32] = {0x96, 0x0B, 0xFE, 0x75, 0x2F, 0xC8, 0x48, 0x94,
@@ -26,6 +20,7 @@ static const uint8_t expectedSystemDiskHash[32] = {0x96, 0x0B, 0xFE, 0x75, 0x2F,
                                                    0xFF, 0xCE, 0xC0, 0xF8, 0xE1, 0x72, 0x55, 0x10,
                                                    0x1A, 0xCB, 0xCC, 0xA8, 0x57, 0x0A, 0xEB, 0xB7};
 static imageFile diskImages[cpmDiskDriveCount];
+static cpmDriveConfig driveTable[cpmDiskDriveCount];
 static cpmGuest guest;
 static hostExchange exchangeService;
 static bool guestReady;
@@ -54,15 +49,31 @@ static bool diskDriveAvailable(void *context, uint8_t drive)
   return drive < cpmDiskDriveCount && diskImages[drive].file != NULL;
 }
 
+static bool diskDriveProfile(void *context, uint8_t drive, cpmDiskProfile *profile)
+{
+  (void)context;
+  if (drive >= cpmDiskDriveCount || profile == NULL || diskImages[drive].file == NULL)
+  {
+    return false;
+  }
+  *profile = driveTable[drive].profile;
+  return true;
+}
+
+static uint16_t diskSectorsPerTrack(uint8_t drive)
+{
+  return driveTable[drive].profile == cpmDiskProfileLarge ? cpmLargeDiskSectorsPerTrack : cpmDiskSectorsPerTrack;
+}
+
 static bool diskReadRecord(void *context, uint8_t drive, uint16_t track, uint16_t sector,
                            uint8_t record[cpmDiskSectorSize])
 {
   (void)context;
-  if (drive >= cpmDiskDriveCount || track >= cpmDiskTracks || sector >= cpmDiskSectorsPerTrack)
+  if (drive >= cpmDiskDriveCount || track >= cpmDiskTracks || sector >= diskSectorsPerTrack(drive))
   {
     return false;
   }
-  uint64_t recordIndex = (uint64_t)track * cpmDiskSectorsPerTrack + sector;
+  uint64_t recordIndex = (uint64_t)track * diskSectorsPerTrack(drive) + sector;
   return imageReadAt(&diskImages[drive], recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize);
 }
 
@@ -70,11 +81,11 @@ static bool diskWriteRecord(void *context, uint8_t drive, uint16_t track, uint16
                             const uint8_t record[cpmDiskSectorSize])
 {
   (void)context;
-  if (drive >= cpmDiskDriveCount || track >= cpmDiskTracks || sector >= cpmDiskSectorsPerTrack)
+  if (drive >= cpmDiskDriveCount || track >= cpmDiskTracks || sector >= diskSectorsPerTrack(drive))
   {
     return false;
   }
-  uint64_t recordIndex = (uint64_t)track * cpmDiskSectorsPerTrack + sector;
+  uint64_t recordIndex = (uint64_t)track * diskSectorsPerTrack(drive) + sector;
   return imageWriteAt(&diskImages[drive], recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize) &&
          imageFlush(&diskImages[drive]);
 }
@@ -95,25 +106,46 @@ static void exchangePortOutput(void *context, uint8_t port, uint8_t value)
   hostExchangePortOutput(context, port, value);
 }
 
+static void loadDriveConfig(void)
+{
+  char error[96];
+  cpmDriveConfigResult result = cpmDriveConfigLoad(driveConfigPath, driveTable, error, sizeof(error));
+  if (result == cpmDriveConfigMissing)
+  {
+    ESP_LOGW(tag, "%s", error);
+  }
+  else if (result == cpmDriveConfigInvalid)
+  {
+    ESP_LOGE(tag, "%s; using the built-in A: system image only", error);
+  }
+}
+
 static void openOptionalDiskImages(void)
 {
   for (uint8_t drive = 1; drive < cpmDiskDriveCount; ++drive)
   {
+    if (!driveTable[drive].configured)
+    {
+      continue;
+    }
     uint64_t size;
-    if (!resourceSize(diskPaths[drive], &size))
+    if (!resourceSize(driveTable[drive].path, &size))
     {
+      ESP_LOGW(tag, "CP/M %c: image is missing: %s", 'A' + drive, driveTable[drive].path);
       continue;
     }
-    if (size != cpmSystemImageSize)
+    uint64_t expectedSize = driveTable[drive].profile == cpmDiskProfileLarge ? cpmLargeImageSize : cpmSystemImageSize;
+    if (size != expectedSize)
     {
-      ESP_LOGE(tag, "Ignoring CP/M %c: image %s: size=%llu, expected=%u", 'A' + drive, diskPaths[drive],
-               (unsigned long long)size, (unsigned)cpmSystemImageSize);
+      ESP_LOGE(tag, "Ignoring CP/M %c: image %s: size=%llu, expected %s profile size=%llu", 'A' + drive,
+               driveTable[drive].path, (unsigned long long)size,
+               driveTable[drive].profile == cpmDiskProfileLarge ? "LARGE" : "SYSTEM",
+               (unsigned long long)expectedSize);
       continue;
     }
-    bool readOnly = drive != cpmDiskDriveCount - 1;
-    if (!imageOpen(&diskImages[drive], diskPaths[drive], readOnly))
+    if (!imageOpen(&diskImages[drive], driveTable[drive].path, driveTable[drive].readOnly))
     {
-      ESP_LOGE(tag, "Could not open CP/M %c: image: %s", 'A' + drive, diskPaths[drive]);
+      ESP_LOGE(tag, "Could not open CP/M %c: image: %s", 'A' + drive, driveTable[drive].path);
     }
   }
 }
@@ -124,7 +156,7 @@ static void closeDiskImages(void)
   {
     if (diskImages[drive].file != NULL && !imageClose(&diskImages[drive]))
     {
-      ESP_LOGE(tag, "Failed to close CP/M %c: image: %s", 'A' + drive, diskPaths[drive]);
+      ESP_LOGE(tag, "Failed to close CP/M %c: image: %s", 'A' + drive, driveTable[drive].path);
     }
   }
 }
@@ -193,6 +225,8 @@ machineState cpmMachineProbe(const retroMachine *machine)
     return machineNotImplemented;
   }
 
+  loadDriveConfig();
+  const char *systemDiskPath = driveTable[0].path;
   imageFile image = {0};
   if (!imageOpen(&image, systemDiskPath, true))
   {
@@ -252,9 +286,10 @@ esp_err_t cpmMachineInitialize(void)
     ESP_LOGE(tag, "CP/M guest is already initialized");
     return ESP_FAIL;
   }
-  if (!imageOpen(&diskImages[0], systemDiskPath, true))
+  loadDriveConfig();
+  if (!imageOpen(&diskImages[0], driveTable[0].path, true))
   {
-    ESP_LOGE(tag, "Could not open CP/M system image: %s", systemDiskPath);
+    ESP_LOGE(tag, "Could not open CP/M system image: %s", driveTable[0].path);
     return ESP_FAIL;
   }
 
@@ -262,12 +297,12 @@ esp_err_t cpmMachineInitialize(void)
   {
     if (imageSize(&diskImages[0]) != cpmSystemImageSize)
     {
-      ESP_LOGE(tag, "Invalid CP/M system image %s: size=%llu, expected=%u", systemDiskPath,
+      ESP_LOGE(tag, "Invalid CP/M system image %s: size=%llu, expected=%u", driveTable[0].path,
                (unsigned long long)imageSize(&diskImages[0]), (unsigned)cpmSystemImageSize);
     }
     else
     {
-      ESP_LOGE(tag, "Invalid CP/M system image header signature: %s", systemDiskPath);
+      ESP_LOGE(tag, "Invalid CP/M system image header signature: %s", driveTable[0].path);
     }
     if (!imageClose(&diskImages[0]))
     {
@@ -290,7 +325,7 @@ esp_err_t cpmMachineInitialize(void)
   if (!imageReadAt(&diskImages[0], 0, systemBinaries, cpmCcpSize) ||
       !imageReadAt(&diskImages[0], cpmCcpSize, systemBinaries + cpmCcpSize, cpmBdosSize))
   {
-    ESP_LOGE(tag, "Failed reading CP/M system binaries from %s", systemDiskPath);
+    ESP_LOGE(tag, "Failed reading CP/M system binaries from %s", driveTable[0].path);
     free(systemBinaries);
     if (!imageClose(&diskImages[0]))
     {
@@ -301,7 +336,7 @@ esp_err_t cpmMachineInitialize(void)
 
   openOptionalDiskImages();
 
-  if (!hostExchangeInitialize(&exchangeService, "/sdcard/retro/exchange/cpm"))
+  if (!hostExchangeInitialize(&exchangeService, "/microSD/retro/exchange/cpm"))
   {
     ESP_LOGE(tag, "Could not initialize the CP/M exchange service");
     closeDiskImages();
@@ -312,6 +347,7 @@ esp_err_t cpmMachineInitialize(void)
                            .consoleRead = consoleRead,
                            .consoleWrite = consoleWrite,
                            .diskDriveAvailable = diskDriveAvailable,
+                           .diskDriveProfile = diskDriveProfile,
                            .diskReadRecord = diskReadRecord,
                            .diskWriteRecord = diskWriteRecord,
                            .exchangePortInput = exchangePortInput,

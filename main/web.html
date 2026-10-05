@@ -64,7 +64,7 @@ progress
 <option value="exchange">Loose files (/retro/exchange/)</option>
 <option value="images">Disk image (/retro/images/)</option>
 </select>
-<h2 id="location">/sdcard/retro/exchange/cpm/</h2>
+<h2 id="location">/microSD/retro/exchange/cpm/</h2>
 <button id="up">Parent folder</button><button id="refresh">Refresh</button>
 <form id="upload">
 <input id="file" type="file" required><button id="send">Upload</button>
@@ -102,8 +102,8 @@ function apiPath(path)
 
 function areaRoot()
 {
-  return currentArea === "images" ? "/sdcard/retro/images/" + currentMachine :
-    "/sdcard/retro/exchange/" + currentMachine;
+  return currentArea === "images" ? "/microSD/retro/images/" + currentMachine :
+    "/microSD/retro/exchange/" + currentMachine;
 }
 
 function showLocation()
@@ -285,16 +285,7 @@ element("upload").onsubmit = (event) =>
     if (file.size > 4294967294)
     {
       throw new Error("Maximum file size is 4 GiB minus 2 bytes.");
-    };
-    function selectionChanged()
-    {
-      currentArea = element("area").value;
-      currentMachine = element("machine").value;
-      currentPath = "";
-      run(refresh);
     }
-    element("area").onchange = selectionChanged;
-    element("machine").onchange = selectionChanged;
     element("send").disabled = true;
     showStatus("Uploading " + file.name + "...");
     showProgress("Uploading " + file.name, 0, file.size);
@@ -312,7 +303,17 @@ element("upload").onsubmit = (event) =>
     }
   });
 };
-run(refresh);
+function selectionChanged()
+{
+  currentArea = element("area").value;
+  currentMachine = element("machine").value;
+  currentPath = "";
+  run(refresh);
+}
+element("area").onchange = selectionChanged;
+element("machine").onchange = selectionChanged;
+//-- Browsers may restore earlier select values after a reload; sync state from the controls.
+selectionChanged();
 </script>
 </body>
 </html>

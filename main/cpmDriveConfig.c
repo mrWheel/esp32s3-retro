@@ -1,0 +1,220 @@
+#include "cpmDriveConfig.h"
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+
+static const char *systemImagePath = "/littlefs/cpm/system.dsk";
+static const char *systemPathPrefix = "/littlefs/cpm/";
+static const char *largePathPrefix = "/retro/images/cpm/";
+static const char *largeVfsPrefix = "/microSD";
+
+static void setError(char *error, size_t errorCapacity, const char *message)
+{
+  if (error != NULL && errorCapacity > 0)
+  {
+    snprintf(error, errorCapacity, "%s", message);
+  }
+}
+
+static void initializeDefaults(cpmDriveConfig drives[cpmDiskDriveCount])
+{
+  memset(drives, 0, sizeof(cpmDriveConfig) * cpmDiskDriveCount);
+  snprintf(drives[0].path, sizeof(drives[0].path), "%s", systemImagePath);
+  drives[0].profile = cpmDiskProfileSystem;
+  drives[0].readOnly = true;
+  drives[0].configured = true;
+}
+
+static char *trim(char *text)
+{
+  while (*text == ' ' || *text == '\t')
+  {
+    ++text;
+  }
+  size_t length = strlen(text);
+  while (length > 0 && (text[length - 1] == ' ' || text[length - 1] == '\t' || text[length - 1] == '\r' ||
+                        text[length - 1] == '\n'))
+  {
+    text[--length] = '\0';
+  }
+  return text;
+}
+
+static bool safePath(const char *path, const char *prefix)
+{
+  size_t prefixLength = strlen(prefix);
+  if (strncmp(path, prefix, prefixLength) != 0 || path[prefixLength] == '\0' || path[strlen(path) - 1] == '/' ||
+      strstr(path, "//") != NULL || strstr(path, "/./") != NULL || strstr(path, "/../") != NULL ||
+      strcmp(path + strlen(path) - 2, "/.") == 0 || strcmp(path + strlen(path) - 3, "/..") == 0 ||
+      strchr(path, '\\') != NULL)
+  {
+    return false;
+  }
+  for (const unsigned char *character = (const unsigned char *)path; *character != '\0'; ++character)
+  {
+    if (*character < 0x20 || *character == 0x7f)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool parseLine(char *line, cpmDriveConfig drives[cpmDiskDriveCount], bool seen[cpmDiskDriveCount])
+{
+  char *content = trim(line);
+  if (*content == '\0' || *content == '#')
+  {
+    return true;
+  }
+  char *equals = strchr(content, '=');
+  if (equals == NULL || equals == content || strchr(equals + 1, '=') != NULL)
+  {
+    return false;
+  }
+  *equals = '\0';
+  char *driveName = trim(content);
+  char *fields = trim(equals + 1);
+  if (strlen(driveName) != 1 || driveName[0] < 'A' || driveName[0] >= 'A' + cpmDiskDriveCount)
+  {
+    return false;
+  }
+  uint8_t drive = (uint8_t)(driveName[0] - 'A');
+  if (seen[drive])
+  {
+    return false;
+  }
+  char *firstComma = strchr(fields, ',');
+  if (firstComma == NULL)
+  {
+    return false;
+  }
+  *firstComma = '\0';
+  char *mode = trim(firstComma + 1);
+  char *secondComma = strchr(mode, ',');
+  if (secondComma == NULL)
+  {
+    return false;
+  }
+  *secondComma = '\0';
+  char *profileName = trim(secondComma + 1);
+  char *imagePath = trim(fields);
+  mode = trim(mode);
+  if (strchr(profileName, ',') != NULL || *imagePath == '\0')
+  {
+    return false;
+  }
+
+  cpmDiskProfile profile;
+  if (strcmp(profileName, "SYSTEM") == 0)
+  {
+    profile = cpmDiskProfileSystem;
+  }
+  else if (strcmp(profileName, "LARGE") == 0)
+  {
+    profile = cpmDiskProfileLarge;
+  }
+  else
+  {
+    return false;
+  }
+  bool readOnly;
+  if (strcmp(mode, "RO") == 0)
+  {
+    readOnly = true;
+  }
+  else if (strcmp(mode, "RW") == 0)
+  {
+    readOnly = false;
+  }
+  else
+  {
+    return false;
+  }
+
+  //-- A: is the LittleFS system image; B: to F: are SD images (SYSTEM = 256256 bytes or LARGE = 512512 bytes).
+  const char *requiredPrefix = drive == 0 ? systemPathPrefix : largePathPrefix;
+  size_t storedPathLength = strlen(imagePath) + (drive != 0 ? strlen(largeVfsPrefix) : 0);
+  if ((drive == 0 && (profile != cpmDiskProfileSystem || !readOnly)) || !safePath(imagePath, requiredPrefix) ||
+      storedPathLength >= sizeof(drives[drive].path))
+  {
+    return false;
+  }
+
+  if (drive != 0)
+  {
+    snprintf(drives[drive].path, sizeof(drives[drive].path), "%s%s", largeVfsPrefix, imagePath);
+  }
+  else
+  {
+    snprintf(drives[drive].path, sizeof(drives[drive].path), "%s", imagePath);
+  }
+  drives[drive].profile = profile;
+  drives[drive].readOnly = readOnly;
+  drives[drive].configured = true;
+  seen[drive] = true;
+  return true;
+}
+
+cpmDriveConfigResult cpmDriveConfigLoad(const char *path, cpmDriveConfig drives[cpmDiskDriveCount], char *error,
+                                        size_t errorCapacity)
+{
+  if (path == NULL || drives == NULL)
+  {
+    setError(error, errorCapacity, "Invalid drives.cfg arguments");
+    return cpmDriveConfigInvalid;
+  }
+
+  initializeDefaults(drives);
+  FILE *file = fopen(path, "rb");
+  if (file == NULL)
+  {
+    if (errno == ENOENT)
+    {
+      setError(error, errorCapacity, "drives.cfg is missing; using the built-in A: system image only");
+      return cpmDriveConfigMissing;
+    }
+    setError(error, errorCapacity, "drives.cfg could not be opened");
+    return cpmDriveConfigInvalid;
+  }
+
+  bool seen[cpmDiskDriveCount] = {false};
+  char line[256];
+  size_t lineNumber = 0;
+  while (fgets(line, sizeof(line), file) != NULL)
+  {
+    ++lineNumber;
+    size_t length = strlen(line);
+    if (length == sizeof(line) - 1 && line[length - 1] != '\n' && !feof(file))
+    {
+      fclose(file);
+      initializeDefaults(drives);
+      if (error != NULL && errorCapacity > 0)
+      {
+        snprintf(error, errorCapacity, "drives.cfg line %u is too long", (unsigned)lineNumber);
+      }
+      return cpmDriveConfigInvalid;
+    }
+    if (!parseLine(line, drives, seen))
+    {
+      fclose(file);
+      initializeDefaults(drives);
+      if (error != NULL && errorCapacity > 0)
+      {
+        snprintf(error, errorCapacity, "invalid drives.cfg line %u", (unsigned)lineNumber);
+      }
+      return cpmDriveConfigInvalid;
+    }
+  }
+
+  bool readError = ferror(file) != 0;
+  fclose(file);
+  if (readError)
+  {
+    initializeDefaults(drives);
+    setError(error, errorCapacity, "drives.cfg could not be read completely");
+    return cpmDriveConfigInvalid;
+  }
+  setError(error, errorCapacity, "");
+  return cpmDriveConfigLoaded;
+}

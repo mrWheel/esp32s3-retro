@@ -14,11 +14,13 @@ enum
   cpmBiosCsvAddress = 0xDB30,
   cpmBiosAlvAddress = 0xDB40,
   cpmBiosAdditionalDphAddress = 0xDB60,
-  cpmBiosAdditionalDriveStride = 0x00C0,
-  cpmBiosAdditionalDirectoryBufferOffset = 0x10,
-  cpmBiosAdditionalCsvOffset = 0x90,
-  cpmBiosAdditionalAlvOffset = 0xA0,
+  cpmBiosAdditionalDriveStride = 0x00E0,
+  cpmBiosAdditionalDpbOffset = 0x10,
+  cpmBiosAdditionalDirectoryBufferOffset = 0x20,
+  cpmBiosAdditionalCsvOffset = 0xA0,
+  cpmBiosAdditionalAlvOffset = 0xC0,
   cpmBiosCsvSize = 16,
+  cpmBiosLargeCsvSize = 32,
   cpmBiosAlvSize = 31,
   cpmBdosEntryAddress = cpmBdosAddress + 6,
   cpmVirtualDpbSpt = 26,
@@ -30,7 +32,17 @@ enum
   cpmVirtualDpbAl0 = 0xC0,
   cpmVirtualDpbAl1 = 0,
   cpmVirtualDpbCks = 16,
-  cpmVirtualDpbOff = 2
+  cpmVirtualDpbOff = 2,
+  cpmLargeVirtualDpbSpt = 52,
+  cpmLargeVirtualDpbBsh = 4,
+  cpmLargeVirtualDpbBlm = 15,
+  cpmLargeVirtualDpbExm = 0,
+  cpmLargeVirtualDpbDsm = 242,
+  cpmLargeVirtualDpbDrm = 127,
+  cpmLargeVirtualDpbAl0 = 0xC0,
+  cpmLargeVirtualDpbAl1 = 0,
+  cpmLargeVirtualDpbCks = 32,
+  cpmLargeVirtualDpbOff = 2
 };
 
 typedef enum
@@ -117,22 +129,44 @@ static void resetProcessor(cpmGuest *guest, uint16_t programCounter)
 
 static void installBios(cpmGuest *guest)
 {
-  static const uint8_t dpb[] = {cpmVirtualDpbSpt,
-                                cpmVirtualDpbSpt >> 8,
-                                cpmVirtualDpbBsh,
-                                cpmVirtualDpbBlm,
-                                cpmVirtualDpbExm,
-                                cpmVirtualDpbDsm,
-                                cpmVirtualDpbDsm >> 8,
-                                cpmVirtualDpbDrm,
-                                cpmVirtualDpbDrm >> 8,
-                                cpmVirtualDpbAl0,
-                                cpmVirtualDpbAl1,
-                                cpmVirtualDpbCks,
-                                cpmVirtualDpbCks >> 8,
-                                cpmVirtualDpbOff,
-                                cpmVirtualDpbOff >> 8};
   uint8_t *memory = guest->cpu.memory;
+
+  for (uint8_t drive = 0; drive < cpmDiskDriveCount; ++drive)
+  {
+    uint16_t dphAddress =
+        drive == 0 ? cpmBiosDphAddress
+                   : cpmBiosAdditionalDphAddress + (uint16_t)(drive - 1) * cpmBiosAdditionalDriveStride;
+    uint16_t dpbAddress = drive == 0 ? cpmBiosDpbAddress : dphAddress + cpmBiosAdditionalDpbOffset;
+    uint16_t directoryBufferAddress =
+        drive == 0 ? cpmBiosDirectoryBufferAddress : dphAddress + cpmBiosAdditionalDirectoryBufferOffset;
+    uint16_t csvAddress = drive == 0 ? cpmBiosCsvAddress : dphAddress + cpmBiosAdditionalCsvOffset;
+    uint16_t alvAddress = drive == 0 ? cpmBiosAlvAddress : dphAddress + cpmBiosAdditionalAlvOffset;
+    bool large = guest->diskProfiles[drive] == cpmDiskProfileLarge;
+    uint16_t spt = large ? cpmLargeVirtualDpbSpt : cpmVirtualDpbSpt;
+    uint16_t dsm = large ? cpmLargeVirtualDpbDsm : cpmVirtualDpbDsm;
+    uint16_t drm = large ? cpmLargeVirtualDpbDrm : cpmVirtualDpbDrm;
+    uint16_t cks = large ? cpmLargeVirtualDpbCks : cpmVirtualDpbCks;
+    uint16_t off = large ? cpmLargeVirtualDpbOff : cpmVirtualDpbOff;
+
+    memset(memory + dphAddress, 0, 16);
+    writeWord(memory, dphAddress + 8, directoryBufferAddress);
+    writeWord(memory, dphAddress + 10, dpbAddress);
+    writeWord(memory, dphAddress + 12, csvAddress);
+    writeWord(memory, dphAddress + 14, alvAddress);
+    writeWord(memory, dpbAddress, spt);
+    memory[dpbAddress + 2] = large ? cpmLargeVirtualDpbBsh : cpmVirtualDpbBsh;
+    memory[dpbAddress + 3] = large ? cpmLargeVirtualDpbBlm : cpmVirtualDpbBlm;
+    memory[dpbAddress + 4] = large ? cpmLargeVirtualDpbExm : cpmVirtualDpbExm;
+    writeWord(memory, dpbAddress + 5, dsm);
+    writeWord(memory, dpbAddress + 7, drm);
+    memory[dpbAddress + 9] = large ? cpmLargeVirtualDpbAl0 : cpmVirtualDpbAl0;
+    memory[dpbAddress + 10] = large ? cpmLargeVirtualDpbAl1 : cpmVirtualDpbAl1;
+    writeWord(memory, dpbAddress + 11, cks);
+    writeWord(memory, dpbAddress + 13, off);
+    memset(memory + directoryBufferAddress, 0, cpmDiskSectorSize);
+    memset(memory + csvAddress, 0, large ? cpmBiosLargeCsvSize : cpmBiosCsvSize);
+    memset(memory + alvAddress, 0, cpmBiosAlvSize);
+  }
 
   for (uint8_t function = 0; function < cpmBiosFunctionCount; ++function)
   {
@@ -147,33 +181,6 @@ static void installBios(cpmGuest *guest)
     memory[stubAddress + 4] = 0xC9;
   }
 
-  memset(memory + cpmBiosDphAddress, 0, 16);
-  writeWord(memory, cpmBiosDphAddress + 8, cpmBiosDirectoryBufferAddress);
-  writeWord(memory, cpmBiosDphAddress + 10, cpmBiosDpbAddress);
-  writeWord(memory, cpmBiosDphAddress + 12, cpmBiosCsvAddress);
-  writeWord(memory, cpmBiosDphAddress + 14, cpmBiosAlvAddress);
-  memcpy(memory + cpmBiosDpbAddress, dpb, sizeof(dpb));
-  memset(memory + cpmBiosDirectoryBufferAddress, 0, cpmDiskSectorSize);
-  memset(memory + cpmBiosCsvAddress, 0, cpmBiosCsvSize);
-  memset(memory + cpmBiosAlvAddress, 0, cpmBiosAlvSize);
-
-  for (uint8_t drive = 1; drive < cpmDiskDriveCount; ++drive)
-  {
-    uint16_t driveOffset = (uint16_t)(drive - 1) * cpmBiosAdditionalDriveStride;
-    uint16_t dphAddress = cpmBiosAdditionalDphAddress + driveOffset;
-    uint16_t directoryBufferAddress = dphAddress + cpmBiosAdditionalDirectoryBufferOffset;
-    uint16_t csvAddress = dphAddress + cpmBiosAdditionalCsvOffset;
-    uint16_t alvAddress = dphAddress + cpmBiosAdditionalAlvOffset;
-
-    memset(memory + dphAddress, 0, 16);
-    writeWord(memory, dphAddress + 8, directoryBufferAddress);
-    writeWord(memory, dphAddress + 10, cpmBiosDpbAddress);
-    writeWord(memory, dphAddress + 12, csvAddress);
-    writeWord(memory, dphAddress + 14, alvAddress);
-    memset(memory + directoryBufferAddress, 0, cpmDiskSectorSize);
-    memset(memory + csvAddress, 0, cpmBiosCsvSize);
-    memset(memory + alvAddress, 0, cpmBiosAlvSize);
-  }
 }
 
 static void installSystem(cpmGuest *guest, bool coldBoot)
@@ -238,12 +245,22 @@ static bool readConsoleCharacter(cpmGuest *guest, uint8_t *character)
   return false;
 }
 
+static uint16_t sectorsPerTrack(cpmDiskProfile profile)
+{
+  return profile == cpmDiskProfileLarge ? cpmLargeDiskSectorsPerTrack : cpmDiskSectorsPerTrack;
+}
+
+static bool diskPositionValid(const cpmGuest *guest)
+{
+  return guest->selectedDrive < cpmDiskDriveCount && guest->currentTrack < cpmDiskTracks &&
+         guest->currentSector < sectorsPerTrack(guest->diskProfiles[guest->selectedDrive]);
+}
+
 static bool readDiskRecord(cpmGuest *guest)
 {
   z80 *processor = &guest->cpu.processor;
   uint8_t record[cpmDiskSectorSize];
-  if (guest->selectedDrive >= cpmDiskDriveCount || guest->currentTrack >= cpmDiskTracks ||
-      guest->currentSector >= cpmDiskSectorsPerTrack || guest->dmaAddress > cpmMemorySize - cpmDiskSectorSize ||
+  if (!diskPositionValid(guest) || guest->dmaAddress > cpmMemorySize - cpmDiskSectorSize ||
       !guest->host.diskReadRecord(guest->host.context, guest->selectedDrive, guest->currentTrack,
                                  guest->currentSector, record))
   {
@@ -258,8 +275,7 @@ static bool readDiskRecord(cpmGuest *guest)
 static bool writeDiskRecord(cpmGuest *guest)
 {
   z80 *processor = &guest->cpu.processor;
-  if (guest->selectedDrive >= cpmDiskDriveCount || guest->currentTrack >= cpmDiskTracks ||
-      guest->currentSector >= cpmDiskSectorsPerTrack || guest->dmaAddress > cpmMemorySize - cpmDiskSectorSize ||
+  if (!diskPositionValid(guest) || guest->dmaAddress > cpmMemorySize - cpmDiskSectorSize ||
       !guest->host.diskWriteRecord(guest->host.context, guest->selectedDrive, guest->currentTrack,
                                   guest->currentSector, guest->cpu.memory + guest->dmaAddress))
   {
@@ -391,7 +407,8 @@ bool cpmGuestInitialize(cpmGuest *guest, const cpmHostOps *host, const uint8_t *
 {
   if (guest == NULL || host == NULL || ccpImage == NULL || bdosImage == NULL ||
       host->consoleAvailable == NULL || host->consoleRead == NULL || host->consoleWrite == NULL ||
-      host->diskDriveAvailable == NULL || host->diskReadRecord == NULL || host->diskWriteRecord == NULL ||
+      host->diskDriveAvailable == NULL || host->diskDriveProfile == NULL || host->diskReadRecord == NULL ||
+      host->diskWriteRecord == NULL ||
       host->yield == NULL ||
       guest->initialized || guest->cpu.memory != NULL)
   {
@@ -399,6 +416,16 @@ bool cpmGuestInitialize(cpmGuest *guest, const cpmHostOps *host, const uint8_t *
   }
 
   guest->host = *host;
+  for (uint8_t drive = 0; drive < cpmDiskDriveCount; ++drive)
+  {
+    if (host->diskDriveAvailable(host->context, drive) &&
+        (!host->diskDriveProfile(host->context, drive, &guest->diskProfiles[drive]) ||
+         (guest->diskProfiles[drive] != cpmDiskProfileSystem && guest->diskProfiles[drive] != cpmDiskProfileLarge)))
+    {
+      memset(guest, 0, sizeof(*guest));
+      return false;
+    }
+  }
   memcpy(guest->ccpImage, ccpImage, sizeof(guest->ccpImage));
   memcpy(guest->bdosImage, bdosImage, sizeof(guest->bdosImage));
   if (!cpmCpuInitialize(&guest->cpu, readPort, writePort, guest))

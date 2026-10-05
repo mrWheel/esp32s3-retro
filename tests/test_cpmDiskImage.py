@@ -33,6 +33,27 @@ class CpmDiskImageTests(unittest.TestCase):
         self.assertEqual(len(free_slots), cpmDiskImage.DIRECTORY_ENTRIES)
         self.assertEqual(used_blocks, set())
 
+    def test_large_profile_uses_double_density_geometry_and_adds_files(self):
+        large_path = Path(self.temporary_directory.name) / "large.dsk"
+        cpmDiskImage.create_image(large_path, profile="LARGE")
+        image = large_path.read_bytes()
+        self.assertEqual(len(image), cpmDiskImage.LARGE_IMAGE_SIZE)
+        self.assertTrue(
+            all(
+                value == cpmDiskImage.EMPTY
+                for value in image[
+                    cpmDiskImage.LARGE_DIRECTORY_OFFSET : cpmDiskImage.LARGE_DIRECTORY_OFFSET
+                    + cpmDiskImage.LARGE_DIRECTORY_SIZE
+                ]
+            )
+        )
+        self.assertEqual(len(cpmDiskImage.inspect_image(image)[1]), cpmDiskImage.LARGE_DIRECTORY_ENTRIES)
+        payload = bytes(range(256)) * 100
+        cpmDiskImage.add_files(large_path, [("LARGE.COM", payload)])
+        entries, _, _ = cpmDiskImage.inspect_image(large_path.read_bytes())
+        self.assertEqual([entry["filename"] for entry in entries], ["LARGE.COM", "LARGE.COM"])
+        self.assertEqual([entry["extent"] for entry in entries], [0, 1])
+
     def test_install_validated_raw_image_refuses_unrequested_overwrite(self):
         destination = self.image_path.parent / "copy.dsk"
         data = self.image_path.read_bytes()
