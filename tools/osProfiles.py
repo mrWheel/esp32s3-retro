@@ -62,9 +62,11 @@ OS_REGISTRY = {
         image_module="diskImageCpm86",
         build_module="buildDiskImageCpm86",
         details=(
-            "Profile:\n"
+            "Profiles:\n"
             "  CPM86   40 tracks x 8 x 512 B (163840 bytes), track 0 reserved for boot,\n"
-            "          1 KiB blocks, 64 directory entries; valid for drives A: through F:\n"
+            "          1 KiB blocks, 64 directory entries; drives A: through F: (RETRO86_DATA_V1)\n"
+            "  LARGE   129 tracks x 8 x 512 B (528384 bytes), 2 KiB blocks, 128 directory\n"
+            "          entries; drives B: through F: (RETRO86_DATA_LARGE_V1)\n"
             "Files need CP/M 8.3 names (upper-cased automatically); user area 0.\n"
             "prepareSd.py creates /retro/images/cpm86/drives.cfg; edit its image paths\n"
             "and RO/RW access modes. buildDiskImage.py needs --source-dir with CPM.SYS\n"

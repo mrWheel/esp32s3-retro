@@ -54,10 +54,22 @@ E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_V1
 F=/retro/images/cpm86/archive.dsk,RW,RETRO86_DATA_V1
 ```
 
+For a larger disk (516 KiB, 128 directory entries) create the image with
+`--profile LARGE` and give that drive's line (B:–F: only) the profile
+`RETRO86_DATA_LARGE_V1`:
+
+```sh
+python3 tools/diskImage.py create --os cpm86 --profile LARGE work86.dsk
+```
+
+```text
+E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_LARGE_V1
+```
+
 Use only the shown image roots and profile identifiers. Missing optional images
 are left offline; malformed or duplicate configuration lines disable B:–F:
 and retain the built-in A:. A drive is reported to CP/M-86 only when its image
-exists, is exactly 163,840 bytes and can be opened with the configured access
+exists, has exactly its profile's size (163,840 or 528,384 bytes) and can be opened with the configured access
 mode. Do not switch an image to read/write unless its contents can be safely
 modified; use disposable media for write testing.
 

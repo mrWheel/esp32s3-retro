@@ -12,7 +12,8 @@ enum
 typedef enum
 {
   cpm86DiskProfileSystem,
-  cpm86DiskProfileData
+  cpm86DiskProfileData,
+  cpm86DiskProfileDataLarge
 } cpm86DiskProfile;
 
 typedef struct

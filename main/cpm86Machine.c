@@ -29,6 +29,7 @@ typedef struct
 {
   imageFile image;
   bool configured;
+  bool large;
 } cpm86DiskDrive;
 
 typedef struct
@@ -51,7 +52,10 @@ static bool diskRecordOffset(uint64_t *offset)
 {
   if (offset == NULL || diskController.drive >= cpm86DiskDriveCount ||
       !diskController.drives[diskController.drive].configured || diskController.track == 0 ||
-      diskController.track >= 40 || diskController.sector >= 32)
+      diskController.track >= (diskController.drives[diskController.drive].large
+                                   ? cpm86LargeDiskTracks
+                                   : cpm86SystemDiskTracks) ||
+      diskController.sector >= 32)
   {
     return false;
   }
@@ -97,10 +101,9 @@ static bool portRead(void *context, uint16_t port, uint8_t *value)
   }
   if (port == 0x00EF)
   {
-    *value = diskController.drive < cpm86DiskDriveCount &&
-                     diskController.drives[diskController.drive].configured
-                 ? 0xFF
-                 : 0;
+    bool available = diskController.drive < cpm86DiskDriveCount &&
+                     diskController.drives[diskController.drive].configured;
+    *value = !available ? 0 : diskController.drives[diskController.drive].large ? 0x01 : 0xFF;
     return true;
   }
   return false;
@@ -347,7 +350,10 @@ esp_err_t cpm86MachineInitialize(void)
       continue;
     }
     uint64_t diskSize;
-    if (!resourceSize(driveConfig[drive].path, &diskSize) || diskSize != cpm86SystemDiskSize)
+    uint64_t expectedSize = driveConfig[drive].profile == cpm86DiskProfileDataLarge
+                                ? cpm86LargeDiskSize
+                                : cpm86SystemDiskSize;
+    if (!resourceSize(driveConfig[drive].path, &diskSize) || diskSize != expectedSize)
     {
       if (drive == 0)
       {
@@ -372,6 +378,7 @@ esp_err_t cpm86MachineInitialize(void)
                driveConfig[drive].path);
       continue;
     }
+    diskController.drives[drive].large = driveConfig[drive].profile == cpm86DiskProfileDataLarge;
     diskController.drives[drive].configured = true;
   }
   if (!diskController.drives[0].configured)

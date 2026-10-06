@@ -423,6 +423,7 @@ static void testCpm86Core(void)
 typedef struct
 {
   imageFile *disks[cpm86DiskDriveCount];
+  bool largeDisks[cpm86DiskDriveCount];
   uint8_t record[128];
   uint16_t track;
   uint16_t sector;
@@ -465,7 +466,8 @@ static bool cpm86BootPortRead(void *context, uint16_t port, uint8_t *value)
   }
   if (port == 0x00EF)
   {
-    *value = fixture->drive < cpm86DiskDriveCount && fixture->disks[fixture->drive] != NULL ? 0xFF : 0;
+    bool available = fixture->drive < cpm86DiskDriveCount && fixture->disks[fixture->drive] != NULL;
+    *value = !available ? 0 : fixture->largeDisks[fixture->drive] ? 0x01 : 0xFF;
     return true;
   }
   if (port == 0x00EE && fixture->reading && fixture->transferIndex < sizeof(fixture->record))
@@ -484,7 +486,7 @@ static bool cpm86BootDiskOffset(cpm86BootFixture *fixture, uint64_t *offset)
 {
   if (fixture->drive >= cpm86DiskDriveCount || fixture->disks[fixture->drive] == NULL ||
       offset == NULL || fixture->track == 0 ||
-      fixture->track >= 40 || fixture->sector >= 32)
+      fixture->track >= (fixture->largeDisks[fixture->drive] ? 129 : 40) || fixture->sector >= 32)
   {
     return false;
   }
@@ -712,6 +714,36 @@ static void testCpm86Boot(void)
   assert(strstr(fixture.output, "ASM86") != NULL);
   assert(fixture.diskReadFailures == 0);
 
+  char largeDiskPath[] = "/tmp/cpm86-large-disk-XXXXXX";
+  int largeDescriptor = mkstemp(largeDiskPath);
+  assert(largeDescriptor >= 0);
+  uint8_t formatted[4096];
+  memset(formatted, 0xE5, sizeof(formatted));
+  for (size_t track = 0; track < 129; ++track)
+  {
+    assert(write(largeDescriptor, formatted, sizeof(formatted)) == (ssize_t)sizeof(formatted));
+  }
+  close(largeDescriptor);
+  imageFile largeDisk = {0};
+  assert(imageOpen(&largeDisk, largeDiskPath, false));
+  assert(imageSize(&largeDisk) == 528384);
+  fixture.disks[2] = &largeDisk;
+  fixture.largeDisks[2] = true;
+
+  fixture.input = "PIP C:=A:PIP.CMD\rPIP C:ASM.CMD=A:ASM86.CMD\rC:\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompt(core, &fixture, "C>", 1));
+  fixture.input = "DIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompt(core, &fixture, "C>", 2));
+  assert(strstr(fixture.output, "PIP") != NULL);
+  assert(strstr(fixture.output, "ASM") != NULL);
+  assert(fixture.diskReadFailures == 0);
+  assert(imageClose(&largeDisk));
+  assert(unlink(largeDiskPath) == 0);
+
   cpm86CoreDestroy(core);
   assert(imageClose(&disk));
   assert(unlink(temporaryDiskPath) == 0);
@@ -873,7 +905,7 @@ static void testCpm86DriveConfig(void)
       "C=/retro/images/cpm86/tools.dsk,RO,RETRO86_DATA_V1\n"
       "D=/retro/images/cpm86/utilities.dsk,RO,RETRO86_DATA_V1\n"
       "E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_V1\n"
-      "F=/retro/images/cpm86/archive.dsk,RW,RETRO86_DATA_V1\n";
+      "F=/retro/images/cpm86/archive.dsk,RW,RETRO86_DATA_LARGE_V1\n";
   char configPath[] = "/tmp/cpm86-drives-config-test-XXXXXX";
   int descriptor = mkstemp(configPath);
   assert(descriptor >= 0);
@@ -891,9 +923,10 @@ static void testCpm86DriveConfig(void)
   assert(strcmp(drives[4].path, "/microSD/retro/images/cpm86/work86.dsk") == 0);
   assert(drives[4].configured && drives[4].profile == cpm86DiskProfileData && !drives[4].readOnly);
   assert(strcmp(drives[5].path, "/microSD/retro/images/cpm86/archive.dsk") == 0);
-  assert(drives[5].configured && !drives[5].readOnly);
+  assert(drives[5].configured && drives[5].profile == cpm86DiskProfileDataLarge && !drives[5].readOnly);
 
   static const char invalidConfigs[][128] = {
+      "A=/littlefs/cpm86/system.dsk,RO,RETRO86_DATA_LARGE_V1\n",
       "B=/retro/images/cpm86/../escape.dsk,RW,RETRO86_DATA_V1\n",
       "A=/littlefs/cpm86/system.dsk,RW,RETRO86_SYSTEM_V1\n",
       "B=/retro/images/cpm86/work.dsk,RW,RETRO86_SYSTEM_V1\n",

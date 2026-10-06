@@ -8,3 +8,14 @@ diskdef retro86-160
   boottrk 1
   os 2.2
 end
+
+diskdef retro86-large
+  seclen 512
+  tracks 129
+  sectrk 8
+  blocksize 2048
+  maxdir 128
+  skew 1
+  boottrk 1
+  os 2.2
+end

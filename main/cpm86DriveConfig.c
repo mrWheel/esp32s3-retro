@@ -119,6 +119,10 @@ static bool parseLine(char *line, cpm86DriveConfig drives[cpm86DiskDriveCount],
   {
     profile = cpm86DiskProfileData;
   }
+  else if (strcmp(profileName, "RETRO86_DATA_LARGE_V1") == 0)
+  {
+    profile = cpm86DiskProfileDataLarge;
+  }
   else
   {
     return false;
@@ -141,7 +145,7 @@ static bool parseLine(char *line, cpm86DriveConfig drives[cpm86DiskDriveCount],
   const char *requiredPrefix = drive == 0 ? systemPathPrefix : dataPathPrefix;
   if ((drive == 0 && (profile != cpm86DiskProfileSystem || !readOnly ||
                       strcmp(imagePath, systemImagePath) != 0)) ||
-      (drive != 0 && profile != cpm86DiskProfileData) || !safePath(imagePath, requiredPrefix) ||
+      (drive != 0 && profile == cpm86DiskProfileSystem) || !safePath(imagePath, requiredPrefix) ||
       strlen(imagePath) >= sizeof(drives[drive].path))
   {
     return false;

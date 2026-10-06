@@ -90,6 +90,11 @@ SELDSK:
 	or	al,al
 	jz	SELDSK_NONE
 	mov	byte ptr CURRENTDRIVE,cl
+	mov	dx,offset DPB0
+	cmp	al,1
+	jne	SELDSK_DPB
+	mov	dx,offset DPB1
+SELDSK_DPB:
 	sub	ch,ch
 	mov	bx,cx
 	shl	bx,1
@@ -97,6 +102,7 @@ SELDSK:
 	shl	bx,1
 	shl	bx,1
 	add	bx,offset DPH0
+	mov	word ptr 10[bx],dx
 	ret
 SELDSK_NONE:
 	sub	bx,bx
@@ -287,19 +293,28 @@ DPB0:
 	dw	0010h
 	dw	0001h
 
+DPB1:
+	dw	0020h
+	db	04h,0Fh,01h
+	dw	00FFh
+	dw	007Fh
+	db	0C0h,00h
+	dw	0020h
+	dw	0001h
+
 DIRBUF rb	128
-CSV0 rb	16
-ALV0 rb	20
-CSV1 rb	16
-ALV1 rb	20
-CSV2 rb	16
-ALV2 rb	20
-CSV3 rb	16
-ALV3 rb	20
-CSV4 rb	16
-ALV4 rb	20
-CSV5 rb	16
-ALV5 rb	20
+CSV0 rb	32
+ALV0 rb	32
+CSV1 rb	32
+ALV1 rb	32
+CSV2 rb	32
+ALV2 rb	32
+CSV3 rb	32
+ALV3 rb	32
+CSV4 rb	32
+ALV4 rb	32
+CSV5 rb	32
+ALV5 rb	32
 MRT:
 	db	1
 	dw	0518h

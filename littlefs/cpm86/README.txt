@@ -11,8 +11,9 @@ cpm.sys
 retro86bios.h86
   ASM-86 1.1N H86 overlay assembled from
   components/cpm86Core/bios/retro86bios.a86. It supplies the RETRO86_V1 BIOS
-  routines for console and A:–F: disk I/O.
-  SHA-256: f6cd4c3f58bc9d492838c40193a8f7c07ce23fcdece3c9cf4452e28c2868a966
+  routines for console and A:–F: disk I/O, with a DPB for 160 KiB images and a
+  second DPB for 516 KiB RETRO86_DATA_LARGE_V1 images.
+  SHA-256: 2e466eb5a0619337b3b7dd3a6c405dd5f252fe5cfc8083787d5c1ab5d776378e
 
 system.dsk
   Raw, 160 KiB, 40 tracks, 8 physical 512-byte sectors per track. Track 0 is

@@ -14,6 +14,20 @@ def run(script, *arguments, check=True):
 
 
 class DiskImageCliTests(unittest.TestCase):
+    def test_cpm86_large_profile_holds_more_than_the_small_one(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "BIG.DAT"
+            source.write_bytes(b"x" * 200000)
+            common = ("--os", "cpm86", "--sd-root", str(root))
+            run("diskImage.py", "create", *common, "small.dsk")
+            self.assertNotEqual(run("diskImage.py", "add", *common, "small.dsk", str(source), check=False).returncode, 0)
+            run("diskImage.py", "create", *common, "--profile", "LARGE", "large.dsk")
+            image = root / "retro" / "images" / "cpm86" / "large.dsk"
+            self.assertEqual(image.stat().st_size, 528384)
+            run("diskImage.py", "add", *common, "large.dsk", str(source))
+            self.assertIn("200064 bytes", run("diskImage.py", "list", *common, "large.dsk").stdout)
+
     def test_wildcards_and_os_image_directory(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
