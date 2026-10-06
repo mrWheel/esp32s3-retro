@@ -1,19 +1,22 @@
 # ESP32-S3 Retro Computer — HOST-M1
 
-Native ESP-IDF **6.0.2** host project. CP/M-80 boots genuine CCP/BDOS to `A>` in host guest tests and is wired into the ESP32-S3 firmware. LittleFS A: is read-only; optional SD-backed B:–F: drives are configured by `/retro/images/cpm80/drives.cfg` with per-drive access and SYSTEM/LARGE image profiles. The 512,512-byte LARGE profile, drive selection and BIOS record I/O are host-tested, but actual SD images and hardware drive use are not yet verified. UCSD Pascal, Apple II, MP/M II and SWTPC 6800 remain placeholders. Hardware boot and performance have not been independently verified.
+Native ESP-IDF **6.0.2** host project. CP/M-80 and CP/M-86 both boot genuine guest CCP/BDOS code to `A>` in host tests and are integrated into the ESP32-S3 firmware. CP/M-86 requires external PSRAM for its 640 KiB guest memory. LittleFS A: is read-only; optional SD-backed B:–F: CP/M-80 drives are configured by `/retro/images/cpm80/drives.cfg` with per-drive access and SYSTEM/LARGE image profiles. The 512,512-byte LARGE profile, drive selection and BIOS record I/O are host-tested, but actual SD images and hardware drive use are not yet verified. UCSD Pascal, Apple II, MP/M II and SWTPC 6800 remain placeholders. Hardware boot and performance have not been independently verified.
 
 `projectPrompt.md` contains the complete specification supplied in this conversation, with Markdown formatting. It is authoritative. The exact dependency constraint `==0.4.0` deliberately tightens the specification's caret example so the mandatory provisioner cannot upgrade silently.
 
 ## Hardware choices to check before flashing
 
-The exact board and SD wiring were not supplied. This project uses an **explicit example configuration**, not a claim about your board:
+The configured target is the **LOLIN S3 Pro**: ESP32-S3-WROOM-1, 16 MB flash
+and 8 MB octal PSRAM. CP/M-86 requires PSRAM for its 640 KiB guest RAM; the
+firmware uses capability-based external-RAM allocation and keeps internal-RAM
+fallback for boards/configurations where a sufficiently large block is
+available.
 
-- ESP32-S3 with at least **8 MB flash**. No PSRAM dependency.
 - Native USB Serial/JTAG connector (USB D− GPIO19, D+ GPIO20); do not use those pins for SD.
 - 3.3 V compatible microSD socket/module using **SPI2**: MOSI GPIO11, MISO GPIO13, CLK GPIO12, CS GPIO10, common ground. Verify your board schematic, pin availability and the SD module's required pull-ups/power circuitry.
 - 16/32 GB microSDHC, FAT32. Do not hot-remove the card during I/O. No card-detect GPIO is assumed; detection means an actual mount/probe. A missing card and electrical failure cannot be distinguished without additional hardware.
 
-Set the real pins in `idf.py menuconfig` → **Retro Host hardware**. Change flash size and the partition table together if your board differs. The table reserves 3 MiB for the app, 2 MiB for LittleFS, 24 KiB for NVS and 4 KiB for PHY. App headroom is provisional until the first full build size report; no OTA partition is reserved.
+Set the real pins in `idf.py menuconfig` → **Retro Host hardware**. If using another board, verify its PSRAM type/mode before changing the PSRAM settings and change flash size and the partition table together as needed. The table reserves 3 MiB for the app, 2 MiB for LittleFS, 24 KiB for NVS and 4 KiB for PHY. App headroom is provisional until the first full build size report; no OTA partition is reserved.
 
 ## VSCode setup and build
 

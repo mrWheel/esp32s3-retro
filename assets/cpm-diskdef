@@ -1,0 +1,12 @@
+# CompuPro CPM/86
+diskdef comp86
+  seclen 1024
+  tracks 70
+  sectrk 8
+  blocksize 1024
+  maxdir 64
+  skew 3
+  offset 11520
+  boottrk 0
+  os 2.2
+end

@@ -4,12 +4,15 @@
 #include "cpm80Cpu.h"
 #include "cpm80Guest.h"
 #include "cpm80DriveConfig.h"
+#include "cpm86Core.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+
+static size_t countOccurrences(const char *text, const char *needle);
 
 static void testPaths(void)
 {
@@ -103,6 +106,34 @@ static void writeCpm80Filename(hostExchange *exchange, const char *name, const c
   {
     hostExchangePortOutput(exchange, hostExchangePort, rawName[index]);
   }
+}
+
+typedef struct
+{
+  uint8_t input;
+  uint8_t output;
+} cpm86PortFixture;
+
+static bool cpm86TestPortRead(void *context, uint16_t port, uint8_t *value)
+{
+  cpm86PortFixture *fixture = context;
+  if (port != 0x00F0 || fixture == NULL || value == NULL)
+  {
+    return false;
+  }
+  *value = fixture->input;
+  return true;
+}
+
+static bool cpm86TestPortWrite(void *context, uint16_t port, uint8_t value)
+{
+  cpm86PortFixture *fixture = context;
+  if (port != 0x00F1 || fixture == NULL)
+  {
+    return false;
+  }
+  fixture->output = value;
+  return true;
 }
 
 static void testHostExchange(void)
@@ -280,6 +311,385 @@ static void testHostExchange(void)
   assert(unlink(destinationPath) == 0);
   assert(unlink(emptyPath) == 0);
   assert(rmdir(directoryPath) == 0);
+}
+
+static void testCpm86Core(void)
+{
+  char exchangeDirectoryPath[] = "/tmp/cpm86-exchange-test-XXXXXX";
+  assert(mkdtemp(exchangeDirectoryPath) != NULL);
+  hostExchange exchange = {0};
+  assert(hostExchangeInitialize(&exchange, exchangeDirectoryPath));
+
+  cpm86Core *core = NULL;
+  cpm86PortFixture portFixture = {.input = 0xA5};
+  const cpm86CoreConfig coreConfig = {.ramSize = 128 * 1024,
+                                      .portRead = cpm86TestPortRead,
+                                      .portWrite = cpm86TestPortWrite,
+                                      .portContext = &portFixture};
+  assert(cpm86CoreCreate(&core, &exchange, &coreConfig) == cpm86CoreOk);
+  cpm86Core *secondCore = NULL;
+  assert(cpm86CoreCreate(&secondCore, &exchange, &coreConfig) == cpm86CoreBusy);
+  assert(secondCore == NULL);
+
+  const uint8_t arithmeticProgram[] = {
+      0xB8, 0x34, 0x12, 0xBB, 0x00, 0x02, 0x05, 0x01, 0x00, 0x89, 0x07, 0xF4};
+  assert(cpm86CoreLoad(core, 0, arithmeticProgram, sizeof(arithmeticProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  size_t executed = 0;
+  assert(cpm86CoreRun(core, 16, &executed) == cpm86CoreHalted);
+  assert(executed == 5);
+  assert(cpm86CoreInstructionCount(core) == 5);
+  uint8_t arithmeticResult[2];
+  assert(cpm86CoreRead(core, 0x0200, arithmeticResult, sizeof(arithmeticResult)) == cpm86CoreOk);
+  assert(arithmeticResult[0] == 0x35 && arithmeticResult[1] == 0x12);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t wrapProgram[] = {0xB8, 0xFF, 0xFF, 0x8E, 0xD8, 0xBB, 0x0F, 0x01, 0x8B, 0x07,
+                                 0x50, 0xB8, 0x00, 0x00, 0x8E, 0xD8, 0x58, 0xA3, 0x00, 0x03, 0xF4};
+  const uint8_t wrappedValue[2] = {0x78, 0x56};
+  assert(cpm86CoreWrite(core, 0x00FF, wrappedValue, sizeof(wrappedValue)) == cpm86CoreOk);
+  assert(cpm86CoreLoad(core, 0, wrapProgram, sizeof(wrapProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 24, &executed) == cpm86CoreHalted);
+  uint8_t wrappedResult[2];
+  assert(cpm86CoreRead(core, 0x0300, wrappedResult, sizeof(wrappedResult)) == cpm86CoreOk);
+  assert(wrappedResult[0] == 0x78 && wrappedResult[1] == 0x56);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t queryProgram[] = {0xB0, 0x00, 0xE6, 0xF8, 0xE4, 0xF8, 0xA2, 0x00, 0x03,
+                                  0xE4, 0xF8, 0xA2, 0x01, 0x03, 0xE4, 0xF8, 0xA2, 0x02, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, queryProgram, sizeof(queryProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 16, &executed) == cpm86CoreHalted);
+  assert(executed == 9);
+  uint8_t queryResult[3];
+  assert(cpm86CoreRead(core, 0x0300, queryResult, sizeof(queryResult)) == cpm86CoreOk);
+  assert(queryResult[0] == hostExchangeStatusOk);
+  assert(queryResult[1] == 1);
+  assert(queryResult[2] == 0x07);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t wordIoProgram[] = {0xB0, 0x00, 0xE6, 0xF8, 0xE4, 0xF8, 0xE5, 0xF8, 0xE4, 0xF8,
+                                   0xA2, 0x00, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, wordIoProgram, sizeof(wordIoProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreIoError);
+  assert(cpm86CoreStep(core) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreOk);
+  uint8_t version = 0;
+  assert(cpm86CoreRead(core, 0x0300, &version, sizeof(version)) == cpm86CoreOk);
+  assert(version == 1);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t targetPortProgram[] = {0xE4, 0xF0, 0xA2, 0x00, 0x03, 0xB0, 0x5A, 0xE6, 0xF1, 0xF4};
+  assert(cpm86CoreLoad(core, 0, targetPortProgram, sizeof(targetPortProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 8, &executed) == cpm86CoreHalted);
+  uint8_t targetPortResult = 0;
+  assert(cpm86CoreRead(core, 0x0300, &targetPortResult, sizeof(targetPortResult)) == cpm86CoreOk);
+  assert(targetPortResult == 0xA5);
+  assert(portFixture.output == 0x5A);
+
+  const uint8_t byte = 0;
+  assert(cpm86CoreLoad(core, coreConfig.ramSize, &byte, sizeof(byte)) == cpm86CoreMemoryRange);
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0xF000, 0) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreMemoryFault);
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t invalidOpcode = 0x0F;
+  assert(cpm86CoreLoad(core, 0x20, &invalidOpcode, sizeof(invalidOpcode)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0x0000, 0x0020) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreInvalidInstruction);
+  uint16_t programCounterSegment;
+  uint16_t programCounterOffset;
+  assert(cpm86CoreGetProgramCounter(core, &programCounterSegment, &programCounterOffset) == cpm86CoreOk);
+  assert(programCounterSegment == 0 && programCounterOffset == 0x0020);
+  cpm86CoreTraceEntry trace[cpm86CoreTraceDepth];
+  size_t traceCount = 0;
+  assert(cpm86CoreGetRecentTrace(core, trace, cpm86CoreTraceDepth, &traceCount) == cpm86CoreOk);
+  assert(traceCount == 1 && trace[0].segment == 0 && trace[0].offset == 0x0020);
+
+  cpm86CoreDestroy(core);
+  hostExchangeClose(&exchange);
+  assert(rmdir(exchangeDirectoryPath) == 0);
+}
+
+typedef struct
+{
+  imageFile *disk;
+  uint8_t record[128];
+  uint16_t track;
+  uint16_t sector;
+  uint8_t drive;
+  size_t transferIndex;
+  uint8_t status;
+  bool reading;
+  bool writing;
+  size_t diskReadRequests;
+  size_t diskReadFailures;
+  size_t diskRecordsTransferred;
+  const char *input;
+  size_t inputLength;
+  size_t inputPosition;
+  char output[8192];
+  size_t outputLength;
+} cpm86BootFixture;
+
+static bool cpm86BootPortRead(void *context, uint16_t port, uint8_t *value)
+{
+  cpm86BootFixture *fixture = context;
+  if (fixture == NULL || value == NULL)
+  {
+    return false;
+  }
+  if (port == 0x00E0)
+  {
+    *value = fixture->inputPosition < fixture->inputLength ? 0xFF : 0;
+    return true;
+  }
+  if (port == 0x00E1 && fixture->inputPosition < fixture->inputLength)
+  {
+    *value = (uint8_t)fixture->input[fixture->inputPosition++];
+    return true;
+  }
+  if (port == 0x00ED)
+  {
+    *value = fixture->status;
+    return true;
+  }
+  if (port == 0x00EE && fixture->reading && fixture->transferIndex < sizeof(fixture->record))
+  {
+    *value = fixture->record[fixture->transferIndex++];
+    if (fixture->transferIndex == sizeof(fixture->record))
+    {
+      ++fixture->diskRecordsTransferred;
+    }
+    return true;
+  }
+  return false;
+}
+
+static bool cpm86BootDiskOffset(cpm86BootFixture *fixture, uint64_t *offset)
+{
+  if (fixture->disk == NULL || offset == NULL || fixture->drive != 0 || fixture->track == 0 ||
+      fixture->track >= 40 || fixture->sector >= 32)
+  {
+    return false;
+  }
+  uint64_t recordIndex = (uint64_t)fixture->track * 32 + fixture->sector;
+  *offset = recordIndex * sizeof(fixture->record);
+  return *offset <= imageSize(fixture->disk) &&
+         sizeof(fixture->record) <= imageSize(fixture->disk) - *offset;
+}
+
+static bool cpm86BootPortWrite(void *context, uint16_t port, uint8_t value)
+{
+  cpm86BootFixture *fixture = context;
+  if (fixture == NULL)
+  {
+    return false;
+  }
+  if (port == 0x00E2)
+  {
+    if (fixture->outputLength + 1 >= sizeof(fixture->output))
+    {
+      return false;
+    }
+    fixture->output[fixture->outputLength++] = (char)value;
+    fixture->output[fixture->outputLength] = '\0';
+    return true;
+  }
+  if (port == 0x00E8)
+  {
+    fixture->drive = value;
+    return true;
+  }
+  if (port == 0x00E9)
+  {
+    fixture->track = (fixture->track & 0xFF00) | value;
+    return true;
+  }
+  if (port == 0x00EA)
+  {
+    fixture->track = (fixture->track & 0x00FF) | ((uint16_t)value << 8);
+    return true;
+  }
+  if (port == 0x00EB)
+  {
+    fixture->sector = (fixture->sector & 0xFF00) | value;
+    return true;
+  }
+  if (port == 0x00EC)
+  {
+    fixture->sector = (fixture->sector & 0x00FF) | ((uint16_t)value << 8);
+    return true;
+  }
+  if (port == 0x00ED)
+  {
+    uint64_t offset;
+    fixture->status = 1;
+    fixture->reading = false;
+    fixture->writing = false;
+    fixture->transferIndex = 0;
+    if (!cpm86BootDiskOffset(fixture, &offset))
+    {
+      if (value == 0)
+      {
+        ++fixture->diskReadRequests;
+        ++fixture->diskReadFailures;
+      }
+      return true;
+    }
+    if (value == 0)
+    {
+      ++fixture->diskReadRequests;
+      if (imageReadAt(fixture->disk, offset, fixture->record, sizeof(fixture->record)))
+      {
+        fixture->reading = true;
+        fixture->status = 0;
+      }
+      else
+      {
+        ++fixture->diskReadFailures;
+      }
+    }
+    else if (value == 1)
+    {
+      fixture->writing = true;
+      fixture->status = 0;
+    }
+    return true;
+  }
+  if (port == 0x00EE && fixture->writing && fixture->transferIndex < sizeof(fixture->record))
+  {
+    fixture->record[fixture->transferIndex++] = value;
+    if (fixture->transferIndex == sizeof(fixture->record))
+    {
+      uint64_t offset;
+      if (!cpm86BootDiskOffset(fixture, &offset) ||
+          !imageWriteAt(fixture->disk, offset, fixture->record, sizeof(fixture->record)) ||
+          !imageFlush(fixture->disk))
+      {
+        fixture->status = 1;
+      }
+      fixture->writing = false;
+    }
+    return true;
+  }
+  return false;
+}
+
+static bool runCpm86UntilPrompt(cpm86Core *core, cpm86BootFixture *fixture, size_t promptCount)
+{
+  size_t instructions = 0;
+  while (countOccurrences(fixture->output, "A>") < promptCount && instructions < 5000000)
+  {
+    size_t executed = 0;
+    cpm86CoreResult result = cpm86CoreRun(core, 4096, &executed);
+    instructions += executed;
+    if (result != cpm86CoreOk)
+    {
+      fprintf(stderr, "CP/M-86 run failed: result=%d count=%llu output=%s\n",
+              result, (unsigned long long)cpm86CoreInstructionCount(core), fixture->output);
+      return false;
+    }
+  }
+  bool reachedPrompt = countOccurrences(fixture->output, "A>") == promptCount;
+  if (!reachedPrompt)
+  {
+    fprintf(stderr,
+            "CP/M-86 prompt timeout: wanted=%zu found=%zu instructions=%zu reads=%zu readFailures=%zu records=%zu output=%s\n",
+            promptCount, countOccurrences(fixture->output, "A>"), instructions,
+            fixture->diskReadRequests, fixture->diskReadFailures, fixture->diskRecordsTransferred,
+            fixture->output);
+  }
+  return reachedPrompt;
+}
+
+static void testCpm86Boot(void)
+{
+  FILE *systemFile = fopen(CPM86_SYSTEM_FILE_PATH, "rb");
+  assert(systemFile != NULL);
+  uint8_t systemImage[10240];
+  assert(fread(systemImage, 1, sizeof(systemImage), systemFile) == sizeof(systemImage));
+  assert(fclose(systemFile) == 0);
+  assert(systemImage[0] == 1 && systemImage[3] == 0x51 && systemImage[4] == 0);
+
+  char temporaryDiskPath[] = "/tmp/cpm86-boot-disk-XXXXXX";
+  int temporaryDiskDescriptor = mkstemp(temporaryDiskPath);
+  assert(temporaryDiskDescriptor >= 0);
+  close(temporaryDiskDescriptor);
+  FILE *sourceDisk = fopen(CPM86_SYSTEM_DISK_PATH, "rb");
+  FILE *temporaryDisk = fopen(temporaryDiskPath, "wb");
+  assert(sourceDisk != NULL && temporaryDisk != NULL);
+  uint8_t diskCopyBuffer[512];
+  size_t bytesCopied = 0;
+  size_t bytesRead;
+  while ((bytesRead = fread(diskCopyBuffer, 1, sizeof(diskCopyBuffer), sourceDisk)) > 0)
+  {
+    assert(fwrite(diskCopyBuffer, 1, bytesRead, temporaryDisk) == bytesRead);
+    bytesCopied += bytesRead;
+  }
+  assert(!ferror(sourceDisk));
+  assert(fclose(sourceDisk) == 0);
+  assert(fclose(temporaryDisk) == 0);
+  assert(bytesCopied == 163840);
+
+  imageFile disk = {0};
+  assert(imageOpen(&disk, temporaryDiskPath, false));
+  cpm86BootFixture fixture = {.disk = &disk};
+  const cpm86CoreConfig config = {
+      .ramSize = 640 * 1024,
+      .portRead = cpm86BootPortRead,
+      .portWrite = cpm86BootPortWrite,
+      .portContext = &fixture,
+  };
+  cpm86Core *core = NULL;
+  assert(cpm86CoreCreate(&core, NULL, &config) == cpm86CoreOk);
+  size_t payloadOffset = 0;
+  const size_t payloadSize = sizeof(systemImage) - 128;
+  while (payloadOffset < payloadSize)
+  {
+    size_t chunkSize = payloadSize - payloadOffset;
+    if (chunkSize > 512)
+    {
+      chunkSize = 512;
+    }
+    assert(cpm86CoreLoad(core, 0x00510 + (uint32_t)payloadOffset, systemImage + 128 + payloadOffset,
+                         chunkSize) == cpm86CoreOk);
+    payloadOffset += chunkSize;
+  }
+  const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
+  assert(cpm86CoreWrite(core, 0x00380, bdosVector, sizeof(bdosVector)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0x0051, 0x2500) == cpm86CoreOk);
+
+  assert(runCpm86UntilPrompt(core, &fixture, 1));
+  size_t idleInstructions = 0;
+  cpm86CoreResult idleResult = cpm86CoreRun(core, 10000, &idleInstructions);
+  if (idleResult != cpm86CoreOk)
+  {
+    uint16_t segment;
+    uint16_t offset;
+    assert(cpm86CoreGetProgramCounter(core, &segment, &offset) == cpm86CoreOk);
+    fprintf(stderr, "CP/M-86 idle console failed: result=%d CS:IP=%04X:%04X executed=%zu\n",
+            idleResult, segment, offset, idleInstructions);
+  }
+  assert(idleResult == cpm86CoreOk);
+  fixture.input = "DIR\r";
+  fixture.inputLength = 4;
+  assert(runCpm86UntilPrompt(core, &fixture, 2));
+  assert(strstr(fixture.output, "ASM86") != NULL);
+  assert(strstr(fixture.output, "PIP") != NULL);
+  assert(fixture.diskReadRequests > 0);
+  assert(fixture.diskReadFailures == 0);
+  assert(fixture.diskRecordsTransferred == fixture.diskReadRequests);
+
+  cpm86CoreDestroy(core);
+  assert(imageClose(&disk));
+  assert(unlink(temporaryDiskPath) == 0);
 }
 
 static void testLayout(void)
@@ -1222,12 +1632,14 @@ int main(void)
 {
   testPaths();
   testHostExchange();
+  testCpm86Core();
+  testCpm86Boot();
   testLayout();
   testMenu();
   testImages();
   testCpm80DriveConfig();
   testCpm80Cpu();
   testCpm80GuestBoot();
-  puts("PASS: host utilities and Z80-backed CP/M CPU memory, instruction and port callbacks");
+  puts("PASS: host utilities, Z80 and 8086 CPU fixtures, CP/M-86 boot and DIR");
   return 0;
 }

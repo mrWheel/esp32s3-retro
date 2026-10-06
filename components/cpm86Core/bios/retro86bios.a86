@@ -1,0 +1,252 @@
+CCP_OFFSET equ 0000h
+BDOS_ENTRY equ 0B06h
+BIOS_CODE equ 2500h
+
+	dseg
+	org	24B7h
+BDOSCURDRV rb	1
+
+	cseg
+	org	CCP_OFFSET
+CCP:
+
+	cseg
+	org	BIOS_CODE
+	jmp	INIT
+	jmp	WBOOT
+	jmp	CONST
+	jmp	CONIN
+	jmp	CONOUT
+	jmp	LISTOUT
+	jmp	PUNCH
+	jmp	READER
+	jmp	HOME
+	jmp	SELDSK
+	jmp	SETTRK
+	jmp	SETSEC
+	jmp	SETDMA
+	jmp	READ
+	jmp	WRITE
+	jmp	LISTST
+	jmp	SECTRAN
+	jmp	SETDMAB
+	jmp	GETSEGB
+	jmp	GETIOB
+	jmp	SETIOB
+	rs	15
+	dw	offset PFKTABLE
+	dw	offset DISK
+	dw	offset SER1
+	dw	offset SYS_CONI
+	dw	offset FIDDSMEM
+	dw	offset CRTMOD
+	db	'RETR086 BIOS'
+
+INIT:
+	mov	ax,cs
+	mov	ss,ax
+	mov	sp,offset LCLSTK+128
+	mov	ds,ax
+	mov	es,ax
+	mov	byte ptr BDOSCURDRV,0
+	mov	byte ptr CURRENTDRIVE,0
+	jmp	CCP
+
+WBOOT:
+	mov	byte ptr CURRENTDRIVE,0
+	jmp	CCP+6
+
+CONST:
+	in	al,0E0h
+	ret
+
+CONIN:
+	in	al,0E0h
+	or	al,al
+	jz	CONIN
+	in	al,0E1h
+	ret
+
+CONOUT:
+	mov	al,cl
+	out	0E2h,al
+	ret
+
+LISTOUT:
+	jmp	CONOUT
+
+PUNCH:
+	jmp	CONOUT
+
+READER:
+	jmp	CONIN
+
+HOME:
+	mov	word ptr TRACK,0
+	ret
+
+SELDSK:
+	cmp	cl,0
+	jne	SELDSK_NONE
+	mov	byte ptr CURRENTDRIVE,cl
+	mov	bx,offset DPH0
+	ret
+SELDSK_NONE:
+	sub	bx,bx
+	ret
+
+SETTRK:
+	mov	word ptr TRACK,cx
+	ret
+
+SETSEC:
+	mov	word ptr SECTOR,cx
+	ret
+
+SETDMA:
+	mov	word ptr DMAOFFSET,cx
+	ret
+
+SETDMAB:
+	mov	word ptr DMASEGMENT,cx
+	ret
+
+GETSEGB:
+	mov	bx,offset MRT
+	ret
+
+GETIOB:
+	mov	al,byte ptr IOBYTE
+	ret
+
+SETIOB:
+	mov	byte ptr IOBYTE,cl
+	ret
+
+READ:
+	mov	al,byte ptr CURRENTDRIVE
+	out	0E8h,al
+	mov	ax,word ptr TRACK
+	out	0E9h,al
+	mov	al,ah
+	out	0EAh,al
+	mov	ax,word ptr SECTOR
+	out	0EBh,al
+	mov	al,ah
+	out	0ECh,al
+	mov	al,0
+	out	0EDh,al
+	in	al,0EDh
+	or	al,al
+	jnz	DISKERROR
+	push	cx
+	push	di
+	push	es
+	mov	cx,128
+	mov	di,word ptr DMAOFFSET
+	mov	ax,word ptr DMASEGMENT
+	mov	es,ax
+	cld
+READLOOP:
+	in	al,0EEh
+	stosb
+	loop	READLOOP
+	pop	es
+	pop	di
+	pop	cx
+	sub	al,al
+	ret
+
+WRITE:
+	mov	al,byte ptr CURRENTDRIVE
+	out	0E8h,al
+	mov	ax,word ptr TRACK
+	out	0E9h,al
+	mov	al,ah
+	out	0EAh,al
+	mov	ax,word ptr SECTOR
+	out	0EBh,al
+	mov	al,ah
+	out	0ECh,al
+	mov	al,1
+	out	0EDh,al
+	push	ax
+	push	cx
+	push	si
+	push	ds
+	mov	cx,128
+	mov	si,word ptr DMAOFFSET
+	mov	ax,word ptr DMASEGMENT
+	mov	ds,ax
+WRITELOOP:
+	mov	al,byte ptr [si]
+	out	0EEh,al
+	inc	si
+	loop	WRITELOOP
+	pop	ds
+	pop	si
+	pop	cx
+	pop	ax
+	in	al,0EDh
+	or	al,al
+	jnz	DISKERROR
+	sub	al,al
+	ret
+
+DISKERROR:
+	mov	al,1
+	ret
+
+LISTST:
+	mov	al,0FFh
+	ret
+
+SECTRAN:
+	mov	bx,cx
+	ret
+
+IOBYTE db	0
+CURRENTDRIVE db	0
+TRACK dw	0
+SECTOR dw	0
+DMAOFFSET dw	0080h
+DMASEGMENT dw	0
+
+PFKTABLE db	0
+DISK db	0
+SER1 db	0
+SYS_CONI dw	1
+SYS_CONO dw	2
+SYS_AUXI dw	1
+SYS_AUXO dw	2
+SYS_LST dw	2
+FIDDSMEM dw	0
+CRTMOD db	0
+
+DPH0:
+	dw	0
+	dw	0,0,0
+	dw	offset DIRBUF
+	dw	offset DPB0
+	dw	offset CSV
+	dw	offset ALV
+
+DPB0:
+	dw	0020h
+	db	03h,07h,00h
+	dw	009Bh
+	dw	003Fh
+	db	0C0h,00h
+	dw	0010h
+	dw	0001h
+
+CSV rb	16
+ALV rb	20
+DIRBUF rb	128
+MRT:
+	db	1
+	dw	0518h
+	dw	09AE8h
+LCLSTK rb	128
+
+	end

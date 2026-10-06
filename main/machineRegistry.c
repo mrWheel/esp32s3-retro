@@ -1,11 +1,14 @@
 #include "machineRegistry.h"
 #include "cpm80Guest.h"
 #include "cpm80Machine.h"
+#include "cpm86Machine.h"
 #include "storage.h"
 #include <stdio.h>
 #include <sys/stat.h>
 
 static const machineResource cpm80Resources[] = {{"/littlefs/cpm80/system.dsk", cpm80SystemImageSize}};
+static const machineResource cpm86Resources[] = {{"/littlefs/cpm86/cpm.sys", cpm86SystemFileSize},
+                                                 {"/littlefs/cpm86/system.dsk", cpm86SystemDiskSize}};
 
 static machineState probeMachine(const retroMachine *machine)
 {
@@ -46,7 +49,8 @@ static void runPlaceholder(void)
 static const retroMachine machines[] = {
     {"CP/M-80", "cpm80", "designCPM80.md", true, false, cpm80Resources, 1, cpm80MachineProbe, cpm80MachineInitialize,
      cpm80MachineRun},
-    {"CP/M-86", "cpm86", "designCPM86.md", false, false, NULL, 0, probeMachine, initializePlaceholder, runPlaceholder},
+    {"CP/M-86", "cpm86", "designCPM86.md", true, false, cpm86Resources, 2, cpm86MachineProbe, cpm86MachineInitialize,
+     cpm86MachineRun},
     {"UCSD Pascal", "ucsd", "designUCSD.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
      runPlaceholder},
     {"Apple II", "apple2", "designAppleII.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
