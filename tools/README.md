@@ -1,22 +1,38 @@
 # Host tools
 
+## OS-independent usage (`--os`)
+
+`diskImage.py`, `buildDiskImage.py` and `prepareSd.py` select the target system with `--os cpm80|cpm86|apple2|swtpc|ucsd`. CP/M-80 and CP/M-86 work today; the other systems are registered in `osProfiles.py` and are refused as "not implemented yet" until a backend is added. `-h` shows the general help (commands and OS overview); `-h` together with `--os <name>` adds the OS-specific profiles and rules. Images are written to `sdcard/retro/images/<os>/` (override with `--sd-root`); a path instead of a bare name is used as given. The web server/GUI can later copy these images to the physical SD card.
+
+```sh
+python3 tools/diskImage.py create --os cpm80 --profile LARGE work.dsk
+python3 tools/diskImage.py add --os cpm80 work.dsk ~/cpm/*.COM 'utils/*.HLP'
+python3 tools/diskImage.py list --os cpm86 work.dsk
+python3 tools/buildDiskImage.py --os cpm80
+python3 tools/buildDiskImage.py --os cpm86 --source-dir ~/cpm86/files
+python3 tools/prepareSd.py --os cpm86
+python3 tools/diskImage.py --os cpm86 -h
+```
+
+`add` accepts wildcards (quoted or shell-expanded). Wildcard matches with an invalid 8.3 name or empty content are skipped with a warning; explicitly named files must be valid. `buildDiskImage.py` now writes `system.dsk` to `sdcard/retro/images/<os>/` by default; use `--output littlefs/cpm80/system.dsk` to refresh the firmware's LittleFS copy. For CP/M-86 it needs `--source-dir` with `CPM.SYS` and the `.CMD` files (no sources are checked in). The work is split per OS: `diskImage.py` and `buildDiskImage.py` dispatch (via `osProfiles.py`) to `diskImageCpm80.py`/`diskImageCpm86.py` and `buildDiskImageCpm80.py`/`buildDiskImageCpm86.py`, which share the CP/M engine `diskImageCpm.py`; the per-OS modules also run directly (e.g. `diskImageCpm80.py create ...` implies `--os cpm80`). A new OS needs `diskImage<Os>.py`, `buildDiskImage<Os>.py` and one entry in `osProfiles.py`. `prepareSd.py` without a mount point prepares `sdcard/`, and without `--os` prepares all systems.
+
 `prepareSd.py` (Python 3.9+) adds the documented layout and a default CP/M `drives.cfg` to an already formatted/mounted FAT32 card. It does not format, delete, make disk images, overwrite an existing drive configuration or rewrite an incompatible layout marker. Run with the card mount root as its sole argument.
 
 `transferTest.py` exercises an actual running device using the session URL displayed on USB. It creates uniquely named files in exchange/common and removes only those files. Do not run it during manual transfers. Its 8 MiB payload intentionally exceeds normal ESP32-S3 internal RAM; the test PC can hold it in memory, while the device must stream.
 
-`buildCpm80Disk.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance, non-commercial use scope and per-file hashes are in `components/cpm80Core/os/utilities/README.md`; the image SHA-256 is in the project checksum inventory. No SD work image is generated; E: requires a separately prepared matching CP/M image.
+`buildDiskImageCpm80.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance, non-commercial use scope and per-file hashes are in `components/cpm80Core/os/utilities/README.md`. No SD work image is generated; E: requires a separately prepared matching CP/M image.
 
-`HOST.COM` is project-authored Z80 source at `components/cpm80Core/os/host/HOST.ASM`. To rebuild it on macOS, install the Z80 assembler with `brew install z80asm`, then run `z80asm -o components/cpm80Core/os/host/HOST.COM components/cpm80Core/os/host/HOST.ASM`. Rebuild `system.dsk` with `python3 tools/buildCpm80Disk.py` after assembling. The checked-in COM image and source are both covered by the SHA-256 inventory.
+`HOST.COM` is project-authored Z80 source at `components/cpm80Core/os/host/HOST.ASM`. To rebuild it on macOS, install the Z80 assembler with `brew install z80asm`, then run `z80asm -o components/cpm80Core/os/host/HOST.COM components/cpm80Core/os/host/HOST.ASM`. Rebuild `system.dsk` with `python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk` after assembling. The checked-in COM image and source are both covered by the SHA-256 inventory.
 
 ## Prepare CP/M disk images on macOS
 
-`cpm80DiskImage.py` creates empty raw CP/M-80 images for either supported profile. `SYSTEM` uses 77 tracks × 26 128-byte records, two reserved tracks, 1 KiB blocks and 64 directory entries. `LARGE` uses 77 tracks × 52 128-byte records, two reserved tracks, 2 KiB blocks and 128 directory entries. Both profiles use allocation blocks 0–242. It uses only the Python standard library.
+`diskImageCpm80.py` creates empty raw CP/M-80 images for either supported profile. `SYSTEM` uses 77 tracks × 26 128-byte records, two reserved tracks, 1 KiB blocks and 64 directory entries. `LARGE` uses 77 tracks × 52 128-byte records, two reserved tracks, 2 KiB blocks and 128 directory entries. Both profiles use allocation blocks 0–242. It uses only the Python standard library.
 
 ```sh
 python3 tools/prepareSd.py /Volumes/SDCARD
-python3 tools/cpm80DiskImage.py create --profile LARGE ~/Desktop/work.dsk
-python3 tools/cpm80DiskImage.py add ~/Desktop/work.dsk ~/Downloads/MBASIC.COM
-python3 tools/cpm80DiskImage.py list ~/Desktop/work.dsk
+python3 tools/diskImageCpm80.py create --profile LARGE ~/Desktop/work.dsk
+python3 tools/diskImageCpm80.py add ~/Desktop/work.dsk ~/Downloads/MBASIC.COM
+python3 tools/diskImageCpm80.py list ~/Desktop/work.dsk
 cp ~/Desktop/work.dsk /Volumes/SDCARD/retro/images/cpm80/work.dsk
 ```
 
@@ -34,7 +50,7 @@ python3 tools/fetchCpm80Software.py add http://cpmarchives.classiccmp.org/cpm/mi
   --rights-evidence "URL or citation for the applicable distribution terms"
 ```
 
-ZIP members must be named explicitly; files are read from the archive without extracting paths onto the host. The tool saves each original download unchanged in `--archive-dir` and records its source URLs, timestamp, byte count, SHA-256, selected archive members and supplied rights evidence in `cpm-resource-manifest.json`. The tool requires rights evidence for each network import but cannot verify that evidence or decide whether software is licensed. For MBASIC 5.21, use the separately supplied copy for which you have permission, then add it with `cpm80DiskImage.py add`; this avoids downloading that archive copy. To install a complete compatible raw image, use the `disk` subcommand with a new output path under `retro/images/cpm80/`; `--force` is required to replace an existing disk.
+ZIP members must be named explicitly; files are read from the archive without extracting paths onto the host. The tool saves each original download unchanged in `--archive-dir` and records its source URLs, timestamp, byte count, SHA-256, selected archive members and supplied rights evidence in `cpm-resource-manifest.json`. The tool requires rights evidence for each network import but cannot verify that evidence or decide whether software is licensed. For MBASIC 5.21, use the separately supplied copy for which you have permission, then add it with `diskImageCpm80.py add`; this avoids downloading that archive copy. To install a complete compatible raw image, use the `disk` subcommand with a new output path under `retro/images/cpm80/`; `--force` is required to replace an existing disk.
 
 The importer blocks archive entries identified as Microsoft software, including the linked MBASIC listing. Other links still require you to check and cite the terms for that specific resource; the archive's presence alone is not permission. For raw disk images, the tool checks file size and CP/M directory/allocation structure, but cannot infer sector ordering or prove the archive's stated geometry—verify those from the image documentation before mounting it.
 

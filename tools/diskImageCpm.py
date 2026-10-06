@@ -1,56 +1,23 @@
 #!/usr/bin/env python3
-"""Create and populate raw CP/M-80 images for the project's SYSTEM and LARGE DPBs."""
+"""Shared raw CP/M disk image engine (directory, extents, allocation blocks).
 
-import argparse
+Geometry is not defined here: every function takes a `profiles` dict
+(name -> geometry) supplied by diskImageCpm80.py or diskImageCpm86.py. Use
+diskImage.py (--os) as the command line.
+"""
+
 import os
 import re
 import tempfile
 from pathlib import Path
 
+from diskImageCommon import DiskImageError
+
 SECTOR_SIZE = 128
-SECTORS_PER_TRACK = 26
-TRACKS = 77
-BLOCK_SIZE = 1024
-RESERVED_TRACKS = 2
-DIRECTORY_ENTRIES = 64
-IMAGE_SIZE = SECTOR_SIZE * SECTORS_PER_TRACK * TRACKS
-DIRECTORY_OFFSET = RESERVED_TRACKS * SECTOR_SIZE * SECTORS_PER_TRACK
-DIRECTORY_SIZE = DIRECTORY_ENTRIES * 32
-DSM = 242
-MAX_BLOCK_NUMBER = DSM
-LARGE_SECTORS_PER_TRACK = 52
-LARGE_BLOCK_SIZE = 2048
-LARGE_DIRECTORY_ENTRIES = 128
-LARGE_IMAGE_SIZE = SECTOR_SIZE * LARGE_SECTORS_PER_TRACK * TRACKS
-LARGE_DIRECTORY_OFFSET = RESERVED_TRACKS * SECTOR_SIZE * LARGE_SECTORS_PER_TRACK
-LARGE_DIRECTORY_SIZE = LARGE_DIRECTORY_ENTRIES * 32
-MAX_IMAGE_SIZE = max(IMAGE_SIZE, LARGE_IMAGE_SIZE)
 MAX_RECORDS_PER_EXTENT = 128
 MAX_BLOCKS_PER_EXTENT = 16
 EMPTY = 0xE5
 NAME_PATTERN = re.compile(r"^[A-Z0-9_$-]{1,8}(?:\.[A-Z0-9_$-]{0,3})?$")
-IMAGE_PROFILES = {
-    "SYSTEM": {
-        "image_size": IMAGE_SIZE,
-        "sectors_per_track": SECTORS_PER_TRACK,
-        "block_size": BLOCK_SIZE,
-        "directory_entries": DIRECTORY_ENTRIES,
-        "directory_offset": DIRECTORY_OFFSET,
-        "max_block_number": MAX_BLOCK_NUMBER,
-    },
-    "LARGE": {
-        "image_size": LARGE_IMAGE_SIZE,
-        "sectors_per_track": LARGE_SECTORS_PER_TRACK,
-        "block_size": LARGE_BLOCK_SIZE,
-        "directory_entries": LARGE_DIRECTORY_ENTRIES,
-        "directory_offset": LARGE_DIRECTORY_OFFSET,
-        "max_block_number": DSM,
-    },
-}
-
-
-class DiskImageError(ValueError):
-    pass
 
 
 def parse_filename(filename):
@@ -71,17 +38,18 @@ def _decode_directory_name(entry):
     return parse_filename(filename)
 
 
-def _profile_for_size(image_size):
-    for profile in IMAGE_PROFILES.values():
+def _profile_for_size(image_size, profiles):
+    candidates = list(profiles.values())
+    for profile in candidates:
         if profile["image_size"] == image_size:
             return profile
-    expected = " or ".join(str(profile["image_size"]) for profile in IMAGE_PROFILES.values())
+    expected = " or ".join(str(profile["image_size"]) for profile in candidates)
     raise DiskImageError(f"Image size is {image_size} bytes; expected {expected}")
 
 
-def inspect_image(image):
+def inspect_image(image, profiles):
     """Validate image geometry, directory entries, extents and block allocations."""
-    profile = _profile_for_size(len(image))
+    profile = _profile_for_size(len(image), profiles)
     block_size = profile["block_size"]
     directory_offset = profile["directory_offset"]
     directory_entries = profile["directory_entries"]
@@ -216,38 +184,38 @@ def _atomic_write(path, data, replace_existing):
         raise
 
 
-def create_image(image_path, force=False, profile="SYSTEM"):
-    profile = IMAGE_PROFILES.get(profile.upper())
+def create_image(image_path, profiles, profile, force=False):
+    profile = profiles.get(profile.upper())
     if profile is None:
         raise DiskImageError("Unknown CP/M image profile")
     image = bytearray([EMPTY]) * profile["image_size"]
     _atomic_write(image_path, image, replace_existing=force)
 
 
-def write_image(image_path, image, force=False):
+def write_image(image_path, image, profiles, force=False):
     """Validate and install a complete raw image matching the project geometry."""
-    inspect_image(image)
+    inspect_image(image, profiles)
     _atomic_write(image_path, image, replace_existing=force)
 
 
-def add_files(image_path, files, replace_image=True):
+def add_files(image_path, files, profiles, replace_image=True):
     """Add (CP/M filename, bytes) pairs and atomically update the image."""
     image_path = Path(image_path)
     if image_path.is_symlink() or not image_path.is_file():
         raise DiskImageError(f"Image does not exist as a regular file: {image_path}")
     image = bytearray(image_path.read_bytes())
-    profile = _profile_for_size(len(image))
-    entries, free_slots, used_blocks = inspect_image(image)
+    profile = _profile_for_size(len(image), profiles)
+    entries, free_slots, used_blocks = inspect_image(image, profiles)
     existing_names = {(entry["user"], entry["filename"]) for entry in entries}
     for filename, data in files:
         _add_file(image, filename, data, free_slots, used_blocks, existing_names, profile)
-    inspect_image(image)
+    inspect_image(image, profiles)
     _atomic_write(image_path, image, replace_existing=replace_image)
 
 
-def list_files(image_path):
+def list_files(image_path, profiles):
     image = Path(image_path).read_bytes()
-    entries, _, _ = inspect_image(image)
+    entries, _, _ = inspect_image(image, profiles)
     file_extents = {}
     for entry in entries:
         key = (entry["user"], entry["filename"])
@@ -261,50 +229,3 @@ def list_files(image_path):
         last_extent = max(extents, key=lambda entry: entry["extent"])
         record_length = last_extent["extent"] * MAX_RECORDS_PER_EXTENT + last_extent["records"]
         print(f"User {user:02d}  {filename:<12} {record_length * SECTOR_SIZE:>7} bytes")
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Create and populate SYSTEM or LARGE CP/M-80 disk images for drives B:–F:."
-    )
-    commands = parser.add_subparsers(dest="command", required=True)
-
-    create_parser = commands.add_parser("create", help="create an empty, formatted CP/M disk image")
-    create_parser.add_argument("image", type=Path)
-    create_parser.add_argument("--profile", choices=tuple(IMAGE_PROFILES), default="SYSTEM")
-    create_parser.add_argument("--force", action="store_true", help="replace an existing image")
-
-    add_parser = commands.add_parser("add", help="add local files to an existing CP/M image")
-    add_parser.add_argument("image", type=Path)
-    add_parser.add_argument("files", nargs="+", type=Path)
-    add_parser.add_argument("--name", help="CP/M 8.3 name (only when adding one local file)")
-
-    list_parser = commands.add_parser("list", help="validate and list a CP/M image")
-    list_parser.add_argument("image", type=Path)
-
-    arguments = parser.parse_args()
-    try:
-        if arguments.command == "create":
-            profile = IMAGE_PROFILES[arguments.profile]
-            create_image(arguments.image, force=arguments.force, profile=arguments.profile)
-            print(f"Created empty CP/M {arguments.profile} image: {arguments.image} ({profile['image_size']} bytes)")
-            print("Copy it to /retro/images/cpm80/work.dsk on the SD card, then eject the card safely.")
-        elif arguments.command == "add":
-            if arguments.name and len(arguments.files) != 1:
-                parser.error("--name can only be used with one input file")
-            additions = []
-            for source in arguments.files:
-                if not source.is_file():
-                    raise DiskImageError(f"Input file does not exist: {source}")
-                name = arguments.name if arguments.name else source.name
-                additions.append((name, source.read_bytes()))
-            add_files(arguments.image, additions)
-            print(f"Added {len(additions)} file(s) to {arguments.image}")
-        else:
-            list_files(arguments.image)
-    except (OSError, DiskImageError) as error:
-        parser.error(str(error))
-
-
-if __name__ == "__main__":
-    main()

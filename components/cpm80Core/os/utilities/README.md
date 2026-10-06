@@ -44,6 +44,5 @@ E:. They do not establish hardware runtime compatibility for every utility.
 `HOST.COM` is project-authored Z80 code in `../host/HOST.COM`, not part of the
 RomWBW distribution. Its source is `../host/HOST.ASM`; install `z80asm` with
 Homebrew and rebuild it with the command in `tools/README.md`. The disk builder
-installs this binary alongside the utilities listed above. Its source and
-binary hashes are listed in `SHA256SUMS.txt`; the full transfer ABI and
+installs this binary alongside the utilities listed above. The full transfer ABI and
 exact-length sidecar are documented in `designCPM80.md`.

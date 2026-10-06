@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import argparse
 from pathlib import Path
 
 SECTOR_SIZE = 128
@@ -159,19 +158,24 @@ def build_disk(project_root: Path, output_path: Path) -> None:
     output_path.write_bytes(disk)
 
 
+DETAILS = (
+    "Composes system.dsk from the checked-in CCP/BDOS binaries and pinned\n"
+    "utilities under components/cpm80Core/os (SYSTEM profile)."
+)
+
+
+def add_arguments(parser):
+    pass
+
+
+def build(arguments, output_path, project_root):
+    build_disk(project_root, output_path)
+
+
 def main() -> None:
-    project_root = Path(__file__).resolve().parents[1]
-    parser = argparse.ArgumentParser(description="Build the CP/M-80 LittleFS A: disk image and utility directory.")
-    parser.add_argument(
-        "output",
-        nargs="?",
-        type=Path,
-        default=project_root / "littlefs" / "cpm80" / "system.dsk",
-        help="output image path (defaults to littlefs/cpm80/system.dsk)",
-    )
-    arguments = parser.parse_args()
-    build_disk(project_root, arguments.output.resolve())
-    print(f"Created {arguments.output.resolve()} (256256 bytes)")
+    import buildDiskImage
+
+    buildDiskImage.main(default_os="cpm80")
 
 
 if __name__ == "__main__":

@@ -30,7 +30,7 @@ ESP32-S3 Retro Computer
 
 Select system [1-6]:
 ```
-Keep the canonical menu specification and range validation at 1–6. The existing registry already reserves option 2 and reports Not implemented yet; when CP/M-86 is implemented, distinguish that state from missing or invalid resources and update availability tests with the implementation. Do not reuse another machine’s slot. Every choice requires Enter. Normalize CR/LF/CRLF so a line is submitted once. Invalid or unavailable choices explain the reason and remain in the menu.
+Keep the canonical menu specification and range validation at 1–6. CP/M-86 is now integrated at option 2; the registry distinguishes it from missing or invalid resources. Do not reuse another machine’s slot. Every choice requires Enter. Normalize CR/LF/CRLF so a line is submitted once. Invalid or unavailable choices explain the reason and remain in the menu.
 
 HOST-M1 owns USB console, LittleFS, SD detection, versioned /retro/layout.txt, block storage, exchange and browser File Transfer. The current host already registers cpm86 and prepares/validates its storage roots; reuse that schema and APIs. If later changes require a version change, perform an explicit compatible migration; do not independently define a new layout version. A FAT32 32 GB SD card remains recommended. Never format an unknown card or replace user images automatically.
 
@@ -157,17 +157,17 @@ CP/M-86 BDOS entry uses software interrupt E0h (decimal 224). The CPU must execu
 
 ## Current implementation status
 
-CP/M-86 CPU/interface prototype:
+CP/M-86 CPU/interface and machine integration:
 
 	●	EMU86 CPU source pinned at `81b1634bde99fa70ce0dfe9cc2207a1e0a82d0ac`; see `components/cpm86Core/third_party/emu86/README.md` for provenance and local patch scope.
 	●	Implemented reset, entry-point, bounded memory load/read/write, single-step and instruction-budget APIs. The configured RAM is 1..1 MiB; physical addresses wrap at 20 bits and unmapped accesses fault.
 	●	Implemented byte I/O adapter: F8h input/output and F9h output connect to `hostExchange`; word I/O is rejected. Optional byte-port callbacks now allow machine-specific virtual devices without changing the exchange ports. This is not yet the guest BIOS device ABI.
 	●	Host fixtures cover selected arithmetic/memory instructions, 20-bit physical wrap, HLT, QUERY byte-port exchange, custom port callbacks, unsupported word I/O, RAM bounds, unmapped fetch, reset and singleton enforcement. Host tests use sanitizers; ESP-IDF build also passes.
 	●	Upstream CPU state is global/static, so the adapter enforces one active core; complete 8086 instruction/segment conformance is not established.
-	●	Host groundwork exists: cpm86 registry placeholder at menu slot 2, SD layout roots, and File Transfer machine selection. The guest machine remains unimplemented.
-	●	Still required: selected-release ABI audit, target BIOS/OS/boot image, disk profile, desktop boot, and board memory/performance validation.
+	●	The CP/M-86 machine is integrated at menu slot 2 with resource probing, a project BIOS, system files and a boot disk. Desktop host tests boot the genuine guest to `A>` and run `DIR`; the ESP-IDF firmware build succeeds.
+	●	The firmware has not been flashed. Hardware boot and memory/performance validation remain outstanding.
 
-Still open: complete instruction coverage, a full target BIOS ABI audit, guest linker/map coverage, native editor/compiler operation, ESP32-S3 memory/speed measurements and writable-media reliability.
+Still open: complete instruction coverage, remaining target BIOS/OS compatibility review, guest linker/map coverage, native editor/compiler operation, ESP32-S3 memory/speed measurements and writable-media reliability.
 
 ## Current RETRO86_V1 implementation
 

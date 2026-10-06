@@ -1,11 +1,29 @@
 import argparse
+import sys
 from pathlib import Path
 
+import osProfiles
 
-def prepareSd():
-  parser = argparse.ArgumentParser(description="Create the Retro layout on an already formatted FAT32 card. Never formats or removes data.")
-  parser.add_argument("mountPoint", type=Path)
-  arguments = parser.parse_args()
+
+def prepareSd(argv=None):
+  argv = sys.argv[1:] if argv is None else argv
+  osName = osProfiles.preparse_os(argv)
+  overview = osProfiles.os_overview()
+  epilog = overview + "\n\nWithout --os the layout for every operating system is prepared."
+  if osName:
+    epilog = osProfiles.os_epilog(osName) + "\n\nOnly the directories of this OS (plus common) are prepared."
+  parser = argparse.ArgumentParser(
+    prog="prepareSd.py",
+    description="Create the Retro layout on an already formatted FAT32 card. Never formats or removes data. "
+    "Without a mount point the project's sdcard/ directory is prepared.",
+    epilog=epilog + "\n\nexamples:\n  prepareSd.py /Volumes/SDCARD\n  prepareSd.py /Volumes/SDCARD --os cpm86\n  prepareSd.py",
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+  )
+  parser.add_argument("mountPoint", type=Path, nargs="?", default=osProfiles.DEFAULT_SD_ROOT)
+  parser.add_argument("--os", dest="osName", type=str.lower, choices=tuple(osProfiles.OS_REGISTRY),
+                      help="prepare only this operating system (default: all)")
+  arguments = parser.parse_args(argv)
+  machines = [arguments.osName] if arguments.osName else list(osProfiles.OS_REGISTRY)
   root = arguments.mountPoint.resolve()
   if not root.is_dir():
     parser.error("The mount point must already exist")
@@ -23,7 +41,7 @@ def prepareSd():
   )
   required = [retro / "backup", retro / "exchange" / "common"]
   for group in ["images", "exchange"]:
-    for machine in ["cpm80", "cpm86", "ucsd", "apple2", "swtpc"]:
+    for machine in machines:
       required.append(retro / group / machine)
   for path in [marker, drivesConfig, *required]:
     if not path.resolve().is_relative_to(root):
@@ -35,7 +53,7 @@ def prepareSd():
   if not marker.exists():
     with marker.open("x", newline="\n") as target:
       target.write(expected)
-  if not drivesConfig.exists():
+  if "cpm80" in machines and not drivesConfig.exists():
     with drivesConfig.open("x", newline="\n") as target:
       target.write(defaultDrives)
   print("Retro layout v1 prepared at " + str(retro))

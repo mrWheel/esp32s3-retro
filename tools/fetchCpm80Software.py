@@ -16,7 +16,7 @@ import zipfile
 from html.parser import HTMLParser
 from pathlib import Path
 
-import cpm80DiskImage
+import diskImageCpm80
 
 MAX_DOWNLOAD_SIZE = 64 * 1024 * 1024
 USER_AGENT = "ESP32-S3-Retro-CPM-Resource-Tool/1.0"
@@ -143,7 +143,7 @@ def zip_members(archive_data, selected_members):
         if not matches:
             raise ArchiveError(f"ZIP member not found: {member_name}")
         info = matches[0]
-        if info.file_size > cpm80DiskImage.MAX_IMAGE_SIZE:
+        if info.file_size > diskImageCpm80.MAX_IMAGE_SIZE:
             raise ArchiveError(f"ZIP member is larger than one CP/M disk: {member_name}")
         try:
             contents = archive.read(info)
@@ -327,7 +327,7 @@ def add_from_index(arguments):
         cpm_name = arguments.name if arguments.name else filename
         additions.append((cpm_name, contents))
 
-    cpm80DiskImage.add_files(arguments.image, additions)
+    diskImageCpm80.add_files(arguments.image, additions)
     _print_files(source_url, link, files, arguments.rights_evidence)
     print(f"Original download preserved at {archive_path}")
     print(f"Added {len(additions)} file(s) to {arguments.image}")
@@ -353,8 +353,8 @@ def install_disk_image(arguments):
     filename, image = files[0]
     if Path(filename).suffix.upper() not in DISK_SUFFIXES:
         raise ArchiveError("The selected file must have a .DSK or .RAW extension")
-    cpm80DiskImage.inspect_image(image)
-    cpm80DiskImage.write_image(arguments.output, image, force=arguments.force)
+    diskImageCpm80.inspect_image(image)
+    diskImageCpm80.write_image(arguments.output, image, force=arguments.force)
     _print_files(source_url, link, files, arguments.rights_evidence)
     print(f"Original download preserved at {archive_path}")
     print(f"Installed matching raw CP/M image at {arguments.output}")
@@ -400,7 +400,7 @@ def main():
             add_from_index(arguments)
         else:
             install_disk_image(arguments)
-    except (OSError, ArchiveError, cpm80DiskImage.DiskImageError, zipfile.LargeZipFile) as error:
+    except (OSError, ArchiveError, diskImageCpm80.DiskImageError, zipfile.LargeZipFile) as error:
         parser.error(str(error))
 
 

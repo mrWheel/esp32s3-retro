@@ -15,16 +15,36 @@ It does NOT define emulator internals. Read this file plus the complete machine-
 
 A separate designFileTransfer.md may later hold detailed protocol evolution, but until then this document is authoritative for File Transfer.
 
-## 2. Target
+## 2. Project goal and target
 
-- ESP32-S3
-- ESP-IDF 6.0.2
-- native ESP-IDF only
-- USB Serial/JTAG console
-- internal flash + LittleFS
-- microSDHC, FAT32
-32 GB SD recommended; 16 GB acceptable
-Do not require exFAT.
+### Goal
+
+Build one ESP32-S3-based retro computer that can host several distinct retro-computer systems. The user selects a machine from a shared menu; each machine runs its own guest CPU/OS implementation and uses the common host services defined here. The intended systems are CP/M-80, CP/M-86, UCSD Pascal, Apple II and SWTPC 6800. This is a multi-system project, not a single CP/M appliance.
+
+Keep the host services and machine-specific emulation separate so additional systems can be integrated without duplicating USB, storage, WiFi or file-transfer infrastructure. Each machine's design document defines its own CPU, guest firmware/OS, media and compatibility requirements.
+
+### Target hardware and software
+
+- ESP32-S3; the current configured board is the LOLIN S3 Pro with ESP32-S3-WROOM-1, 16 MB flash and 8 MB octal PSRAM. Verify the actual board and configuration before hardware acceptance.
+- ESP-IDF 6.0.2, native ESP-IDF only; no Arduino framework or PlatformIO.
+- USB Serial/JTAG console.
+- Internal flash with LittleFS for minimum boot resources.
+- microSDHC formatted as FAT32; 32 GB recommended and 16 GB acceptable. Do not require exFAT.
+- CP/M-86's current 640 KiB guest-memory profile requires external PSRAM on the configured board.
+
+### Current implementation snapshot
+
+This snapshot describes repository status, not a change to the machine-specific acceptance gates. Consult each design document and `docs/verification.md` for detailed evidence and outstanding work.
+
+| System | Current status |
+| --- | --- |
+| CP/M-80 | Firmware machine integration and host-side guest tests are present. The CP/M-80 design log records a user report of booting and running commands on an ESP32-S3; independent hardware, SD-drive and broader compatibility acceptance remains outstanding. |
+| CP/M-86 | Firmware machine integration, genuine guest boot tests on the host and an ESP-IDF build are present. The firmware has not been flashed; hardware boot, performance and broad compatibility remain unverified. |
+| UCSD Pascal | Placeholder; no guest machine implementation yet. |
+| Apple II | Placeholder; no guest machine implementation yet. |
+| SWTPC 6800 | Placeholder; no guest machine implementation yet. |
+
+In the current menu, CP/M-80 and CP/M-86 are available when their required LittleFS resources validate; choices 3–5 remain placeholders. A successful host test or firmware build is not evidence of successful execution on the ESP32-S3.
 
 Mind you: idf.py command is in
 ```
@@ -571,7 +591,7 @@ HOST-M1 is done when:
 27. main menu works again without RESET.
 28. no CPU emulator has been imported merely to complete HOST-M1.
 
-HOST-M1 was the pre-emulator baseline. The current CP/M-80 milestone supersedes item 10 for menu choice 1: CP/M-80 is available when its boot image validates; choices 2–5 remain placeholders. This does not imply that ESP32-S3 hardware acceptance has been completed.
+HOST-M1 was the pre-emulator baseline. The current implementation supersedes item 10 for menu choices 1 and 2: CP/M-80 and CP/M-86 are available when their required boot resources validate; choices 3–5 remain placeholders. This does not imply that ESP32-S3 hardware acceptance has been completed.
 
 ## 26. HOST-M1 tests
 
@@ -651,13 +671,17 @@ SD:
 
 Do not assume exact boot filenames in generic host code except through machine resource definitions. Provide generic existence/open/size/checksum helpers where useful.
 
-## 28. Implementation order after HOST-M1
+## 28. Machine implementation order and integration process
+
+The original implementation sequence after HOST-M1 was:
 
 1. CP/M-80
 2. CP/M-86
 3. UCSD Pascal
 4. Apple II
 5. SWTPC 6800
+
+CP/M-80 and CP/M-86 implementation milestones are now integrated; consult the current implementation snapshot and their design documents for acceptance status. Continue with UCSD Pascal, Apple II and SWTPC 6800 in that order unless a documented project decision changes the sequence.
 
 Before each machine:
 
@@ -755,5 +779,4 @@ The host is ready for CP/M development only when:
 - emulator placeholders work;
 - no emulator implementation was invented as part of HOST-M1.
 
-Then begin CP/M-80 according to designCPM80.md.
-Then begin CP/M-86 according to designCPM86.md.
+CP/M-80 and CP/M-86 implementation milestones have started; their current acceptance state and remaining work are recorded in their design documents. Continue the implementation sequence with UCSD Pascal, then Apple II and SWTPC 6800, without treating host tests or firmware builds as hardware acceptance.
