@@ -347,6 +347,111 @@ static void testCpm86Core(void)
   assert(arithmeticResult[0] == 0x35 && arithmeticResult[1] == 0x12);
 
   assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t decimalAdjustProgram[] = {0xB0, 0x5A, 0x14, 0x40, 0x27, 0xA2, 0x00, 0x03,
+                                          0x9C, 0x58, 0xA3, 0x02, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, decimalAdjustProgram, sizeof(decimalAdjustProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 16, &executed) == cpm86CoreHalted);
+  assert(executed == 8);
+  uint8_t decimalAdjustResult;
+  uint16_t decimalAdjustFlags;
+  assert(cpm86CoreRead(core, 0x0300, &decimalAdjustResult, sizeof(decimalAdjustResult)) == cpm86CoreOk);
+  assert(cpm86CoreRead(core, 0x0302, &decimalAdjustFlags, sizeof(decimalAdjustFlags)) == cpm86CoreOk);
+  assert(decimalAdjustResult == 0x00);
+  assert((decimalAdjustFlags & 0x0055) == 0x0055);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t arithmeticFlagsProgram[] = {0xB0, 0x7F, 0x04, 0x01, 0x9C, 0x58, 0xA3, 0x00, 0x03,
+                                            0xB0, 0xFF, 0x04, 0x01, 0x9C, 0x58, 0xA3, 0x02, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, arithmeticFlagsProgram, sizeof(arithmeticFlagsProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 16, &executed) == cpm86CoreHalted);
+  uint16_t arithmeticFlags[2];
+  assert(cpm86CoreRead(core, 0x0300, arithmeticFlags, sizeof(arithmeticFlags)) == cpm86CoreOk);
+  assert((arithmeticFlags[0] & 0x08D5) == 0x0890);
+  assert((arithmeticFlags[1] & 0x08D5) == 0x0055);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t parityBranchProgram[] = {0xB0, 0x00, 0x04, 0x00, 0xB0, 0x7F, 0x04, 0x01, 0x7A, 0x07,
+                                         0xB0, 0x11, 0xA2, 0x00, 0x03, 0xEB, 0x05, 0xB0, 0x22, 0xA2,
+                                         0x00, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, parityBranchProgram, sizeof(parityBranchProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 16, &executed) == cpm86CoreHalted);
+  uint8_t parityBranchResult;
+  assert(cpm86CoreRead(core, 0x0300, &parityBranchResult, sizeof(parityBranchResult)) == cpm86CoreOk);
+  assert(parityBranchResult == 0x11);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t pushaProgram[] = {
+      0xB8, 0x34, 0x12, 0xB9, 0x78, 0x56, 0xBA, 0xBC, 0x9A, 0xBB, 0xF0, 0xDE, 0xBD, 0x22, 0x11, 0xBE,
+      0x44, 0x33, 0xBF, 0x66, 0x55, 0xBC, 0x00, 0x08, 0x60, 0x61, 0xA3, 0x00, 0x04, 0x89, 0x0E, 0x02,
+      0x04, 0x89, 0x16, 0x04, 0x04, 0x89, 0x1E, 0x06, 0x04, 0x89, 0x26, 0x08, 0x04, 0x89, 0x2E, 0x0A,
+      0x04, 0x89, 0x36, 0x0C, 0x04, 0x89, 0x3E, 0x0E, 0x04, 0xF4};
+  assert(cpm86CoreLoad(core, 0, pushaProgram, sizeof(pushaProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 32, &executed) == cpm86CoreHalted);
+  uint16_t pushaRegisters[8];
+  const uint16_t expectedPushaRegisters[8] = {0x1234, 0x5678, 0x9ABC, 0xDEF0, 0x0800, 0x1122, 0x3344, 0x5566};
+  assert(cpm86CoreRead(core, 0x0400, pushaRegisters, sizeof(pushaRegisters)) == cpm86CoreOk);
+  assert(memcmp(pushaRegisters, expectedPushaRegisters, sizeof(pushaRegisters)) == 0);
+  uint16_t savedStackPointer;
+  assert(cpm86CoreRead(core, 0x07F6, &savedStackPointer, sizeof(savedStackPointer)) == cpm86CoreOk);
+  assert(savedStackPointer == 0x0800);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t multiplyShiftProgram[] = {
+      0xB0, 0x10, 0xB3, 0x10, 0xF6, 0xE3, 0xA3, 0x02, 0x03, 0x9C, 0x58, 0xA3, 0x00, 0x03,
+      0xB0, 0x7F, 0xB1, 0x02, 0xF6, 0xE9, 0xA3, 0x06, 0x03, 0x9C, 0x58, 0xA3, 0x04, 0x03,
+      0xB0, 0x80, 0xD0, 0xF8, 0xA2, 0x0A, 0x03, 0x9C, 0x58, 0xA3, 0x08, 0x03, 0xB0, 0x80,
+      0xD0, 0xE0, 0xA2, 0x0E, 0x03, 0x9C, 0x58, 0xA3, 0x0C, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, multiplyShiftProgram, sizeof(multiplyShiftProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 40, &executed) == cpm86CoreHalted);
+  uint8_t multiplyShiftResults[15];
+  assert(cpm86CoreRead(core, 0x0300, multiplyShiftResults, sizeof(multiplyShiftResults)) == cpm86CoreOk);
+  assert(((multiplyShiftResults[0] | (multiplyShiftResults[1] << 8)) & 0x0801) == 0x0801);
+  assert((multiplyShiftResults[2] | (multiplyShiftResults[3] << 8)) == 0x0100);
+  assert(((multiplyShiftResults[4] | (multiplyShiftResults[5] << 8)) & 0x0801) == 0x0801);
+  assert((multiplyShiftResults[6] | (multiplyShiftResults[7] << 8)) == 0x00FE);
+  assert(((multiplyShiftResults[8] | (multiplyShiftResults[9] << 8)) & 0x08D5) == 0x0084);
+  assert(multiplyShiftResults[10] == 0xC0);
+  assert(((multiplyShiftResults[12] | (multiplyShiftResults[13] << 8)) & 0x08D5) == 0x0845);
+  assert(multiplyShiftResults[14] == 0x00);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t rotateProgram[] = {
+      0xB0, 0x81, 0xD0, 0xC0, 0xA2, 0x00, 0x03, 0x9C, 0x58, 0xA3, 0x02, 0x03,
+      0xB0, 0x01, 0xD0, 0xC8, 0xA2, 0x04, 0x03, 0x9C, 0x58, 0xA3, 0x06, 0x03,
+      0xF9, 0xB0, 0x80, 0xD0, 0xD0, 0xA2, 0x08, 0x03, 0x9C, 0x58, 0xA3, 0x0A, 0x03,
+      0xF9, 0xB0, 0x01, 0xD0, 0xD8, 0xA2, 0x0C, 0x03, 0x9C, 0x58, 0xA3, 0x0E, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, rotateProgram, sizeof(rotateProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 32, &executed) == cpm86CoreHalted);
+  uint8_t rotateResults[16];
+  assert(cpm86CoreRead(core, 0x0300, rotateResults, sizeof(rotateResults)) == cpm86CoreOk);
+  const uint8_t expectedRotateResults[] = {0x03, 0x80, 0x01, 0x80};
+  for (size_t index = 0; index < sizeof(expectedRotateResults); ++index)
+  {
+    assert(rotateResults[index * 4] == expectedRotateResults[index]);
+    uint16_t flags = rotateResults[index * 4 + 2] | (rotateResults[index * 4 + 3] << 8);
+    assert((flags & 0x0801) == 0x0801);
+  }
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t signedDivisionProgram[] = {
+      0xB8, 0xFA, 0xFF, 0xB3, 0xFE, 0xF6, 0xFB, 0xA3, 0x00, 0x03, 0xB8, 0xFA, 0xFF, 0xBA, 0xFF, 0xFF,
+      0xBB, 0xFE, 0xFF, 0xF7, 0xFB, 0xA3, 0x02, 0x03, 0x89, 0x16, 0x04, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, signedDivisionProgram, sizeof(signedDivisionProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 24, &executed) == cpm86CoreHalted);
+  uint16_t signedDivisionResults[3];
+  assert(cpm86CoreRead(core, 0x0300, signedDivisionResults, sizeof(signedDivisionResults)) == cpm86CoreOk);
+  assert(signedDivisionResults[0] == 3);
+  assert(signedDivisionResults[1] == 3);
+  assert(signedDivisionResults[2] == 0);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
   const uint8_t wrapProgram[] = {0xB8, 0xFF, 0xFF, 0x8E, 0xD8, 0xBB, 0x0F, 0x01, 0x8B, 0x07,
                                  0x50, 0xB8, 0x00, 0x00, 0x8E, 0xD8, 0x58, 0xA3, 0x00, 0x03, 0xF4};
   const uint8_t wrappedValue[2] = {0x78, 0x56};
@@ -438,7 +543,7 @@ typedef struct
   const char *input;
   size_t inputLength;
   size_t inputPosition;
-  char output[8192];
+  char output[32768];
   size_t outputLength;
 } cpm86BootFixture;
 
@@ -621,6 +726,59 @@ static bool runCpm86UntilPrompt(cpm86Core *core, cpm86BootFixture *fixture, cons
   return reachedPrompt;
 }
 
+//-- Builds a RETRO86_DATA_LARGE_V1 image the way tools/diskImageCpm.py does: 2 KiB blocks, one
+//-- 16 KiB (128 record) directory entry per extent, extent numbers 0,1,2,... and 8 block pointers per entry.
+static void writeCpm86LargeTextImage(const char *path, size_t lineCount)
+{
+  enum
+  {
+    imageBytes = 528384,
+    reservedBytes = 4096,
+    blockBytes = 2048,
+    directoryBlocks = 2,
+    recordBytes = 128
+  };
+  uint8_t *image = malloc(imageBytes);
+  assert(image != NULL);
+  memset(image, 0xE5, imageBytes);
+
+  size_t fileBytes = lineCount * 7;
+  size_t recordCount = (fileBytes + recordBytes - 1) / recordBytes;
+  size_t blockCount = (recordCount * recordBytes + blockBytes - 1) / blockBytes;
+  uint8_t *data = image + reservedBytes + directoryBlocks * blockBytes;
+  memset(data, 0x1A, blockCount * blockBytes);
+  for (size_t line = 0; line < lineCount; ++line)
+  {
+    char text[8];
+    snprintf(text, sizeof(text), "L%04u\r\n", (unsigned)(line + 1));
+    memcpy(data + line * 7, text, 7);
+  }
+
+  size_t recordsLeft = recordCount;
+  size_t nextBlock = directoryBlocks;
+  for (size_t extent = 0; recordsLeft > 0; ++extent)
+  {
+    uint8_t *entry = image + reservedBytes + extent * 32;
+    size_t extentRecords = recordsLeft > 128 ? 128 : recordsLeft;
+    memset(entry, 0, 32);
+    memcpy(entry + 1, "BIG     TXT", 11);
+    entry[12] = (uint8_t)extent;
+    entry[15] = (uint8_t)extentRecords;
+    for (size_t pointer = 0; pointer < (extentRecords * recordBytes + blockBytes - 1) / blockBytes; ++pointer)
+    {
+      entry[16 + pointer] = (uint8_t)nextBlock++;
+    }
+    recordsLeft -= extentRecords;
+  }
+  assert(nextBlock == directoryBlocks + blockCount);
+
+  FILE *file = fopen(path, "wb");
+  assert(file != NULL);
+  assert(fwrite(image, 1, imageBytes, file) == imageBytes);
+  assert(fclose(file) == 0);
+  free(image);
+}
+
 static void testCpm86Boot(void)
 {
   FILE *systemFile = fopen(CPM86_SYSTEM_FILE_PATH, "rb");
@@ -743,6 +901,39 @@ static void testCpm86Boot(void)
   assert(fixture.diskReadFailures == 0);
   assert(imageClose(&largeDisk));
   assert(unlink(largeDiskPath) == 0);
+
+  //-- A text file of 19,600 bytes spans two directory extents (one 16 KiB extent per entry); the BDOS must
+  //-- find records 128 and up on a LARGE drive, so every line has to appear in the TYPE output.
+  const size_t textLineCount = 2800;
+  char textDiskPath[] = "/tmp/cpm86-large-text-XXXXXX";
+  int textDescriptor = mkstemp(textDiskPath);
+  assert(textDescriptor >= 0);
+  close(textDescriptor);
+  writeCpm86LargeTextImage(textDiskPath, textLineCount);
+  imageFile textDisk = {0};
+  assert(imageOpen(&textDisk, textDiskPath, true));
+  fixture.disks[3] = &textDisk;
+  fixture.largeDisks[3] = true;
+  fixture.input = "D:\rTYPE BIG.TXT\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompt(core, &fixture, "D>", 2));
+  const char *typed = fixture.output;
+  for (size_t line = 1; line <= textLineCount; ++line)
+  {
+    char expected[8];
+    snprintf(expected, sizeof(expected), "L%04u\r\n", (unsigned)line);
+    typed = strstr(typed, expected);
+    if (typed == NULL)
+    {
+      fprintf(stderr, "CP/M-86 LARGE multi-extent TYPE lost line %zu of %zu\n", line, textLineCount);
+    }
+    assert(typed != NULL);
+    typed += 7;
+  }
+  assert(fixture.diskReadFailures == 0);
+  assert(imageClose(&textDisk));
+  assert(unlink(textDiskPath) == 0);
 
   cpm86CoreDestroy(core);
   assert(imageClose(&disk));

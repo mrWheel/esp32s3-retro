@@ -25,6 +25,15 @@ memory:
 - The project adapter supplies port I/O and invokes one instruction at a time.
 - The adapter preserves F8h/F9h for `hostExchange` and accepts optional,
   byte-wide callbacks for other guest I/O ports. Word I/O remains rejected.
+- The 8086 DAA instruction is implemented and covered by the host regression
+  test that reproduces the reported `ADC AL, imm8; DAA` sequence.
+- ADD/ADC, SUB/SBB/CMP, logical operations, INC/DEC and NEG update their
+  documented arithmetic flags; host fixtures check flag values and parity
+  conditional branching.
+- PUSHA saves the original SP value required by the 80186 instruction
+  semantics; a host fixture checks the saved stack slot and restored registers.
+- MUL/IMUL overflow flags, signed/unsigned division, and width-correct SHL/SAL,
+  SHR/SAR and rotate behavior are covered by host regression fixtures.
 
 Upstream processor state is file-static. The adapter consequently permits only
 one active core and resets shared state between runs; it is not a

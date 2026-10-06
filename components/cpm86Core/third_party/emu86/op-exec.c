@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <stdint.h>
 
 #include "op-id.h"
 #include "op-id-name.h"
@@ -386,6 +387,8 @@ static int op_port (op_desc_t * op_desc)
 	return err;
 	}
 
+static void alu_set_szp (word_t result, byte_t w);
+
 
 // Arithmetic & logic
 
@@ -409,7 +412,7 @@ static int op_calc_1 (op_desc_t * op_desc)
 			break;
 
 		case OP_NEG:
-			v = (word_t) (0 - (short) v);
+			v = (word_t) (0 - v);
 			break;
 
 		case OP_MUL:
@@ -419,12 +422,16 @@ static int op_calc_1 (op_desc_t * op_desc)
 				t *= v;
 				reg16_set (REG_AX, (word_t) (t & 0xFFFF));
 				reg16_set (REG_DX, (word_t) (t >> 16));
+				flag_set (FLAG_CF, reg16_get (REG_DX) != 0);
+				flag_set (FLAG_OF, reg16_get (REG_DX) != 0);
 				}
 			else
 				{
 				byte_t al = reg8_get (REG_AL);
 				word_t t = ((word_t) al) * v;
 				reg16_set (REG_AX, t);
+				flag_set (FLAG_CF, reg8_get (REG_AH) != 0);
+				flag_set (FLAG_OF, reg8_get (REG_AH) != 0);
 				}
 
 			break;
@@ -432,35 +439,48 @@ static int op_calc_1 (op_desc_t * op_desc)
 		case OP_IMUL:
 			if (temp.w)
 				{
-				dword_t t = (dword_t) reg16_get (REG_AX);
-				t = (dword_t) (((long) t) * (long) (short) v);
-				reg16_set (REG_AX, (word_t) (t & 0xFFFF));
-				reg16_set (REG_DX, (word_t) (t >> 16));
+				int32_t product = (int32_t)(int16_t)reg16_get (REG_AX) * (int16_t)v;
+				word_t low = (word_t)product;
+				word_t high = (word_t)((uint32_t)product >> 16);
+				byte_t overflow = high != ((low & 0x8000) ? 0xFFFF : 0);
+				reg16_set (REG_AX, low);
+				reg16_set (REG_DX, high);
+				flag_set (FLAG_CF, overflow);
+				flag_set (FLAG_OF, overflow);
 				}
 			else
 				{
-				byte_t al = reg8_get (REG_AL);
-				word_t t = (word_t) (((short) (signed char) al) * (short) v);
-				reg16_set (REG_AX, t);
+				int16_t product = (int16_t)(int8_t)reg8_get (REG_AL) * (int8_t)v;
+				word_t result = (word_t)product;
+				byte_t overflow = (int8_t)(byte_t)result != product;
+				reg16_set (REG_AX, result);
+				flag_set (FLAG_CF, overflow);
+				flag_set (FLAG_OF, overflow);
 				}
 
 			break;
 
 
 		case OP_DIV:
-			assert (v > 0);
-
 			if (temp.w)
 				{
 				word_t ax = reg16_get (REG_AX);
 				word_t dx = reg16_get (REG_DX);
-				dword_t t = ((dword_t) dx) << 16 | (dword_t) ax;
-				reg16_set (REG_AX, (word_t) (t / (dword_t) v));
-				reg16_set (REG_DX, (word_t) (t % (dword_t) v));
+				uint32_t dividend = ((uint32_t)dx << 16) | ax;
+				if (v == 0 || dividend / v > 0xFFFF)
+					{
+					return exec_int (0);
+					}
+				reg16_set (REG_AX, (word_t) (dividend / v));
+				reg16_set (REG_DX, (word_t) (dividend % v));
 				}
 			else
 				{
 				word_t ax = reg16_get (REG_AX);
+				if (v == 0 || ax / v > 0xFF)
+					{
+					return exec_int (0);
+					}
 				reg8_set (REG_AL, (byte_t) (ax / v));
 				reg8_set (REG_AH, (byte_t) (ax % v));
 				}
@@ -468,21 +488,40 @@ static int op_calc_1 (op_desc_t * op_desc)
 			break;
 
 		case OP_IDIV:
-			assert (v > 0);
-
 			if (temp.w)
 				{
-				word_t ax = reg16_get (REG_AX);
-				word_t dx = reg16_get (REG_DX);
-				dword_t t = ((dword_t) dx) << 16 | (dword_t) ax;
-				reg16_set (REG_AX, (word_t) (((long) t) / (long) (dword_t) v));
-				reg16_set (REG_DX, (word_t) (((long) t) % (long) (dword_t) v));
+				uint32_t bits = ((uint32_t)reg16_get (REG_DX) << 16) | reg16_get (REG_AX);
+				int32_t dividend = (int32_t)bits;
+				int16_t divisor = (int16_t)v;
+				if (divisor == 0 || (dividend == INT32_MIN && divisor == -1))
+					{
+					return exec_int (0);
+					}
+				int32_t quotient = dividend / divisor;
+				int32_t remainder = dividend % divisor;
+				if (quotient < INT16_MIN || quotient > INT16_MAX)
+					{
+					return exec_int (0);
+					}
+				reg16_set (REG_AX, (word_t)quotient);
+				reg16_set (REG_DX, (word_t)remainder);
 				}
 			else
 				{
-				word_t ax = reg16_get (REG_AX);
-				reg8_set (REG_AL, (byte_t) (((short) ax) / (short) v));
-				reg8_set (REG_AH, (byte_t) (((short) ax) % (short) v));
+				int16_t dividend = (int16_t)reg16_get (REG_AX);
+				int8_t divisor = (int8_t)v;
+				if (divisor == 0)
+					{
+					return exec_int (0);
+					}
+				int16_t quotient = dividend / divisor;
+				int16_t remainder = dividend % divisor;
+				if (quotient < INT8_MIN || quotient > INT8_MAX)
+					{
+					return exec_int (0);
+					}
+				reg8_set (REG_AL, (byte_t)quotient);
+				reg8_set (REG_AH, (byte_t)remainder);
 				}
 
 			break;
@@ -493,10 +532,18 @@ static int op_calc_1 (op_desc_t * op_desc)
 
 		}
 
-	// TODO: set flags
-
 	if (id == OP_NOT || id == OP_NEG)
 		{
+		if (id == OP_NEG)
+			{
+			word_t mask = temp.w ? 0xFFFF : 0x00FF;
+			word_t sign = temp.w ? 0x8000 : 0x0080;
+			word_t original = temp.val.w & mask;
+			flag_set (FLAG_CF, original != 0);
+			flag_set (FLAG_OF, original == sign);
+			flag_set (FLAG_AF, (original & 0x0F) != 0);
+			alu_set_szp (v, temp.w);
+			}
 		temp.val.w = v;
 		val_set (var, &temp);
 		}
@@ -507,60 +554,80 @@ static int op_calc_1 (op_desc_t * op_desc)
 
 // TODO: to be moved to emu-proc ?
 
+static void alu_set_szp (word_t result, byte_t w)
+	{
+	word_t mask = w ? 0xFFFF : 0x00FF;
+	word_t sign = w ? 0x8000 : 0x0080;
+	byte_t parity = 1;
+
+	result &= mask;
+	flag_set (FLAG_ZF, result == 0);
+	flag_set (FLAG_SF, (result & sign) ? 1 : 0);
+
+	for (byte_t bit = 0; bit < 8; bit++)
+		{
+		parity ^= (result >> bit) & 1;
+		}
+	flag_set (FLAG_PF, parity);
+	}
+
+
 static word_t alu_calc_2 (word_t op, byte_t w, word_t a, word_t b)
 	{
-	word_t r = 0;
-
-	word_t cf = 0;
-	word_t of = 0;
-
-	word_t co;  // carry out
-	word_t ci;  // carry in
-
-	word_t m = w ? 0x8000: 0x0080;
+	word_t mask = w ? 0xFFFF : 0x00FF;
+	word_t sign = w ? 0x8000 : 0x0080;
+	word_t carry_in = 0;
+	word_t r;
+	byte_t cf = 0;
+	byte_t of = 0;
 
 	switch (op)
 		{
 		case OP_ADC:
-			r += (word_t) flag_get (FLAG_CF);
+			carry_in = flag_get (FLAG_CF);
 			__attribute__((fallthrough));
-
 		case OP_ADD:
-			r += a + b;
-
-			co = (a & b) | ((a ^ b) & ~r);
-			ci = a ^ b ^ r;
-
-			cf = co & m;
-			of = ci & m;
+			a &= mask;
+			b &= mask;
+			r = (word_t) (a + b + carry_in);
+			cf = ((dword_t) a + b + carry_in) > mask;
+			flag_set (FLAG_AF, ((a & 0x0F) + (b & 0x0F) + carry_in) > 0x0F);
+			of = ((~(a ^ b) & (a ^ r) & sign) != 0);
 			break;
 
 		case OP_SBB:
-			r -= (word_t) flag_get (FLAG_CF);
+			carry_in = flag_get (FLAG_CF);
 			__attribute__((fallthrough));
-
 		case OP_SUB:
 		case OP_CMP:
-			r += a - b;
-
-			co = (~a & b) | (~(a ^ b) & r);
-			ci = a ^ b ^ r;
-
-			cf = co & m;
-			of = ci & m;
+			a &= mask;
+			b &= mask;
+			r = (word_t) (a - b - carry_in);
+			cf = a < (dword_t) b + carry_in;
+			flag_set (FLAG_AF, (a & 0x0F) < (b & 0x0F) + carry_in);
+			of = (((a ^ b) & (a ^ r) & sign) != 0);
 			break;
 
 		case OP_OR:
-			r = a | b;
+			r = (a | b) & mask;
+			flag_set (FLAG_CF, 0);
+			flag_set (FLAG_OF, 0);
+			alu_set_szp (r, w);
 			break;
 
 		case OP_AND:
 		case OP_TEST:
-			r = a & b;
+			r = (a & b) & mask;
+			flag_set (FLAG_CF, 0);
+			flag_set (FLAG_OF, 0);
+			alu_set_szp (r, w);
 			break;
 
 		case OP_XOR:
-			r = a ^ b;
+			r = (a ^ b) & mask;
+			flag_set (FLAG_CF, 0);
+			flag_set (FLAG_OF, 0);
+			alu_set_szp (r, w);
 			break;
 
 		default:
@@ -568,16 +635,9 @@ static word_t alu_calc_2 (word_t op, byte_t w, word_t a, word_t b)
 
 		}
 
-	// TODO: complete flags support
-
-	cf = cf ? 1 : 0;
-	of = cf ^ (of ? 1 : 0);
-
 	flag_set (FLAG_CF, cf);
 	flag_set (FLAG_OF, of);
-
-	flag_set (FLAG_ZF, r & (w ? 0xFFFF : 0x00FF) ? 0 : 1);
-	flag_set (FLAG_SF, (r & m) ? 1 : 0);
+	alu_set_szp (r, w);
 
 	return r;
 	}
@@ -630,6 +690,7 @@ static int op_inc_dec (op_desc_t * op_desc)
 	val_get (var, &temp);
 	assert (temp.type == VT_IMM);
 	word_t r = temp.val.w;
+	word_t original = r;
 
 	switch (OP_ID)
 		{
@@ -645,12 +706,10 @@ static int op_inc_dec (op_desc_t * op_desc)
 			assert (0);
 		}
 
-	// TODO: update flags
-
-	flag_set (FLAG_ZF, r & (temp.w ? 0xFFFF : 0x00FF) ? 0 : 1);
-
-	word_t s = temp.w ? r & 0x8000 : r & 0x80;
-	flag_set (FLAG_SF, s ? 1 : 0);
+	word_t sign = temp.w ? 0x8000 : 0x0080;
+	flag_set (FLAG_AF, OP_ID == OP_INC ? (original & 0x0F) == 0x0F : (original & 0x0F) == 0);
+	flag_set (FLAG_OF, OP_ID == OP_INC ? original == sign - 1 : original == sign);
+	alu_set_szp (r, temp.w);
 
 	temp.val.w = r;
 	val_set (var, &temp);
@@ -684,11 +743,13 @@ static int op_shift_rot (op_desc_t * op_desc)
 
 	word_t a = temp1.val.w;
 	word_t b = temp2.val.b;
-	word_t t = b;
-
-	word_t d;  // previous carry
-	word_t c = flag_get (FLAG_CF);  // carry
-	word_t q;
+	word_t mask = w ? 0xFFFF : 0x00FF;
+	word_t sign = w ? 0x8000 : 0x0080;
+	word_t original = a & mask;
+	a = original;
+	word_t count = b;
+	word_t c = flag_get (FLAG_CF);
+	word_t d;
 
 	word_t id = OP_ID;
 	switch (id)
@@ -696,74 +757,69 @@ static int op_shift_rot (op_desc_t * op_desc)
 		case OP_RCL:
 		case OP_ROL:
 		case OP_SHL:
-			while (t--)
+		case OP_SAL:
+			while (count--)
 				{
 				d = c;
-				c = a & (w ? 0x8000 : 0x0080);
-				c = c ? 1 : 0;
-
-				a  <<= 1;
+				c = (a & sign) ? 1 : 0;
+				a = (a << 1) & mask;
 				if (id == OP_RCL) a |= d;
 				if (id == OP_ROL) a |= c;
 				}
-
-			flag_set (FLAG_CF, c);
-
-			if (b == 1)
-				{
-				t = a & (w ? 0x8000 : 0x0080);
-				t = t ? 1 : 0;
-
-				flag_set (FLAG_OF, c ^ t);
-				}
-
-			if (id == OP_SHL)
-				{
-				flag_set (FLAG_ZF, a == 0);
-				flag_set (FLAG_SF, (a & 0x8000) != 0);
-				}
-
 			break;
 
 		case OP_RCR:
 		case OP_ROR:
 		case OP_SAR:
 		case OP_SHR:
-			while (t--)
+			while (count--)
 				{
 				d = c;
 				c = a & 0x0001;
-				c = c ? 1 : 0;
-
-				a  >>= 1;
-				if (id == OP_RCR) a |= d ? (w ? 0x8000 : 0x0080) : 0;
-				if (id == OP_ROR) a |= c ? (w ? 0x8000 : 0x0080) : 0;
+				a >>= 1;
+				if (id == OP_RCR && d) a |= sign;
+				if (id == OP_ROR && c) a |= sign;
+				if (id == OP_SAR && (original & sign)) a |= sign;
+				a &= mask;
 				}
-
-			flag_set (FLAG_CF, c);
-
-			if (b == 1)
-				{
-				t = a & (w ? 0x8000 : 0x0080);
-				t = t ? 1 : 0;
-
-				q = a & (w ? 0x4000 : 0x0040);
-				q = q ? 1 : 0;
-
-				flag_set (FLAG_OF, t ^ q);
-				}
-
-			if (id == OP_SHR || id == OP_SAR)
-				{
-				flag_set (FLAG_ZF, a == 0);
-				flag_set (FLAG_SF, (a & 0x8000) != 0);
-				}
-
 			break;
 
 		default:
 			err = -1;
+			break;
 
+		}
+
+	if (err == 0 && b != 0)
+		{
+		flag_set (FLAG_CF, c);
+		if (b == 1)
+			{
+			if (id == OP_ROL || id == OP_RCL || id == OP_SHL || id == OP_SAL)
+				{
+				flag_set (FLAG_OF, ((a & sign) != 0) ^ c);
+				}
+			else if (id == OP_ROR)
+				{
+				flag_set (FLAG_OF, ((a & sign) != 0) ^ ((a & (sign >> 1)) != 0));
+				}
+			else if (id == OP_RCR)
+				{
+				flag_set (FLAG_OF, ((a & sign) != 0) ^ ((a & (sign >> 1)) != 0));
+				}
+			else if (id == OP_SHR)
+				{
+				flag_set (FLAG_OF, (original & sign) != 0);
+				}
+			else if (id == OP_SAR)
+				{
+				flag_set (FLAG_OF, 0);
+				}
+			}
+		if (id == OP_SHL || id == OP_SAL || id == OP_SHR || id == OP_SAR)
+			{
+			alu_set_szp (a, w);
+			}
 		}
 
 	temp1.val.w = a;
@@ -830,9 +886,12 @@ static int op_pusha (op_desc_t * op_desc)
 	{
 	assert (!op_desc->var_count);
 	byte_t r;
+	word_t original_sp = reg16_get (REG_SP);
 
 	for (r = 0; r != 8; r++)
-		stack_push (reg16_get (r));
+		{
+		stack_push (r == REG_SP ? original_sp : reg16_get (r));
+		}
 
 	return 0;
 	}
@@ -1299,6 +1358,43 @@ static int op_convert (op_desc_t * op_desc)
 	return 0;
 	}
 
+// Decimal adjust after addition
+
+static int op_daa (op_desc_t * op_desc)
+	{
+	(void) op_desc;
+
+	byte_t old = reg8_get (REG_AL);
+	byte_t value = old;
+	byte_t carry = flag_get (FLAG_CF);
+
+	if ((value & 0x0F) > 9 || flag_get (FLAG_AF))
+		{
+		value += 0x06;
+		flag_set (FLAG_AF, 1);
+		}
+	else
+		{
+		flag_set (FLAG_AF, 0);
+		}
+
+	if (old > 0x99 || carry)
+		{
+		value += 0x60;
+		flag_set (FLAG_CF, 1);
+		}
+	else
+		{
+		flag_set (FLAG_CF, 0);
+		}
+
+	reg8_set (REG_AL, value);
+	alu_set_szp (value, 0);
+
+	return 0;
+	}
+
+
 // Flags
 
 static int op_flag (op_desc_t * op_desc)
@@ -1664,7 +1760,7 @@ static op_id_hand_t _id_hand_tab [] = {
 	{ OP_PREFIX6,  NULL         },  // hole
 	{ OP_PREFIX7,  NULL         },  // hole
 
-	{ OP_DAA,      NULL         },
+	{ OP_DAA,      op_daa       },
 	{ OP_DAS,      NULL         },
 	{ OP_AAA,      NULL         },
 	{ OP_AAS,      NULL         },

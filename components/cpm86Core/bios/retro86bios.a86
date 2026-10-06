@@ -295,7 +295,7 @@ DPB0:
 
 DPB1:
 	dw	0020h
-	db	04h,0Fh,01h
+	db	04h,0Fh,00h
 	dw	00FFh
 	dw	007Fh
 	db	0C0h,00h
