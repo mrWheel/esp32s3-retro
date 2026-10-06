@@ -1925,7 +1925,8 @@ int op_exec (op_desc_t * op_desc)
 
 		if (_seg_stat == 2 && _rep_stat != 1)
 			{
-			assert (0);  // orphan SEG prefix
+			// SEG prefix before an instruction without memory operand: the 8086 ignores it
+			_seg_stat = 3;
 			seg_reset ();
 			}
 
