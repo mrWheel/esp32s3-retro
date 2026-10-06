@@ -17,7 +17,7 @@ static uint32_t updateCrc(uint32_t crc, uint8_t value)
   return crc;
 }
 
-static bool decodeCpmName(const uint8_t name[11], char filename[13])
+static bool decodeCpm80Name(const uint8_t name[11], char filename[13])
 {
   size_t output = 0;
   bool inExtension = false;
@@ -183,7 +183,7 @@ static bool makePaths(hostExchange *exchange)
 
 static void openReadFile(hostExchange *exchange)
 {
-  if (!decodeCpmName(exchange->nameBytes, exchange->filename))
+  if (!decodeCpm80Name(exchange->nameBytes, exchange->filename))
   {
     exchange->status = hostExchangeStatusInvalid;
     exchange->state = hostExchangeStatus;
@@ -223,7 +223,7 @@ static void openReadFile(hostExchange *exchange)
 
 static void prepareWriteFile(hostExchange *exchange)
 {
-  if (!decodeCpmName(exchange->nameBytes, exchange->filename))
+  if (!decodeCpm80Name(exchange->nameBytes, exchange->filename))
   {
     exchange->status = hostExchangeStatusInvalid;
     exchange->state = hostExchangePutStatus;

@@ -6,12 +6,12 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-import fetchCpmSoftware
+import fetchCpm80Software
 
 
-class FetchCpmSoftwareTests(unittest.TestCase):
+class FetchCpm80SoftwareTests(unittest.TestCase):
     def test_index_parser_retains_link_description(self):
-        parser = fetchCpmSoftware.IndexParser()
+        parser = fetchCpm80Software.IndexParser()
         parser.feed('<a href="BASIC.COM">Mbasic.com</a> Microsoft BASIC v5.21<br><a href="TOOLS.ZIP">Tools</a>')
         links = parser.result()
         self.assertEqual(links[0]["text"], "Mbasic.com")
@@ -20,7 +20,7 @@ class FetchCpmSoftwareTests(unittest.TestCase):
 
     def test_find_link_resolves_relative_file_from_same_host(self):
         links = [{"href": "Mbasic.com", "text": "MBASIC.COM", "description": []}]
-        url, _ = fetchCpmSoftware.find_link(
+        url, _ = fetchCpm80Software.find_link(
             "http://cpmarchives.example/cpm/lang.htm", links, "mbasic.com"
         )
         self.assertEqual(url, "http://cpmarchives.example/cpm/Mbasic.com")
@@ -31,15 +31,15 @@ class FetchCpmSoftwareTests(unittest.TestCase):
             archive.writestr("../BASIC.COM", b"unsafe path is read as data only")
             archive.writestr("tools/ASM.COM", b"assembler")
 
-        members = fetchCpmSoftware.zip_members(archive_buffer.getvalue(), ["tools/ASM.COM"])
+        members = fetchCpm80Software.zip_members(archive_buffer.getvalue(), ["tools/ASM.COM"])
         self.assertEqual(members, [("ASM.COM", b"assembler")])
-        with self.assertRaisesRegex(fetchCpmSoftware.ArchiveError, "selected explicitly"):
-            fetchCpmSoftware.zip_members(archive_buffer.getvalue(), [])
+        with self.assertRaisesRegex(fetchCpm80Software.ArchiveError, "selected explicitly"):
+            fetchCpm80Software.zip_members(archive_buffer.getvalue(), [])
 
     def test_link_to_different_host_is_rejected(self):
         links = [{"href": "https://other.example/file.com", "text": "FILE.COM", "description": []}]
-        with self.assertRaisesRegex(fetchCpmSoftware.ArchiveError, "different host"):
-            fetchCpmSoftware.find_link("https://archive.example/index.htm", links, "FILE.COM")
+        with self.assertRaisesRegex(fetchCpm80Software.ArchiveError, "different host"):
+            fetchCpm80Software.find_link("https://archive.example/index.htm", links, "FILE.COM")
 
     def test_microsoft_program_is_not_downloaded_from_archive(self):
         links = [
@@ -49,10 +49,10 @@ class FetchCpmSoftwareTests(unittest.TestCase):
                 "description": ["Microsoft BASIC Interpreter v5.21"],
             }
         ]
-        with patch.object(fetchCpmSoftware, "read_index", return_value=("http://archive.test/lang.htm", links)):
-            with patch.object(fetchCpmSoftware, "_download") as download:
-                with self.assertRaisesRegex(fetchCpmSoftware.ArchiveError, "Microsoft software is not downloaded"):
-                    fetchCpmSoftware._downloaded_files(
+        with patch.object(fetchCpm80Software, "read_index", return_value=("http://archive.test/lang.htm", links)):
+            with patch.object(fetchCpm80Software, "_download") as download:
+                with self.assertRaisesRegex(fetchCpm80Software.ArchiveError, "Microsoft software is not downloaded"):
+                    fetchCpm80Software._downloaded_files(
                         "http://archive.test/lang.htm", "Mbasic.com", []
                     )
                 download.assert_not_called()
@@ -61,7 +61,7 @@ class FetchCpmSoftwareTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             data = b"archive bytes"
             link = {"href": "packages/tool.zip", "text": "tool.zip", "description": ["Freeware"]}
-            archive_path = fetchCpmSoftware.preserve_download(
+            archive_path = fetchCpm80Software.preserve_download(
                 temporary_directory,
                 "https://archive.example/index.html",
                 "https://archive.example/packages/tool.zip",

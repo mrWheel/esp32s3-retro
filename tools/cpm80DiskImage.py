@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and populate raw CP/M 2.2 images for the project's SYSTEM and LARGE DPBs."""
+"""Create and populate raw CP/M-80 images for the project's SYSTEM and LARGE DPBs."""
 
 import argparse
 import os
@@ -265,7 +265,7 @@ def list_files(image_path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Create and populate SYSTEM or LARGE CP/M 2.2 disk images for drives B:–F:."
+        description="Create and populate SYSTEM or LARGE CP/M-80 disk images for drives B:–F:."
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -288,7 +288,7 @@ def main():
             profile = IMAGE_PROFILES[arguments.profile]
             create_image(arguments.image, force=arguments.force, profile=arguments.profile)
             print(f"Created empty CP/M {arguments.profile} image: {arguments.image} ({profile['image_size']} bytes)")
-            print("Copy it to /retro/images/cpm/work.dsk on the SD card, then eject the card safely.")
+            print("Copy it to /retro/images/cpm80/work.dsk on the SD card, then eject the card safely.")
         elif arguments.command == "add":
             if arguments.name and len(arguments.files) != 1:
                 parser.error("--name can only be used with one input file")

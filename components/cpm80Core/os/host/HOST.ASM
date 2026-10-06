@@ -1,4 +1,4 @@
-; HOST.COM - CP/M 2.2 host exchange utility
+; HOST.COM - CP/M-80 host exchange utility
 ; Build from this directory with:
 ;   z80asm -o HOST.COM HOST.ASM
 ; The resulting raw COM image starts at 0100h.

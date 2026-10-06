@@ -1,9 +1,9 @@
 #include "hostCore.h"
 #include "hostExchange.h"
 #include "imageFile.h"
-#include "cpmCpu.h"
-#include "cpmGuest.h"
-#include "cpmDriveConfig.h"
+#include "cpm80Cpu.h"
+#include "cpm80Guest.h"
+#include "cpm80DriveConfig.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,33 +13,33 @@
 
 static void testPaths(void)
 {
-  const char *rejected[] = {"../images/cpm/disk",
+  const char *rejected[] = {"../images/cpm80/disk",
                             "%2e%2e/images",
-                            "cpm/%2E%2E/x",
+                            "cpm80/%2E%2E/x",
                             "/etc/passwd",
                             "%2fetc/passwd",
-                            "cpm//x",
-                            "cpm/",
-                            "cpm/./x",
-                            "cpm/%00.txt",
-                            "cpm/x%00tail",
+                            "cpm80//x",
+                            "cpm80/",
+                            "cpm80/./x",
+                            "cpm80/%00.txt",
+                            "cpm80/x%00tail",
                             "%252e%252e/x",
                             "%",
                             "%0",
                             "%xy",
-                            "cpm\\x",
-                            "cpm%5cx",
-                            "cpm/a:",
-                            "cpm/foo.",
-                            "cpm/foo%20",
+                            "cpm80\\x",
+                            "cpm80%5cx",
+                            "cpm80/a:",
+                            "cpm80/foo.",
+                            "cpm80/foo%20",
                             ".upload-part",
-                            "cpm/a%0ab",
-                            "cpm/a%22b",
-                            "cpm/%3Cscript%3E",
-                            "cpm/%7fx",
-                            "cpm/a+b",
-                            "cpm/x?y",
-                            "cpm/x#y"};
+                            "cpm80/a%0ab",
+                            "cpm80/a%22b",
+                            "cpm80/%3Cscript%3E",
+                            "cpm80/%7fx",
+                            "cpm80/a+b",
+                            "cpm80/x?y",
+                            "cpm80/x#y"};
   char path[absolutePathCapacity];
   for (size_t index = 0; index < sizeof(rejected) / sizeof(rejected[0]); ++index)
   {
@@ -49,7 +49,7 @@ static void testPaths(void)
   assert(strcmp(path, "/microSD/retro/exchange") == 0);
   assert(pathResolve("common/Hello%20World.bin", path, sizeof(path)));
   assert(strcmp(path, "/microSD/retro/exchange/common/Hello World.bin") == 0);
-  assert(pathResolve("cpm%2Fa.bin", path, sizeof(path)));
+  assert(pathResolve("cpm80%2Fa.bin", path, sizeof(path)));
   assert(!pathResolve("common/a.bin", path, 8));
   assert(!pathDecode("x", path, 0));
   char longName[300];
@@ -93,7 +93,7 @@ static uint32_t testCrc32(const uint8_t *data, size_t length)
   return crc ^ 0xFFFFFFFFU;
 }
 
-static void writeCpmFilename(hostExchange *exchange, const char *name, const char *extension)
+static void writeCpm80Filename(hostExchange *exchange, const char *name, const char *extension)
 {
   uint8_t rawName[11];
   memset(rawName, ' ', sizeof(rawName));
@@ -107,7 +107,7 @@ static void writeCpmFilename(hostExchange *exchange, const char *name, const cha
 
 static void testHostExchange(void)
 {
-  char directoryPath[] = "/tmp/cpm-exchange-test-XXXXXX";
+  char directoryPath[] = "/tmp/cpm80-exchange-test-XXXXXX";
   assert(mkdtemp(directoryPath) != NULL);
   char sourcePath[absolutePathCapacity];
   assert(snprintf(sourcePath, sizeof(sourcePath), "%s/ALPHA.BIN", directoryPath) <
@@ -144,11 +144,11 @@ static void testHostExchange(void)
   assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
 
   hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
-  writeCpmFilename(&exchange, "MISSING", "BIN");
+  writeCpm80Filename(&exchange, "MISSING", "BIN");
   assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusUnavailable);
 
   hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
-  writeCpmFilename(&exchange, "ALPHA", "BIN");
+  writeCpm80Filename(&exchange, "ALPHA", "BIN");
   assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
   uint32_t sourceLength = 0;
   for (uint8_t index = 0; index < 4; ++index)
@@ -172,7 +172,7 @@ static void testHostExchange(void)
 
   const uint8_t destinationBytes[] = {0xA5, 0x00, 0x1A, 0xFE, 0x55};
   hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeCpmFilename(&exchange, "RESULT", "TXT");
+  writeCpm80Filename(&exchange, "RESULT", "TXT");
   for (uint8_t index = 0; index < 4; ++index)
   {
     hostExchangePortOutput(&exchange, hostExchangePort, (uint8_t)(sizeof(destinationBytes) >> (index * 8)));
@@ -200,7 +200,7 @@ static void testHostExchange(void)
   assert(memcmp(actualBytes, destinationBytes, sizeof(actualBytes)) == 0);
 
   hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeCpmFilename(&exchange, "BADCRC", "BIN");
+  writeCpm80Filename(&exchange, "BADCRC", "BIN");
   for (uint8_t index = 0; index < 4; ++index)
   {
     hostExchangePortOutput(&exchange, hostExchangePort, (uint8_t)(sizeof(destinationBytes) >> (index * 8)));
@@ -223,7 +223,7 @@ static void testHostExchange(void)
   assert(stat(badCrcPath, &info) != 0);
 
   hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeCpmFilename(&exchange, "EMPTY", "DAT");
+  writeCpm80Filename(&exchange, "EMPTY", "DAT");
   for (uint8_t index = 0; index < 8; ++index)
   {
     hostExchangePortOutput(&exchange, hostExchangePort, 0);
@@ -238,7 +238,7 @@ static void testHostExchange(void)
   assert(fclose(empty) == 0);
 
   hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeCpmFilename(&exchange, "RESULT", "TXT");
+  writeCpm80Filename(&exchange, "RESULT", "TXT");
   for (uint8_t index = 0; index < 4; ++index)
   {
     hostExchangePortOutput(&exchange, hostExchangePort, (uint8_t)(sizeof(destinationBytes) >> (index * 8)));
@@ -258,7 +258,7 @@ static void testHostExchange(void)
   assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusInvalid);
 
   hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeCpmFilename(&exchange, "PARTIAL", "TMP");
+  writeCpm80Filename(&exchange, "PARTIAL", "TMP");
   for (uint8_t index = 0; index < 4; ++index)
   {
     hostExchangePortOutput(&exchange, hostExchangePort, 10);
@@ -378,16 +378,16 @@ static void testPortOutput(void *context, uint8_t port, uint8_t value)
   fixture->outputValue = value;
 }
 
-static void testCpmDriveConfig(void)
+static void testCpm80DriveConfig(void)
 {
   static const char configText[] =
-      "A=/littlefs/cpm/system.dsk,RO,SYSTEM\r\n"
-      "B=/retro/images/cpm/languages.dsk,RO,SYSTEM\n"
-      "C=/retro/images/cpm/tools.dsk,RO,LARGE\n"
-      "D=/retro/images/cpm/utilities.dsk,RO,LARGE\n"
-      "E=/retro/images/cpm/work.dsk,RW,LARGE\n"
-      "F=/retro/images/cpm/archive.dsk,RW,LARGE\n";
-  char configPath[] = "/tmp/cpm-drives-config-test-XXXXXX";
+      "A=/littlefs/cpm80/system.dsk,RO,SYSTEM\r\n"
+      "B=/retro/images/cpm80/languages.dsk,RO,SYSTEM\n"
+      "C=/retro/images/cpm80/tools.dsk,RO,LARGE\n"
+      "D=/retro/images/cpm80/utilities.dsk,RO,LARGE\n"
+      "E=/retro/images/cpm80/work.dsk,RW,LARGE\n"
+      "F=/retro/images/cpm80/archive.dsk,RW,LARGE\n";
+  char configPath[] = "/tmp/cpm80-drives-config-test-XXXXXX";
   int descriptor = mkstemp(configPath);
   assert(descriptor >= 0);
   FILE *file = fdopen(descriptor, "wb");
@@ -395,74 +395,74 @@ static void testCpmDriveConfig(void)
   assert(fwrite(configText, 1, sizeof(configText) - 1, file) == sizeof(configText) - 1);
   assert(fclose(file) == 0);
 
-  cpmDriveConfig drives[cpmDiskDriveCount];
+  cpm80DriveConfig drives[cpm80DiskDriveCount];
   char error[96];
-  assert(cpmDriveConfigLoad(configPath, drives, error, sizeof(error)) == cpmDriveConfigLoaded);
-  assert(drives[0].configured && drives[0].profile == cpmDiskProfileSystem && drives[0].readOnly);
-  assert(strcmp(drives[1].path, "/microSD/retro/images/cpm/languages.dsk") == 0);
-  assert(drives[1].configured && drives[1].profile == cpmDiskProfileSystem && drives[1].readOnly);
-  assert(strcmp(drives[5].path, "/microSD/retro/images/cpm/archive.dsk") == 0);
-  assert(drives[5].configured && drives[5].profile == cpmDiskProfileLarge && !drives[5].readOnly);
+  assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigLoaded);
+  assert(drives[0].configured && drives[0].profile == cpm80DiskProfileSystem && drives[0].readOnly);
+  assert(strcmp(drives[1].path, "/microSD/retro/images/cpm80/languages.dsk") == 0);
+  assert(drives[1].configured && drives[1].profile == cpm80DiskProfileSystem && drives[1].readOnly);
+  assert(strcmp(drives[5].path, "/microSD/retro/images/cpm80/archive.dsk") == 0);
+  assert(drives[5].configured && drives[5].profile == cpm80DiskProfileLarge && !drives[5].readOnly);
 
   file = fopen(configPath, "wb");
   assert(file != NULL);
-  static const char invalidConfig[] = "B=/retro/images/cpm/../escape.dsk,RW,LARGE\n";
+  static const char invalidConfig[] = "B=/retro/images/cpm80/../escape.dsk,RW,LARGE\n";
   assert(fwrite(invalidConfig, 1, sizeof(invalidConfig) - 1, file) == sizeof(invalidConfig) - 1);
   assert(fclose(file) == 0);
-  assert(cpmDriveConfigLoad(configPath, drives, error, sizeof(error)) == cpmDriveConfigInvalid);
-  assert(drives[0].configured && drives[0].profile == cpmDiskProfileSystem && drives[0].readOnly);
-  for (uint8_t drive = 1; drive < cpmDiskDriveCount; ++drive)
+  assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigInvalid);
+  assert(drives[0].configured && drives[0].profile == cpm80DiskProfileSystem && drives[0].readOnly);
+  for (uint8_t drive = 1; drive < cpm80DiskDriveCount; ++drive)
   {
     assert(!drives[drive].configured);
   }
   assert(unlink(configPath) == 0);
 
-  assert(cpmDriveConfigLoad(configPath, drives, error, sizeof(error)) == cpmDriveConfigMissing);
-  assert(drives[0].configured && drives[0].profile == cpmDiskProfileSystem && drives[0].readOnly);
-  for (uint8_t drive = 1; drive < cpmDiskDriveCount; ++drive)
+  assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigMissing);
+  assert(drives[0].configured && drives[0].profile == cpm80DiskProfileSystem && drives[0].readOnly);
+  for (uint8_t drive = 1; drive < cpm80DiskDriveCount; ++drive)
   {
     assert(!drives[drive].configured);
   }
 }
 
-static void testCpmCpu(void)
+static void testCpm80Cpu(void)
 {
-  cpmCpu cpu = {0};
+  cpm80Cpu cpu = {0};
   portFixture ports = {.inputValue = 0xA5};
   const uint8_t program[] = {0x3E, 0x5A, 0x32, 0xFF, 0xFF, 0xDB, 0x42, 0xD3, 0x43, 0x76};
   uint8_t value;
 
-  assert(!cpmCpuInitialize(NULL, testPortInput, testPortOutput, &ports));
-  assert(!cpmCpuInitialize(&cpu, NULL, testPortOutput, &ports));
-  assert(!cpmCpuInitialize(&cpu, testPortInput, NULL, &ports));
-  assert(cpmCpuInitialize(&cpu, testPortInput, testPortOutput, &ports));
-  assert(cpmCpuLoad(&cpu, 0, program, sizeof(program)));
-  assert(!cpmCpuLoad(&cpu, UINT16_MAX, program, 2));
-  assert(!cpmCpuLoad(&cpu, 0, NULL, 1));
-  assert(cpmCpuWriteMemory(&cpu, UINT16_MAX, 0xC3));
-  assert(cpmCpuReadMemory(&cpu, UINT16_MAX, &value) && value == 0xC3);
-  assert(!cpmCpuReadMemory(&cpu, 0, NULL));
+  assert(!cpm80CpuInitialize(NULL, testPortInput, testPortOutput, &ports));
+  assert(!cpm80CpuInitialize(&cpu, NULL, testPortOutput, &ports));
+  assert(!cpm80CpuInitialize(&cpu, testPortInput, NULL, &ports));
+  assert(cpm80CpuInitialize(&cpu, testPortInput, testPortOutput, &ports));
+  assert(cpm80CpuLoad(&cpu, 0, program, sizeof(program)));
+  assert(!cpm80CpuLoad(&cpu, UINT16_MAX, program, 2));
+  assert(!cpm80CpuLoad(&cpu, 0, NULL, 1));
+  assert(cpm80CpuWriteMemory(&cpu, UINT16_MAX, 0xC3));
+  assert(cpm80CpuReadMemory(&cpu, UINT16_MAX, &value) && value == 0xC3);
+  assert(!cpm80CpuReadMemory(&cpu, 0, NULL));
 
-  assert(cpmCpuStep(&cpu));
-  assert(cpmCpuStep(&cpu));
-  assert(cpmCpuReadMemory(&cpu, UINT16_MAX, &value) && value == 0x5A);
-  assert(cpmCpuStep(&cpu));
+  assert(cpm80CpuStep(&cpu));
+  assert(cpm80CpuStep(&cpu));
+  assert(cpm80CpuReadMemory(&cpu, UINT16_MAX, &value) && value == 0x5A);
+  assert(cpm80CpuStep(&cpu));
   assert(cpu.processor.a == 0xA5 && ports.inputPort == 0x42);
-  assert(cpmCpuStep(&cpu));
+  assert(cpm80CpuStep(&cpu));
   assert(ports.outputPort == 0x43 && ports.outputValue == 0xA5);
-  assert(cpmCpuStep(&cpu) && cpu.processor.halted);
+  assert(cpm80CpuStep(&cpu) && cpu.processor.halted);
   assert(cpu.processor.pc == sizeof(program));
-  assert(!cpmCpuStep(NULL));
-  cpmCpuDestroy(&cpu);
+  assert(!cpm80CpuStep(NULL));
+  cpm80CpuDestroy(&cpu);
   assert(!cpu.initialized && cpu.memory == NULL);
 }
 
 typedef struct
 {
-  imageFile *disks[cpmDiskDriveCount];
-  bool availableDrives[cpmDiskDriveCount];
-  bool writableDrives[cpmDiskDriveCount];
-  cpmDiskProfile diskProfiles[cpmDiskDriveCount];
+  imageFile *disks[cpm80DiskDriveCount];
+  bool availableDrives[cpm80DiskDriveCount];
+  bool writableDrives[cpm80DiskDriveCount];
+  cpm80DiskProfile diskProfiles[cpm80DiskDriveCount];
   hostExchange *exchange;
   const char *input;
   size_t inputLength;
@@ -470,23 +470,23 @@ typedef struct
   char output[8192];
   size_t outputLength;
   bool outputOverflow;
-} cpmGuestFixture;
+} cpm80GuestFixture;
 
-static bool cpmTestConsoleAvailable(void *context)
+static bool cpm80TestConsoleAvailable(void *context)
 {
-  cpmGuestFixture *fixture = context;
+  cpm80GuestFixture *fixture = context;
   return fixture->inputPosition < fixture->inputLength;
 }
 
-static int cpmTestConsoleRead(void *context)
+static int cpm80TestConsoleRead(void *context)
 {
-  cpmGuestFixture *fixture = context;
+  cpm80GuestFixture *fixture = context;
   return fixture->inputPosition < fixture->inputLength ? (unsigned char)fixture->input[fixture->inputPosition++] : -1;
 }
 
-static void cpmTestConsoleWrite(void *context, uint8_t character)
+static void cpm80TestConsoleWrite(void *context, uint8_t character)
 {
-  cpmGuestFixture *fixture = context;
+  cpm80GuestFixture *fixture = context;
   if (fixture->outputLength + 1 >= sizeof(fixture->output))
   {
     fixture->outputOverflow = true;
@@ -496,16 +496,16 @@ static void cpmTestConsoleWrite(void *context, uint8_t character)
   fixture->output[fixture->outputLength] = '\0';
 }
 
-static bool cpmTestDiskDriveAvailable(void *context, uint8_t drive)
+static bool cpm80TestDiskDriveAvailable(void *context, uint8_t drive)
 {
-  cpmGuestFixture *fixture = context;
-  return drive < cpmDiskDriveCount && fixture->availableDrives[drive];
+  cpm80GuestFixture *fixture = context;
+  return drive < cpm80DiskDriveCount && fixture->availableDrives[drive];
 }
 
-static bool cpmTestDiskDriveProfile(void *context, uint8_t drive, cpmDiskProfile *profile)
+static bool cpm80TestDiskDriveProfile(void *context, uint8_t drive, cpm80DiskProfile *profile)
 {
-  cpmGuestFixture *fixture = context;
-  if (drive >= cpmDiskDriveCount || profile == NULL || !fixture->availableDrives[drive])
+  cpm80GuestFixture *fixture = context;
+  if (drive >= cpm80DiskDriveCount || profile == NULL || !fixture->availableDrives[drive])
   {
     return false;
   }
@@ -513,60 +513,60 @@ static bool cpmTestDiskDriveProfile(void *context, uint8_t drive, cpmDiskProfile
   return true;
 }
 
-static bool cpmTestDiskRead(void *context, uint8_t drive, uint16_t track, uint16_t sector,
-                            uint8_t record[cpmDiskSectorSize])
+static bool cpm80TestDiskRead(void *context, uint8_t drive, uint16_t track, uint16_t sector,
+                            uint8_t record[cpm80DiskSectorSize])
 {
-  cpmGuestFixture *fixture = context;
-  if (drive >= cpmDiskDriveCount)
+  cpm80GuestFixture *fixture = context;
+  if (drive >= cpm80DiskDriveCount)
   {
     return false;
   }
-  uint16_t sectorsPerTrack = fixture->diskProfiles[drive] == cpmDiskProfileLarge
-                                 ? cpmLargeDiskSectorsPerTrack
-                                 : cpmDiskSectorsPerTrack;
-  if (fixture->disks[drive] == NULL || track >= cpmDiskTracks || sector >= sectorsPerTrack)
+  uint16_t sectorsPerTrack = fixture->diskProfiles[drive] == cpm80DiskProfileLarge
+                                 ? cpm80LargeDiskSectorsPerTrack
+                                 : cpm80DiskSectorsPerTrack;
+  if (fixture->disks[drive] == NULL || track >= cpm80DiskTracks || sector >= sectorsPerTrack)
   {
     return false;
   }
   uint64_t recordIndex = (uint64_t)track * sectorsPerTrack + sector;
-  return imageReadAt(fixture->disks[drive], recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize);
+  return imageReadAt(fixture->disks[drive], recordIndex * cpm80DiskSectorSize, record, cpm80DiskSectorSize);
 }
 
-static bool cpmTestDiskWrite(void *context, uint8_t drive, uint16_t track, uint16_t sector,
-                             const uint8_t record[cpmDiskSectorSize])
+static bool cpm80TestDiskWrite(void *context, uint8_t drive, uint16_t track, uint16_t sector,
+                             const uint8_t record[cpm80DiskSectorSize])
 {
-  cpmGuestFixture *fixture = context;
-  if (drive >= cpmDiskDriveCount)
+  cpm80GuestFixture *fixture = context;
+  if (drive >= cpm80DiskDriveCount)
   {
     return false;
   }
-  uint16_t sectorsPerTrack = fixture->diskProfiles[drive] == cpmDiskProfileLarge
-                                 ? cpmLargeDiskSectorsPerTrack
-                                 : cpmDiskSectorsPerTrack;
-  if (fixture->disks[drive] == NULL || !fixture->writableDrives[drive] || track >= cpmDiskTracks ||
+  uint16_t sectorsPerTrack = fixture->diskProfiles[drive] == cpm80DiskProfileLarge
+                                 ? cpm80LargeDiskSectorsPerTrack
+                                 : cpm80DiskSectorsPerTrack;
+  if (fixture->disks[drive] == NULL || !fixture->writableDrives[drive] || track >= cpm80DiskTracks ||
       sector >= sectorsPerTrack)
   {
     return false;
   }
   uint64_t recordIndex = (uint64_t)track * sectorsPerTrack + sector;
-  return imageWriteAt(fixture->disks[drive], recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize) &&
+  return imageWriteAt(fixture->disks[drive], recordIndex * cpm80DiskSectorSize, record, cpm80DiskSectorSize) &&
          imageFlush(fixture->disks[drive]);
 }
 
-static void cpmTestYield(void *context)
+static void cpm80TestYield(void *context)
 {
   (void)context;
 }
 
-static uint8_t cpmTestExchangePortInput(void *context, uint8_t port)
+static uint8_t cpm80TestExchangePortInput(void *context, uint8_t port)
 {
-  cpmGuestFixture *fixture = context;
+  cpm80GuestFixture *fixture = context;
   return hostExchangePortInput(fixture->exchange, port);
 }
 
-static void cpmTestExchangePortOutput(void *context, uint8_t port, uint8_t value)
+static void cpm80TestExchangePortOutput(void *context, uint8_t port, uint8_t value)
 {
-  cpmGuestFixture *fixture = context;
+  cpm80GuestFixture *fixture = context;
   hostExchangePortOutput(fixture->exchange, port, value);
 }
 
@@ -582,9 +582,9 @@ static size_t countOccurrences(const char *text, const char *needle)
   return count;
 }
 
-static void testCpmGuestBoot(void)
+static void testCpm80GuestBoot(void)
 {
-  char exchangeDirectoryPath[] = "/tmp/cpm-guest-exchange-test-XXXXXX";
+  char exchangeDirectoryPath[] = "/tmp/cpm80-guest-exchange-test-XXXXXX";
   assert(mkdtemp(exchangeDirectoryPath) != NULL);
   hostExchange exchange = {0};
   assert(hostExchangeInitialize(&exchange, exchangeDirectoryPath));
@@ -611,64 +611,64 @@ static void testCpmGuestBoot(void)
   char writableDiskPath[] = "cpm-write-test-XXXXXX";
   int writableDiskDescriptor = mkstemp(writableDiskPath);
   assert(writableDiskDescriptor >= 0);
-  assert(ftruncate(writableDiskDescriptor, cpmSystemImageSize) == 0);
+  assert(ftruncate(writableDiskDescriptor, cpm80SystemImageSize) == 0);
   close(writableDiskDescriptor);
   imageFile writableDisk = {0};
   assert(imageOpen(&writableDisk, writableDiskPath, false));
-  uint8_t emptyDirectory[cpmDiskDirectoryEntries * 32];
+  uint8_t emptyDirectory[cpm80DiskDirectoryEntries * 32];
   memset(emptyDirectory, 0xE5, sizeof(emptyDirectory));
-  uint64_t directoryOffset = 2U * cpmDiskSectorsPerTrack * cpmDiskSectorSize;
+  uint64_t directoryOffset = 2U * cpm80DiskSectorsPerTrack * cpm80DiskSectorSize;
   assert(imageWriteAt(&writableDisk, directoryOffset, emptyDirectory, sizeof(emptyDirectory)));
   assert(imageFlush(&writableDisk));
   char largeDiskPath[] = "cpm-large-write-test-XXXXXX";
   int largeDiskDescriptor = mkstemp(largeDiskPath);
   assert(largeDiskDescriptor >= 0);
-  assert(ftruncate(largeDiskDescriptor, cpmLargeImageSize) == 0);
+  assert(ftruncate(largeDiskDescriptor, cpm80LargeImageSize) == 0);
   close(largeDiskDescriptor);
   imageFile largeDisk = {0};
   assert(imageOpen(&largeDisk, largeDiskPath, false));
-  uint8_t largeEmptyDirectory[cpmLargeDiskDirectoryEntries * 32];
+  uint8_t largeEmptyDirectory[cpm80LargeDiskDirectoryEntries * 32];
   memset(largeEmptyDirectory, 0xE5, sizeof(largeEmptyDirectory));
-  uint64_t largeDirectoryOffset = 2U * cpmLargeDiskSectorsPerTrack * cpmDiskSectorSize;
+  uint64_t largeDirectoryOffset = 2U * cpm80LargeDiskSectorsPerTrack * cpm80DiskSectorSize;
   assert(imageWriteAt(&largeDisk, largeDirectoryOffset, largeEmptyDirectory, sizeof(largeEmptyDirectory)));
   assert(imageFlush(&largeDisk));
-  assert(imageOpen(&disk, CPM_SYSTEM_IMAGE_PATH, true));
-  assert(imageSize(&disk) == cpmSystemImageSize);
-  uint8_t ccpImage[cpmCcpSize];
-  uint8_t bdosImage[cpmBdosSize];
+  assert(imageOpen(&disk, CPM80_SYSTEM_IMAGE_PATH, true));
+  assert(imageSize(&disk) == cpm80SystemImageSize);
+  uint8_t ccpImage[cpm80CcpSize];
+  uint8_t bdosImage[cpm80BdosSize];
   assert(imageReadAt(&disk, 0, ccpImage, sizeof(ccpImage)));
   assert(imageReadAt(&disk, sizeof(ccpImage), bdosImage, sizeof(bdosImage)));
 
-  cpmGuestFixture fixture = {.disks = {[0] = &disk, [1] = &disk, [4] = &writableDisk, [5] = &largeDisk},
+  cpm80GuestFixture fixture = {.disks = {[0] = &disk, [1] = &disk, [4] = &writableDisk, [5] = &largeDisk},
                              .availableDrives = {[0] = true, [1] = true, [4] = true, [5] = true},
                              .writableDrives = {[4] = true, [5] = true},
-                             .diskProfiles = {[5] = cpmDiskProfileLarge},
+                             .diskProfiles = {[5] = cpm80DiskProfileLarge},
                              .exchange = &exchange};
-  const cpmHostOps host = {.consoleAvailable = cpmTestConsoleAvailable,
-                           .consoleRead = cpmTestConsoleRead,
-                           .consoleWrite = cpmTestConsoleWrite,
-                           .diskDriveAvailable = cpmTestDiskDriveAvailable,
-                           .diskDriveProfile = cpmTestDiskDriveProfile,
-                           .diskReadRecord = cpmTestDiskRead,
-                           .diskWriteRecord = cpmTestDiskWrite,
-                           .exchangePortInput = cpmTestExchangePortInput,
-                           .exchangePortOutput = cpmTestExchangePortOutput,
-                           .yield = cpmTestYield,
+  const cpm80HostOps host = {.consoleAvailable = cpm80TestConsoleAvailable,
+                           .consoleRead = cpm80TestConsoleRead,
+                           .consoleWrite = cpm80TestConsoleWrite,
+                           .diskDriveAvailable = cpm80TestDiskDriveAvailable,
+                           .diskDriveProfile = cpm80TestDiskDriveProfile,
+                           .diskReadRecord = cpm80TestDiskRead,
+                           .diskWriteRecord = cpm80TestDiskWrite,
+                           .exchangePortInput = cpm80TestExchangePortInput,
+                           .exchangePortOutput = cpm80TestExchangePortOutput,
+                           .yield = cpm80TestYield,
                            .context = &fixture};
-  cpmGuest guest = {0};
-  assert(cpmGuestInitialize(&guest, &host, ccpImage, bdosImage));
+  cpm80Guest guest = {0};
+  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage));
   const uint8_t exchangePortProgram[] = {
       0x3E, hostExchangeCommandDirectory, 0xD3, hostExchangePort, 0xDB, hostExchangePort,
       0x32, 0xFF, 0x02, 0x3E, 0x00, 0xD3, hostExchangeAbortPort, 0x76};
-  assert(cpmCpuLoad(&guest.cpu, 0x0100, exchangePortProgram, sizeof(exchangePortProgram)));
+  assert(cpm80CpuLoad(&guest.cpu, 0x0100, exchangePortProgram, sizeof(exchangePortProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0200;
   while (!guest.cpu.processor.halted)
   {
-    assert(cpmGuestStep(&guest));
+    assert(cpm80GuestStep(&guest));
   }
   assert(guest.cpu.memory[0x02FF] == hostExchangeStatusOk);
-  assert(cpmGuestColdBoot(&guest));
+  assert(cpm80GuestColdBoot(&guest));
   assert(guest.cpu.memory[0x0000] == 0xC3 && guest.cpu.memory[0x0001] == 0x03 && guest.cpu.memory[0x0002] == 0xDA);
   assert(guest.cpu.memory[0x0005] == 0xC3 && guest.cpu.memory[0x0006] == 0x06 && guest.cpu.memory[0x0007] == 0xCC);
   assert(guest.cpu.memory[0xDA90 + 10] == 0xA0 && guest.cpu.memory[0xDA90 + 11] == 0xDA);
@@ -679,8 +679,8 @@ static void testCpmGuestBoot(void)
   assert(guest.cpu.memory[0xDAA8] == 0 && guest.cpu.memory[0xDAA9] == 192);
   assert(guest.cpu.memory[0xDAAA] == 0 && guest.cpu.memory[0xDAAB] == 16);
   assert(guest.cpu.memory[0xDAAC] == 0 && guest.cpu.memory[0xDAAD] == 2);
-  const uint16_t dphAddresses[cpmDiskDriveCount] = {0xDA90, 0xDB60, 0xDC40, 0xDD20, 0xDE00, 0xDEE0};
-  for (uint8_t drive = 1; drive < cpmDiskDriveCount; ++drive)
+  const uint16_t dphAddresses[cpm80DiskDriveCount] = {0xDA90, 0xDB60, 0xDC40, 0xDD20, 0xDE00, 0xDEE0};
+  for (uint8_t drive = 1; drive < cpm80DiskDriveCount; ++drive)
   {
     uint16_t dphAddress = dphAddresses[drive];
     assert(guest.cpu.memory[dphAddress + 8] == (uint8_t)(dphAddress + 0x20));
@@ -703,7 +703,7 @@ static void testCpmGuestBoot(void)
   size_t priorWorkPrompts;
   while (countOccurrences(fixture.output, "A>") < 1 && instructions < 500000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -714,7 +714,7 @@ static void testCpmGuestBoot(void)
   fixture.inputPosition = 0;
   while (countOccurrences(fixture.output, "A>") < 2 && instructions < 2000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -747,7 +747,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
          instructions < 6000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -761,7 +761,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
          instructions < 7000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -775,7 +775,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
          instructions < 10000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -789,7 +789,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
          instructions < 11000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -802,7 +802,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
          instructions < 12000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -815,7 +815,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
          instructions < 13000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -828,7 +828,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
          instructions < 15000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -842,7 +842,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
          instructions < 16000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -855,7 +855,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
          instructions < 17000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -869,7 +869,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
          instructions < 18000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -884,7 +884,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
          instructions < 19000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -897,7 +897,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
          instructions < 22000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -919,7 +919,7 @@ static void testCpmGuestBoot(void)
   while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
          instructions < 5000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -932,7 +932,7 @@ static void testCpmGuestBoot(void)
   fixture.inputPosition = 0;
   while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 && instructions < 6000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -946,7 +946,7 @@ static void testCpmGuestBoot(void)
           strstr(fixture.output, "NO FILE") == NULL) &&
          instructions < 6500000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -958,7 +958,7 @@ static void testCpmGuestBoot(void)
   fixture.inputPosition = 0;
   while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 && instructions < 7000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -973,7 +973,7 @@ static void testCpmGuestBoot(void)
           countOccurrences(fixture.output, "HELLO    COM") == userDirectoryEntries) &&
          instructions < 7500000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -984,15 +984,15 @@ static void testCpmGuestBoot(void)
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
   while ((countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 ||
-          strstr(fixture.output, "HELLO FROM CP/M 2.2") == NULL) &&
+          strstr(fixture.output, "HELLO FROM CP/M-80") == NULL) &&
          instructions < 7000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
   assert(instructions < 7000000);
-  assert(strstr(fixture.output, "HELLO FROM CP/M 2.2") != NULL);
+  assert(strstr(fixture.output, "HELLO FROM CP/M-80") != NULL);
   assert(!fixture.outputOverflow);
 
   size_t priorDirectoryEntries = countOccurrences(fixture.output, "HELLO    COM");
@@ -1004,7 +1004,7 @@ static void testCpmGuestBoot(void)
           countOccurrences(fixture.output, "HELLO    COM") == priorDirectoryEntries) &&
          instructions < 7000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -1018,7 +1018,7 @@ static void testCpmGuestBoot(void)
   fixture.inputPosition = 0;
   while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 && instructions < 12000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -1032,7 +1032,7 @@ static void testCpmGuestBoot(void)
           countOccurrences(fixture.output, "HELLO    COM") == priorDirectoryEntries) &&
          instructions < 15000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -1048,7 +1048,7 @@ static void testCpmGuestBoot(void)
           strstr(fixture.output, "GREETING COM") == NULL) &&
          instructions < 18000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -1062,7 +1062,7 @@ static void testCpmGuestBoot(void)
   fixture.inputPosition = 0;
   while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 2 && instructions < 21000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
@@ -1078,56 +1078,56 @@ static void testCpmGuestBoot(void)
           countOccurrences(fixture.output, "NO FILE") == priorLargeNoFiles) &&
          instructions < 23000000)
   {
-    size_t executed = cpmGuestRunFor(&guest, 10000);
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
   assert(instructions < 23000000);
 
   const uint8_t selectDriveProgram[] = {0x0E, 0x01, 0xCD, 0x1B, 0xDA, 0x76};
-  assert(cpmCpuLoad(&guest.cpu, 0x0100, selectDriveProgram, sizeof(selectDriveProgram)));
+  assert(cpm80CpuLoad(&guest.cpu, 0x0100, selectDriveProgram, sizeof(selectDriveProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0200;
   while (!guest.cpu.processor.halted)
   {
-    assert(cpmGuestStep(&guest));
+    assert(cpm80GuestStep(&guest));
   }
   assert(guest.selectedDrive == 1);
   assert(guest.cpu.processor.h == 0xDB && guest.cpu.processor.l == 0x60);
 
   const uint8_t rejectUnavailableDriveProgram[] = {0x0E, 0x02, 0xCD, 0x1B, 0xDA, 0x76};
-  assert(cpmCpuLoad(&guest.cpu, 0x0100, rejectUnavailableDriveProgram, sizeof(rejectUnavailableDriveProgram)));
+  assert(cpm80CpuLoad(&guest.cpu, 0x0100, rejectUnavailableDriveProgram, sizeof(rejectUnavailableDriveProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0200;
   guest.cpu.processor.halted = false;
   while (!guest.cpu.processor.halted)
   {
-    assert(cpmGuestStep(&guest));
+    assert(cpm80GuestStep(&guest));
   }
   assert(guest.selectedDrive == 1);
   assert(guest.cpu.processor.h == 0 && guest.cpu.processor.l == 0);
 
   fixture.availableDrives[4] = true;
   const uint8_t selectLastDriveProgram[] = {0x0E, 0x05, 0xCD, 0x1B, 0xDA, 0x76};
-  assert(cpmCpuLoad(&guest.cpu, 0x0100, selectLastDriveProgram, sizeof(selectLastDriveProgram)));
+  assert(cpm80CpuLoad(&guest.cpu, 0x0100, selectLastDriveProgram, sizeof(selectLastDriveProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0200;
   guest.cpu.processor.halted = false;
   while (!guest.cpu.processor.halted)
   {
-    assert(cpmGuestStep(&guest));
+    assert(cpm80GuestStep(&guest));
   }
   assert(guest.selectedDrive == 5);
   assert(guest.cpu.processor.h == 0xDE && guest.cpu.processor.l == 0xE0);
 
   const uint8_t rejectOutOfRangeDriveProgram[] = {0x0E, 0x06, 0xCD, 0x1B, 0xDA, 0x76};
-  assert(cpmCpuLoad(&guest.cpu, 0x0100, rejectOutOfRangeDriveProgram, sizeof(rejectOutOfRangeDriveProgram)));
+  assert(cpm80CpuLoad(&guest.cpu, 0x0100, rejectOutOfRangeDriveProgram, sizeof(rejectOutOfRangeDriveProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0200;
   guest.cpu.processor.halted = false;
   while (!guest.cpu.processor.halted)
   {
-    assert(cpmGuestStep(&guest));
+    assert(cpm80GuestStep(&guest));
   }
   assert(guest.selectedDrive == 5);
   assert(guest.cpu.processor.h == 0 && guest.cpu.processor.l == 0);
@@ -1137,16 +1137,16 @@ static void testCpmGuestBoot(void)
       0x00, 0xCD, 0x21, 0xDA, 0x01, 0x00, 0x02, 0xCD, 0x24, 0xDA, 0xCD, 0x2A, 0xDA, 0x76};
   const uint8_t expectedRecordPrefix[] = {0x5A, 0xA5, 0xC3, 0x3C};
   memcpy(guest.cpu.memory + 0x0200, expectedRecordPrefix, sizeof(expectedRecordPrefix));
-  assert(cpmCpuLoad(&guest.cpu, 0x0100, writeDiskRecordProgram, sizeof(writeDiskRecordProgram)));
+  assert(cpm80CpuLoad(&guest.cpu, 0x0100, writeDiskRecordProgram, sizeof(writeDiskRecordProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0300;
   guest.cpu.processor.halted = false;
   while (!guest.cpu.processor.halted)
   {
-    assert(cpmGuestStep(&guest));
+    assert(cpm80GuestStep(&guest));
   }
   assert(guest.selectedDrive == 4 && guest.cpu.processor.a == 0);
-  uint8_t actualRecord[cpmDiskSectorSize];
+  uint8_t actualRecord[cpm80DiskSectorSize];
   assert(imageReadAt(&writableDisk, 0, actualRecord, sizeof(actualRecord)));
   assert(memcmp(actualRecord, expectedRecordPrefix, sizeof(expectedRecordPrefix)) == 0);
 
@@ -1154,60 +1154,60 @@ static void testCpmGuestBoot(void)
       0x0E, 0x05, 0xCD, 0x1B, 0xDA, 0x01, 0x4C, 0x00, 0xCD, 0x1E, 0xDA, 0x01, 0x33,
       0x00, 0xCD, 0x21, 0xDA, 0x01, 0x00, 0x02, 0xCD, 0x24, 0xDA, 0xCD, 0x2A, 0xDA, 0x76};
   memcpy(guest.cpu.memory + 0x0200, expectedRecordPrefix, sizeof(expectedRecordPrefix));
-  assert(cpmCpuLoad(&guest.cpu, 0x0100, writeLargeDiskRecordProgram, sizeof(writeLargeDiskRecordProgram)));
+  assert(cpm80CpuLoad(&guest.cpu, 0x0100, writeLargeDiskRecordProgram, sizeof(writeLargeDiskRecordProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0300;
   guest.cpu.processor.halted = false;
   while (!guest.cpu.processor.halted)
   {
-    assert(cpmGuestStep(&guest));
+    assert(cpm80GuestStep(&guest));
   }
   assert(guest.selectedDrive == 5 && guest.cpu.processor.a == 0);
   uint64_t lastLargeRecordOffset =
-      ((uint64_t)(cpmDiskTracks - 1) * cpmLargeDiskSectorsPerTrack + (cpmLargeDiskSectorsPerTrack - 1)) *
-      cpmDiskSectorSize;
+      ((uint64_t)(cpm80DiskTracks - 1) * cpm80LargeDiskSectorsPerTrack + (cpm80LargeDiskSectorsPerTrack - 1)) *
+      cpm80DiskSectorSize;
   assert(imageReadAt(&largeDisk, lastLargeRecordOffset, actualRecord, sizeof(actualRecord)));
   assert(memcmp(actualRecord, expectedRecordPrefix, sizeof(expectedRecordPrefix)) == 0);
 
   const uint8_t rejectReadOnlyWriteProgram[] = {
       0x0E, 0x00, 0xCD, 0x1B, 0xDA, 0x01, 0x00, 0x00, 0xCD, 0x1E, 0xDA, 0x01, 0x00,
       0x00, 0xCD, 0x21, 0xDA, 0x01, 0x00, 0x02, 0xCD, 0x24, 0xDA, 0xCD, 0x2A, 0xDA, 0x76};
-  assert(cpmCpuLoad(&guest.cpu, 0x0100, rejectReadOnlyWriteProgram, sizeof(rejectReadOnlyWriteProgram)));
+  assert(cpm80CpuLoad(&guest.cpu, 0x0100, rejectReadOnlyWriteProgram, sizeof(rejectReadOnlyWriteProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0300;
   guest.cpu.processor.halted = false;
   while (!guest.cpu.processor.halted)
   {
-    assert(cpmGuestStep(&guest));
+    assert(cpm80GuestStep(&guest));
   }
   assert(guest.selectedDrive == 0 && guest.cpu.processor.a == 1);
 
   const uint8_t selectSystemDriveProgram[] = {0x0E, 0x00, 0xCD, 0x1B, 0xDA, 0x76};
-  assert(cpmCpuLoad(&guest.cpu, 0x0100, selectSystemDriveProgram, sizeof(selectSystemDriveProgram)));
+  assert(cpm80CpuLoad(&guest.cpu, 0x0100, selectSystemDriveProgram, sizeof(selectSystemDriveProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0200;
   guest.cpu.processor.halted = false;
   while (!guest.cpu.processor.halted)
   {
-    assert(cpmGuestStep(&guest));
+    assert(cpm80GuestStep(&guest));
   }
   assert(guest.selectedDrive == 0);
 
   const uint8_t invalidDmaProgram[] = {0x0E, 0x01, 0xCD, 0x1B, 0xDA, 0x0E, 0x00, 0xCD, 0x1B, 0xDA,
                                       0x01, 0xC1, 0xFF, 0xCD, 0x24, 0xDA, 0xCD, 0x27, 0xDA, 0x76};
-  assert(cpmCpuLoad(&guest.cpu, 0x0100, invalidDmaProgram, sizeof(invalidDmaProgram)));
+  assert(cpm80CpuLoad(&guest.cpu, 0x0100, invalidDmaProgram, sizeof(invalidDmaProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0200;
   guest.cpu.processor.halted = false;
   while (!guest.cpu.processor.halted)
   {
-    assert(cpmGuestStep(&guest));
+    assert(cpm80GuestStep(&guest));
   }
   assert(guest.selectedDrive == 0);
   assert(guest.cpu.processor.a == 1);
   assert(guest.cpu.processor.h == 0xDA && guest.cpu.processor.l == 0x90);
 
-  cpmGuestDestroy(&guest);
+  cpm80GuestDestroy(&guest);
   assert(imageClose(&disk));
   assert(imageClose(&writableDisk));
   assert(imageClose(&largeDisk));
@@ -1225,9 +1225,9 @@ int main(void)
   testLayout();
   testMenu();
   testImages();
-  testCpmDriveConfig();
-  testCpmCpu();
-  testCpmGuestBoot();
+  testCpm80DriveConfig();
+  testCpm80Cpu();
+  testCpm80GuestBoot();
   puts("PASS: host utilities and Z80-backed CP/M CPU memory, instruction and port callbacks");
   return 0;
 }

@@ -42,7 +42,7 @@ def transferTest():
       assert status == 200
       assert hashlib.sha256(data).digest() == hashlib.sha256(downloaded).digest()
       print("PASS SHA-256 round trip:", suffix, len(data), "bytes")
-    for attack in ["../images/cpm/x", "%2e%2e/images/x", "%252e%252e/x", "/etc/passwd", "common/%00x", "common/%5c../x", "common/x%0dy"]:
+    for attack in ["../images/cpm80/x", "%2e%2e/images/x", "%252e%252e/x", "/etc/passwd", "common/%00x", "common/%5c../x", "common/x%0dy"]:
       assert request("GET", "/api/file?path=" + attack)[0] == 400
       assert request("DELETE", "/api/file?path=" + attack)[0] == 400
     interruptedPath = "common/" + prefix + "-interrupted.bin"

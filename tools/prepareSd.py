@@ -11,19 +11,19 @@ def prepareSd():
     parser.error("The mount point must already exist")
   retro = root / "retro"
   marker = retro / "layout.txt"
-  drivesConfig = retro / "images" / "cpm" / "drives.cfg"
+  drivesConfig = retro / "images" / "cpm80" / "drives.cfg"
   expected = "ESP32-S3-RETRO\nlayout=1\n"
   defaultDrives = (
-      "A=/littlefs/cpm/system.dsk,RO,SYSTEM\n"
-      "B=/retro/images/cpm/languages.dsk,RO,LARGE\n"
-      "C=/retro/images/cpm/tools.dsk,RO,LARGE\n"
-      "D=/retro/images/cpm/utilities.dsk,RO,LARGE\n"
-      "E=/retro/images/cpm/work.dsk,RW,LARGE\n"
-      "F=/retro/images/cpm/archive.dsk,RW,LARGE\n"
+      "A=/littlefs/cpm80/system.dsk,RO,SYSTEM\n"
+      "B=/retro/images/cpm80/languages.dsk,RO,LARGE\n"
+      "C=/retro/images/cpm80/tools.dsk,RO,LARGE\n"
+      "D=/retro/images/cpm80/utilities.dsk,RO,LARGE\n"
+      "E=/retro/images/cpm80/work.dsk,RW,LARGE\n"
+      "F=/retro/images/cpm80/work1.dsk,RW,SYSTEM\n"
   )
   required = [retro / "backup", retro / "exchange" / "common"]
   for group in ["images", "exchange"]:
-    for machine in ["cpm", "ucsd", "apple2", "mpm", "swtpc"]:
+    for machine in ["cpm80", "cpm86", "ucsd", "apple2", "swtpc"]:
       required.append(retro / group / machine)
   for path in [marker, drivesConfig, *required]:
     if not path.resolve().is_relative_to(root):

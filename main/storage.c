@@ -17,7 +17,7 @@ static bool busReady;
 static bool layoutReady;
 static char statusDetail[160];
 static const char *statusText = "SD not checked";
-static const char *machineIds[] = {"cpm", "ucsd", "apple2", "mpm", "swtpc"};
+static const char *machineIds[] = {"cpm80", "cpm86", "ucsd", "apple2", "swtpc"};
 
 bool storageDirectoryExists(const char *path)
 {

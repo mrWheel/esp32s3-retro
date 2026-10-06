@@ -1,11 +1,11 @@
 #include "machineRegistry.h"
-#include "cpmGuest.h"
-#include "cpmMachine.h"
+#include "cpm80Guest.h"
+#include "cpm80Machine.h"
 #include "storage.h"
 #include <stdio.h>
 #include <sys/stat.h>
 
-static const machineResource cpmResources[] = {{"/littlefs/cpm/system.dsk", cpmSystemImageSize}};
+static const machineResource cpm80Resources[] = {{"/littlefs/cpm80/system.dsk", cpm80SystemImageSize}};
 
 static machineState probeMachine(const retroMachine *machine)
 {
@@ -44,13 +44,13 @@ static void runPlaceholder(void)
 }
 
 static const retroMachine machines[] = {
-    {"CP/M 2.2", "cpm", "designCPM.md", true, false, cpmResources, 1, cpmMachineProbe, cpmMachineInitialize,
-     cpmMachineRun},
+    {"CP/M-80", "cpm80", "designCPM80.md", true, false, cpm80Resources, 1, cpm80MachineProbe, cpm80MachineInitialize,
+     cpm80MachineRun},
+    {"CP/M-86", "cpm86", "designCPM86.md", false, false, NULL, 0, probeMachine, initializePlaceholder, runPlaceholder},
     {"UCSD Pascal", "ucsd", "designUCSD.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
      runPlaceholder},
     {"Apple II", "apple2", "designAppleII.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
      runPlaceholder},
-    {"MP/M II", "mpm", "designMPM.md", false, false, NULL, 0, probeMachine, initializePlaceholder, runPlaceholder},
     {"SWTPC 6800", "swtpc", "designSWTPC.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
      runPlaceholder}};
 

@@ -53,10 +53,10 @@ progress
 <p>Choose a machine and whether you are transferring a disk image or loose files. Disk images go to /retro/images/&lt;machine&gt;/; loose files go to /retro/exchange/&lt;machine&gt;/.</p>
 <label for="machine">Machine:</label>
 <select id="machine">
-<option value="cpm">CP/M</option>
+<option value="cpm80">CP/M-80</option>
+<option value="cpm86">CP/M-86</option>
 <option value="ucsd">UCSD Pascal</option>
 <option value="apple2">Apple II</option>
-<option value="mpm">MP/M II</option>
 <option value="swtpc">SWTPC 6800</option>
 </select>
 <label for="area">Transfer type:</label>
@@ -64,7 +64,7 @@ progress
 <option value="exchange">Loose files (/retro/exchange/)</option>
 <option value="images">Disk image (/retro/images/)</option>
 </select>
-<h2 id="location">/microSD/retro/exchange/cpm/</h2>
+<h2 id="location">/microSD/retro/exchange/cpm80/</h2>
 <button id="up">Parent folder</button><button id="refresh">Refresh</button>
 <form id="upload">
 <input id="file" type="file" required><button id="send">Upload</button>
@@ -80,7 +80,7 @@ progress
 <script>
 "use strict";
 let currentArea = "exchange";
-let currentMachine = "cpm";
+let currentMachine = "cpm80";
 let currentPath = "";
 const element = (id) => document.getElementById(id);
 

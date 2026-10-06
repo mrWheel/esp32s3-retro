@@ -1,6 +1,6 @@
-#include "cpmMachine.h"
-#include "cpmGuest.h"
-#include "cpmDriveConfig.h"
+#include "cpm80Machine.h"
+#include "cpm80Guest.h"
+#include "cpm80DriveConfig.h"
 #include "hostExchange.h"
 #include "hostConsole.h"
 #include "imageFile.h"
@@ -11,17 +11,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *tag = "cpmMachine";
-static const char *driveConfigPath = "/microSD/retro/images/cpm/drives.cfg";
-static const uint8_t systemHeader[cpmSystemHeaderSize] = {'R', 'E', 'T', 'R', 'O', 'C', 'P', 'M', 1, 1, 0x00, 0xC4,
+static const char *tag = "cpm80Machine";
+static const char *driveConfigPath = "/microSD/retro/images/cpm80/drives.cfg";
+static const uint8_t systemHeader[cpm80SystemHeaderSize] = {'R', 'E', 'T', 'R', 'O', 'C', 'P', 'M', 1, 1, 0x00, 0xC4,
                                                           0x00, 0xCC, 0x00, 0xDA};
 static const uint8_t expectedSystemDiskHash[32] = {0x96, 0x0B, 0xFE, 0x75, 0x2F, 0xC8, 0x48, 0x94,
                                                    0x41, 0xC2, 0x46, 0xB6, 0xA8, 0x8D, 0x77, 0x64,
                                                    0xFF, 0xCE, 0xC0, 0xF8, 0xE1, 0x72, 0x55, 0x10,
                                                    0x1A, 0xCB, 0xCC, 0xA8, 0x57, 0x0A, 0xEB, 0xB7};
-static imageFile diskImages[cpmDiskDriveCount];
-static cpmDriveConfig driveTable[cpmDiskDriveCount];
-static cpmGuest guest;
+static imageFile diskImages[cpm80DiskDriveCount];
+static cpm80DriveConfig driveTable[cpm80DiskDriveCount];
+static cpm80Guest guest;
 static hostExchange exchangeService;
 static bool guestReady;
 
@@ -46,13 +46,13 @@ static void consoleWrite(void *context, uint8_t character)
 static bool diskDriveAvailable(void *context, uint8_t drive)
 {
   (void)context;
-  return drive < cpmDiskDriveCount && diskImages[drive].file != NULL;
+  return drive < cpm80DiskDriveCount && diskImages[drive].file != NULL;
 }
 
-static bool diskDriveProfile(void *context, uint8_t drive, cpmDiskProfile *profile)
+static bool diskDriveProfile(void *context, uint8_t drive, cpm80DiskProfile *profile)
 {
   (void)context;
-  if (drive >= cpmDiskDriveCount || profile == NULL || diskImages[drive].file == NULL)
+  if (drive >= cpm80DiskDriveCount || profile == NULL || diskImages[drive].file == NULL)
   {
     return false;
   }
@@ -62,31 +62,31 @@ static bool diskDriveProfile(void *context, uint8_t drive, cpmDiskProfile *profi
 
 static uint16_t diskSectorsPerTrack(uint8_t drive)
 {
-  return driveTable[drive].profile == cpmDiskProfileLarge ? cpmLargeDiskSectorsPerTrack : cpmDiskSectorsPerTrack;
+  return driveTable[drive].profile == cpm80DiskProfileLarge ? cpm80LargeDiskSectorsPerTrack : cpm80DiskSectorsPerTrack;
 }
 
 static bool diskReadRecord(void *context, uint8_t drive, uint16_t track, uint16_t sector,
-                           uint8_t record[cpmDiskSectorSize])
+                           uint8_t record[cpm80DiskSectorSize])
 {
   (void)context;
-  if (drive >= cpmDiskDriveCount || track >= cpmDiskTracks || sector >= diskSectorsPerTrack(drive))
+  if (drive >= cpm80DiskDriveCount || track >= cpm80DiskTracks || sector >= diskSectorsPerTrack(drive))
   {
     return false;
   }
   uint64_t recordIndex = (uint64_t)track * diskSectorsPerTrack(drive) + sector;
-  return imageReadAt(&diskImages[drive], recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize);
+  return imageReadAt(&diskImages[drive], recordIndex * cpm80DiskSectorSize, record, cpm80DiskSectorSize);
 }
 
 static bool diskWriteRecord(void *context, uint8_t drive, uint16_t track, uint16_t sector,
-                            const uint8_t record[cpmDiskSectorSize])
+                            const uint8_t record[cpm80DiskSectorSize])
 {
   (void)context;
-  if (drive >= cpmDiskDriveCount || track >= cpmDiskTracks || sector >= diskSectorsPerTrack(drive))
+  if (drive >= cpm80DiskDriveCount || track >= cpm80DiskTracks || sector >= diskSectorsPerTrack(drive))
   {
     return false;
   }
   uint64_t recordIndex = (uint64_t)track * diskSectorsPerTrack(drive) + sector;
-  return imageWriteAt(&diskImages[drive], recordIndex * cpmDiskSectorSize, record, cpmDiskSectorSize) &&
+  return imageWriteAt(&diskImages[drive], recordIndex * cpm80DiskSectorSize, record, cpm80DiskSectorSize) &&
          imageFlush(&diskImages[drive]);
 }
 
@@ -109,12 +109,12 @@ static void exchangePortOutput(void *context, uint8_t port, uint8_t value)
 static void loadDriveConfig(void)
 {
   char error[96];
-  cpmDriveConfigResult result = cpmDriveConfigLoad(driveConfigPath, driveTable, error, sizeof(error));
-  if (result == cpmDriveConfigMissing)
+  cpm80DriveConfigResult result = cpm80DriveConfigLoad(driveConfigPath, driveTable, error, sizeof(error));
+  if (result == cpm80DriveConfigMissing)
   {
     ESP_LOGW(tag, "%s", error);
   }
-  else if (result == cpmDriveConfigInvalid)
+  else if (result == cpm80DriveConfigInvalid)
   {
     ESP_LOGE(tag, "%s; using the built-in A: system image only", error);
   }
@@ -122,7 +122,7 @@ static void loadDriveConfig(void)
 
 static void openOptionalDiskImages(void)
 {
-  for (uint8_t drive = 1; drive < cpmDiskDriveCount; ++drive)
+  for (uint8_t drive = 1; drive < cpm80DiskDriveCount; ++drive)
   {
     if (!driveTable[drive].configured)
     {
@@ -134,12 +134,12 @@ static void openOptionalDiskImages(void)
       ESP_LOGW(tag, "CP/M %c: image is missing: %s", 'A' + drive, driveTable[drive].path);
       continue;
     }
-    uint64_t expectedSize = driveTable[drive].profile == cpmDiskProfileLarge ? cpmLargeImageSize : cpmSystemImageSize;
+    uint64_t expectedSize = driveTable[drive].profile == cpm80DiskProfileLarge ? cpm80LargeImageSize : cpm80SystemImageSize;
     if (size != expectedSize)
     {
       ESP_LOGE(tag, "Ignoring CP/M %c: image %s: size=%llu, expected %s profile size=%llu", 'A' + drive,
                driveTable[drive].path, (unsigned long long)size,
-               driveTable[drive].profile == cpmDiskProfileLarge ? "LARGE" : "SYSTEM",
+               driveTable[drive].profile == cpm80DiskProfileLarge ? "LARGE" : "SYSTEM",
                (unsigned long long)expectedSize);
       continue;
     }
@@ -152,7 +152,7 @@ static void openOptionalDiskImages(void)
 
 static void closeDiskImages(void)
 {
-  for (uint8_t drive = 0; drive < cpmDiskDriveCount; ++drive)
+  for (uint8_t drive = 0; drive < cpm80DiskDriveCount; ++drive)
   {
     if (diskImages[drive].file != NULL && !imageClose(&diskImages[drive]))
     {
@@ -163,9 +163,9 @@ static void closeDiskImages(void)
 
 static bool readSystemImageHeader(imageFile *image)
 {
-  uint8_t header[cpmSystemHeaderSize];
-  return imageSize(image) == cpmSystemImageSize &&
-         imageReadAt(image, cpmSystemHeaderOffset, header, sizeof(header)) &&
+  uint8_t header[cpm80SystemHeaderSize];
+  return imageSize(image) == cpm80SystemImageSize &&
+         imageReadAt(image, cpm80SystemHeaderOffset, header, sizeof(header)) &&
          memcmp(header, systemHeader, sizeof(header)) == 0;
 }
 
@@ -218,7 +218,7 @@ static void formatHash(const uint8_t hash[32], char text[65])
   text[64] = '\0';
 }
 
-machineState cpmMachineProbe(const retroMachine *machine)
+machineState cpm80MachineProbe(const retroMachine *machine)
 {
   if (machine == NULL || !machine->implemented)
   {
@@ -242,10 +242,10 @@ machineState cpmMachineProbe(const retroMachine *machine)
   bool valid = readSystemImageHeader(&image);
   if (!valid)
   {
-    if (imageSize(&image) != cpmSystemImageSize)
+    if (imageSize(&image) != cpm80SystemImageSize)
     {
       ESP_LOGE(tag, "Invalid CP/M system image %s: size=%llu, expected=%u", systemDiskPath,
-               (unsigned long long)imageSize(&image), (unsigned)cpmSystemImageSize);
+               (unsigned long long)imageSize(&image), (unsigned)cpm80SystemImageSize);
     }
     else
     {
@@ -279,7 +279,7 @@ machineState cpmMachineProbe(const retroMachine *machine)
   return valid ? machineAvailable : machineResourceInvalid;
 }
 
-esp_err_t cpmMachineInitialize(void)
+esp_err_t cpm80MachineInitialize(void)
 {
   if (guestReady)
   {
@@ -295,10 +295,10 @@ esp_err_t cpmMachineInitialize(void)
 
   if (!readSystemImageHeader(&diskImages[0]))
   {
-    if (imageSize(&diskImages[0]) != cpmSystemImageSize)
+    if (imageSize(&diskImages[0]) != cpm80SystemImageSize)
     {
       ESP_LOGE(tag, "Invalid CP/M system image %s: size=%llu, expected=%u", driveTable[0].path,
-               (unsigned long long)imageSize(&diskImages[0]), (unsigned)cpmSystemImageSize);
+               (unsigned long long)imageSize(&diskImages[0]), (unsigned)cpm80SystemImageSize);
     }
     else
     {
@@ -311,7 +311,7 @@ esp_err_t cpmMachineInitialize(void)
     return ESP_ERR_INVALID_SIZE;
   }
 
-  size_t systemBinarySize = cpmCcpSize + cpmBdosSize;
+  size_t systemBinarySize = cpm80CcpSize + cpm80BdosSize;
   uint8_t *systemBinaries = malloc(systemBinarySize);
   if (systemBinaries == NULL)
   {
@@ -322,8 +322,8 @@ esp_err_t cpmMachineInitialize(void)
     }
     return ESP_ERR_NO_MEM;
   }
-  if (!imageReadAt(&diskImages[0], 0, systemBinaries, cpmCcpSize) ||
-      !imageReadAt(&diskImages[0], cpmCcpSize, systemBinaries + cpmCcpSize, cpmBdosSize))
+  if (!imageReadAt(&diskImages[0], 0, systemBinaries, cpm80CcpSize) ||
+      !imageReadAt(&diskImages[0], cpm80CcpSize, systemBinaries + cpm80CcpSize, cpm80BdosSize))
   {
     ESP_LOGE(tag, "Failed reading CP/M system binaries from %s", driveTable[0].path);
     free(systemBinaries);
@@ -336,14 +336,14 @@ esp_err_t cpmMachineInitialize(void)
 
   openOptionalDiskImages();
 
-  if (!hostExchangeInitialize(&exchangeService, "/microSD/retro/exchange/cpm"))
+  if (!hostExchangeInitialize(&exchangeService, "/microSD/retro/exchange/cpm80"))
   {
     ESP_LOGE(tag, "Could not initialize the CP/M exchange service");
     closeDiskImages();
     return ESP_FAIL;
   }
 
-  const cpmHostOps host = {.consoleAvailable = consoleAvailable,
+  const cpm80HostOps host = {.consoleAvailable = consoleAvailable,
                            .consoleRead = consoleRead,
                            .consoleWrite = consoleWrite,
                            .diskDriveAvailable = diskDriveAvailable,
@@ -355,7 +355,7 @@ esp_err_t cpmMachineInitialize(void)
                            .yield = guestYield,
                            .context = &exchangeService};
   bool guestInitialized =
-      cpmGuestInitialize(&guest, &host, systemBinaries, systemBinaries + cpmCcpSize);
+      cpm80GuestInitialize(&guest, &host, systemBinaries, systemBinaries + cpm80CcpSize);
   free(systemBinaries);
   if (!guestInitialized)
   {
@@ -368,18 +368,18 @@ esp_err_t cpmMachineInitialize(void)
   return ESP_OK;
 }
 
-void cpmMachineRun(void)
+void cpm80MachineRun(void)
 {
-  if (!guestReady || !cpmGuestColdBoot(&guest))
+  if (!guestReady || !cpm80GuestColdBoot(&guest))
   {
     puts("CP/M guest is not initialized.");
     return;
   }
 
-  puts("\nStarting CP/M 2.2 on the virtual A: disk.");
+  puts("\nStarting CP/M-80 on the virtual A: disk.");
   while (!guest.cpu.processor.halted)
   {
-    if (cpmGuestRunFor(&guest, 10000) == 0)
+    if (cpm80GuestRunFor(&guest, 10000) == 0)
     {
       break;
     }
@@ -387,7 +387,7 @@ void cpmMachineRun(void)
   }
 
   puts("\nCP/M stopped.");
-  cpmGuestDestroy(&guest);
+  cpm80GuestDestroy(&guest);
   guestReady = false;
   hostExchangeClose(&exchangeService);
   closeDiskImages();

@@ -1,34 +1,34 @@
-#include "cpmCpu.h"
+#include "cpm80Cpu.h"
 #include <stdlib.h>
 #include <string.h>
 
-_Static_assert(cpmMemorySize == UINT16_MAX + 1U, "CP/M memory must cover the 16-bit address space");
+_Static_assert(cpm80MemorySize == UINT16_MAX + 1U, "CP/M memory must cover the 16-bit address space");
 
 static uint8_t readByte(void *context, uint16_t address)
 {
-  cpmCpu *cpu = context;
+  cpm80Cpu *cpu = context;
   return cpu->memory[address];
 }
 
 static void writeByte(void *context, uint16_t address, uint8_t value)
 {
-  cpmCpu *cpu = context;
+  cpm80Cpu *cpu = context;
   cpu->memory[address] = value;
 }
 
 static uint8_t inputPort(z80 *processor, uint8_t port)
 {
-  cpmCpu *cpu = processor->userdata;
+  cpm80Cpu *cpu = processor->userdata;
   return cpu->portInput(cpu->portContext, port);
 }
 
 static void outputPort(z80 *processor, uint8_t port, uint8_t value)
 {
-  cpmCpu *cpu = processor->userdata;
+  cpm80Cpu *cpu = processor->userdata;
   cpu->portOutput(cpu->portContext, port, value);
 }
 
-bool cpmCpuInitialize(cpmCpu *cpu, cpmPortInput portInputCallback, cpmPortOutput portOutputCallback, void *portContext)
+bool cpm80CpuInitialize(cpm80Cpu *cpu, cpm80PortInput portInputCallback, cpm80PortOutput portOutputCallback, void *portContext)
 {
   if (cpu == NULL || portInputCallback == NULL || portOutputCallback == NULL)
   {
@@ -39,7 +39,7 @@ bool cpmCpuInitialize(cpmCpu *cpu, cpmPortInput portInputCallback, cpmPortOutput
     return false;
   }
 
-  cpu->memory = calloc(cpmMemorySize, sizeof(*cpu->memory));
+  cpu->memory = calloc(cpm80MemorySize, sizeof(*cpu->memory));
   if (cpu->memory == NULL)
   {
     return false;
@@ -57,7 +57,7 @@ bool cpmCpuInitialize(cpmCpu *cpu, cpmPortInput portInputCallback, cpmPortOutput
   return true;
 }
 
-void cpmCpuDestroy(cpmCpu *cpu)
+void cpm80CpuDestroy(cpm80Cpu *cpu)
 {
   if (cpu == NULL)
   {
@@ -67,9 +67,9 @@ void cpmCpuDestroy(cpmCpu *cpu)
   memset(cpu, 0, sizeof(*cpu));
 }
 
-bool cpmCpuLoad(cpmCpu *cpu, uint16_t address, const uint8_t *data, size_t length)
+bool cpm80CpuLoad(cpm80Cpu *cpu, uint16_t address, const uint8_t *data, size_t length)
 {
-  if (cpu == NULL || !cpu->initialized || (data == NULL && length != 0) || length > cpmMemorySize - address)
+  if (cpu == NULL || !cpu->initialized || (data == NULL && length != 0) || length > cpm80MemorySize - address)
   {
     return false;
   }
@@ -80,7 +80,7 @@ bool cpmCpuLoad(cpmCpu *cpu, uint16_t address, const uint8_t *data, size_t lengt
   return true;
 }
 
-bool cpmCpuReadMemory(const cpmCpu *cpu, uint16_t address, uint8_t *value)
+bool cpm80CpuReadMemory(const cpm80Cpu *cpu, uint16_t address, uint8_t *value)
 {
   if (cpu == NULL || !cpu->initialized || value == NULL)
   {
@@ -90,7 +90,7 @@ bool cpmCpuReadMemory(const cpmCpu *cpu, uint16_t address, uint8_t *value)
   return true;
 }
 
-bool cpmCpuWriteMemory(cpmCpu *cpu, uint16_t address, uint8_t value)
+bool cpm80CpuWriteMemory(cpm80Cpu *cpu, uint16_t address, uint8_t value)
 {
   if (cpu == NULL || !cpu->initialized)
   {
@@ -100,7 +100,7 @@ bool cpmCpuWriteMemory(cpmCpu *cpu, uint16_t address, uint8_t value)
   return true;
 }
 
-bool cpmCpuStep(cpmCpu *cpu)
+bool cpm80CpuStep(cpm80Cpu *cpu)
 {
   if (cpu == NULL || !cpu->initialized)
   {

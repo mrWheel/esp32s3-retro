@@ -1,11 +1,11 @@
-#include "cpmDriveConfig.h"
+#include "cpm80DriveConfig.h"
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
 
-static const char *systemImagePath = "/littlefs/cpm/system.dsk";
-static const char *systemPathPrefix = "/littlefs/cpm/";
-static const char *largePathPrefix = "/retro/images/cpm/";
+static const char *systemImagePath = "/littlefs/cpm80/system.dsk";
+static const char *systemPathPrefix = "/littlefs/cpm80/";
+static const char *largePathPrefix = "/retro/images/cpm80/";
 static const char *largeVfsPrefix = "/microSD";
 
 static void setError(char *error, size_t errorCapacity, const char *message)
@@ -16,11 +16,11 @@ static void setError(char *error, size_t errorCapacity, const char *message)
   }
 }
 
-static void initializeDefaults(cpmDriveConfig drives[cpmDiskDriveCount])
+static void initializeDefaults(cpm80DriveConfig drives[cpm80DiskDriveCount])
 {
-  memset(drives, 0, sizeof(cpmDriveConfig) * cpmDiskDriveCount);
+  memset(drives, 0, sizeof(cpm80DriveConfig) * cpm80DiskDriveCount);
   snprintf(drives[0].path, sizeof(drives[0].path), "%s", systemImagePath);
-  drives[0].profile = cpmDiskProfileSystem;
+  drives[0].profile = cpm80DiskProfileSystem;
   drives[0].readOnly = true;
   drives[0].configured = true;
 }
@@ -60,7 +60,7 @@ static bool safePath(const char *path, const char *prefix)
   return true;
 }
 
-static bool parseLine(char *line, cpmDriveConfig drives[cpmDiskDriveCount], bool seen[cpmDiskDriveCount])
+static bool parseLine(char *line, cpm80DriveConfig drives[cpm80DiskDriveCount], bool seen[cpm80DiskDriveCount])
 {
   char *content = trim(line);
   if (*content == '\0' || *content == '#')
@@ -75,7 +75,7 @@ static bool parseLine(char *line, cpmDriveConfig drives[cpmDiskDriveCount], bool
   *equals = '\0';
   char *driveName = trim(content);
   char *fields = trim(equals + 1);
-  if (strlen(driveName) != 1 || driveName[0] < 'A' || driveName[0] >= 'A' + cpmDiskDriveCount)
+  if (strlen(driveName) != 1 || driveName[0] < 'A' || driveName[0] >= 'A' + cpm80DiskDriveCount)
   {
     return false;
   }
@@ -105,14 +105,14 @@ static bool parseLine(char *line, cpmDriveConfig drives[cpmDiskDriveCount], bool
     return false;
   }
 
-  cpmDiskProfile profile;
+  cpm80DiskProfile profile;
   if (strcmp(profileName, "SYSTEM") == 0)
   {
-    profile = cpmDiskProfileSystem;
+    profile = cpm80DiskProfileSystem;
   }
   else if (strcmp(profileName, "LARGE") == 0)
   {
-    profile = cpmDiskProfileLarge;
+    profile = cpm80DiskProfileLarge;
   }
   else
   {
@@ -135,7 +135,7 @@ static bool parseLine(char *line, cpmDriveConfig drives[cpmDiskDriveCount], bool
   //-- A: is the LittleFS system image; B: to F: are SD images (SYSTEM = 256256 bytes or LARGE = 512512 bytes).
   const char *requiredPrefix = drive == 0 ? systemPathPrefix : largePathPrefix;
   size_t storedPathLength = strlen(imagePath) + (drive != 0 ? strlen(largeVfsPrefix) : 0);
-  if ((drive == 0 && (profile != cpmDiskProfileSystem || !readOnly)) || !safePath(imagePath, requiredPrefix) ||
+  if ((drive == 0 && (profile != cpm80DiskProfileSystem || !readOnly)) || !safePath(imagePath, requiredPrefix) ||
       storedPathLength >= sizeof(drives[drive].path))
   {
     return false;
@@ -156,13 +156,13 @@ static bool parseLine(char *line, cpmDriveConfig drives[cpmDiskDriveCount], bool
   return true;
 }
 
-cpmDriveConfigResult cpmDriveConfigLoad(const char *path, cpmDriveConfig drives[cpmDiskDriveCount], char *error,
+cpm80DriveConfigResult cpm80DriveConfigLoad(const char *path, cpm80DriveConfig drives[cpm80DiskDriveCount], char *error,
                                         size_t errorCapacity)
 {
   if (path == NULL || drives == NULL)
   {
     setError(error, errorCapacity, "Invalid drives.cfg arguments");
-    return cpmDriveConfigInvalid;
+    return cpm80DriveConfigInvalid;
   }
 
   initializeDefaults(drives);
@@ -172,13 +172,13 @@ cpmDriveConfigResult cpmDriveConfigLoad(const char *path, cpmDriveConfig drives[
     if (errno == ENOENT)
     {
       setError(error, errorCapacity, "drives.cfg is missing; using the built-in A: system image only");
-      return cpmDriveConfigMissing;
+      return cpm80DriveConfigMissing;
     }
     setError(error, errorCapacity, "drives.cfg could not be opened");
-    return cpmDriveConfigInvalid;
+    return cpm80DriveConfigInvalid;
   }
 
-  bool seen[cpmDiskDriveCount] = {false};
+  bool seen[cpm80DiskDriveCount] = {false};
   char line[256];
   size_t lineNumber = 0;
   while (fgets(line, sizeof(line), file) != NULL)
@@ -193,7 +193,7 @@ cpmDriveConfigResult cpmDriveConfigLoad(const char *path, cpmDriveConfig drives[
       {
         snprintf(error, errorCapacity, "drives.cfg line %u is too long", (unsigned)lineNumber);
       }
-      return cpmDriveConfigInvalid;
+      return cpm80DriveConfigInvalid;
     }
     if (!parseLine(line, drives, seen))
     {
@@ -203,7 +203,7 @@ cpmDriveConfigResult cpmDriveConfigLoad(const char *path, cpmDriveConfig drives[
       {
         snprintf(error, errorCapacity, "invalid drives.cfg line %u", (unsigned)lineNumber);
       }
-      return cpmDriveConfigInvalid;
+      return cpm80DriveConfigInvalid;
     }
   }
 
@@ -213,8 +213,8 @@ cpmDriveConfigResult cpmDriveConfigLoad(const char *path, cpmDriveConfig drives[
   {
     initializeDefaults(drives);
     setError(error, errorCapacity, "drives.cfg could not be read completely");
-    return cpmDriveConfigInvalid;
+    return cpm80DriveConfigInvalid;
   }
   setError(error, errorCapacity, "");
-  return cpmDriveConfigLoaded;
+  return cpm80DriveConfigLoaded;
 }

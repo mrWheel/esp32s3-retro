@@ -6,10 +6,10 @@ This is the authoritative project-wide specification for the ESP32-S3 Retro Comp
 
 It does NOT define emulator internals. Read this file plus the complete machine-specific design before implementing a machine:
 
-- CP/M 2.2     -> designCPM.md
+- CP/M-80     -> designCPM80.md
+- CP/M-86     -> designCPM86.md
 - UCSD Pascal  -> designUCSD.md
 - Apple II     -> designAppleII.md
-- MP/M II      -> designMPM.md
 - SWTPC 6800   -> designSWTPC.md
 
 
@@ -123,10 +123,10 @@ Initial menu:
 ESP32-S3 Retro Computer
 =======================
 
-1. CP/M 2.2
-2. UCSD Pascal
-3. Apple II
-4. MP/M II
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
 5. SWTPC 6800
 6. File Transfer
 
@@ -147,7 +147,7 @@ Support CR, LF and CR+LF without executing twice. Reject empty, non-numeric, out
 Unavailable machines remain visible where useful:
 
 ```text
-3. Apple II       [not installed]
+4. Apple II       [not installed]
 ```
 
 Selecting one prints a useful reason and waits for ENTER before returning to the menu.
@@ -185,7 +185,7 @@ The first host milestone contains no CPU emulator implementation.
 For example, 1<ENTER> prints:
 
 ```text
-CP/M 2.2
+CP/M-80
 ========
 
 Not implemented yet.
@@ -201,10 +201,10 @@ Once an emulator is implemented, its design file defines runtime/exit behaviour;
 
 LittleFS contains minimum resources that should remain available without SD:
 ```
-/littlefs/cpm/
+/littlefs/cpm80/
+/littlefs/cpm86/
 /littlefs/ucsd/
 /littlefs/apple2/
-/littlefs/mpm/
 /littlefs/swtpc/
 ```
 Actual boot/system filenames are defined by each machine design. The host mounts LittleFS, reports failures, supplies generic file/resource helpers, and permits probes to verify resources.
@@ -251,17 +251,17 @@ Layout version 1:
 /retro/
   layout.txt
   images/
-    cpm/
+    cpm80/
+    cpm86/
     ucsd/
     apple2/
-    mpm/
     swtpc/
   exchange/
     common/
-    cpm/
+    cpm80/    
+    cpm80/
     ucsd/
     apple2/
-    mpm/
     swtpc/
   backup/
 ```
@@ -290,10 +290,10 @@ The machine design, not this file, determines guest sector size, geometry, block
 Common transfer storage is ordinary FAT32:
 ```
 /retro/exchange/common/
-/retro/exchange/cpm/
+/retro/exchange/cpm80/
+/retro/exchange/cpm86/
 /retro/exchange/ucsd/
 /retro/exchange/apple2/
-/retro/exchange/mpm/
 /retro/exchange/swtpc/
 ```
 Architecture:
@@ -313,18 +313,18 @@ File Transfer web GUI
 guest filesystem
 ```
 
-The browser does not need to understand CP/M, UCSD, ProDOS, FLEX, etc.
+The browser does not need to understand CP/M-80, CP/M-86, UCSD, ProDOS, etc.
 
 The File Transfer GUI also manages files directly on the SD card. The user selects a machine and transfer type:
 
-- Loose files use `/retro/exchange/<machine>/` and are visible to that machine's guest transfer utility. For CP/M, `HOST DIR` lists `/retro/exchange/cpm/`.
-- Disk images use `/retro/images/<machine>/`, for example `/retro/images/cpm/`.
+- Loose files use `/retro/exchange/<machine>/` and are visible to that machine's guest transfer utility. For CP/M-80, `HOST DIR` lists `/retro/exchange/cpm80/`.
+- Disk images use `/retro/images/<machine>/`, for example `/retro/images/cpm80/`.
 
 These are separate destinations on the same physical SD card; disk images are not staged through the exchange directory.
 
 ## 15. Guest transfer contract
 
-Each emulator may have a small native guest utility. CP/M could for example provide:
+Each emulator may have a small native guest utility. CP/M-80 could for example provide:
 
 ```text
 HOST DIR
@@ -448,7 +448,7 @@ The first GUI is deliberately simple and must provide:
 - full `/microSD/retro/...` path next to each listed filename;
 - useful success/error responses;
 - basic byte/percentage progress for uploads and downloads;
-- machine selection (`cpm`, `ucsd`, `apple2`, `mpm`, `swtpc`) and transfer type (loose file or disk image), selecting the matching exchange or image directory.
+- machine selection (`cpm80`, `cpm86`, `ucsd`, `apple2`, `swtpc`) and transfer type (loose file or disk image), selecting the matching exchange or image directory.
 
 Optional later: mkdir, rename, multi-upload, checksums, free-space display, image backup/restore.
 
@@ -456,13 +456,13 @@ Do not delay the first working version for optional features.
 
 ### Scope and security
 
-The browser file server exposes only `/retro/exchange/` and `/retro/images/` on the physical SD card. It must not access LittleFS or any other SD path. The GUI must let the user select a machine (`cpm`, `ucsd`, `apple2`, `mpm`, or `swtpc`) and a transfer type. Loose files go under `/retro/exchange/<machine>/` so the selected guest can access them (CP/M `HOST DIR` reads `/retro/exchange/cpm/`); disk images go under `/retro/images/<machine>/`. The GUI must show each item's full VFS path (for example `/microSD/retro/exchange/cpm/FILE.TXT`) beside its name. File Transfer runs separately from emulators, so browser writes cannot modify an active guest disk image.
+The browser file server exposes only `/retro/exchange/` and `/retro/images/` on the physical SD card. It must not access LittleFS or any other SD path. The GUI must let the user select a machine (`cpm80`, `cpm86`, `ucsd`, `apple2` or `swtpc`) and a transfer type. Loose files go under `/retro/exchange/<machine>/` so the selected guest can access them (CP/M `HOST DIR` reads `/retro/exchange/cpm80/`); disk images go under `/retro/images/<machine>/`. The GUI must show each item's full VFS path (for example `/microSD/retro/exchange/cpm80/FILE.TXT`) beside its name. File Transfer runs separately from emulators, so browser writes cannot modify an active guest disk image.
 
 Normalize and validate every requested path. Reject ../, encoded traversal, absolute-path escape, and any resolved path outside the two permitted roots.
 
 Never directly concatenate an untrusted URL path into a filesystem path.
 
-For uploads, resolve the selected machine and transfer type to `/retro/exchange/<machine>/` or `/retro/images/<machine>/`. The default GUI selection is CP/M loose files, `/retro/exchange/cpm/`. Show the full `/microSD/retro/...` destination in the GUI and report it after successful upload.
+For uploads, resolve the selected machine and transfer type to `/retro/exchange/<machine>/` or `/retro/images/<machine>/`. The default GUI selection is CP/M loose files, `/retro/exchange/cpm80/`. Show the full `/microSD/retro/...` destination in the GUI and report it after successful upload.
 
 ### Uploads
 
@@ -490,9 +490,8 @@ Guest-specific naming/type conversion belongs in its machine design/guest utilit
 
 Initial architecture intentionally prevents dangerous concurrent modification:
 
-emulator mode      -> File Transfer web server not active
-
-File Transfer mode -> emulator not active
+  emulator mode      -> File Transfer web server not active
+  File Transfer mode -> emulator not active
 
 Never let the browser modify an active guest disk image.
 
@@ -572,7 +571,7 @@ HOST-M1 is done when:
 27. main menu works again without RESET.
 28. no CPU emulator has been imported merely to complete HOST-M1.
 
-HOST-M1 was the pre-emulator baseline. The current CP/M milestone supersedes item 10 for menu choice 1: CP/M is available when its boot image validates; choices 2–5 remain placeholders. This does not imply that ESP32-S3 hardware acceptance has been completed.
+HOST-M1 was the pre-emulator baseline. The current CP/M-80 milestone supersedes item 10 for menu choice 1: CP/M-80 is available when its boot image validates; choices 2–5 remain placeholders. This does not imply that ESP32-S3 hardware acceptance has been completed.
 
 ## 26. HOST-M1 tests
 
@@ -609,7 +608,7 @@ File Transfer:
 - page loads;
 - text upload/download;
 - binary SD-card disk-image upload/download + SHA-256 equality;
-- CP/M loose-file upload to `/retro/exchange/cpm/` is visible to `HOST DIR`;
+- CP/M-86 loose-file upload to `/retro/exchange/cpm86/` is visible to `HOST DIR`;
 - selected-machine loose files and disk images reach their respective `/retro/exchange/<machine>/` and `/retro/images/<machine>/` directories;
 - every listed file shows its full `/microSD/retro/...` path;
 - upload/download progress is displayed while bytes are transferred;
@@ -636,36 +635,28 @@ HOST-M1 prepares:
 
 LittleFS:
 
-/littlefs/cpm/
-
-/littlefs/ucsd/
-
-/littlefs/apple2/
-
-/littlefs/mpm/
-
-/littlefs/swtpc/
+  /littlefs/cpm80/
+  /littlefs/cpm86/
+  /littlefs/ucsd/
+  /littlefs/apple2/
+  /littlefs/swtpc/
 
 SD:
 
-/retro/images/cpm/
-
-/retro/images/ucsd/
-
-/retro/images/apple2/
-
-/retro/images/mpm/
-
-/retro/images/swtpc/
+  /retro/images/cpm80/
+  /retro/images/cpm86/
+  /retro/images/ucsd/
+  /retro/images/apple2/
+  /retro/images/swtpc/
 
 Do not assume exact boot filenames in generic host code except through machine resource definitions. Provide generic existence/open/size/checksum helpers where useful.
 
 ## 28. Implementation order after HOST-M1
 
-1. CP/M 2.2
-2. UCSD Pascal
-3. Apple II
-4. MP/M II
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
 5. SWTPC 6800
 
 Before each machine:
@@ -696,10 +687,10 @@ esp32s3-retro/
   partitions.csv
   README.md
   projectPrompt.md
-  designCPM.md
+  designCPM80.md
+  designCPM86.md
   designUCSD.md
   designAppleII.md
-  designMPM.md
   designSWTPC.md
   main/
     main.c
@@ -707,17 +698,17 @@ esp32s3-retro/
     systemMenu.h
   components/
     retroHost/
-    cpm/
+    cpm80/
+    cpm86/
     ucsd/
     apple2/
-    mpm/
     swtpc/
     third_party/
   littlefs/
-    cpm/
+    cpm80/
+    cpm86/
     ucsd/
     apple2/
-    mpm/
     swtpc/
   tools/
     README.md
@@ -749,11 +740,11 @@ The host is ready for CP/M development only when:
 - loose files upload to /retro/exchange/<selected-machine>/;
 - disk images upload to /retro/images/<selected-machine>/;
 - each listed filename has its full /microSD/retro path shown alongside it;
-- the GUI defaults to CP/M loose files at /retro/exchange/cpm/;
+- the GUI defaults to CP/M loose files at /retro/exchange/cpm80/;
 - upload/download sizes above 4 GiB minus 2 bytes are rejected;
 - upload/download/delete work;
 - complete disk-image files upload to and download from the physical SD card with visible progress;
-- the GUI defaults to CP/M loose files at /retro/exchange/cpm/;
+- the GUI defaults to CP/M-80 loose files at /retro/exchange/cpm80/;
 - upload/download sizes above 4 GiB minus 2 bytes are rejected;
 - binary integrity is proven;
 - traversal is blocked;
@@ -764,4 +755,5 @@ The host is ready for CP/M development only when:
 - emulator placeholders work;
 - no emulator implementation was invented as part of HOST-M1.
 
-Then begin CP/M according to designCPM.md.
+Then begin CP/M-80 according to designCPM80.md.
+Then begin CP/M-86 according to designCPM86.md.

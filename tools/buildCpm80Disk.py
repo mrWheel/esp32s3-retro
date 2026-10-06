@@ -32,7 +32,7 @@ UTILITY_FILES = (
 )
 HELLO_PROGRAM = (
     b"\x0e\x09\x11\x0b\x01\xcd\x05\x00\xc3\x00\x00"
-    b"HELLO FROM CP/M 2.2\r\n$"
+    b"HELLO FROM CP/M-80\r\n$"
 )
 WELCOME_TEXT = b"CP/M utilities are installed.\r\nUse DIR, STAT, and HELP for help.\r\n\x1A"
 
@@ -97,7 +97,7 @@ def add_file(
 
 
 def build_disk(project_root: Path, output_path: Path) -> None:
-    cpm_directory = project_root / "components" / "cpmCore" / "os"
+    cpm_directory = project_root / "components" / "cpm80Core" / "os"
     utility_directory = cpm_directory / "utilities"
     ccp = (cpm_directory / "ccp-64k.bin").read_bytes()
     bdos = (cpm_directory / "bdos-64k.bin").read_bytes()
@@ -161,13 +161,13 @@ def build_disk(project_root: Path, output_path: Path) -> None:
 
 def main() -> None:
     project_root = Path(__file__).resolve().parents[1]
-    parser = argparse.ArgumentParser(description="Build the CP/M 2.2 LittleFS A: disk image and utility directory.")
+    parser = argparse.ArgumentParser(description="Build the CP/M-80 LittleFS A: disk image and utility directory.")
     parser.add_argument(
         "output",
         nargs="?",
         type=Path,
-        default=project_root / "littlefs" / "cpm" / "system.dsk",
-        help="output image path (defaults to littlefs/cpm/system.dsk)",
+        default=project_root / "littlefs" / "cpm80" / "system.dsk",
+        help="output image path (defaults to littlefs/cpm80/system.dsk)",
     )
     arguments = parser.parse_args()
     build_disk(project_root, arguments.output.resolve())

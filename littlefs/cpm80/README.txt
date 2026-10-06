@@ -1,11 +1,11 @@
-CP/M 2.2 LittleFS A: image.
+CP/M-80 LittleFS A: image.
 
 system.dsk is a 256,256-byte raw image with 77 tracks, 26 128-byte sectors per
 track, two reserved tracks and the read-only 8-inch SSSD DPB. Its SHA-256 is
 73c56e9f49292f8c9c8ac1530cbcf5799300253f5803d55b8837787cfb8e1e28.
 It contains the genuine CCP and BDOS, resident ERA/REN/TYPE/USER/DIR commands,
 HELLO.COM, WELCOME.TXT, the custom HOST.COM guest transfer utility and the CP/M utility set documented in
-components/cpmCore/os/utilities/README.md. The 16-byte RETROCPM resource header
+components/cpm80Core/os/utilities/README.md. The 16-byte RETROCPM resource header
 is in the reserved area; the BIOS is implemented in the guest adapter.
 
 The machine loads CCP at C400 and BDOS at CC00. A: is immutable on LittleFS.
@@ -15,7 +15,7 @@ directory command; STAT supplies disk status in place of a separate SHOW.COM
 or SDIR.COM. SUBMIT.COM is included, but its patched build writes $$$.SUB on
 read-only A: and cannot submit jobs with the current access policy.
 
-Optional SD images map to B:–F: using /retro/images/cpm/drives.cfg. The config
+Optional SD images map to B:–F: using /retro/images/cpm80/drives.cfg. The config
 maps a drive letter to an image path, RO/RW access and SYSTEM/LARGE disk
 profile. SYSTEM is 256,256 bytes (77 tracks × 26 128-byte sectors); LARGE is
 512,512 bytes (77 tracks × 52 sectors, 2 KiB allocation blocks and 128
@@ -40,6 +40,6 @@ to full 128-byte CP/M records. No WiFi connection is required.
 
 Regenerate the A: image with python tools/buildCpmDisk.py from the project
 root. The composer uses the checked-in assembled images and utilities under
-components/cpmCore/os. See designCPM.md, components/cpmCore/os/README.md and
+components/cpm80Core/os. See designCPM80.md, components/cpm80Core/os/README.md and
 SHA256SUMS.txt for source, license scope, geometry and checksum details.
 Firmware verifies the exact image size, signature and SHA-256.
