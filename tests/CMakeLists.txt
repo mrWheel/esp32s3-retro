@@ -19,6 +19,9 @@ add_executable(
   ../components/cpm86Core/third_party/emu86/op-print-intel.c
   ../components/z80/z80.c
   ../main/cpm80DriveConfig.c
+  ../main/cpm86DriveConfig.c
+  ../main/cpm86BiosOverlay.c
+  ../main/storagePath.c
   ../main/imageFile.c
 )
 target_include_directories(hostTests PRIVATE ../components/hostCore/include ../components/cpm80Core/include
@@ -27,7 +30,8 @@ target_compile_options(hostTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsign
 target_compile_definitions(
   hostTests PRIVATE CPM80_SYSTEM_IMAGE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm80/system.dsk"
   CPM86_SYSTEM_FILE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/cpm.sys"
-  CPM86_SYSTEM_DISK_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/system.dsk")
+  CPM86_SYSTEM_DISK_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/system.dsk"
+  CPM86_BIOS_OVERLAY_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/retro86bios.h86")
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(hostTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(hostTests PRIVATE -fsanitize=address,undefined)

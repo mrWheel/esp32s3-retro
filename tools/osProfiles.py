@@ -64,9 +64,11 @@ OS_REGISTRY = {
         details=(
             "Profile:\n"
             "  CPM86   40 tracks x 8 x 512 B (163840 bytes), track 0 reserved for boot,\n"
-            "          1 KiB blocks, 64 directory entries\n"
+            "          1 KiB blocks, 64 directory entries; valid for drives A: through F:\n"
             "Files need CP/M 8.3 names (upper-cased automatically); user area 0.\n"
-            "buildDiskImage.py needs --source-dir with CPM.SYS and the .CMD utilities."
+            "prepareSd.py creates /retro/images/cpm86/drives.cfg; edit its image paths\n"
+            "and RO/RW access modes. buildDiskImage.py needs --source-dir with CPM.SYS\n"
+            "and the .CMD utilities."
         ),
     ),
     "apple2": OsInfo("apple2", "Apple II", False),

@@ -1,7 +1,10 @@
 #include "cpm86Machine.h"
+#include "cpm86BiosOverlay.h"
 #include "cpm86Core.h"
+#include "cpm86DriveConfig.h"
 #include "hostConsole.h"
 #include "imageFile.h"
+#include "storage.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -12,6 +15,8 @@
 static const char *tag = "cpm86Machine";
 static const char *systemFilePath = "/littlefs/cpm86/cpm.sys";
 static const char *systemDiskPath = "/littlefs/cpm86/system.dsk";
+static const char *biosOverlayPath = "/littlefs/cpm86/retro86bios.h86";
+static const char *driveConfigPath = "/microSD/retro/images/cpm86/drives.cfg";
 
 typedef enum
 {
@@ -23,6 +28,12 @@ typedef enum
 typedef struct
 {
   imageFile image;
+  bool configured;
+} cpm86DiskDrive;
+
+typedef struct
+{
+  cpm86DiskDrive drives[cpm86DiskDriveCount];
   uint8_t record[128];
   uint16_t track;
   uint16_t sector;
@@ -33,20 +44,21 @@ typedef struct
 } cpm86Disk;
 
 static cpm86Core *guestCore;
-static cpm86Disk systemDisk;
+static cpm86Disk diskController;
 static bool guestReady;
 
 static bool diskRecordOffset(uint64_t *offset)
 {
-  if (offset == NULL || systemDisk.drive != 0 || systemDisk.track == 0 || systemDisk.track >= 40 ||
-      systemDisk.sector >= 32)
+  if (offset == NULL || diskController.drive >= cpm86DiskDriveCount ||
+      !diskController.drives[diskController.drive].configured || diskController.track == 0 ||
+      diskController.track >= 40 || diskController.sector >= 32)
   {
     return false;
   }
-  uint64_t recordIndex = (uint64_t)systemDisk.track * 32 + systemDisk.sector;
-  *offset = recordIndex * sizeof(systemDisk.record);
-  return *offset <= imageSize(&systemDisk.image) &&
-         sizeof(systemDisk.record) <= imageSize(&systemDisk.image) - *offset;
+  uint64_t recordIndex = (uint64_t)diskController.track * 32 + diskController.sector;
+  *offset = recordIndex * sizeof(diskController.record);
+  imageFile *image = &diskController.drives[diskController.drive].image;
+  return *offset <= imageSize(image) && sizeof(diskController.record) <= imageSize(image) - *offset;
 }
 
 static bool portRead(void *context, uint16_t port, uint8_t *value)
@@ -74,13 +86,21 @@ static bool portRead(void *context, uint16_t port, uint8_t *value)
   }
   if (port == 0x00ED)
   {
-    *value = systemDisk.transferStatus;
+    *value = diskController.transferStatus;
     return true;
   }
-  if (port == 0x00EE && systemDisk.transferMode == diskTransferRead &&
-      systemDisk.transferIndex < sizeof(systemDisk.record))
+  if (port == 0x00EE && diskController.transferMode == diskTransferRead &&
+      diskController.transferIndex < sizeof(diskController.record))
   {
-    *value = systemDisk.record[systemDisk.transferIndex++];
+    *value = diskController.record[diskController.transferIndex++];
+    return true;
+  }
+  if (port == 0x00EF)
+  {
+    *value = diskController.drive < cpm86DiskDriveCount &&
+                     diskController.drives[diskController.drive].configured
+                 ? 0xFF
+                 : 0;
     return true;
   }
   return false;
@@ -89,27 +109,28 @@ static bool portRead(void *context, uint16_t port, uint8_t *value)
 static bool startDiskTransfer(uint8_t command)
 {
   uint64_t offset;
-  systemDisk.transferIndex = 0;
-  systemDisk.transferStatus = 1;
-  systemDisk.transferMode = diskTransferIdle;
+  diskController.transferIndex = 0;
+  diskController.transferStatus = 1;
+  diskController.transferMode = diskTransferIdle;
   if (!diskRecordOffset(&offset))
   {
     return true;
   }
 
+  imageFile *image = &diskController.drives[diskController.drive].image;
   if (command == 0)
   {
-    if (!imageReadAt(&systemDisk.image, offset, systemDisk.record, sizeof(systemDisk.record)))
+    if (!imageReadAt(image, offset, diskController.record, sizeof(diskController.record)))
     {
       return true;
     }
-    systemDisk.transferStatus = 0;
-    systemDisk.transferMode = diskTransferRead;
+    diskController.transferStatus = 0;
+    diskController.transferMode = diskTransferRead;
   }
   else if (command == 1)
   {
-    systemDisk.transferStatus = 0;
-    systemDisk.transferMode = diskTransferWrite;
+    diskController.transferStatus = 0;
+    diskController.transferMode = diskTransferWrite;
   }
   return true;
 }
@@ -124,47 +145,48 @@ static bool portWrite(void *context, uint16_t port, uint8_t value)
   }
   if (port == 0x00E8)
   {
-    systemDisk.drive = value;
+    diskController.drive = value;
     return true;
   }
   if (port == 0x00E9)
   {
-    systemDisk.track = (systemDisk.track & 0xFF00) | value;
+    diskController.track = (diskController.track & 0xFF00) | value;
     return true;
   }
   if (port == 0x00EA)
   {
-    systemDisk.track = (systemDisk.track & 0x00FF) | ((uint16_t)value << 8);
+    diskController.track = (diskController.track & 0x00FF) | ((uint16_t)value << 8);
     return true;
   }
   if (port == 0x00EB)
   {
-    systemDisk.sector = (systemDisk.sector & 0xFF00) | value;
+    diskController.sector = (diskController.sector & 0xFF00) | value;
     return true;
   }
   if (port == 0x00EC)
   {
-    systemDisk.sector = (systemDisk.sector & 0x00FF) | ((uint16_t)value << 8);
+    diskController.sector = (diskController.sector & 0x00FF) | ((uint16_t)value << 8);
     return true;
   }
   if (port == 0x00ED)
   {
     return startDiskTransfer(value);
   }
-  if (port == 0x00EE && systemDisk.transferMode == diskTransferWrite &&
-      systemDisk.transferIndex < sizeof(systemDisk.record))
+  if (port == 0x00EE && diskController.transferMode == diskTransferWrite &&
+      diskController.transferIndex < sizeof(diskController.record))
   {
-    systemDisk.record[systemDisk.transferIndex++] = value;
-    if (systemDisk.transferIndex == sizeof(systemDisk.record))
+    diskController.record[diskController.transferIndex++] = value;
+    if (diskController.transferIndex == sizeof(diskController.record))
     {
       uint64_t offset;
+      imageFile *image = &diskController.drives[diskController.drive].image;
       if (!diskRecordOffset(&offset) ||
-          !imageWriteAt(&systemDisk.image, offset, systemDisk.record, sizeof(systemDisk.record)) ||
-          !imageFlush(&systemDisk.image))
+          !imageWriteAt(image, offset, diskController.record, sizeof(diskController.record)) ||
+          !imageFlush(image))
       {
-        systemDisk.transferStatus = 1;
+        diskController.transferStatus = 1;
       }
-      systemDisk.transferMode = diskTransferIdle;
+      diskController.transferMode = diskTransferIdle;
     }
     return true;
   }
@@ -231,6 +253,11 @@ static bool loadSystemFile(void)
     ESP_LOGE(tag, "Failed to close CP/M-86 system file: %s", systemFilePath);
     return false;
   }
+  if (!cpm86BiosLoadOverlay(guestCore, biosOverlayPath))
+  {
+    ESP_LOGE(tag, "Could not load CP/M-86 BIOS overlay: %s", biosOverlayPath);
+    return false;
+  }
 
   //-- CCP data/stack area (0051:0800-09FF) is never code; stop at the first fetch to keep the real cause in the trace.
   cpm86CoreSetExecuteGuard(guestCore, 0x00D10, 0x00F10);
@@ -244,13 +271,17 @@ static bool loadSystemFile(void)
   return true;
 }
 
-static void closeSystemDisk(void)
+static void closeDiskImages(void)
 {
-  if (systemDisk.image.file != NULL && !imageClose(&systemDisk.image))
+  for (size_t drive = 0; drive < cpm86DiskDriveCount; ++drive)
   {
-    ESP_LOGE(tag, "Failed to close CP/M-86 system disk");
+    if (diskController.drives[drive].image.file != NULL &&
+        !imageClose(&diskController.drives[drive].image))
+    {
+      ESP_LOGE(tag, "Failed to close CP/M-86 drive %c:", (char)('A' + drive));
+    }
   }
-  memset(&systemDisk, 0, sizeof(systemDisk));
+  memset(&diskController, 0, sizeof(diskController));
 }
 
 machineState cpm86MachineProbe(const retroMachine *machine)
@@ -267,6 +298,12 @@ machineState cpm86MachineProbe(const retroMachine *machine)
   if (systemSize != cpm86SystemFileSize)
   {
     ESP_LOGE(tag, "Invalid CP/M-86 system file size: %s", systemFilePath);
+    return machineResourceInvalid;
+  }
+  uint64_t biosOverlaySize;
+  if (!resourceSize(biosOverlayPath, &biosOverlaySize) || biosOverlaySize == 0 || biosOverlaySize > 4096)
+  {
+    ESP_LOGE(tag, "Invalid CP/M-86 BIOS overlay: %s", biosOverlayPath);
     return machineResourceInvalid;
   }
   uint64_t diskSize;
@@ -289,17 +326,64 @@ esp_err_t cpm86MachineInitialize(void)
     ESP_LOGE(tag, "CP/M-86 guest is already initialized");
     return ESP_FAIL;
   }
-  memset(&systemDisk, 0, sizeof(systemDisk));
-  if (!imageOpen(&systemDisk.image, systemDiskPath, false))
+  memset(&diskController, 0, sizeof(diskController));
+  cpm86DriveConfig driveConfig[cpm86DiskDriveCount];
+  char configError[128];
+  cpm86DriveConfigResult configResult =
+      cpm86DriveConfigLoad(driveConfigPath, driveConfig, configError, sizeof(configError));
+  if (configResult == cpm86DriveConfigInvalid)
   {
-    ESP_LOGE(tag, "Could not open writable CP/M-86 system disk: %s", systemDiskPath);
+    ESP_LOGW(tag, "%s; using the built-in A: system image only", configError);
+  }
+  else if (configResult == cpm86DriveConfigMissing && storageReady())
+  {
+    ESP_LOGW(tag, "%s", configError);
+  }
+
+  for (size_t drive = 0; drive < cpm86DiskDriveCount; ++drive)
+  {
+    if (!driveConfig[drive].configured)
+    {
+      continue;
+    }
+    uint64_t diskSize;
+    if (!resourceSize(driveConfig[drive].path, &diskSize) || diskSize != cpm86SystemDiskSize)
+    {
+      if (drive == 0)
+      {
+        ESP_LOGE(tag, "Missing or invalid CP/M-86 system disk: %s", driveConfig[drive].path);
+        closeDiskImages();
+        return ESP_FAIL;
+      }
+      ESP_LOGW(tag, "CP/M-86 drive %c: image missing or has invalid size: %s",
+               (char)('A' + drive), driveConfig[drive].path);
+      continue;
+    }
+    if (!imageOpen(&diskController.drives[drive].image, driveConfig[drive].path,
+                   driveConfig[drive].readOnly))
+    {
+      if (drive == 0)
+      {
+        ESP_LOGE(tag, "Could not open CP/M-86 system disk: %s", driveConfig[drive].path);
+        closeDiskImages();
+        return ESP_FAIL;
+      }
+      ESP_LOGW(tag, "Could not open CP/M-86 drive %c: image: %s", (char)('A' + drive),
+               driveConfig[drive].path);
+      continue;
+    }
+    diskController.drives[drive].configured = true;
+  }
+  if (!diskController.drives[0].configured)
+  {
+    ESP_LOGE(tag, "CP/M-86 A: system disk is unavailable: %s", systemDiskPath);
     return ESP_FAIL;
   }
   cpm86CoreConfig config = {
       .ramSize = 640 * 1024,
       .portRead = portRead,
       .portWrite = portWrite,
-      .portContext = &systemDisk,
+      .portContext = &diskController,
   };
   cpm86CoreResult result = cpm86CoreCreate(&guestCore, NULL, &config);
   if (result != cpm86CoreOk)
@@ -319,7 +403,7 @@ esp_err_t cpm86MachineInitialize(void)
     {
       ESP_LOGE(tag, "Could not create CP/M-86 CPU core: result=%d", result);
     }
-    closeSystemDisk();
+    closeDiskImages();
     guestCore = NULL;
     return result == cpm86CoreNoMemory ? ESP_ERR_NO_MEM : ESP_FAIL;
   }
@@ -327,7 +411,7 @@ esp_err_t cpm86MachineInitialize(void)
   {
     cpm86CoreDestroy(guestCore);
     guestCore = NULL;
-    closeSystemDisk();
+    closeDiskImages();
     return ESP_ERR_INVALID_STATE;
   }
   guestReady = true;
@@ -347,7 +431,7 @@ void cpm86MachineRun(void)
   {
     (void)hostConsoleGetChar();
   }
-  puts("\nStarting CP/M-86 on the virtual A: disk.");
+  puts("\nStarting CP/M-86.");
   while (true)
   {
     size_t instructionsExecuted;
@@ -424,5 +508,5 @@ void cpm86MachineRun(void)
   cpm86CoreDestroy(guestCore);
   guestCore = NULL;
   guestReady = false;
-  closeSystemDisk();
+  closeDiskImages();
 }

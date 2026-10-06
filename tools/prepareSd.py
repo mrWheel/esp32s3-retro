@@ -29,21 +29,33 @@ def prepareSd(argv=None):
     parser.error("The mount point must already exist")
   retro = root / "retro"
   marker = retro / "layout.txt"
-  drivesConfig = retro / "images" / "cpm80" / "drives.cfg"
+  drivesConfigs = {
+      "cpm80": (
+          retro / "images" / "cpm80" / "drives.cfg",
+          "A=/littlefs/cpm80/system.dsk,RO,SYSTEM\n"
+          "B=/retro/images/cpm80/languages.dsk,RO,LARGE\n"
+          "C=/retro/images/cpm80/tools.dsk,RO,LARGE\n"
+          "D=/retro/images/cpm80/utilities.dsk,RO,LARGE\n"
+          "E=/retro/images/cpm80/work.dsk,RW,LARGE\n"
+          "F=/retro/images/cpm80/work1.dsk,RW,SYSTEM\n",
+      ),
+      "cpm86": (
+          retro / "images" / "cpm86" / "drives.cfg",
+          "A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM_V1\n"
+          "B=/retro/images/cpm86/languages.dsk,RO,RETRO86_DATA_V1\n"
+          "C=/retro/images/cpm86/tools.dsk,RO,RETRO86_DATA_V1\n"
+          "D=/retro/images/cpm86/utilities.dsk,RO,RETRO86_DATA_V1\n"
+          "E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_V1\n"
+          "F=/retro/images/cpm86/archive.dsk,RW,RETRO86_DATA_V1\n",
+      ),
+  }
   expected = "ESP32-S3-RETRO\nlayout=1\n"
-  defaultDrives = (
-      "A=/littlefs/cpm80/system.dsk,RO,SYSTEM\n"
-      "B=/retro/images/cpm80/languages.dsk,RO,LARGE\n"
-      "C=/retro/images/cpm80/tools.dsk,RO,LARGE\n"
-      "D=/retro/images/cpm80/utilities.dsk,RO,LARGE\n"
-      "E=/retro/images/cpm80/work.dsk,RW,LARGE\n"
-      "F=/retro/images/cpm80/work1.dsk,RW,SYSTEM\n"
-  )
   required = [retro / "backup", retro / "exchange" / "common"]
   for group in ["images", "exchange"]:
     for machine in machines:
       required.append(retro / group / machine)
-  for path in [marker, drivesConfig, *required]:
+  selectedDriveConfigs = [drivesConfigs[machine][0] for machine in machines if machine in drivesConfigs]
+  for path in [marker, *selectedDriveConfigs, *required]:
     if not path.resolve().is_relative_to(root):
       parser.error("A layout path escapes the mount point through a symbolic link")
   if marker.exists() and marker.read_text().rstrip("\n") != expected.rstrip("\n"):
@@ -53,9 +65,12 @@ def prepareSd(argv=None):
   if not marker.exists():
     with marker.open("x", newline="\n") as target:
       target.write(expected)
-  if "cpm80" in machines and not drivesConfig.exists():
-    with drivesConfig.open("x", newline="\n") as target:
-      target.write(defaultDrives)
+  for machine in machines:
+    if machine in drivesConfigs:
+      drivesConfig, defaultDrives = drivesConfigs[machine]
+      if not drivesConfig.exists():
+        with drivesConfig.open("x", newline="\n") as target:
+          target.write(defaultDrives)
   print("Retro layout v1 prepared at " + str(retro))
   print("Filesystem type was not checked by this tool. Firmware validates FAT32. Eject the card safely.")
 

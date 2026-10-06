@@ -26,6 +26,46 @@ python3 tools/diskImage.py --os cpm86 -h
 
 ## Prepare CP/M disk images on macOS
 
+### CP/M-86 drives
+
+`prepareSd.py --os cpm86` creates `/retro/images/cpm86/drives.cfg` if it does not
+already exist. The CP/M-86 BIOS supports drives A: through F:. A: is the
+read-only LittleFS system image; B: through F: are optional SD images. All six
+drives use the same validated 160 KiB `CPM86` image geometry (40 tracks, eight
+512-byte sectors per track, 128-byte guest records, 1 KiB allocation blocks and
+64 directory entries).
+
+The generated configuration maps E: to `work86.dsk` and sets it to read/write.
+Create the image if needed, then copy it to that path on the card:
+
+```sh
+python3 tools/diskImage.py create --os cpm86 --profile CPM86 work86.dsk
+cp sdcard/retro/images/cpm86/work86.dsk /Volumes/SDCARD/retro/images/cpm86/work86.dsk
+```
+
+The configuration uses one line per drive:
+
+```text
+A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM_V1
+B=/retro/images/cpm86/languages.dsk,RO,RETRO86_DATA_V1
+C=/retro/images/cpm86/tools.dsk,RO,RETRO86_DATA_V1
+D=/retro/images/cpm86/utilities.dsk,RO,RETRO86_DATA_V1
+E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_V1
+F=/retro/images/cpm86/archive.dsk,RW,RETRO86_DATA_V1
+```
+
+Use only the shown image roots and profile identifiers. Missing optional images
+are left offline; malformed or duplicate configuration lines disable B:–F:
+and retain the built-in A:. A drive is reported to CP/M-86 only when its image
+exists, is exactly 163,840 bytes and can be opened with the configured access
+mode. Do not switch an image to read/write unless its contents can be safely
+modified; use disposable media for write testing.
+
+The tool sets up directories and configuration only; it neither creates nor
+overwrites images. Existing `drives.cfg` files are preserved.
+
+### CP/M-80 drives
+
 `diskImageCpm80.py` creates empty raw CP/M-80 images for either supported profile. `SYSTEM` uses 77 tracks × 26 128-byte records, two reserved tracks, 1 KiB blocks and 64 directory entries. `LARGE` uses 77 tracks × 52 128-byte records, two reserved tracks, 2 KiB blocks and 128 directory entries. Both profiles use allocation blocks 0–242. It uses only the Python standard library.
 
 ```sh

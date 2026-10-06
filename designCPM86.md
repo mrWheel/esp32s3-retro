@@ -1,6 +1,6 @@
 # designCPM86.md — CP/M-86 engineering memory
 
-Revision: 2026-10-06. Status: RETRO86_V1 BIOS, CP/M-86 system resources and firmware integration are implemented. The sanitized desktop host test boots the real CCP/BDOS to `A>` and successfully runs `DIR` against the generated disk. The ESP-IDF 6.0.2 firmware build passes and generates the 2 MiB LittleFS image with the new resources. No firmware has been flashed and no ESP32-S3 hardware boot or performance result is claimed. This does not establish broad 8086 conformance, complete CP/M-86 compatibility, writable-media reliability, or a full native development workflow. The pinned EMU86 CPU sources remain integrated through a bounded-RAM, single-active-instance adapter. CP/M-86 1.1 remains the initial release candidate.
+Revision: 2026-10-06. Status: RETRO86_V1 BIOS, CP/M-86 system resources, drive configuration and A:–F: firmware disk services are implemented. The sanitized desktop host test boots the real CCP/BDOS to `A>` and successfully runs `DIR`; multiple-drive guest behavior is covered by the BIOS test. The ESP-IDF 6.0.2 firmware build passes. No new firmware has been flashed and CP/M-86 hardware access to configured SD drives remains unverified. This does not establish broad 8086 conformance, complete CP/M-86 compatibility, writable-media reliability, or a full native development workflow. The pinned EMU86 CPU sources remain integrated through a bounded-RAM, single-active-instance adapter. CP/M-86 1.1 remains the initial release candidate.
 
 ## Provenance and purpose
 
@@ -171,11 +171,13 @@ Still open: complete instruction coverage, remaining target BIOS/OS compatibilit
 
 ## Current RETRO86_V1 implementation
 
-The project-owned BIOS is assembled from `components/cpm86Core/bios/retro86bios.a86` and linked into the pinned CP/M-86 CCP/BDOS CMD payload. The runtime loads that CMD payload at physical `00510h`, installs the BDOS interrupt vector, enters at `0051h:2500h`, and provides console and A: disk access through byte ports. Port assignments are E0h/E1h/E2h for console status/input/output and E8h–EEh for drive, track, 128-byte record, command/status and record-data transfers. F8h/F9h remain reserved for `hostExchange`.
+The project-owned BIOS is assembled from `components/cpm86Core/bios/retro86bios.a86` into the separate H86 overlay `littlefs/cpm86/retro86bios.h86`; it is not linked into the pinned CP/M-86 CCP/BDOS CMD payload. The runtime loads `cpm.sys` at physical `00510h`, installs the BIOS overlay and BDOS interrupt vector, enters at `0051h:2500h`, and provides console and A:–F: disk access through byte ports. Port assignments are E0h/E1h/E2h for console status/input/output, E8h–EEh for drive, track, 128-byte record, command/status and record-data transfers, and EFh for selected-drive availability. F8h/F9h remain reserved for `hostExchange`.
 
-The boot disk is a raw 160 KiB image: 40 tracks of eight 512-byte physical sectors, represented to CP/M-86 as 32 128-byte records per track. Raw track 0 is reserved; DPB OFF=1 already selects raw track 1 as the first CP/M filesystem track. Therefore the BIOS passes the selected CP/M track to the disk backend unchanged; adding another track would skip the directory. The host rejects track 0, tracks 40 and above, sectors 32 and above, and non-A drives.
+The boot disk is a raw 160 KiB image: 40 tracks of eight 512-byte physical sectors, represented to CP/M-86 as 32 128-byte records per track. Raw track 0 is reserved; DPB OFF=1 already selects raw track 1 as the first CP/M filesystem track. Therefore the BIOS passes the selected CP/M track to the disk backend unchanged; adding another track would skip the directory. Every configured drive uses this same geometry and DPB. The host rejects track 0, tracks 40 and above, and sectors 32 and above.
 
-This initial system image is writable and has only drive A:. The desktop regression test copies the image to a temporary file, verifies a real `A>` prompt, sends `DIR`, verifies `ASM86` and `PIP`, and checks disk read completion. These results are desktop CPU-core evidence only; they do not qualify hardware boot, disk writes, clean guest exit or additional drives.
+`/retro/images/cpm86/drives.cfg` configures read-only A: from LittleFS and optional B:–F: images from the CP/M-86 image directory. The parser validates the entire file, drive letters, profile, access mode and root-constrained paths. Missing images remain offline; invalid configuration falls back to A: only. Each image must be exactly 163,840 bytes and open successfully before the BIOS reports its DPH. The `CPM86` image-tool profile defines the matching raw geometry.
+
+The desktop regression test copies the system image to a temporary file, verifies a real `A>` prompt, sends `DIR`, verifies `ASM86` and `PIP`, then selects configured B: and runs `DIR` there. These results are desktop CPU-core evidence only; they do not qualify hardware SD access, disk writes, clean guest exit or broad compatibility.
 
 Startup and restart
 
@@ -203,7 +205,7 @@ The BIOS may call host image-record primitives through virtual I/O. The host nev
 
 ## Drives and capacity
 
-|Drive|Proposed storage                           |Role                             |Initial policy|
+|Drive|Configured storage                         |Role                             |Current policy|
 |-----|-------------------------------------------|---------------------------------|--------------|
 |A:   |Minimal validated LittleFS image if it fits|System and native essential tools|RO            |
 |B:   |Configured SD image                        |Language tools                   |RO, optional  |
@@ -212,18 +214,18 @@ The BIOS may call host image-record primitives through virtual I/O. The host nev
 |E:   |Configured SD image                        |Source/build/results             |RW, optional  |
 |F:   |Configured SD image                        |Archive/workspace                |RW, optional  |
 
-A:–F: is the target design, not a claim about the reference’s two-drive controller or every application. Check selected BDOS and tools for all six drives. Reject unsupported letters rather than aliasing them.
+A:–F: are supported by the RETRO86_V1 BIOS when configured images validate; this does not claim every CP/M-86 application supports six drives. Reject unsupported letters rather than aliasing them.
 
-Propose /retro/images/cpm86/drives.cfg with the host’s established line-oriented syntax:
+Use `/retro/images/cpm86/drives.cfg` with the host’s established line-oriented syntax:
 
   A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM_V1
   B=/retro/images/cpm86/languages.dsk,RO,RETRO86_DATA_V1
   C=/retro/images/cpm86/tools.dsk,RO,RETRO86_DATA_V1
   D=/retro/images/cpm86/utilities.dsk,RO,RETRO86_DATA_V1
-  E=/retro/images/cpm86/work.dsk,RW,RETRO86_DATA_V1
+  E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_V1
   F=/retro/images/cpm86/archive.dsk,RW,RETRO86_DATA_V1
 
-These profile identifiers are reserved names only. They do not define geometry or make the example mountable today. Reuse or extend the shared parser with machine-specific profile tables and root restrictions. Reject duplicate drives, path escapes, unsupported profile/access combinations and malformed lines as an entire invalid configuration. If a validated built-in A: exists, retain it as fallback and disable optional drives. Never create blank media during boot.
+`RETRO86_SYSTEM_V1` is permitted only for read-only A: at the fixed LittleFS system path. `RETRO86_DATA_V1` is permitted for B:–F: and currently uses the same verified 160 KiB geometry. Reject duplicate drives, path escapes, unsupported profile/access combinations and malformed lines as an entire invalid configuration. Retain the built-in A: as fallback and disable optional drives. Never create blank media during boot.
 
 Freeze each profile’s exact image length, physical/logical sector layout, numbering, skew, reserved tracks, boot bytes, record size and filesystem parameters. Audit SPT, BSH, BLM, EXM, DSM, DRM, AL0/AL1, CKS and OFF where the chosen release uses them, together with pointer sizes, allocation-vector length, extent encoding and block-number width. Document physical-sector versus logical-record translation. CP/M-86 is not a license to enlarge a DPB arbitrarily.
 
@@ -344,7 +346,7 @@ Definition of Done: every applicable gate has observed evidence; genuine guest a
 |CPM86-ISSUE-008|OPEN |Native applications, terminal personality and batch scratch-drive behaviour; Z80 COM or DOS binaries are not acceptance tools          |
 |CPM86-ISSUE-009|OPEN |Exchange segment safety, record semantics, metadata collisions and failure recovery; do not claim HOST.COM is portable machine code    |
 |CPM86-ISSUE-010|OPEN |Real SD persistence, RO/RW errors, clean exit and reset durability; no host test closes a board gate                                   |
-|CPM86-ISSUE-011|OPEN |RETRO86_V1 BIOS and target image are not implemented. VERIFY-018 identifies `cmp86.img` as a readable CompuPro CP/M-86 filesystem and inventories its system/loader files; resolve the declared-geometry/image-length discrepancy, audit its OEM boot chain and rights, then assess whether its binaries/source can be rebuilt or adapted for RETRO86_V1. The upstream default BIOS remains IBM PC XT.|
+|CPM86-ISSUE-011|PARTIAL|RETRO86_V1 BIOS, system image and desktop boot are implemented in VERIFY-019/023. The separate CompuPro reference image remains unaudited for boot suitability; its declared-geometry/image-length discrepancy, OEM boot chain and rights remain open. The upstream default BIOS remains IBM PC XT.|
 
 Initial chain for CPM86-ISSUE-001: reference behaviour—an external core must execute the selected 8086 guest without host BDOS substitution; hypothesis—EMU86 can supply the required CPU/bus integration with limited adapter changes; experiment—pending pinned source audit and conformance fixtures; result—only moving-branch documentation/header review completed; conclusion—preferred candidate, not qualified; root cause—no failure observed; fix—pending evidence; regression verification—CPM86-VERIFY-002/003 planned; do not repeat—do not convert the earlier recommendation into a claimed boot or conformance PASS.
 
@@ -377,6 +379,7 @@ For every other issue append the complete chain and evidence before closure. Sup
 |CPM86-VERIFY-020|ESP-IDF BUILD PASS|2026-10-06: ESP-IDF 6.0.2 build succeeded for ESP32-S3. `retroHost.bin` is 0xE4920 bytes, with 0x21B6E0 bytes free in the smallest app partition. The build generated `build/bootfs.bin` at 2,097,152 bytes and reported adding `cpm86/cpm.sys`, `cpm86/system.dsk` and `cpm86/README.txt`. Extracting `CPM.SYS` from `system.dsk` with cpmtools 2.23 and `cmp` against `littlefs/cpm86/cpm.sys` confirms byte identity. No flash or hardware run was performed.|
 |CPM86-VERIFY-021|PSRAM CONFIGURATION FIX / BUILD PASS|2026-10-06: the user's LOLIN S3 Pro boot log showed `cpm86CoreNoMemory` (result 3). Root cause confirmed in the active `sdkconfig`: `CONFIG_SPIRAM` was disabled, so the 640 KiB allocation fell back to internal DRAM and failed. Enabled the board's 8 MiB octal ESP-PSRAM64 at 80 MHz and explicit `MALLOC_CAP_SPIRAM` allocation in `sdkconfig.defaults`/`sdkconfig`; added exact free/largest-block diagnostics if core allocation still fails. ESP-IDF 6.0.2 firmware rebuild and sanitized host tests pass. Physical PSRAM initialization/allocation is not verified until the user flashes and boots the firmware.|
 |CPM86-VERIFY-022|HARDWARE BOOT VERIFIED (ROOT CAUSE FIXED)|2026-10-06: on the ESP32-S3 the guest stopped with result 7 after 4,784 instructions. Traces showed the CCP looping on `call SELDRV` (0051:018B/00DA) until the stack overwrote CCP data. Root cause: Xtensa `char` is unsigned, but EMU86 sign-extends 8-bit displacements via `(short)(char)`, so the short jump at 0051:00D8 (`EB B1`) landed 0x100 too far. Fixed with `(signed char)` in op-class.c (4 places) and op-exec.c (1 place). Host tests now build with `-funsigned-char` to reproduce this class of bug. User-observed hardware result: boot reaches `A>`; `dir` lists CPM.SYS, ED, PIP, ASM86, GENCMD; `b:` and `stat` report `?` because those drive/commands are absent. The diagnostic trace (head/recent trace, execute guard over 0051:0800-09FF) remains in the firmware.|
+|CPM86-VERIFY-023|MULTI-DRIVE HOST/BUILD PASS|2026-10-06: `drives.cfg` validates A:–F:; startup opens configured images, retains A: as the required LittleFS read-only drive, leaves missing optional images offline, and loads the separate H86 BIOS overlay. The sanitized host test boots the real guest, selects B: and executes `DIR`; path/parser regressions pass. Python tooling tests pass (20 tests), and temporary-card preparation generates the expected A:/E: mappings. ESP-IDF 6.0.2 build passes (`retroHost.bin` 0xE8000) and packages `cpm86/retro86bios.h86`. Physical SD access and writes are not verified.|
 
 ## Development references and evidence policy
 

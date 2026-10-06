@@ -1,17 +1,13 @@
-CCP_OFFSET equ 0000h
-BDOS_ENTRY equ 0B06h
-BIOS_CODE equ 2500h
-
 	dseg
 	org	24B7h
 BDOSCURDRV rb	1
 
 	cseg
-	org	CCP_OFFSET
+	org	0000h
 CCP:
 
 	cseg
-	org	BIOS_CODE
+	org	2500h
 	jmp	INIT
 	jmp	WBOOT
 	jmp	CONST
@@ -86,10 +82,21 @@ HOME:
 	ret
 
 SELDSK:
-	cmp	cl,0
-	jne	SELDSK_NONE
+	cmp	cl,5
+	ja	SELDSK_NONE
+	mov	al,cl
+	out	0E8h,al
+	in	al,0EFh
+	or	al,al
+	jz	SELDSK_NONE
 	mov	byte ptr CURRENTDRIVE,cl
-	mov	bx,offset DPH0
+	sub	ch,ch
+	mov	bx,cx
+	shl	bx,1
+	shl	bx,1
+	shl	bx,1
+	shl	bx,1
+	add	bx,offset DPH0
 	ret
 SELDSK_NONE:
 	sub	bx,bx
@@ -228,8 +235,48 @@ DPH0:
 	dw	0,0,0
 	dw	offset DIRBUF
 	dw	offset DPB0
-	dw	offset CSV
-	dw	offset ALV
+	dw	offset CSV0
+	dw	offset ALV0
+
+DPH1:
+	dw	0
+	dw	0,0,0
+	dw	offset DIRBUF
+	dw	offset DPB0
+	dw	offset CSV1
+	dw	offset ALV1
+
+DPH2:
+	dw	0
+	dw	0,0,0
+	dw	offset DIRBUF
+	dw	offset DPB0
+	dw	offset CSV2
+	dw	offset ALV2
+
+DPH3:
+	dw	0
+	dw	0,0,0
+	dw	offset DIRBUF
+	dw	offset DPB0
+	dw	offset CSV3
+	dw	offset ALV3
+
+DPH4:
+	dw	0
+	dw	0,0,0
+	dw	offset DIRBUF
+	dw	offset DPB0
+	dw	offset CSV4
+	dw	offset ALV4
+
+DPH5:
+	dw	0
+	dw	0,0,0
+	dw	offset DIRBUF
+	dw	offset DPB0
+	dw	offset CSV5
+	dw	offset ALV5
 
 DPB0:
 	dw	0020h
@@ -240,9 +287,19 @@ DPB0:
 	dw	0010h
 	dw	0001h
 
-CSV rb	16
-ALV rb	20
 DIRBUF rb	128
+CSV0 rb	16
+ALV0 rb	20
+CSV1 rb	16
+ALV1 rb	20
+CSV2 rb	16
+ALV2 rb	20
+CSV3 rb	16
+ALV3 rb	20
+CSV4 rb	16
+ALV4 rb	20
+CSV5 rb	16
+ALV5 rb	20
 MRT:
 	db	1
 	dw	0518h

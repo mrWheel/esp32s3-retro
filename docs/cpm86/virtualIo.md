@@ -21,27 +21,33 @@ of this BIOS contract. Access to any unmapped port is a guest I/O error.
 The guest BIOS polls E0h while waiting for input. The host scheduler regains
 control after each bounded CPU instruction batch.
 
-## Drive A: disk
+## Disk drives
 
-The current implementation exposes one 160 KiB raw image as drive A:. Disk
-records are 128 bytes; each track has 32 records. Values are assembled
-little-endian from the low/high port pairs.
+The BIOS exposes up to six 160 KiB raw images as drives A: through F:. A: is
+the required LittleFS system image; B: through F: are optional SD-card images
+loaded from `/retro/images/cpm86/drives.cfg`. Each drive has its own DPH,
+checksum vector and allocation vector. Disk records are 128 bytes; each track
+has 32 records. Values are assembled little-endian from the low/high port
+pairs.
 
 | Port | Direction | Contract |
 |---|---|---|
-| E8h | OUT | Select drive number. Only 0 (A:) is valid. |
+| E8h | OUT | Select drive number (0=A: through 5=F:). |
 | E9h / EAh | OUT | Set track number, low byte then high byte. |
 | EBh / ECh | OUT | Set 128-byte record number within the track, low byte then high byte; valid range 0–31. |
 | EDh | OUT | Start transfer: 00h reads one record; 01h writes one record. Other values fail. |
 | EDh | IN | Returns 00h on success or 01h on failure. |
 | EEh | IN | Reads the next byte of a successful read transfer. |
 | EEh | OUT | Supplies the next byte of a write transfer. Exactly 128 bytes commit the record. |
+| EFh | IN | Returns FFh when the selected drive is configured and open; otherwise 00h. |
 
-Every transfer validates drive A:, raw track 1–39, record 0–31 and the complete
-record range against the image size. Invalid coordinates, short I/O, and
-flush/sync failures set the transfer status to 01h. Reads and writes transfer
-exactly 128 bytes; accessing EEh outside an active transfer is an unmapped-I/O
-error.
+Drive selection probes EFh before returning a DPH; an unavailable drive returns
+no DPH and does not replace the current drive. Every transfer validates the
+selected drive, raw track 1–39, record 0–31 and the complete record range
+against that drive's image size. Invalid coordinates, read-only write
+attempts, short I/O and flush/sync failures set the transfer status to 01h.
+Reads and writes transfer exactly 128 bytes; accessing EEh outside an active
+transfer is an unmapped-I/O error.
 
 The raw image has 40 tracks, eight 512-byte physical sectors per track, and
 163,840 bytes total. Raw track 0 is reserved. CP/M-86's DPB uses OFF=1, so the
@@ -52,8 +58,10 @@ filesystem's first track. Record byte offset is:
 ((track * 32) + record) * 128
 ```
 
-The image is opened read/write. Completed record writes are flushed and synced
-before reporting successful completion.
+Every configured image must be exactly 163,840 bytes and use the same frozen
+RETRO86_V1 geometry and DPB. Its access mode is set in `drives.cfg`.
+Completed record writes are flushed and synced before reporting successful
+completion.
 
 ## Reset and ownership
 

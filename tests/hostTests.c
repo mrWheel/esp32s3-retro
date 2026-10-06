@@ -5,6 +5,9 @@
 #include "cpm80Guest.h"
 #include "cpm80DriveConfig.h"
 #include "cpm86Core.h"
+#include "cpm86BiosOverlay.h"
+#include "cpm86DriveConfig.h"
+#include "storagePath.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -419,7 +422,7 @@ static void testCpm86Core(void)
 
 typedef struct
 {
-  imageFile *disk;
+  imageFile *disks[cpm86DiskDriveCount];
   uint8_t record[128];
   uint16_t track;
   uint16_t sector;
@@ -460,6 +463,11 @@ static bool cpm86BootPortRead(void *context, uint16_t port, uint8_t *value)
     *value = fixture->status;
     return true;
   }
+  if (port == 0x00EF)
+  {
+    *value = fixture->drive < cpm86DiskDriveCount && fixture->disks[fixture->drive] != NULL ? 0xFF : 0;
+    return true;
+  }
   if (port == 0x00EE && fixture->reading && fixture->transferIndex < sizeof(fixture->record))
   {
     *value = fixture->record[fixture->transferIndex++];
@@ -474,15 +482,16 @@ static bool cpm86BootPortRead(void *context, uint16_t port, uint8_t *value)
 
 static bool cpm86BootDiskOffset(cpm86BootFixture *fixture, uint64_t *offset)
 {
-  if (fixture->disk == NULL || offset == NULL || fixture->drive != 0 || fixture->track == 0 ||
+  if (fixture->drive >= cpm86DiskDriveCount || fixture->disks[fixture->drive] == NULL ||
+      offset == NULL || fixture->track == 0 ||
       fixture->track >= 40 || fixture->sector >= 32)
   {
     return false;
   }
   uint64_t recordIndex = (uint64_t)fixture->track * 32 + fixture->sector;
   *offset = recordIndex * sizeof(fixture->record);
-  return *offset <= imageSize(fixture->disk) &&
-         sizeof(fixture->record) <= imageSize(fixture->disk) - *offset;
+  imageFile *disk = fixture->disks[fixture->drive];
+  return *offset <= imageSize(disk) && sizeof(fixture->record) <= imageSize(disk) - *offset;
 }
 
 static bool cpm86BootPortWrite(void *context, uint16_t port, uint8_t value)
@@ -546,7 +555,7 @@ static bool cpm86BootPortWrite(void *context, uint16_t port, uint8_t value)
     if (value == 0)
     {
       ++fixture->diskReadRequests;
-      if (imageReadAt(fixture->disk, offset, fixture->record, sizeof(fixture->record)))
+      if (imageReadAt(fixture->disks[fixture->drive], offset, fixture->record, sizeof(fixture->record)))
       {
         fixture->reading = true;
         fixture->status = 0;
@@ -570,8 +579,8 @@ static bool cpm86BootPortWrite(void *context, uint16_t port, uint8_t value)
     {
       uint64_t offset;
       if (!cpm86BootDiskOffset(fixture, &offset) ||
-          !imageWriteAt(fixture->disk, offset, fixture->record, sizeof(fixture->record)) ||
-          !imageFlush(fixture->disk))
+          !imageWriteAt(fixture->disks[fixture->drive], offset, fixture->record, sizeof(fixture->record)) ||
+          !imageFlush(fixture->disks[fixture->drive]))
       {
         fixture->status = 1;
       }
@@ -582,10 +591,11 @@ static bool cpm86BootPortWrite(void *context, uint16_t port, uint8_t value)
   return false;
 }
 
-static bool runCpm86UntilPrompt(cpm86Core *core, cpm86BootFixture *fixture, size_t promptCount)
+static bool runCpm86UntilPrompt(cpm86Core *core, cpm86BootFixture *fixture, const char *prompt,
+                                size_t promptCount)
 {
   size_t instructions = 0;
-  while (countOccurrences(fixture->output, "A>") < promptCount && instructions < 5000000)
+  while (countOccurrences(fixture->output, prompt) < promptCount && instructions < 5000000)
   {
     size_t executed = 0;
     cpm86CoreResult result = cpm86CoreRun(core, 4096, &executed);
@@ -597,12 +607,12 @@ static bool runCpm86UntilPrompt(cpm86Core *core, cpm86BootFixture *fixture, size
       return false;
     }
   }
-  bool reachedPrompt = countOccurrences(fixture->output, "A>") == promptCount;
+  bool reachedPrompt = countOccurrences(fixture->output, prompt) == promptCount;
   if (!reachedPrompt)
   {
     fprintf(stderr,
-            "CP/M-86 prompt timeout: wanted=%zu found=%zu instructions=%zu reads=%zu readFailures=%zu records=%zu output=%s\n",
-            promptCount, countOccurrences(fixture->output, "A>"), instructions,
+            "CP/M-86 prompt timeout: prompt=%s wanted=%zu found=%zu instructions=%zu reads=%zu readFailures=%zu records=%zu output=%s\n",
+            prompt, promptCount, countOccurrences(fixture->output, prompt), instructions,
             fixture->diskReadRequests, fixture->diskReadFailures, fixture->diskRecordsTransferred,
             fixture->output);
   }
@@ -640,7 +650,7 @@ static void testCpm86Boot(void)
 
   imageFile disk = {0};
   assert(imageOpen(&disk, temporaryDiskPath, false));
-  cpm86BootFixture fixture = {.disk = &disk};
+  cpm86BootFixture fixture = {.disks = {[0] = &disk, [1] = &disk}};
   const cpm86CoreConfig config = {
       .ramSize = 640 * 1024,
       .portRead = cpm86BootPortRead,
@@ -664,9 +674,10 @@ static void testCpm86Boot(void)
   }
   const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
   assert(cpm86CoreWrite(core, 0x00380, bdosVector, sizeof(bdosVector)) == cpm86CoreOk);
+  assert(cpm86BiosLoadOverlay(core, CPM86_BIOS_OVERLAY_PATH));
   assert(cpm86CoreSetEntry(core, 0x0051, 0x2500) == cpm86CoreOk);
 
-  assert(runCpm86UntilPrompt(core, &fixture, 1));
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 1));
   size_t idleInstructions = 0;
   cpm86CoreResult idleResult = cpm86CoreRun(core, 10000, &idleInstructions);
   if (idleResult != cpm86CoreOk)
@@ -680,12 +691,26 @@ static void testCpm86Boot(void)
   assert(idleResult == cpm86CoreOk);
   fixture.input = "DIR\r";
   fixture.inputLength = 4;
-  assert(runCpm86UntilPrompt(core, &fixture, 2));
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 2));
   assert(strstr(fixture.output, "ASM86") != NULL);
   assert(strstr(fixture.output, "PIP") != NULL);
   assert(fixture.diskReadRequests > 0);
   assert(fixture.diskReadFailures == 0);
   assert(fixture.diskRecordsTransferred == fixture.diskReadRequests);
+
+  fixture.input = "B:\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompt(core, &fixture, "B>", 1));
+  size_t bDriveReads = fixture.diskReadRequests;
+  fixture.input = "DIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompt(core, &fixture, "B>", 2));
+  assert(fixture.diskReadRequests > bDriveReads);
+  assert(strstr(fixture.output, "B:") != NULL);
+  assert(strstr(fixture.output, "ASM86") != NULL);
+  assert(fixture.diskReadFailures == 0);
 
   cpm86CoreDestroy(core);
   assert(imageClose(&disk));
@@ -830,6 +855,70 @@ static void testCpm80DriveConfig(void)
   assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigMissing);
   assert(drives[0].configured && drives[0].profile == cpm80DiskProfileSystem && drives[0].readOnly);
   for (uint8_t drive = 1; drive < cpm80DiskDriveCount; ++drive)
+  {
+    assert(!drives[drive].configured);
+  }
+}
+
+static void testCpm86DriveConfig(void)
+{
+  char resolvedPath[cpm86DrivePathCapacity];
+  assert(storageResolveRetroPath("/retro/images/cpm86/work86.dsk", resolvedPath, sizeof(resolvedPath)));
+  assert(strcmp(resolvedPath, "/microSD/retro/images/cpm86/work86.dsk") == 0);
+  assert(!storageResolveRetroPath("/retro/images/cpm86/../escape.dsk", resolvedPath, sizeof(resolvedPath)));
+
+  static const char configText[] =
+      "A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM_V1\r\n"
+      "B=/retro/images/cpm86/languages.dsk,RO,RETRO86_DATA_V1\n"
+      "C=/retro/images/cpm86/tools.dsk,RO,RETRO86_DATA_V1\n"
+      "D=/retro/images/cpm86/utilities.dsk,RO,RETRO86_DATA_V1\n"
+      "E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_V1\n"
+      "F=/retro/images/cpm86/archive.dsk,RW,RETRO86_DATA_V1\n";
+  char configPath[] = "/tmp/cpm86-drives-config-test-XXXXXX";
+  int descriptor = mkstemp(configPath);
+  assert(descriptor >= 0);
+  FILE *file = fdopen(descriptor, "wb");
+  assert(file != NULL);
+  assert(fwrite(configText, 1, sizeof(configText) - 1, file) == sizeof(configText) - 1);
+  assert(fclose(file) == 0);
+
+  cpm86DriveConfig drives[cpm86DiskDriveCount];
+  char error[96];
+  assert(cpm86DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm86DriveConfigLoaded);
+  assert(drives[0].configured && drives[0].profile == cpm86DiskProfileSystem && drives[0].readOnly);
+  assert(strcmp(drives[1].path, "/microSD/retro/images/cpm86/languages.dsk") == 0);
+  assert(drives[1].configured && drives[1].profile == cpm86DiskProfileData && drives[1].readOnly);
+  assert(strcmp(drives[4].path, "/microSD/retro/images/cpm86/work86.dsk") == 0);
+  assert(drives[4].configured && drives[4].profile == cpm86DiskProfileData && !drives[4].readOnly);
+  assert(strcmp(drives[5].path, "/microSD/retro/images/cpm86/archive.dsk") == 0);
+  assert(drives[5].configured && !drives[5].readOnly);
+
+  static const char invalidConfigs[][128] = {
+      "B=/retro/images/cpm86/../escape.dsk,RW,RETRO86_DATA_V1\n",
+      "A=/littlefs/cpm86/system.dsk,RW,RETRO86_SYSTEM_V1\n",
+      "B=/retro/images/cpm86/work.dsk,RW,RETRO86_SYSTEM_V1\n",
+      "G=/retro/images/cpm86/work.dsk,RW,RETRO86_DATA_V1\n",
+      "B=/retro/images/cpm86/work.dsk,RW,RETRO86_DATA_V1\nB=/retro/images/cpm86/work2.dsk,RW,RETRO86_DATA_V1\n",
+  };
+  for (size_t index = 0; index < sizeof(invalidConfigs) / sizeof(invalidConfigs[0]); ++index)
+  {
+    file = fopen(configPath, "wb");
+    assert(file != NULL);
+    assert(fwrite(invalidConfigs[index], 1, strlen(invalidConfigs[index]), file) ==
+           strlen(invalidConfigs[index]));
+    assert(fclose(file) == 0);
+    assert(cpm86DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm86DriveConfigInvalid);
+    assert(drives[0].configured && drives[0].profile == cpm86DiskProfileSystem && drives[0].readOnly);
+    for (uint8_t drive = 1; drive < cpm86DiskDriveCount; ++drive)
+    {
+      assert(!drives[drive].configured);
+    }
+  }
+  assert(unlink(configPath) == 0);
+
+  assert(cpm86DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm86DriveConfigMissing);
+  assert(drives[0].configured && drives[0].profile == cpm86DiskProfileSystem && drives[0].readOnly);
+  for (uint8_t drive = 1; drive < cpm86DiskDriveCount; ++drive)
   {
     assert(!drives[drive].configured);
   }
@@ -1638,6 +1727,7 @@ int main(void)
   testMenu();
   testImages();
   testCpm80DriveConfig();
+  testCpm86DriveConfig();
   testCpm80Cpu();
   testCpm80GuestBoot();
   puts("PASS: host utilities, Z80 and 8086 CPU fixtures, CP/M-86 boot and DIR");
