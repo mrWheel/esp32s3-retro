@@ -728,7 +728,8 @@ static bool runCpm86UntilPrompt(cpm86Core *core, cpm86BootFixture *fixture, cons
               codeBytes[5], codeBytes[6], codeBytes[7]);
       for (size_t index = 0; index < traceCount; ++index)
       {
-        fprintf(stderr, "  %04X:%04X %s\n", trace[index].segment, trace[index].offset,
+        fprintf(stderr, "  %04X:%04X SS:SP=%04X:%04X %s\n", trace[index].segment,
+                trace[index].offset, trace[index].stackSegment, trace[index].stackPointer,
                 trace[index].instruction);
       }
       return false;
@@ -849,11 +850,15 @@ static void testCpm86Boot(void)
     assert(mkdtemp(exchangeDirectoryPath) != NULL);
     assert(hostExchangeInitialize(&exchange, exchangeDirectoryPath));
     snprintf(exchangeSourcePath, sizeof(exchangeSourcePath), "%s/HELLO.A86", exchangeDirectoryPath);
-    static const uint8_t exchangeSource[] = "HOST GET test payload\r\n";
+    uint8_t exchangeSource[43 * 128];
+    for (size_t index = 0; index < sizeof(exchangeSource); ++index)
+    {
+      exchangeSource[index] = (uint8_t)(index * 37U + (index >> 3));
+    }
     FILE *exchangeSourceFile = fopen(exchangeSourcePath, "wb");
     assert(exchangeSourceFile != NULL);
-    assert(fwrite(exchangeSource, 1, sizeof(exchangeSource) - 1, exchangeSourceFile) ==
-           sizeof(exchangeSource) - 1);
+    assert(fwrite(exchangeSource, 1, sizeof(exchangeSource), exchangeSourceFile) ==
+           sizeof(exchangeSource));
     assert(fclose(exchangeSourceFile) == 0);
   }
   const cpm86CoreConfig config = {
@@ -1034,15 +1039,16 @@ static void testCpm86Boot(void)
     }
     assert(strstr(fixture.output, "PUT complete.") != NULL);
 
-    static const uint8_t expectedResult[] = "HOST GET test payload\r\n";
-    uint8_t actualResult[sizeof(expectedResult)] = {0};
+    uint8_t actualResult[43 * 128];
     FILE *exchangeResultFile = fopen(exchangeSourcePath, "rb");
     assert(exchangeResultFile != NULL);
-    assert(fread(actualResult, 1, sizeof(expectedResult) - 1, exchangeResultFile) ==
-           sizeof(expectedResult) - 1);
+    assert(fread(actualResult, 1, sizeof(actualResult), exchangeResultFile) == sizeof(actualResult));
     assert(fgetc(exchangeResultFile) == EOF);
     assert(fclose(exchangeResultFile) == 0);
-    assert(memcmp(actualResult, expectedResult, sizeof(expectedResult) - 1) == 0);
+    for (size_t index = 0; index < sizeof(actualResult); ++index)
+    {
+      assert(actualResult[index] == (uint8_t)(index * 37U + (index >> 3)));
+    }
     assert(imageClose(&hostBuildDisk));
     hostExchangeClose(&exchange);
     assert(unlink(exchangeSourcePath) == 0);

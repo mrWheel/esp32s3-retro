@@ -578,24 +578,24 @@ writeSidecar:
         int     bdosInt
         push    ds
         pop     es
-        mov     di,offset sideBuffer
+        mov     di,offset recordBuffer
         mov     cx,128
         xor     ax,ax
         rep     stosb
-        mov     byte ptr sideBuffer,'H'
-        mov     byte ptr sideBuffer+1,'S'
-        mov     byte ptr sideBuffer+2,'T'
-        mov     byte ptr sideBuffer+3,'1'
+        mov     byte ptr recordBuffer,'H'
+        mov     byte ptr recordBuffer+1,'S'
+        mov     byte ptr recordBuffer+2,'T'
+        mov     byte ptr recordBuffer+3,'1'
         mov     si,offset transferLength
-        mov     di,offset sideBuffer+4
+        mov     di,offset recordBuffer+4
         mov     cx,4
         rep     movsb
         mov     si,offset paddedCrc
-        mov     di,offset sideBuffer+8
+        mov     di,offset recordBuffer+8
         mov     cx,4
         rep     movsb
         mov     si,offset exactCrc
-        mov     di,offset sideBuffer+12
+        mov     di,offset recordBuffer+12
         mov     cx,4
         rep     movsb
         mov     dx,offset sideFcb
@@ -605,12 +605,6 @@ writeSidecar:
         je      sideWriteBad
         mov     byte ptr sideOpen,1
         mov     byte ptr sideCreated,1
-        push    ds
-        pop     es
-        mov     si,offset sideBuffer
-        mov     di,offset recordBuffer
-        mov     cx,128
-        rep     movsb
         mov     dx,offset sideFcb
         mov     cl,21
         int     bdosInt
@@ -741,7 +735,8 @@ putSendRecord:
         jc      putFailed
         inc     si
         call    decrementRemaining
-        jmp     putSendRecord
+        loop    putSendRecord
+        jmp     putReadRecord
 putPayloadDone:
         call    readByte
         jc      putFailed
@@ -778,7 +773,7 @@ loadSidecar:
 sidecarOpened:
         mov     byte ptr sideFcb+32,0
         mov     cl,26
-        mov     dx,offset sideBuffer
+        mov     dx,offset recordBuffer
         int     bdosInt
         mov     dx,offset sideFcb
         mov     cl,20
@@ -787,7 +782,7 @@ sidecarOpened:
         jne     sidecarClose
         push    ds
         pop     es
-        mov     si,offset sideBuffer
+        mov     si,offset recordBuffer
         cmp     byte ptr [si],'H'
         jne     sidecarClose
         cmp     byte ptr 1[si],'S'
@@ -796,15 +791,15 @@ sidecarOpened:
         jne     sidecarClose
         cmp     byte ptr 3[si],'1'
         jne     sidecarClose
-        mov     si,offset sideBuffer+4
+        mov     si,offset recordBuffer+4
         mov     di,offset savedLength
         mov     cx,4
         rep     movsb
-        mov     si,offset sideBuffer+8
+        mov     si,offset recordBuffer+8
         mov     di,offset savedPaddedCrc
         mov     cx,4
         rep     movsb
-        mov     si,offset sideBuffer+12
+        mov     si,offset recordBuffer+12
         mov     di,offset savedExactCrc
         mov     cx,4
         rep     movsb
@@ -1178,16 +1173,8 @@ recordBuffer    db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
                 db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
                 db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
                 db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
                 db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
                 db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-sideBuffer      db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
         end

@@ -59,15 +59,24 @@ the work drive selected so the outputs remain on the writable image. Stop
 the guest cleanly before reading that image on the host.
 
 The image tool's `extract` command copies complete CP/M records, including
-the final record padding. Stage the built command, make a separate candidate
-copy of the current A: disk, and add the command to that candidate:
+the final record padding. Since `add` refuses to overwrite an existing CP/M
+filename, extract the other boot files and rebuild a candidate A: image with
+the newly assembled command:
 
 ```sh
+mkdir -p build/cpm86-host/rebuild
+for file in ASM86.CMD CPM.SYS ED.CMD GENCMD.CMD PIP.CMD; do
+  python3 tools/diskImage.py extract --os cpm86 littlefs/cpm86/system.dsk \
+    "$file" --output "build/cpm86-host/rebuild/$file"
+done
 python3 tools/diskImage.py extract --os cpm86 --sd-root build/cpm86-host \
-  hostbuild.dsk HOST.CMD --output build/cpm86-host/HOST.CMD
-cp littlefs/cpm86/system.dsk build/cpm86-host/system.dsk
+  hostbuild.dsk HOST.CMD --output build/cpm86-host/rebuild/HOST.CMD
+python3 tools/diskImage.py create --os cpm86 --profile CPM86 \
+  build/cpm86-host/system.dsk
 python3 tools/diskImage.py add --os cpm86 build/cpm86-host/system.dsk \
-  build/cpm86-host/HOST.CMD
+  build/cpm86-host/rebuild/ASM86.CMD build/cpm86-host/rebuild/CPM.SYS \
+  build/cpm86-host/rebuild/ED.CMD build/cpm86-host/rebuild/GENCMD.CMD \
+  build/cpm86-host/rebuild/HOST.CMD build/cpm86-host/rebuild/PIP.CMD
 python3 tools/diskImage.py list --os cpm86 build/cpm86-host/system.dsk
 ```
 
@@ -88,10 +97,11 @@ CPM86_HOST_BUILD_DISK=build/cpm86-host/retro/images/cpm86/hosttest.dsk \
 CPM86_HOST_SYSTEM_DISK=littlefs/cpm86/system.dsk ./build-host/hostTests
 ```
 
-The guest fixture creates a host-side `HELLO.A86`, verifies that DIR lists it,
-GETs it to E:, and PUTs it back using the generated HST1 sidecar; the returned
-file must match the original exact bytes. The installed CMD and system image
-hashes are recorded in `littlefs/cpm86/README.txt`.
+The guest fixture assembles the current source on E:, then exercises the
+installed `A:HOST.CMD` for DIR, GET and PUT. It uses a 43-record source file
+and checks the returned bytes exactly, exercising the boundary between
+consecutive BDOS records. The installed CMD and system image hashes are
+recorded in `littlefs/cpm86/README.txt`.
 
 The first on-device `HOST DIR` attempt stopped with a guest I/O error because
 the CP/M-86 firmware had created its CPU core without connecting the shared
@@ -102,9 +112,11 @@ persistence remain unverified.
 
 ## Verification status
 
-ASM-86 reported zero errors and GENCMD created a 3,584-byte `HOST.CMD`. The
-host CP/M-86 fixture booted the checked-in system disk and passed native DIR,
-GET, and exact-byte PUT round-trip checks. Image extraction tests also cover
-multi-extent files, final-record padding, and refusal to overwrite an existing
-output. Hardware transfer acceptance and broader CP/M-86 acceptance remain
-open; this desktop guest result is not a hardware claim.
+ASM-86 reported zero errors and GENCMD created a 3,456-byte `HOST.CMD`. The
+host CP/M-86 fixture booted the rebuilt system image and passed native DIR,
+GET, and exact-byte PUT round-trip checks for 43 records. PUT now sends at most
+one 128-byte DMA record per BDOS read; the prior loop walked past that buffer
+and faulted on larger files. Image extraction tests also cover multi-extent
+files, final-record padding, and refusal to overwrite an existing output.
+Hardware transfer acceptance and broader CP/M-86 acceptance remain open; this
+desktop guest result is not a hardware claim.
