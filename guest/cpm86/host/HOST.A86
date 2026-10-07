@@ -1,0 +1,1193 @@
+        cseg
+        org     0100h
+
+bdosInt         equ     0e0h
+fcbFirst        equ     005ch
+fcbSecond       equ     006ch
+tailLength      equ     0080h
+tailText        equ     0081h
+portData        equ     0f8h
+portAbort       equ     0f9h
+
+start:
+        mov     ax,cs
+        mov     ds,ax
+        mov     es,ax
+        call    setDma
+        call    parseCommand
+        jnc     startCommandValid
+        jmp     usageError
+startCommandValid:
+        cmp     byte ptr commandKind,1
+        jne     startNeedsUser
+        jmp     commandDir
+startNeedsUser:
+
+        mov     cl,32
+        mov     dl,0ffh
+        int     bdosInt
+        or      al,al
+        je      startUserAllowed
+        jmp     userAreaError
+startUserAllowed:
+        call    copyAndValidateFcb
+        jnc     startFilenameValid
+        jmp     filenameError
+startFilenameValid:
+        call    checkService
+        jnc     startServiceReady
+        jmp     serviceError
+startServiceReady:
+        cmp     byte ptr commandKind,2
+        jne     startPut
+        jmp     commandGet
+startPut:
+        jmp     commandPut
+
+setDma:
+        mov     cl,51
+        mov     dx,ds
+        int     bdosInt
+        mov     cl,26
+        mov     dx,offset recordBuffer
+        int     bdosInt
+        ret
+
+parseCommand:
+        mov     byte ptr commandKind,0
+        mov     cl,0
+        mov     ch,0
+        mov     si,offset tailLength
+        mov     al,byte ptr [si]
+        inc     si
+        xor     ah,ah
+        add     ax,si
+        mov     word ptr tailEnd,ax
+parseLeadingSpaces:
+        cmp     si,word ptr tailEnd
+        jb      parseSpaceAvailable
+        jmp     parseBad
+parseSpaceAvailable:
+        mov     al,byte ptr [si]
+        cmp     al,' '
+        jne     parseAction
+        inc     si
+        jmp     parseLeadingSpaces
+parseAction:
+        call    uppercaseAl
+        cmp     al,'D'
+        je      parseDir
+        cmp     al,'G'
+        je      parseGet
+        cmp     al,'P'
+        je      parsePut
+        jmp     parseBad
+parseDir:
+        inc     si
+        call    getUpperCharacter
+        jnc     parseDirIReady
+        jmp     parseBad
+parseDirIReady:
+        cmp     al,'I'
+        je      parseDirHasI
+        jmp     parseBad
+parseDirHasI:
+        inc     si
+        call    getUpperCharacter
+        jnc     parseDirRReady
+        jmp     parseBad
+parseDirRReady:
+        cmp     al,'R'
+        je      parseDirHasR
+        jmp     parseBad
+parseDirHasR:
+        inc     si
+        mov     byte ptr commandKind,1
+        jmp     parseActionEnd
+parseGet:
+        inc     si
+        call    getUpperCharacter
+        jnc     parseGetEReady
+        jmp     parseBad
+parseGetEReady:
+        cmp     al,'E'
+        je      parseGetHasE
+        jmp     parseBad
+parseGetHasE:
+        inc     si
+        call    getUpperCharacter
+        jnc     parseGetTReady
+        jmp     parseBad
+parseGetTReady:
+        cmp     al,'T'
+        je      parseGetHasT
+        jmp     parseBad
+parseGetHasT:
+        inc     si
+        mov     byte ptr commandKind,2
+        jmp     parseActionEnd
+parsePut:
+        inc     si
+        call    getUpperCharacter
+        jnc     parsePutUReady
+        jmp     parseBad
+parsePutUReady:
+        cmp     al,'U'
+        je      parsePutHasU
+        jmp     parseBad
+parsePutHasU:
+        inc     si
+        call    getUpperCharacter
+        jnc     parsePutTReady
+        jmp     parseBad
+parsePutTReady:
+        cmp     al,'T'
+        je      parsePutHasT
+        jmp     parseBad
+parsePutHasT:
+        inc     si
+        mov     byte ptr commandKind,3
+parseActionEnd:
+        cmp     si,word ptr tailEnd
+        jae     parseActionNoArgument
+        cmp     byte ptr [si],' '
+        jne     parseBad
+        jmp     parseSkipSpaces
+parseActionNoArgument:
+        cmp     byte ptr commandKind,1
+        jne     parseBad
+        jmp     parseGood
+parseSkipSpaces:
+        cmp     si,word ptr tailEnd
+        jae     parseSpacesEnd
+        cmp     byte ptr [si],' '
+        jne     parseArgument
+        inc     si
+        jmp     parseSkipSpaces
+parseSpacesEnd:
+        cmp     byte ptr commandKind,1
+        jne     parseBad
+        jmp     parseGood
+parseArgument:
+        cmp     byte ptr commandKind,1
+        je      parseDirArgument
+        cmp     si,word ptr tailEnd
+        jae     parseBad
+parseScanArgument:
+        cmp     si,word ptr tailEnd
+        jae     parseGood
+        cmp     byte ptr [si],' '
+        je      parseTrailingSpaces
+        inc     si
+        jmp     parseScanArgument
+parseTrailingSpaces:
+        inc     si
+        cmp     si,word ptr tailEnd
+        jae     parseGood
+        cmp     byte ptr [si],' '
+        je      parseTrailingSpaces
+        jmp     parseBad
+parseDirArgument:
+        cmp     si,word ptr tailEnd
+        jae     parseGood
+        cmp     byte ptr [si],' '
+        jne     parseBad
+        inc     si
+        jmp     parseDirArgument
+parseGood:
+        clc
+        ret
+parseBad:
+        stc
+        ret
+
+getUpperCharacter:
+        cmp     si,word ptr tailEnd
+        jae     parseBad
+        mov     al,byte ptr [si]
+        call    uppercaseAl
+        clc
+        ret
+
+uppercaseAl:
+        cmp     al,'a'
+        jb      uppercaseDone
+        cmp     al,'z'
+        ja      uppercaseDone
+        sub     al,20h
+uppercaseDone:
+        ret
+
+copyAndValidateFcb:
+        push    ds
+        pop     es
+        mov     di,offset workFcb
+        mov     cx,36
+        xor     ax,ax
+        rep     stosb
+        mov     si,offset fcbSecond
+        mov     al,byte ptr [si]
+        or      al,al
+        je      fcbUsesCurrentDrive
+        jmp     invalidFcb
+fcbUsesCurrentDrive:
+        inc     si
+        mov     di,offset workFcb+1
+        mov     cx,11
+        rep     movsb
+        mov     si,offset workFcb+1
+        mov     cx,8
+        xor     bx,bx
+        xor     dx,dx
+validateBase:
+        mov     al,byte ptr [si]
+        cmp     al,' '
+        je      validateBaseSpace
+        cmp     dl,0
+        je      validateBaseContiguous
+        jmp     invalidFcb
+validateBaseContiguous:
+        inc     bx
+        call    validFilenameCharacter
+        jnc     validateBaseNext
+        jmp     invalidFcb
+validateBaseSpace:
+        mov     dl,1
+validateBaseNext:
+        inc     si
+        loop    validateBase
+validateBaseDone:
+        or      bx,bx
+        jz      invalidFcb
+        mov     cx,3
+        xor     dx,dx
+validateExtension:
+        mov     al,byte ptr [si]
+        cmp     al,' '
+        je      validateExtensionSpace
+        cmp     dl,0
+        je      validateExtensionContiguous
+        jmp     invalidFcb
+validateExtensionContiguous:
+        call    validFilenameCharacter
+        jnc     validateExtensionNext
+        jmp     invalidFcb
+validateExtensionSpace:
+        mov     dl,1
+validateExtensionNext:
+        inc     si
+        loop    validateExtension
+        cmp     byte ptr workFcb+9,'H'
+        jne     makeSidecarFcb
+        cmp     byte ptr workFcb+10,'S'
+        jne     makeSidecarFcb
+        cmp     byte ptr workFcb+11,'T'
+        je      invalidFcb
+makeSidecarFcb:
+        mov     di,offset sideFcb
+        mov     cx,36
+        xor     ax,ax
+        rep     stosb
+        mov     si,offset workFcb
+        mov     di,offset sideFcb
+        mov     cx,12
+        rep     movsb
+        mov     byte ptr sideFcb+9,'H'
+        mov     byte ptr sideFcb+10,'S'
+        mov     byte ptr sideFcb+11,'T'
+        clc
+        ret
+invalidFcb:
+        stc
+        ret
+
+validFilenameCharacter:
+        cmp     al,'A'
+        jb      validFilenamePunctuation
+        cmp     al,'Z'
+        jbe     validFilenameOk
+validFilenamePunctuation:
+        cmp     al,'0'
+        jb      validFilenameSymbol
+        cmp     al,'9'
+        jbe     validFilenameOk
+validFilenameSymbol:
+        cmp     al,'_'
+        je      validFilenameOk
+        cmp     al,'-'
+        je      validFilenameOk
+        stc
+        ret
+validFilenameOk:
+        clc
+        ret
+
+checkService:
+        xor     al,al
+        call    sendByte
+        jc      serviceBad
+        call    readByte
+        jc      serviceBad
+        or      al,al
+        jne     serviceBad
+        call    readByte
+        jc      serviceBad
+        cmp     al,1
+        jne     serviceBad
+        call    readByte
+        jc      serviceBad
+        and     al,7
+        cmp     al,7
+        jne     serviceBad
+        clc
+        ret
+serviceBad:
+        stc
+        ret
+
+commandDir:
+        call    checkService
+        jnc     dirServiceReady
+        jmp     serviceError
+dirServiceReady:
+        mov     al,1
+        call    sendByte
+        jnc     dirRequestSent
+        jmp     transferAborted
+dirRequestSent:
+        call    readByte
+        jnc     dirStatusRead
+        jmp     transferAborted
+dirStatusRead:
+        or      al,al
+        je      dirRequestAccepted
+        jmp     hostError
+dirRequestAccepted:
+dirReadName:
+        call    readByte
+        jnc     dirNameByteRead
+        jmp     transferAborted
+dirNameByteRead:
+        or      al,al
+        jz      dirReadFinalStatus
+dirPrintName:
+        mov     dl,al
+        mov     cl,2
+        int     bdosInt
+        call    readByte
+        jnc     dirNextByteRead
+        jmp     transferAborted
+dirNextByteRead:
+        or      al,al
+        jz      dirNextName
+        jmp     dirPrintName
+dirNextName:
+        call    printCrLf
+        jmp     dirReadName
+dirReadFinalStatus:
+        call    readByte
+        jnc     dirFinalStatusRead
+        jmp     transferAborted
+dirFinalStatusRead:
+        or      al,al
+        je      dirFinished
+        jmp     hostError
+dirFinished:
+        jmp     terminate
+
+commandGet:
+        mov     byte ptr workCreated,0
+        mov     byte ptr workOpen,0
+        mov     byte ptr sideCreated,0
+        mov     byte ptr sideOpen,0
+        call    ensureTargetAbsent
+        jnc     getTargetAvailable
+        jmp     targetExists
+getTargetAvailable:
+        call    ensureSidecarAbsent
+        jnc     getSidecarAvailable
+        jmp     sidecarExists
+getSidecarAvailable:
+        mov     al,2
+        call    sendByte
+        jnc     getRequestSent
+        jmp     transferAborted
+getRequestSent:
+        mov     si,offset workFcb+1
+        mov     cx,11
+getSendName:
+        lodsb
+        call    sendByte
+        jnc     getNameByteSent
+        jmp     transferAborted
+getNameByteSent:
+        loop    getSendName
+        call    readByte
+        jnc     getStatusRead
+        jmp     transferAborted
+getStatusRead:
+        or      al,al
+        je      getAccepted
+        jmp     hostError
+getAccepted:
+        mov     di,offset transferLength
+        mov     cx,4
+getReadLength:
+        call    readByte
+        jnc     getLengthByteRead
+        jmp     transferAborted
+getLengthByteRead:
+        mov     byte ptr [di],al
+        inc     di
+        loop    getReadLength
+        call    initCrcs
+        mov     dx,offset workFcb
+        mov     cl,22
+        int     bdosInt
+        cmp     al,0ffh
+        jne     getTargetCreated
+        call    abortHost
+        jmp     localFileError
+getTargetCreated:
+        mov     byte ptr workOpen,1
+        mov     byte ptr workCreated,1
+        call    fillRecordBuffer
+        mov     word ptr recordIndex,0
+        push    ds
+        pop     es
+        mov     si,offset transferLength
+        mov     di,offset remaining
+        mov     cx,4
+        rep     movsb
+getPayload:
+        call    remainingIsZero
+        je      getPayloadDone
+        call    readByte
+        jnc     getPayloadByteRead
+        jmp     getFailed
+getPayloadByteRead:
+        call    updateExactCrc
+        mov     si,word ptr recordIndex
+        mov     byte ptr recordBuffer[si],al
+        inc     word ptr recordIndex
+        call    decrementRemaining
+        cmp     word ptr recordIndex,128
+        jne     getPayload
+        call    writeGetRecord
+        jc      getFailed
+        mov     word ptr recordIndex,0
+        call    fillRecordBuffer
+        jmp     getPayload
+getPayloadDone:
+        cmp     word ptr recordIndex,0
+        je      getReadCrc
+        call    writeGetRecord
+        jc      getFailed
+getReadCrc:
+        mov     di,offset expectedCrc
+        mov     cx,4
+getReadExpected:
+        call    readByte
+        jc      getFailed
+        mov     byte ptr [di],al
+        inc     di
+        loop    getReadExpected
+        call    finalizeExactCrc
+        push    ds
+        pop     es
+        mov     si,offset exactCrc
+        mov     di,offset expectedCrc
+        mov     cx,4
+        repe    cmpsb
+        jne     getFailed
+        call    readByte
+        jc      getFailed
+        or      al,al
+        jne     getFailed
+        mov     dx,offset workFcb
+        mov     cl,16
+        int     bdosInt
+        cmp     al,0ffh
+        je      getFailed
+        mov     byte ptr workOpen,0
+        call    writeSidecar
+        jc      getFailed
+        mov     dx,offset msgGetDone
+        call    printString
+        jmp     terminate
+getFailed:
+        call    abortHost
+        call    cleanupGet
+        mov     dx,offset msgTransferError
+        call    printString
+        jmp     terminate
+
+ensureTargetAbsent:
+        mov     dx,offset workFcb
+        mov     cl,15
+        int     bdosInt
+        cmp     al,0ffh
+        je      targetAbsent
+        mov     dx,offset workFcb
+        mov     cl,16
+        int     bdosInt
+        stc
+        ret
+targetAbsent:
+        clc
+        ret
+
+ensureSidecarAbsent:
+        mov     dx,offset sideFcb
+        mov     cl,15
+        int     bdosInt
+        cmp     al,0ffh
+        je      sideAbsent
+        mov     dx,offset sideFcb
+        mov     cl,16
+        int     bdosInt
+        stc
+        ret
+sideAbsent:
+        clc
+        ret
+
+writeGetRecord:
+        mov     si,offset recordBuffer
+        mov     cx,128
+writeGetCrcLoop:
+        mov     al,byte ptr [si]
+        call    updatePaddedCrc
+        inc     si
+        loop    writeGetCrcLoop
+        mov     dx,offset workFcb
+        mov     cl,21
+        int     bdosInt
+        or      al,al
+        jne     writeGetBad
+        clc
+        ret
+writeGetBad:
+        stc
+        ret
+
+writeSidecar:
+        call    finalizePaddedCrc
+        mov     cl,26
+        mov     dx,offset recordBuffer
+        int     bdosInt
+        push    ds
+        pop     es
+        mov     di,offset sideBuffer
+        mov     cx,128
+        xor     ax,ax
+        rep     stosb
+        mov     byte ptr sideBuffer,'H'
+        mov     byte ptr sideBuffer+1,'S'
+        mov     byte ptr sideBuffer+2,'T'
+        mov     byte ptr sideBuffer+3,'1'
+        mov     si,offset transferLength
+        mov     di,offset sideBuffer+4
+        mov     cx,4
+        rep     movsb
+        mov     si,offset paddedCrc
+        mov     di,offset sideBuffer+8
+        mov     cx,4
+        rep     movsb
+        mov     si,offset exactCrc
+        mov     di,offset sideBuffer+12
+        mov     cx,4
+        rep     movsb
+        mov     dx,offset sideFcb
+        mov     cl,22
+        int     bdosInt
+        cmp     al,0ffh
+        je      sideWriteBad
+        mov     byte ptr sideOpen,1
+        mov     byte ptr sideCreated,1
+        push    ds
+        pop     es
+        mov     si,offset sideBuffer
+        mov     di,offset recordBuffer
+        mov     cx,128
+        rep     movsb
+        mov     dx,offset sideFcb
+        mov     cl,21
+        int     bdosInt
+        or      al,al
+        jne     sideWriteCloseBad
+        mov     dx,offset sideFcb
+        mov     cl,16
+        int     bdosInt
+        cmp     al,0ffh
+        je      sideWriteBad
+        mov     byte ptr sideOpen,0
+        clc
+        ret
+sideWriteCloseBad:
+        mov     dx,offset sideFcb
+        mov     cl,16
+        int     bdosInt
+sideWriteBad:
+        stc
+        ret
+
+cleanupGet:
+        cmp     byte ptr workOpen,0
+        je      cleanupSide
+        mov     dx,offset workFcb
+        mov     cl,16
+        int     bdosInt
+        mov     byte ptr workOpen,0
+cleanupSide:
+        cmp     byte ptr sideOpen,0
+        je      cleanupDeleteWork
+        mov     dx,offset sideFcb
+        mov     cl,16
+        int     bdosInt
+        mov     byte ptr sideOpen,0
+cleanupDeleteWork:
+        cmp     byte ptr workCreated,0
+        je      cleanupDeleteSide
+        mov     dx,offset workFcb
+        mov     cl,19
+        int     bdosInt
+cleanupDeleteSide:
+        cmp     byte ptr sideCreated,0
+        je      cleanupDone
+        mov     dx,offset sideFcb
+        mov     cl,19
+        int     bdosInt
+cleanupDone:
+        ret
+
+commandPut:
+        call    loadSidecar
+        call    scanSource
+        jnc     putSourceReady
+        jmp     localFileError
+putSourceReady:
+        call    choosePutLength
+        mov     al,3
+        call    sendByte
+        jnc     putRequestSent
+        jmp     transferAborted
+putRequestSent:
+        mov     si,offset workFcb+1
+        mov     cx,11
+putSendName:
+        lodsb
+        call    sendByte
+        jnc     putNameByteSent
+        jmp     transferAborted
+putNameByteSent:
+        loop    putSendName
+        mov     si,offset putLength
+        mov     cx,4
+putSendLength:
+        lodsb
+        call    sendByte
+        jnc     putLengthByteSent
+        jmp     transferAborted
+putLengthByteSent:
+        loop    putSendLength
+        mov     si,offset exactCrc
+        mov     cx,4
+putSendCrc:
+        lodsb
+        call    sendByte
+        jnc     putCrcByteSent
+        jmp     transferAborted
+putCrcByteSent:
+        loop    putSendCrc
+        call    readByte
+        jnc     putStatusRead
+        jmp     transferAborted
+putStatusRead:
+        or      al,al
+        je      putAccepted
+        jmp     hostError
+putAccepted:
+        mov     dx,offset workFcb
+        mov     cl,15
+        int     bdosInt
+        cmp     al,0ffh
+        jne     putFileOpened
+        jmp     localFileError
+putFileOpened:
+        mov     byte ptr workFcb+32,0
+        mov     byte ptr workOpen,1
+        push    ds
+        pop     es
+        mov     si,offset putLength
+        mov     di,offset remaining
+        mov     cx,4
+        rep     movsb
+putReadRecord:
+        call    remainingIsZero
+        je      putPayloadDone
+        mov     dx,offset workFcb
+        mov     cl,20
+        int     bdosInt
+        or      al,al
+        jne     putFailed
+        mov     si,offset recordBuffer
+        mov     cx,128
+putSendRecord:
+        call    remainingIsZero
+        je      putPayloadDone
+        mov     al,byte ptr [si]
+        call    sendByte
+        jc      putFailed
+        inc     si
+        call    decrementRemaining
+        jmp     putSendRecord
+putPayloadDone:
+        call    readByte
+        jc      putFailed
+        or      al,al
+        jne     putFailed
+        mov     dx,offset workFcb
+        mov     cl,16
+        int     bdosInt
+        mov     byte ptr workOpen,0
+        mov     dx,offset msgPutDone
+        call    printString
+        jmp     terminate
+putFailed:
+        call    abortHost
+        cmp     byte ptr workOpen,0
+        je      putFailedMessage
+        mov     dx,offset workFcb
+        mov     cl,16
+        int     bdosInt
+        mov     byte ptr workOpen,0
+putFailedMessage:
+        mov     dx,offset msgTransferError
+        call    printString
+        jmp     terminate
+
+loadSidecar:
+        mov     byte ptr sideValid,0
+        mov     dx,offset sideFcb
+        mov     cl,15
+        int     bdosInt
+        cmp     al,0ffh
+        jne     sidecarOpened
+        jmp     sidecarNotFound
+sidecarOpened:
+        mov     byte ptr sideFcb+32,0
+        mov     cl,26
+        mov     dx,offset sideBuffer
+        int     bdosInt
+        mov     dx,offset sideFcb
+        mov     cl,20
+        int     bdosInt
+        or      al,al
+        jne     sidecarClose
+        push    ds
+        pop     es
+        mov     si,offset sideBuffer
+        cmp     byte ptr [si],'H'
+        jne     sidecarClose
+        cmp     byte ptr 1[si],'S'
+        jne     sidecarClose
+        cmp     byte ptr 2[si],'T'
+        jne     sidecarClose
+        cmp     byte ptr 3[si],'1'
+        jne     sidecarClose
+        mov     si,offset sideBuffer+4
+        mov     di,offset savedLength
+        mov     cx,4
+        rep     movsb
+        mov     si,offset sideBuffer+8
+        mov     di,offset savedPaddedCrc
+        mov     cx,4
+        rep     movsb
+        mov     si,offset sideBuffer+12
+        mov     di,offset savedExactCrc
+        mov     cx,4
+        rep     movsb
+        mov     dx,offset sideFcb
+        mov     cl,20
+        int     bdosInt
+        or      al,al
+        je      sidecarClose
+        mov     byte ptr sideValid,1
+sidecarClose:
+        mov     dx,offset sideFcb
+        mov     cl,16
+        int     bdosInt
+sidecarNotFound:
+        mov     cl,26
+        mov     dx,offset recordBuffer
+        int     bdosInt
+        ret
+
+scanSource:
+        mov     dx,offset workFcb
+        mov     cl,15
+        int     bdosInt
+        cmp     al,0ffh
+        je      scanBad
+        mov     byte ptr workFcb+32,0
+        mov     word ptr paddedLength,0
+        mov     word ptr paddedLength+2,0
+        mov     word ptr recordIndex,0
+        call    initPaddedCrc
+        call    initExactCrc
+scanSourceNext:
+        mov     dx,offset workFcb
+        mov     cl,20
+        int     bdosInt
+        or      al,al
+        jne     scanSourceEnd
+        add     word ptr paddedLength,128
+        adc     word ptr paddedLength+2,0
+        mov     si,offset recordBuffer
+        mov     word ptr recordIndex,0
+        mov     cx,128
+scanSourceBytes:
+        mov     al,byte ptr [si]
+        call    updatePaddedCrc
+        cmp     byte ptr sideValid,0
+        je      scanSourceNextByte
+        call    isBeforeSavedLength
+        jnc     scanSourceNextByte
+        call    updateExactCrc
+scanSourceNextByte:
+        inc     si
+        inc     word ptr recordIndex
+        loop    scanSourceBytes
+        jmp     scanSourceNext
+scanSourceEnd:
+        mov     dx,offset workFcb
+        mov     cl,16
+        int     bdosInt
+        call    finalizePaddedCrc
+        call    finalizeExactCrc
+        clc
+        ret
+scanBad:
+        stc
+        ret
+
+isBeforeSavedLength:
+        push    ax
+        mov     ax,word ptr paddedLength
+        sub     ax,128
+        mov     dx,word ptr paddedLength+2
+        sbb     dx,0
+        add     ax,word ptr recordIndex
+        adc     dx,0
+        cmp     dx,word ptr savedLength+2
+        jb      savedLengthBeforeByte
+        ja      savedLengthAfterByte
+        cmp     ax,word ptr savedLength
+        jb      savedLengthBeforeByte
+        jmp     savedLengthAfterByte
+savedLengthBeforeByte:
+        stc
+        pop     ax
+        ret
+savedLengthAfterByte:
+        clc
+        pop     ax
+        ret
+
+choosePutLength:
+        mov     byte ptr sideUsable,0
+        push    ds
+        pop     es
+        cmp     byte ptr sideValid,0
+        je      choosePaddedLength
+        mov     ax,word ptr savedLength
+        mov     dx,word ptr savedLength+2
+        cmp     dx,word ptr paddedLength+2
+        ja      choosePaddedLength
+        jb      checkLengthTail
+        cmp     ax,word ptr paddedLength
+        ja      choosePaddedLength
+checkLengthTail:
+        mov     ax,word ptr paddedLength
+        sub     ax,128
+        mov     dx,word ptr paddedLength+2
+        sbb     dx,0
+        cmp     word ptr savedLength+2,dx
+        ja      choosePaddedLength
+        jb      checkMetadataCrc
+        cmp     word ptr savedLength,ax
+        jb      choosePaddedLength
+checkMetadataCrc:
+        mov     si,offset savedPaddedCrc
+        mov     di,offset paddedCrc
+        mov     cx,4
+        repe    cmpsb
+        jne     choosePaddedLength
+        mov     si,offset savedExactCrc
+        mov     di,offset exactCrc
+        mov     cx,4
+        repe    cmpsb
+        jne     choosePaddedLength
+        mov     si,offset savedLength
+        mov     di,offset putLength
+        mov     cx,4
+        rep     movsb
+        mov     byte ptr sideUsable,1
+        ret
+choosePaddedLength:
+        mov     dx,offset msgPaddedWarning
+        call    printString
+        push    ds
+        pop     es
+        mov     si,offset paddedLength
+        mov     di,offset putLength
+        mov     cx,4
+        rep     movsb
+        mov     si,offset paddedCrc
+        mov     di,offset exactCrc
+        mov     cx,4
+        rep     movsb
+        ret
+
+remainingIsZero:
+        mov     ax,word ptr remaining
+        or      ax,word ptr remaining+2
+        ret
+
+decrementRemaining:
+        sub     word ptr remaining,1
+        sbb     word ptr remaining+2,0
+        ret
+
+initCrcs:
+        call    initPaddedCrc
+        call    initExactCrc
+        ret
+
+initPaddedCrc:
+        mov     word ptr paddedCrc,0ffffh
+        mov     word ptr paddedCrc+2,0ffffh
+        ret
+
+initExactCrc:
+        mov     word ptr exactCrc,0ffffh
+        mov     word ptr exactCrc+2,0ffffh
+        ret
+
+updateExactCrc:
+        mov     di,offset exactCrc
+        jmp     updateCrc
+
+updatePaddedCrc:
+        mov     di,offset paddedCrc
+updateCrc:
+        push    cx
+        xor     byte ptr [di],al
+        mov     cx,8
+updateCrcBit:
+        shr     word ptr 2[di],1
+        rcr     word ptr [di],1
+        jnc     updateCrcNext
+        xor     word ptr [di],8320h
+        xor     word ptr 2[di],0edb8h
+updateCrcNext:
+        loop    updateCrcBit
+        pop     cx
+        ret
+
+finalizePaddedCrc:
+        not     word ptr paddedCrc
+        not     word ptr paddedCrc+2
+        ret
+
+finalizeExactCrc:
+        not     word ptr exactCrc
+        not     word ptr exactCrc+2
+        ret
+
+fillRecordBuffer:
+        push    ds
+        pop     es
+        mov     di,offset recordBuffer
+        mov     cx,128
+        mov     al,01ah
+        rep     stosb
+        ret
+
+sendByte:
+        push    ax
+        call    pollConsoleAbort
+        jc      sendAborted
+        pop     ax
+        out     portData,al
+        clc
+        ret
+sendAborted:
+        pop     ax
+        stc
+        ret
+
+readByte:
+        call    pollConsoleAbort
+        jc      readAborted
+        in      al,portData
+        clc
+        ret
+readAborted:
+        stc
+        ret
+
+pollConsoleAbort:
+        push    bx
+        push    cx
+        push    dx
+        push    si
+        push    di
+        push    es
+        mov     cl,11
+        int     bdosInt
+        or      al,al
+        je      pollAbortDone
+        mov     cl,1
+        int     bdosInt
+        cmp     al,03h
+        jne     pollAbortDone
+        xor     al,al
+        out     portAbort,al
+        stc
+        jmp     pollAbortReturn
+pollAbortDone:
+        clc
+pollAbortReturn:
+        pop     es
+        pop     di
+        pop     si
+        pop     dx
+        pop     cx
+        pop     bx
+        ret
+
+abortHost:
+        xor     al,al
+        out     portAbort,al
+        ret
+
+printString:
+        mov     cl,9
+        int     bdosInt
+        ret
+
+printCrLf:
+        mov     dl,13
+        mov     cl,2
+        int     bdosInt
+        mov     dl,10
+        mov     cl,2
+        int     bdosInt
+        ret
+
+hostError:
+        mov     byte ptr hostStatus,al
+        mov     dx,offset msgHostError
+        call    printString
+        mov     dl,byte ptr hostStatus
+        add     dl,'0'
+        mov     cl,2
+        int     bdosInt
+        call    printCrLf
+        jmp     terminate
+serviceError:
+        mov     dx,offset msgServiceError
+        call    printString
+        jmp     terminate
+transferAborted:
+        call    abortHost
+        mov     dx,offset msgAborted
+        call    printString
+        jmp     terminate
+targetExists:
+        mov     dx,offset msgTargetExists
+        call    printString
+        jmp     terminate
+sidecarExists:
+        mov     dx,offset msgSidecarExists
+        call    printString
+        jmp     terminate
+localFileError:
+        mov     dx,offset msgLocalError
+        call    printString
+        jmp     terminate
+filenameError:
+        mov     dx,offset msgFilename
+        call    printString
+        jmp     terminate
+userAreaError:
+        mov     dx,offset msgUserArea
+        call    printString
+        jmp     terminate
+usageError:
+        mov     dx,offset msgUsage
+        call    printString
+terminate:
+        xor     cl,cl
+        int     bdosInt
+        retf
+
+msgUsage        db      'Usage: HOST DIR | HOST GET name.ext | HOST PUT name.ext',13,10,'$'
+msgFilename     db      'Invalid or reserved filename.',13,10,'$'
+msgUserArea     db      'HOST GET/PUT requires USER 0.',13,10,'$'
+msgServiceError db      'Host exchange service unavailable.',13,10,'$'
+msgHostError    db      'Host exchange status: ','$'
+msgLocalError   db      'Local file I/O error.',13,10,'$'
+msgTargetExists db      'GET target already exists.',13,10,'$'
+msgSidecarExists db     'GET sidecar already exists.',13,10,'$'
+msgTransferError db     'Transfer failed; partial GET cleanup attempted.',13,10,'$'
+msgAborted      db      'Transfer aborted.',13,10,'$'
+msgGetDone      db      'GET complete.',13,10,'$'
+msgPutDone      db      'PUT complete.',13,10,'$'
+msgPaddedWarning db     'No valid HST metadata; PUT sends complete records.',13,10,'$'
+
+commandKind     db      0
+workOpen        db      0
+workCreated     db      0
+sideOpen        db      0
+sideCreated     db      0
+sideValid       db      0
+sideUsable      db      0
+hostStatus      db      0
+recordIndex     dw      0
+tailEnd         dw      0
+transferLength  dw      0,0
+remaining       dw      0,0
+expectedCrc     dw      0,0
+exactCrc        dw      0,0
+paddedCrc       dw      0,0
+savedLength     dw      0,0
+savedPaddedCrc  dw      0,0
+savedExactCrc   dw      0,0
+paddedLength    dw      0,0
+putLength       dw      0,0
+workFcb         db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0
+sideFcb         db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0
+recordBuffer    db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+sideBuffer      db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        end

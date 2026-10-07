@@ -702,15 +702,35 @@ static bool runCpm86UntilPrompt(cpm86Core *core, cpm86BootFixture *fixture, cons
                                 size_t promptCount)
 {
   size_t instructions = 0;
-  while (countOccurrences(fixture->output, prompt) < promptCount && instructions < 5000000)
+  size_t instructionBudget = getenv("CPM86_HOST_BUILD_DISK") == NULL ? 5000000 : 500000000;
+  while (countOccurrences(fixture->output, prompt) < promptCount && instructions < instructionBudget)
   {
     size_t executed = 0;
     cpm86CoreResult result = cpm86CoreRun(core, 4096, &executed);
     instructions += executed;
     if (result != cpm86CoreOk)
     {
+      uint16_t segment;
+      uint16_t offset;
+      cpm86CoreTraceEntry trace[cpm86CoreTraceDepth];
+      size_t traceCount = 0;
+      uint8_t codeBytes[8];
+      assert(cpm86CoreGetProgramCounter(core, &segment, &offset) == cpm86CoreOk);
+      assert(cpm86CoreGetRecentTrace(core, trace, cpm86CoreTraceDepth, &traceCount) == cpm86CoreOk);
+      uint32_t physicalAddress = (((uint32_t)segment << 4) + offset) & 0x000FFFFF;
+      assert(cpm86CoreRead(core, physicalAddress, codeBytes, sizeof(codeBytes)) == cpm86CoreOk);
       fprintf(stderr, "CP/M-86 run failed: result=%d count=%llu output=%s\n",
               result, (unsigned long long)cpm86CoreInstructionCount(core), fixture->output);
+      fprintf(stderr,
+              "CP/M-86 failure at %04X:%04X bytes=%02X %02X %02X %02X %02X %02X %02X %02X; "
+              "recent instructions:\n",
+              segment, offset, codeBytes[0], codeBytes[1], codeBytes[2], codeBytes[3], codeBytes[4],
+              codeBytes[5], codeBytes[6], codeBytes[7]);
+      for (size_t index = 0; index < traceCount; ++index)
+      {
+        fprintf(stderr, "  %04X:%04X %s\n", trace[index].segment, trace[index].offset,
+                trace[index].instruction);
+      }
       return false;
     }
   }
@@ -792,7 +812,9 @@ static void testCpm86Boot(void)
   int temporaryDiskDescriptor = mkstemp(temporaryDiskPath);
   assert(temporaryDiskDescriptor >= 0);
   close(temporaryDiskDescriptor);
-  FILE *sourceDisk = fopen(CPM86_SYSTEM_DISK_PATH, "rb");
+  const char *hostSystemDiskPath = getenv("CPM86_HOST_SYSTEM_DISK");
+  const char *sourceDiskPath = hostSystemDiskPath == NULL ? CPM86_SYSTEM_DISK_PATH : hostSystemDiskPath;
+  FILE *sourceDisk = fopen(sourceDiskPath, "rb");
   FILE *temporaryDisk = fopen(temporaryDiskPath, "wb");
   assert(sourceDisk != NULL && temporaryDisk != NULL);
   uint8_t diskCopyBuffer[512];
@@ -811,6 +833,29 @@ static void testCpm86Boot(void)
   imageFile disk = {0};
   assert(imageOpen(&disk, temporaryDiskPath, false));
   cpm86BootFixture fixture = {.disks = {[0] = &disk, [1] = &disk}};
+  const char *hostBuildDiskPath = getenv("CPM86_HOST_BUILD_DISK");
+  assert((hostBuildDiskPath == NULL) == (hostSystemDiskPath == NULL));
+  imageFile hostBuildDisk = {0};
+  hostExchange exchange = {0};
+  char exchangeDirectoryPath[] = "/tmp/cpm86-host-exchange-XXXXXX";
+  char exchangeSourcePath[sizeof(exchangeDirectoryPath) + sizeof("/HELLO.A86")];
+  if (hostBuildDiskPath != NULL)
+  {
+    assert(imageOpen(&hostBuildDisk, hostBuildDiskPath, false));
+    assert(imageSize(&hostBuildDisk) == 528384);
+    fixture.disks[4] = &hostBuildDisk;
+    fixture.largeDisks[4] = true;
+
+    assert(mkdtemp(exchangeDirectoryPath) != NULL);
+    assert(hostExchangeInitialize(&exchange, exchangeDirectoryPath));
+    snprintf(exchangeSourcePath, sizeof(exchangeSourcePath), "%s/HELLO.A86", exchangeDirectoryPath);
+    static const uint8_t exchangeSource[] = "HOST GET test payload\r\n";
+    FILE *exchangeSourceFile = fopen(exchangeSourcePath, "wb");
+    assert(exchangeSourceFile != NULL);
+    assert(fwrite(exchangeSource, 1, sizeof(exchangeSource) - 1, exchangeSourceFile) ==
+           sizeof(exchangeSource) - 1);
+    assert(fclose(exchangeSourceFile) == 0);
+  }
   const cpm86CoreConfig config = {
       .ramSize = 640 * 1024,
       .portRead = cpm86BootPortRead,
@@ -818,7 +863,8 @@ static void testCpm86Boot(void)
       .portContext = &fixture,
   };
   cpm86Core *core = NULL;
-  assert(cpm86CoreCreate(&core, NULL, &config) == cpm86CoreOk);
+  assert(cpm86CoreCreate(&core, hostBuildDiskPath == NULL ? NULL : &exchange, &config) ==
+         cpm86CoreOk);
   size_t payloadOffset = 0;
   const size_t payloadSize = sizeof(systemImage) - 128;
   while (payloadOffset < payloadSize)
@@ -934,6 +980,74 @@ static void testCpm86Boot(void)
   assert(fixture.diskReadFailures == 0);
   assert(imageClose(&textDisk));
   assert(unlink(textDiskPath) == 0);
+
+  if (hostBuildDiskPath != NULL)
+  {
+    fixture.input = "E:\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 1));
+
+    fixture.input = "A:ASM86 E:HOST.A86\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 2));
+    if (strstr(fixture.output, "NUMBER OF ERRORS:   0") == NULL)
+    {
+      fprintf(stderr, "CP/M-86 ASM86 failed:\n%s\n", fixture.output);
+    }
+    assert(strstr(fixture.output, "NUMBER OF ERRORS:   0") != NULL);
+
+    fixture.input = "A:GENCMD E:HOST\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 3));
+
+    fixture.input = "A:HOST DIR\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 4));
+    if (strstr(fixture.output, "HELLO.A86") == NULL)
+    {
+      fprintf(stderr, "CP/M-86 HOST DIR output:\n%s\n", fixture.output);
+    }
+    assert(strstr(fixture.output, "HELLO.A86") != NULL);
+
+    fixture.input = "A:HOST GET HELLO.A86\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 5));
+    if (strstr(fixture.output, "GET complete.") == NULL)
+    {
+      fprintf(stderr, "CP/M-86 HOST GET output:\n%s\n", fixture.output);
+    }
+    assert(strstr(fixture.output, "GET complete.") != NULL);
+    assert(unlink(exchangeSourcePath) == 0);
+
+    fixture.input = "A:HOST PUT HELLO.A86\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 6));
+    if (strstr(fixture.output, "PUT complete.") == NULL)
+    {
+      fprintf(stderr, "CP/M-86 HOST PUT output:\n%s\n", fixture.output);
+    }
+    assert(strstr(fixture.output, "PUT complete.") != NULL);
+
+    static const uint8_t expectedResult[] = "HOST GET test payload\r\n";
+    uint8_t actualResult[sizeof(expectedResult)] = {0};
+    FILE *exchangeResultFile = fopen(exchangeSourcePath, "rb");
+    assert(exchangeResultFile != NULL);
+    assert(fread(actualResult, 1, sizeof(expectedResult) - 1, exchangeResultFile) ==
+           sizeof(expectedResult) - 1);
+    assert(fgetc(exchangeResultFile) == EOF);
+    assert(fclose(exchangeResultFile) == 0);
+    assert(memcmp(actualResult, expectedResult, sizeof(expectedResult) - 1) == 0);
+    assert(imageClose(&hostBuildDisk));
+    hostExchangeClose(&exchange);
+    assert(unlink(exchangeSourcePath) == 0);
+    assert(rmdir(exchangeDirectoryPath) == 0);
+  }
 
   cpm86CoreDestroy(core);
   assert(imageClose(&disk));

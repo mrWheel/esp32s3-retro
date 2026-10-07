@@ -55,6 +55,35 @@ class DiskImageCliTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("matches no files", result.stderr)
 
+    def test_extract_cpm86_file_across_extents(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            common = ("--os", "cpm86", "--sd-root", str(root))
+            run("diskImage.py", "create", *common, "work.dsk")
+            source = root / "HOST.CMD"
+            data = bytes(index % 256 for index in range(17003))
+            source.write_bytes(data)
+            run("diskImage.py", "add", *common, "work.dsk", str(source))
+
+            image = root / "retro" / "images" / "cpm86" / "work.dsk"
+            output = root / "extracted" / "HOST.CMD"
+            run("diskImage.py", "extract", *common, "work.dsk", "HOST.CMD", "--output", str(output))
+            self.assertEqual(output.read_bytes(), data.ljust(17024, b"\x1a"))
+
+            output.write_bytes(b"keep")
+            result = run(
+                "diskImage.py",
+                "extract",
+                *common,
+                "work.dsk",
+                "HOST.CMD",
+                "--output",
+                str(output),
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(output.read_bytes(), b"keep")
+
     def test_help_is_general_and_os_specific(self):
         general = run("diskImage.py", "-h").stdout
         self.assertIn("apple2", general)

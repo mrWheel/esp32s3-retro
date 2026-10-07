@@ -14,15 +14,24 @@ python3 tools/prepareSd.py --os cpm86
 python3 tools/diskImage.py --os cpm86 -h
 ```
 
-`add` accepts wildcards (quoted or shell-expanded). Wildcard matches with an invalid 8.3 name or empty content are skipped with a warning; explicitly named files must be valid. `buildDiskImage.py` now writes `system.dsk` to `sdcard/retro/images/<os>/` by default; use `--output littlefs/cpm80/system.dsk` to refresh the firmware's LittleFS copy. For CP/M-86 it needs `--source-dir` with `CPM.SYS` and the `.CMD` files (no sources are checked in). The work is split per OS: `diskImage.py` and `buildDiskImage.py` dispatch (via `osProfiles.py`) to `diskImageCpm80.py`/`diskImageCpm86.py` and `buildDiskImageCpm80.py`/`buildDiskImageCpm86.py`, which share the CP/M engine `diskImageCpm.py`; the per-OS modules also run directly (e.g. `diskImageCpm80.py create ...` implies `--os cpm80`). A new OS needs `diskImage<Os>.py`, `buildDiskImage<Os>.py` and one entry in `osProfiles.py`. `prepareSd.py` without a mount point prepares `sdcard/`, and without `--os` prepares all systems.
+  `add` accepts wildcards (quoted or shell-expanded). Wildcard matches with an invalid 8.3 name or empty content are skipped with a warning; explicitly named files must be valid. 
 
-`prepareSd.py` (Python 3.9+) adds the documented layout and a default CP/M `drives.cfg` to an already formatted/mounted FAT32 card. It does not format, delete, make disk images, overwrite an existing drive configuration or rewrite an incompatible layout marker. Run with the card mount root as its sole argument.
+  `buildDiskImage.py` now writes `system.dsk` to `sdcard/retro/images/<os>/` by default; use `--output littlefs/cpm80/system.dsk` to refresh the firmware's LittleFS copy. 
 
-`transferTest.py` exercises an actual running device using the session URL displayed on USB. It creates uniquely named files in exchange/common and removes only those files. Do not run it during manual transfers. Its 8 MiB payload intentionally exceeds normal ESP32-S3 internal RAM; the test PC can hold it in memory, while the device must stream.
+  For CP/M-86 it needs `--source-dir` with `CPM.SYS` and the `.CMD` files (no sources are checked in). 
 
-`buildDiskImageCpm80.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance, non-commercial use scope and per-file hashes are in `components/cpm80Core/os/utilities/README.md`. No SD work image is generated; E: requires a separately prepared matching CP/M image.
+  The work is split per OS: `diskImage.py` and `buildDiskImage.py` dispatch (via `osProfiles.py`) to `diskImageCpm80.py`/`diskImageCpm86.py` and `buildDiskImageCpm80.py`/`buildDiskImageCpm86.py`, which share the CP/M engine `diskImageCpm.py`; the per-OS modules also run directly (e.g. `diskImageCpm80.py create ...` implies `--os cpm80`). 
+  
+  A new OS needs `diskImage<Os>.py`, `buildDiskImage<Os>.py` and one entry in `osProfiles.py`. 
+  `prepareSd.py` without a mount point prepares `sdcard/`, and without `--os` prepares all systems.
 
-`HOST.COM` is project-authored Z80 source at `components/cpm80Core/os/host/HOST.ASM`. To rebuild it on macOS, install the Z80 assembler with `brew install z80asm`, then run `z80asm -o components/cpm80Core/os/host/HOST.COM components/cpm80Core/os/host/HOST.ASM`. Rebuild `system.dsk` with `python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk` after assembling. The checked-in COM image and source are both covered by the SHA-256 inventory.
+  `prepareSd.py` (Python 3.9+) adds the documented layout and a default CP/M `drives.cfg` to an already formatted/mounted FAT32 card. It does not format, delete, make disk images, overwrite an existing drive configuration or rewrite an incompatible layout marker. Run with the card mount root as its sole argument.
+
+  `transferTest.py` exercises an actual running device using the session URL displayed on USB. It creates uniquely named files in exchange/common and removes only those files. Do not run it during manual transfers. Its 8 MiB payload intentionally exceeds normal ESP32-S3 internal RAM; the test PC can hold it in memory, while the device must stream.
+
+  `buildDiskImageCpm80.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance, non-commercial use scope and per-file hashes are in `components/cpm80Core/os/utilities/README.md`. No SD work image is generated; E: requires a separately prepared matching CP/M image.
+
+  `HOST.COM` is project-authored Z80 source at `components/cpm80Core/os/host/HOST.ASM`. To rebuild it on macOS, install the Z80 assembler with `brew install z80asm`, then run `z80asm -o components/cpm80Core/os/host/HOST.COM components/cpm80Core/os/host/HOST.ASM`. Rebuild `system.dsk` with `python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk` after assembling. The checked-in COM image and source are both covered by the SHA-256 inventory.
 
 ## Prepare CP/M disk images on macOS
 

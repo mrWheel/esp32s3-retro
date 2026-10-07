@@ -68,6 +68,10 @@ def add_files(image_path, files, replace_image=True):
     diskImageCpm.add_files(image_path, files, PROFILES, replace_image=replace_image)
 
 
+def extract_file(image_path, filename, user=0):
+    return diskImageCpm.extract_file(image_path, filename, PROFILES, user=user)
+
+
 def list_files(image_path):
     diskImageCpm.list_files(image_path, PROFILES)
 

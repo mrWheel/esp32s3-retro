@@ -14,6 +14,7 @@ EXAMPLES = """examples:
   diskImage.py create --os cpm80 --profile LARGE work.dsk
   diskImage.py add    --os cpm80 work.dsk ~/cpm/*.COM 'utils/*.HLP'
   diskImage.py list   --os cpm86 work86.dsk
+  diskImage.py extract --os cpm86 work86.dsk HOST.CMD --output HOST.CMD
 
 A bare image name is placed in <sd-root>/retro/images/<os>/ (default sd-root:
 the project's sdcard/ directory). Give a path to use another location.
@@ -92,7 +93,9 @@ def build_parser(os_name, default_os):
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
 
-    commands = parser.add_subparsers(dest="command", required=True, metavar="{create,add,list}")
+    commands = parser.add_subparsers(
+        dest="command", required=True, metavar="{create,add,extract,list}"
+    )
     known = osProfiles.OS_REGISTRY.get(os_name)
     profiles = known.profiles if known and known.supported else ()
     create_parser = sub("create", "create an empty, formatted disk image")
@@ -109,6 +112,12 @@ def build_parser(os_name, default_os):
     add_parser.add_argument("image", type=Path)
     add_parser.add_argument("files", nargs="+", help="files or wildcard patterns such as '*.COM'")
     add_parser.add_argument("--name", help="CP/M 8.3 name (only when adding one explicit file)")
+
+    extract_parser = sub("extract", "extract one file's CP/M records from an image")
+    extract_parser.add_argument("image", type=Path)
+    extract_parser.add_argument("filename", help="CP/M 8.3 filename")
+    extract_parser.add_argument("--output", required=True, type=Path, help="new local output file")
+    extract_parser.add_argument("--user", type=int, default=0, choices=range(16), help="CP/M user area")
 
     list_parser = sub("list", "validate and list an image")
     list_parser.add_argument("image", type=Path)
@@ -147,6 +156,22 @@ def main(argv=None, default_os=None):
             for name, data in additions:
                 print(f"  {name:<12} {len(data):>8} bytes")
             print(f"Added {len(additions)} file(s) to {image_path}")
+        elif arguments.command == "extract":
+            output_path = arguments.output.expanduser()
+            if output_path.resolve() == image_path.resolve():
+                raise DiskImageError("Output file must not be the disk image")
+            data = engine.extract_file(image_path, arguments.filename, user=arguments.user)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_created = False
+            try:
+                with output_path.open("xb") as output_file:
+                    output_created = True
+                    output_file.write(data)
+            except Exception:
+                if output_created:
+                    output_path.unlink(missing_ok=True)
+                raise
+            print(f"Extracted {arguments.filename.upper()} ({len(data)} record bytes) to {output_path}")
         else:
             engine.list_files(image_path)
     except (OSError, DiskImageError) as error:

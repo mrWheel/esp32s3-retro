@@ -213,6 +213,39 @@ def add_files(image_path, files, profiles, replace_image=True):
     _atomic_write(image_path, image, replace_existing=replace_image)
 
 
+def extract_file(image_path, filename, profiles, user=0):
+    """Return a file's CP/M records, retaining the padded final record."""
+    filename = parse_filename(filename)
+    if user < 0 or user > 15:
+        raise DiskImageError("CP/M user number must be between 0 and 15")
+    image = Path(image_path).read_bytes()
+    entries, _, _ = inspect_image(image, profiles)
+    extents = sorted(
+        (entry for entry in entries if entry["user"] == user and entry["filename"] == filename),
+        key=lambda entry: entry["extent"],
+    )
+    if not extents:
+        raise DiskImageError(f"{filename} was not found in user area {user}")
+    if any(entry["extent"] != index for index, entry in enumerate(extents)):
+        raise DiskImageError(f"{filename} has a missing CP/M extent")
+
+    profile = _profile_for_size(len(image), profiles)
+    block_size = profile["block_size"]
+    extracted = bytearray()
+    for entry in extents:
+        remaining = entry["records"] * SECTOR_SIZE
+        for block in entry["blocks"]:
+            block_offset = profile["directory_offset"] + block * block_size
+            count = min(remaining, block_size)
+            extracted.extend(image[block_offset : block_offset + count])
+            remaining -= count
+        if remaining:
+            raise DiskImageError(f"{filename} has incomplete allocation data")
+        if entry["records"] > MAX_RECORDS_PER_EXTENT:
+            raise DiskImageError(f"{filename} has an invalid record count")
+    return bytes(extracted)
+
+
 def list_files(image_path, profiles):
     image = Path(image_path).read_bytes()
     entries, _, _ = inspect_image(image, profiles)

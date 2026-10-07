@@ -16,12 +16,14 @@ The fixed main menu is:
 
 ```text
 ESP32-S3 Retro Computer
-1. CP/M 2.2
-2. UCSD Pascal
-3. Apple II
-4. MP/M II
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
 5. SWTPC 6800
+
 6. File Transfer
+
 Select system [1-6]:
 ```
 
