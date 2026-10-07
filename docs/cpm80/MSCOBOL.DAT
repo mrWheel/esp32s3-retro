@@ -1,0 +1,109 @@
+///1MSCOBOL
+Microsoft COBOL-80: compiling and running programs under CP/M-80.
+This section describes the program workflow, not the COBOL language.
+Compiler filenames and prompts vary by release. Follow the manual for
+the exact Microsoft COBOL-80 package installed on your disks.
+
+///2DRIVES
+The configured drives for this system are:
+
+  A: CP/M system disk; read-only
+  B: language.dsk; compiler and language files
+  C: Utility.dsk; utility files
+  D: not configured
+  E: work1.dsk; writable source and output disk
+  F: work2.dsk; writable second work disk
+
+Use E: for source, object, listing, and program files. Start the
+compiler from B: by using its drive-qualified command name. A drive
+prefix selects a disk; CP/M does not use folders. Names use the 8.3
+form, such as HELLO.CBL, HELLO.REL, and HELLO.COM.
+
+///2CHECKING
+At the CP/M prompt, list the work and compiler disks:
+
+  A>DIR E:
+  A>DIR B:
+
+Confirm the compiler and source files are present. Do not assume that
+the compiler is installed just because B: is named language.dsk.
+Never save source or output on A:, because that disk is read-only.
+Use a disposable work disk while learning.
+
+///2COMPILING
+Select E: so compiler output defaults to the writable work disk:
+
+  A>E:
+  E>
+
+Check the source filename:
+
+  E>DIR HELLO.*
+
+If the source is HELLO.CBL and the compiler program is COBOL.COM,
+a common command-line form is:
+
+  E>B:COBOL E:HELLO.CBL
+
+This command is only an example. The installed release may use a
+different compiler filename, source suffix, command syntax, or
+interactive prompts. Use the exact syntax in its manual. Give the
+source with its E: drive prefix when requested.
+
+Read the compiler messages. Correct errors, save the source on E:,
+and compile again. Check which files were created:
+
+  E>DIR HELLO.*
+
+A .REL file is normally a relocatable object, not a runnable program.
+If the compiler creates a .COM file directly, follow its manual to
+run it. Otherwise, use the linker required by that COBOL release.
+
+///2LINKING
+The system disk provides the CP/M LINK utility. If the compiler
+manual says to use it, select E: and invoke LINK from A::
+
+  E>A:LINK E:HELLO
+
+This is a typical DRI LINK-style example. The linker may instead
+prompt for filenames or require compiler runtime libraries, options,
+or a different linker. Follow the installed compiler manual. Ensure
+that the linker can find HELLO.REL and its required libraries, and
+that the .COM output is written to E:.
+
+Check the result:
+
+  E>DIR HELLO.*
+
+Do not run the program if linking reported unresolved modules or did
+not create the expected command file.
+
+///2RUNNING
+Select E: and start the executable by name, without the .COM suffix:
+
+  A>E:
+  E>HELLO
+
+The program runs as a CP/M transient command. Keep its data files on
+E: unless the program's documentation specifies another drive. If
+the program reports a missing module or runtime file, use matching
+libraries from the same compiler release.
+
+///2PROBLEMS
+Bad command or command file not found:
+Check DIR B: and use the compiler's actual filename.
+
+Source file not found:
+Check DIR E: and enter the exact source name with its extension.
+
+Compile succeeded but no .COM exists:
+The compiler may have produced only a .REL object. Link it if the
+compiler manual requires a separate link step.
+
+Disk is read-only or a write failed:
+Do not write to A:. Select E: and confirm it is a writable disk.
+
+Missing module or library:
+Use runtime and library files for the same compiler release.
+
+

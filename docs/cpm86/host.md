@@ -10,6 +10,13 @@ cleanup of files created by an unsuccessful GET. GET and PUT also accept
 CP/M-style `*` and `?` wildcards. A failed wildcard transfer prints the
 operation, filename and reason, then continues with the remaining matches.
 
+`HOST GET name.ext O` (also `HOST GET *.* O`) behaves exactly like the
+CP/M-80 option: the "target exists" and "sidecar exists" checks are skipped,
+and the old target and its `NAME.HST` sidecar are deleted only after the host
+has accepted the transfer, immediately before the new file is made. The `O`
+is a separate, case-insensitive token and is accepted for GET only; a read-only
+existing file is not handled specially.
+
 Wildcard PUT first collects up to 128 unique local filenames with BDOS Search
 First/Next, then starts the transfers; this avoids changing the BDOS search
 cursor while reading files. Repeated directory extents are deduplicated, and
@@ -123,7 +130,7 @@ persistence remain unverified.
 
 ## Verification status
 
-ASM-86 reported zero errors and GENCMD created a 6,912-byte `HOST.CMD`. The
+ASM-86 reported zero errors and GENCMD created a 7,040-byte `HOST.CMD`. The
 host CP/M-86 fixture booted the rebuilt system image and passed native DIR,
 single-file GET/PUT and exact-byte round-trip checks for 43 records. Wildcard
 GET and PUT regressions also passed: `*` and `?` match as expected, errors name
@@ -131,7 +138,8 @@ the affected file and reason, and later matches are still processed. The PUT
 regression includes a multi-extent local file and confirms it is processed
 once. PUT sends at most one 128-byte DMA record per BDOS read; the prior loop
 walked past that buffer and faulted on larger files. The checked-in A: image
-contains the rebuilt command. Image extraction tests also cover multi-extent
+contains the rebuilt command; the fixture also covers `HOST GET name.ext O`
+and `HOST GET *.A86 O` over existing files and sidecars. Image extraction tests also cover multi-extent
 files, final-record padding, and refusal to overwrite an existing output.
 Hardware transfer acceptance and broader CP/M-86 acceptance remain open; this
 desktop guest result is not a hardware claim.

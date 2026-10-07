@@ -496,7 +496,7 @@ Stream downloads. Never allocate a complete-file-sized RAM buffer.
 
 Transfers are byte-preserving. Never automatically change CR/LF, character sets, tabs, EOF markers, or high bits.
 
-A binary upload/download round trip must preserve SHA-256.
+A binary upload/download round trip must preserve the exact bytes (byte-for-byte comparison).
 
 The HTTP transfer size limit is 4 GiB minus 2 bytes. ESP-IDF's HTTP parser reserves the maximum 32-bit `Content-Length` value as a sentinel; reject that value rather than risk accepting an incomplete upload.
 
@@ -627,7 +627,7 @@ File Transfer:
 - stored-credential reconnect;
 - page loads;
 - text upload/download;
-- binary SD-card disk-image upload/download + SHA-256 equality;
+- binary SD-card disk-image upload/download + byte-for-byte equality;
 - CP/M-86 loose-file upload to `/retro/exchange/cpm86/` is visible to `HOST DIR`;
 - selected-machine loose files and disk images reach their respective `/retro/exchange/<machine>/` and `/retro/images/<machine>/` directories;
 - every listed file shows its full `/microSD/retro/...` path;

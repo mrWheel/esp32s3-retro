@@ -5,6 +5,7 @@
 ;
 ; Exchange ABI: immediate byte IN/OUT on F8h; abort is OUT (F9h),00h.
 ; Host commands: 1 DIR, 2 GET, 3 PUT. GET and PUT accept CP/M wildcards.
+; HOST GET name.ext O replaces an existing target and its .HST sidecar.
 
         org     0100h
 
@@ -19,6 +20,7 @@ start:
         ld      sp,0ffffh
         xor     a
         ld      (abortFlag),a
+        ld      (overwriteFlag),a
         ld      (workOpen),a
         ld      (workCreated),a
         ld      (sidecarOpen),a
@@ -240,8 +242,21 @@ filenameScan:
 filenameTrailingSpaces:
         call    skipSpaces
         jp      c,filenameArgumentGood
-        scf
-        ret
+        ld      a,(commandKind)
+        cp      2
+        jp      nz,filenameArgumentBad
+        ld      a,(hl)
+        call    uppercaseCharacter
+        cp      'O'
+        jp      nz,filenameArgumentBad
+        inc     hl
+        call    checkTokenBoundary
+        jp      c,filenameArgumentBad
+        ld      a,1
+        ld      (overwriteFlag),a
+        call    skipSpaces
+        jp      c,filenameArgumentGood
+        jp      filenameArgumentBad
 filenameArgumentGood:
         add     hl,de
         or      a
@@ -702,6 +717,9 @@ commandGetSingle:
         ld      (workCreated),a
         ld      (sidecarOpen),a
         ld      (sidecarCreated),a
+        ld      a,(overwriteFlag)
+        or      a
+        jp      nz,getSidecarAvailable
         call    ensureTargetAbsent
         jp      nc,getTargetAvailable
         ld      a,1
@@ -744,6 +762,9 @@ getReadLength:
         djnz    getReadLength
         call    copyGetLengthToRemaining
         call    initGetCrcs
+        ld      a,(overwriteFlag)
+        or      a
+        call    nz,deleteExistingTargets
         ld      de,workFcb
         ld      c,22
         call    bdos
@@ -896,6 +917,17 @@ ensureSidecarAbsent:
         ret
 sidecarAbsent:
         or      a
+        ret
+
+deleteExistingTargets:
+        call    openWorkFcb
+        ld      de,workFcb
+        ld      c,19
+        call    bdos
+        call    openSideFcb
+        ld      de,sideFcb
+        ld      c,19
+        call    bdos
         ret
 
 copyGetLengthToRemaining:
@@ -2261,7 +2293,7 @@ terminate:
         jp      terminate
 
 msgUsage:
-        db      "Usage: HOST DIR | HOST GET name.ext | HOST PUT name.ext",13,10,"$"
+        db      "Usage: HOST DIR | HOST GET name.ext [O] | HOST PUT name.ext",13,10,"$"
 msgFilename:
         db      "Invalid or reserved filename.",13,10,"$"
 msgUserArea:
@@ -2348,6 +2380,8 @@ candidatePosition:
 candidateBaseLength:
         db      0
 abortFlag:
+        db      0
+overwriteFlag:
         db      0
 dirNameActive:
         db      0

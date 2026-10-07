@@ -45,13 +45,13 @@ Physical ESP32 reset returns to the host menu and never automatically resumes a 
 
 Use native ESP-IDF, CMake and the VSCode ESP-IDF workflow; no Arduino dependency. Target ESP32-S3 / LOLIN S3 Pro, with board pins, flash/PSRAM settings and USB routing verified against the actual board configuration. All project-owned code, identifiers, documentation and messages are English. Use Allman braces, two-space indentation and lowerCamelCase. Comments use `//— comment` on their own line above the relevant code. Preserve upstream style and licenses in vendored cores; isolate project adapters and keep local patches small and documented.
 
-Pin upstream revisions and resource hashes. Do not write a CPU emulator, replace a guest OS with host-side syscall emulation, or patch binaries randomly until a prompt appears. Keep CPU, machine bus, guest BIOS/device adapter, image backend and terminal transport separable. ESP-IDF task scheduling and watchdog servicing must not alter guest instruction semantics. Allocate/check memory before launch, bound queues, and keep diagnostics out of the guest screen. Measure speed and memory on hardware; neither CPU frequency nor PSRAM size alone proves adequate performance.
+Pin upstream revisions. Do not write a CPU emulator, replace a guest OS with host-side syscall emulation, or patch binaries randomly until a prompt appears. Keep CPU, machine bus, guest BIOS/device adapter, image backend and terminal transport separable. ESP-IDF task scheduling and watchdog servicing must not alter guest instruction semantics. Allocate/check memory before launch, bound queues, and keep diagnostics out of the guest screen. Measure speed and memory on hardware; neither CPU frequency nor PSRAM size alone proves adequate performance.
 
 ## Engineering-memory rules
 
 This document is a living design and development record. Read its decisions and unresolved issues before changing the emulator. Never erase a failed experiment or silently rewrite a previous conclusion. Supersede decisions with a new numbered record. A repeated experiment requires new evidence or a changed variable. Keep design approval, source inspection, desktop testing and ESP32 hardware verification distinct.
 
-For every verification record capture date, firmware commit, upstream core revision, ESP-IDF version, board, terminal, resource hashes, exact command/input, expected result, actual result and evidence path. Only observed execution may be marked PASS. For every issue use this chain:
+For every verification record capture date, firmware commit, upstream core revision, ESP-IDF version, board, terminal, exact command/input, expected result, actual result and evidence path. Only observed execution may be marked PASS. For every issue use this chain:
 
 **Reference behaviour → Hypothesis → Experiment → Result → Conclusion → Root cause → Fix → Regression verification → Do not repeat.**
 
@@ -91,7 +91,7 @@ host menu → 3 + Enter → machine/resource validation
   → guest controls keyboard, RAM and disk contents
 ```
 
-1. Validate machine profile, ROM sizes/hashes, required boot image and configured SD layout.
+1. Validate machine profile, ROM sizes, required boot image and configured SD layout.
 2. Acquire exclusive host console and image access. Browser File Transfer must already be stopped.
 3. Allocate main/auxiliary storage and device state. Initialize reset-visible switches according to the chosen profile and record cold-boot RAM policy.
 4. Map real ROMs and device firmware, then execute the CPU's reset sequence and vector fetch.
@@ -144,7 +144,7 @@ For unsupported graphics output, retain machine state and provide a controlled d
 
 | Location | Contents | Access |
 |---|---|---|
-| LittleFS `apple2/rom/` | Matching system ROM and required firmware, manifest and hashes | RO |
+| LittleFS `apple2/rom/` | Matching system ROM and required firmware, and manifest | RO |
 | LittleFS `apple2/boot/` | Optional minimal diagnostic/boot resource that fits partition | RO |
 | `/retro/images/apple2/` | Floppy and larger block-device images, software and work volumes | Declared per image |
 | `/retro/exchange/apple2/` | Staged files plus versioned transfer metadata | Via common exchange service |
@@ -195,7 +195,7 @@ No network activity is required for the local guest bridge. Test binary byte equ
 
 Use a known desktop Apple IIe emulator in the exact CPU/ROM/RAM/device profile as the behavioral reference. AppleWin is the first source-level reference inspected here; choose an executable desktop reference appropriate to the development host and record its version. Do not compare an enhanced 65C02 system against an NMOS baseline without noting the difference. Any borrowed GPL code needs license-compatible integration; inspecting behavior does not authorize removing its license.
 
-Keep a small regression corpus: ROM boot, Applesoft input/output, a bank-switch diagnostic, asymmetric 80-column text, one full-screen editor, one disk save/load sequence and a ProDOS transfer utility. Record every ROM/image hash. On divergence capture CPU PC/registers, switch state, physical bank, bus access, disk unit/block and terminal cell coordinates. Diagnose the first divergence, not merely the final frozen screen.
+Keep a small regression corpus: ROM boot, Applesoft input/output, a bank-switch diagnostic, asymmetric 80-column text, one full-screen editor, one disk save/load sequence and a ProDOS transfer utility. On divergence capture CPU PC/registers, switch state, physical bank, bus access, disk unit/block and terminal cell coordinates. Diagnose the first divergence, not merely the final frozen screen.
 
 Likely fault categories are wrong ROM/CPU pairing, incorrect switch precedence, reversed columns, stale auxiliary dirty tracking, ambiguous image ordering, missing controller timing, incompatible ProDOS version and incorrect bridge metadata. A CPU-core change requires evidence that the bus/device/input layer is not the cause.
 
@@ -239,7 +239,7 @@ For new decisions record date, alternatives, evidence, consequences and supersed
 | ID | State | Issue / next experiment / do not repeat |
 |---|---|---|
 | APPLE-ISSUE-001 | OPEN | Obtain original manual edition/pages and close complete switch precedence audit; source review is not manual verification |
-| APPLE-ISSUE-002 | OPEN | Choose hashes for NMOS-compatible ROM/OS; do not pair enhanced ROM/software with a 6502-only core |
+| APPLE-ISSUE-002 | OPEN | Choose NMOS-compatible ROM/OS; do not pair enhanced ROM/software with a 6502-only core |
 | APPLE-ISSUE-003 | OPEN | Confirm every text row, bank order and page/mode combination against a reference diagnostic |
 | APPLE-ISSUE-004 | OPEN | Select compatible Disk II device implementation/license; sector access alone does not emulate the controller |
 | APPLE-ISSUE-005 | OPEN | Select block-device slot/firmware and freeze bridge slot without conflicts |

@@ -45,13 +45,13 @@ Physical ESP32 reset returns to the host menu and never automatically resumes a 
 
 Use native ESP-IDF, CMake and the VSCode ESP-IDF workflow; no Arduino dependency. Target ESP32-S3 / LOLIN S3 Pro, with board pins, flash/PSRAM settings and USB routing verified against the actual board configuration. All project-owned code, identifiers, documentation and messages are English. Use Allman braces, two-space indentation and lowerCamelCase. Comments use `//— comment` on their own line above the relevant code. Preserve upstream style and licenses in vendored cores; isolate project adapters and keep local patches small and documented.
 
-Pin upstream revisions and resource hashes. Do not write a CPU emulator, replace a guest OS with host-side syscall emulation, or patch binaries randomly until a prompt appears. Keep CPU, machine bus, guest BIOS/device adapter, image backend and terminal transport separable. ESP-IDF task scheduling and watchdog servicing must not alter guest instruction semantics. Allocate/check memory before launch, bound queues, and keep diagnostics out of the guest screen. Measure speed and memory on hardware; neither CPU frequency nor PSRAM size alone proves adequate performance.
+Pin upstream revisions. Do not write a CPU emulator, replace a guest OS with host-side syscall emulation, or patch binaries randomly until a prompt appears. Keep CPU, machine bus, guest BIOS/device adapter, image backend and terminal transport separable. ESP-IDF task scheduling and watchdog servicing must not alter guest instruction semantics. Allocate/check memory before launch, bound queues, and keep diagnostics out of the guest screen. Measure speed and memory on hardware; neither CPU frequency nor PSRAM size alone proves adequate performance.
 
 ## Engineering-memory rules
 
 This document is a living design and development record. Read its decisions and unresolved issues before changing the emulator. Never erase a failed experiment or silently rewrite a previous conclusion. Supersede decisions with a new numbered record. A repeated experiment requires new evidence or a changed variable. Keep design approval, source inspection, desktop testing and ESP32 hardware verification distinct.
 
-For every verification record capture date, firmware commit, upstream core revision, ESP-IDF version, board, terminal, resource hashes, exact command/input, expected result, actual result and evidence path. Only observed execution may be marked PASS. For every issue use this chain:
+For every verification record capture date, firmware commit, upstream core revision, ESP-IDF version, board, terminal, exact command/input, expected result, actual result and evidence path. Only observed execution may be marked PASS. For every issue use this chain:
 
 **Reference behaviour → Hypothesis → Experiment → Result → Conclusion → Root cause → Fix → Regression verification → Do not repeat.**
 
@@ -70,11 +70,11 @@ menu 2 + Enter
 
 Reuse the pinned `superzazu/z80` component chosen for CP/M. Reinitialize registers, RAM and I/O state when switching machines; no CP/M residency or inherited BIOS pointer is allowed. Host adapters may share implementation where their contracts agree, but UCSD disk units, block numbering and error conventions must be explicit.
 
-Use z80pack as the first desktop reference candidate. Its maintainer distributes UCSD versions including II.0 and describes repaired II.0 source disks. Choose one complete, matching release, interpreter and disk set; record their hashes and bootstrap procedure. Do not combine I.4/I.5/II.0/IV.0 components based on filenames. Repository existence does not prove the selected images have already been tested. [Maintainer documentation](https://www.icl1900.co.uk/unix4fun/z80pack/index.html), [reference repository](https://github.com/udo-munk/z80pack).
+Use z80pack as the first desktop reference candidate. Its maintainer distributes UCSD versions including II.0 and describes repaired II.0 source disks. Choose one complete, matching release, interpreter and disk set; record their bootstrap procedure. Do not combine I.4/I.5/II.0/IV.0 components based on filenames. Repository existence does not prove the selected images have already been tested. [Maintainer documentation](https://www.icl1900.co.uk/unix4fun/z80pack/index.html), [reference repository](https://github.com/udo-munk/z80pack).
 
 ### Mandatory desktop reference gate
 
-Before ESP32-specific debugging, boot the chosen system on a desktop reference, enter the editor, create a small Pascal source, compile it and run its output. Save input transcript, screen captures, resource hashes and resulting files. Identify the actual Z80 interpreter, system volume, runtime files, compiler and terminal configuration. Reproduce any failure there before blaming the ESP32 core.
+Before ESP32-specific debugging, boot the chosen system on a desktop reference, enter the editor, create a small Pascal source, compile it and run its output. Save input transcript, screen captures and resulting files. Identify the actual Z80 interpreter, system volume, runtime files, compiler and terminal configuration. Reproduce any failure there before blaming the ESP32 core.
 
 Document the reference's BIOS vectors, I/O ports, initial PC/SP, load ranges, memory reservations, boot sectors and required system files. `SYSTEM.PASCAL` or other familiar filenames alone are not a sufficient boot specification. Extract the actual contract from this release's loader/interpreter source and record the relevant symbols.
 
@@ -137,7 +137,7 @@ All milestones are PLANNED, not completed.
 
 | ID | Deliverable and exit evidence |
 |---|---|
-| UCSD-M1 | CP/M accepted; II.0 reference build/distribution and resource hashes selected |
+| UCSD-M1 | CP/M accepted; II.0 reference build and distribution selected |
 | UCSD-M2 | Desktop boot, editor, Pascal compile/run and file I/O demonstrated |
 | UCSD-M3 | Loader, interpreter, memory map and BIOS/device ABI documented |
 | UCSD-M4 | Direct bootstrap proven without runtime CCP/BDOS; menu 2 launches it |
@@ -145,7 +145,7 @@ All milestones are PLANNED, not completed.
 | UCSD-M6 | SD native volumes read/write with correct units, labels and block translation |
 | UCSD-M7 | Full 80×24 edit/compile/run/save/reopen workflow on ESP32 |
 | UCSD-M8 | Larger-volume profile qualified including allocation/size boundaries |
-| UCSD-M9 | HOSTXFER and browser staging, native binary hashes and explicit text conversion |
+| UCSD-M9 | HOSTXFER and browser staging, byte-exact native binaries and explicit text conversion |
 | UCSD-M10 | Reset/recovery, repeat launch, memory/performance, deployment instructions and engineering logs complete |
 
 Definition of Done: direct independent p-System boot, functioning development environment, persistent native volumes, validated large-volume policy, usable exchange and completed desktop/ESP32 verification. No unresolved corruption or unexplained interpreter crash. Only then begin Apple II implementation.

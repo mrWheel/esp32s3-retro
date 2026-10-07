@@ -35,6 +35,8 @@ returns to the drive it was started from. HOST uses exact byte lengths and a vis
 sidecar to preserve the length of imported files; the sidecar is reserved for
 HOST and should not be edited or deleted separately. Modified files fall back
 to full 128-byte CP/M records. No WiFi connection is required.
+Add an O after a GET (for example A:HOST GET *.* O) to overwrite existing files
+and their NAME.HST sidecars.
 
 Regenerate the A: image with python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk
 from the project root. The composer uses the checked-in assembled images and

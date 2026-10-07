@@ -14,6 +14,7 @@ start:
         mov     ds,ax
         mov     es,ax
         mov     byte ptr userAbort,0
+        mov     byte ptr overwriteFlag,0
         call    setDma
         call    parseCommand
         jnc     startCommandValid
@@ -187,7 +188,7 @@ parseTrailingSpaces:
         jae     parseGood
         cmp     byte ptr [si],' '
         je      parseTrailingSpaces
-        jmp     parseBad
+        jmp     parseOverwriteOption
 parseDirArgument:
         cmp     si,word ptr tailEnd
         jae     parseGood
@@ -201,6 +202,28 @@ parseGood:
 parseBad:
         stc
         ret
+
+parseOverwriteOption:
+        cmp     byte ptr commandKind,2
+        jne     parseBad
+        mov     al,byte ptr [si]
+        call    uppercaseAl
+        cmp     al,'O'
+        jne     parseBad
+        inc     si
+        cmp     si,word ptr tailEnd
+        jae     parseOverwriteGood
+        cmp     byte ptr [si],' '
+        jne     parseBad
+parseOverwriteGood:
+        mov     byte ptr overwriteFlag,1
+parseOverwriteTrail:
+        cmp     si,word ptr tailEnd
+        jae     parseGood
+        cmp     byte ptr [si],' '
+        jne     parseBad
+        inc     si
+        jmp     parseOverwriteTrail
 
 getUpperCharacter:
         cmp     si,word ptr tailEnd
@@ -549,6 +572,8 @@ getSingleFile:
         mov     byte ptr workOpen,0
         mov     byte ptr sideCreated,0
         mov     byte ptr sideOpen,0
+        cmp     byte ptr overwriteFlag,0
+        jne     getSidecarAvailable
         call    ensureTargetAbsent
         jnc     getTargetAvailable
         mov     byte ptr fileError,1
@@ -594,6 +619,10 @@ getLengthByteRead:
         inc     di
         loop    getReadLength
         call    initCrcs
+        cmp     byte ptr overwriteFlag,0
+        je      getCreateTarget
+        call    deleteExistingTargets
+getCreateTarget:
         mov     dx,offset workFcb
         mov     cl,22
         int     bdosInt
@@ -798,6 +827,21 @@ ensureSidecarAbsent:
         ret
 sideAbsent:
         clc
+        ret
+
+deleteExistingTargets:
+        mov     dx,offset workFcb
+        mov     cl,15
+        int     bdosInt
+        mov     dx,offset workFcb
+        mov     cl,19
+        int     bdosInt
+        mov     dx,offset sideFcb
+        mov     cl,15
+        int     bdosInt
+        mov     dx,offset sideFcb
+        mov     cl,19
+        int     bdosInt
         ret
 
 writeGetRecord:
@@ -1754,7 +1798,7 @@ terminate:
         int     bdosInt
         retf
 
-msgUsage        db      'Usage: HOST DIR | HOST GET name.ext | HOST PUT name.ext',13,10,'$'
+msgUsage        db      'Usage: HOST DIR | HOST GET name.ext [O] | HOST PUT name.ext',13,10,'$'
 msgFilename     db      'Invalid or reserved filename.',13,10,'$'
 msgUserArea     db      'HOST GET/PUT requires USER 0.',13,10,'$'
 msgServiceError db      'Host exchange service unavailable.',13,10,'$'
@@ -1798,6 +1842,7 @@ wildcardActive  db      0
 startPrinted    db      0
 paddedNote      db      0
 userAbort       db      0
+overwriteFlag   db      0
 fileError       db      0
 searchResult    db      0
 recordIndex     dw      0

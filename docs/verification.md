@@ -28,7 +28,7 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 5. Boot without SD; test blank FAT32, FAT16/exFAT, wrong marker/version, missing each required directory and correct prepared layout.
 6. Verify no WiFi activity before choice 6, including choice 6 with invalid SD.
 7. Test first provisioning, wrong credentials, stored credentials after reset, unreachable AP and leaving during setup.
-8. Run `tools/transferTest.py` for HTTP round trips and hostile paths. Confirm SHA-256 on hardware, including files larger than available RAM.
+8. Run `tools/transferTest.py` for HTTP round trips and hostile paths. Confirm byte-exact round trips on hardware, including files larger than available RAM.
 9. Test browser delete confirmation (cancel and confirm), directory navigation and direct browser downloads.
 10. Test full/nearly-full card, network disconnect, stalled/aborted HTTP client, and reset during upload. No partial final file should appear.
 11. Press ENTER during upload and download; verify server closure, temporary cleanup and responsive menu; repeat entry/exit at least 20 times and inspect free heap.
@@ -41,7 +41,7 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 - Host command: `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`.
 - Result: PASS under ASan/UBSan. The genuine guest lists the utilities, exercises resident `TYPE` and `USER`, performs `PIP E:=A:HELLO.COM`, then `REN` and `ERA` on E:. BIOS tests also verify E: record writes and A: write rejection. This is a host fixture, not a physical SD card.
 - ESP-IDF 6.0.2 ESP32-S3 build: PASS; `retroHost.bin` is 0xDDE90 bytes, within the 3 MiB app partition.
-- Source pin, individual utility SHA-256 values and compatibility notes are in `components/cpm80Core/os/utilities/README.md`. `HELP.COM` identifies as a CP/M 3.0 utility and has not been proven against this CP/M-80 BDOS. `SUBMIT.COM` writes `$$$.SUB` to read-only A: and is not usable until that assumption is addressed. No separate SDIR/SHOW binaries are included; resident `DIR` and `STAT` are the available directory/status commands.
+- Source pin and compatibility notes are in `components/cpm80Core/os/utilities/README.md`. `HELP.COM` identifies as a CP/M 3.0 utility and has not been proven against this CP/M-80 BDOS. `SUBMIT.COM` writes `$$$.SUB` to read-only A: and is not usable until that assumption is addressed. No separate SDIR/SHOW binaries are included; resident `DIR` and `STAT` are the available directory/status commands.
 - Hardware SD-media tests remain to be run. No device was flashed.
 
 ## Mac CP/M disk and archive tools — 2026-10-04
@@ -54,7 +54,7 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 
 ## CP/M HOST transfer utility — 2026-10-04
 
-- Reassembled `components/cpm80Core/os/host/HOST.ASM` with z80asm 1.8; a second assembly was byte-identical to the checked-in `HOST.COM` (3,267 bytes, SHA-256 `bd74d9248023a2b082f8050208de8546febfdf353ad7dcaf868ab8bffe697758`).
+- Reassembled `components/cpm80Core/os/host/HOST.ASM` with z80asm 1.8; a second assembly was byte-identical to the checked-in `HOST.COM` (3,267 bytes).
 - Regenerated `littlefs/cpm80/system.dsk` with `tools/buildDiskImageCpm80.py`; its size is 256,256 bytes.
 - Host test command: `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`.
 - Result: PASS under AddressSanitizer and UndefinedBehaviorSanitizer. The genuine CCP/BDOS guest ran `HOST DIR`; imported and exported a 777-byte binary containing NUL, `0x1A`, high-bit bytes and CR/LF with exact-byte equality; refused a duplicate destination; and refused an existing `.HST` sidecar while the E: directory still showed that sidecar afterward.
@@ -64,7 +64,7 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 ## CP/M-80 guest utility relocation — 2026-10-07
 
 - Moved project-authored `HOST.ASM` and `HOST.COM` from `components/cpm80Core/os/host/` to `guest/cpm80/host/`; updated the system-image builder and documentation to use the guest-owned location.
-- Reassembled `guest/cpm80/host/HOST.ASM` with z80asm and confirmed the output is byte-identical to `guest/cpm80/host/HOST.COM` (3,267 bytes, SHA-256 `bd74d9248023a2b082f8050208de8546febfdf353ad7dcaf868ab8bffe697758`).
+- Reassembled `guest/cpm80/host/HOST.ASM` with z80asm and confirmed the output is byte-identical to `guest/cpm80/host/HOST.COM` (3,267 bytes).
 - `PYTHONPATH=tools python3 -m unittest discover -s tests -p 'test_diskImage.py' -v`: PASS, 7 tests; CP/M-80 system-image output remains byte-identical to the checked-in image.
 - `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`: PASS, including the host-side guest emulator test.
 - ESP-IDF 6.0.2 ESP32-S3 `build`: PASS; `retroHost.bin` is 0xE8410 bytes (70% of the 3 MiB app partition remains free). No device was flashed.
@@ -73,5 +73,5 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 
 - Aligned CP/M-80 `HOST.COM` user-visible behaviour with the CP/M-86 utility for `DIR`, `GET`, and `PUT`: usage/error wording, wildcard result lines, reserved `.HST` handling, no-match/list-full reporting, completion text, and drive-preserving return behaviour. The CP/M-80-only local per-file reason remains `local CP/M-80 file I/O failed.`.
 - The genuine CCP/BDOS host fixture imported multiple exchange files with `HOST GET *.*`, reported and continued after an existing local target, exercised `HOST GET INP?T.BIN`, rejected a pre-existing `.HST` sidecar, and verified the other file appears on E:. `HOST PUT *.BIN` continued after an existing host destination and round-tripped a 257-byte binary exactly; `HOST PUT INP?T.BIN` exercised `?`.
-- `cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`: PASS under ASan/UBSan. `PYTHONPATH=tools python3 -m unittest discover -s tests -p 'test_diskImage.py' -v`: PASS, 7 tests. Reassembly of `guest/cpm80/host/HOST.ASM` matches checked-in `HOST.COM` (6,950 bytes, SHA-256 `ac4e976c8009b38d0e15e11fe68c34f279f05f320519df00b724814319d5ed70`). Rebuilt `littlefs/cpm80/system.dsk` is 256,256 bytes, SHA-256 `1ade209d955cf3b2adc91e0e8f7cfaffd53d33ed187abe014ed942971275f0d8`.
+- `cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`: PASS under ASan/UBSan. `PYTHONPATH=tools python3 -m unittest discover -s tests -p 'test_diskImage.py' -v`: PASS, 7 tests. Reassembly of `guest/cpm80/host/HOST.ASM` matches checked-in `HOST.COM` (6,950 bytes). Rebuilt `littlefs/cpm80/system.dsk` is 256,256 bytes.
 - ESP-IDF 6.0.2 ESP32-S3 `build`: PASS; `retroHost.bin` is 0xE8410 bytes, with 70% of the 3 MiB app partition free. No device was flashed.

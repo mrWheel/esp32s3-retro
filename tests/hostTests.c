@@ -1126,6 +1126,34 @@ static void testCpm86Boot(void)
     assert(runCpm86UntilPrompt(core, &fixture, "E>", 10));
     assert(strstr(fixture.output, "PUT HELLO.A86: exchange destination already exists.") != NULL);
 
+    fixture.input = "A:HOST GET HELLO.A86 O\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 11));
+    if (countOccurrences(fixture.output, "GET HELLO.A86: GET complete.") != 2 ||
+        strstr(fixture.output, "sidecar metadata file already exists") != NULL)
+    {
+      fprintf(stderr, "CP/M-86 HOST GET O output:\n%s\n", fixture.output);
+    }
+    assert(countOccurrences(fixture.output, "GET HELLO.A86: GET complete.") == 2);
+    assert(strstr(fixture.output, "sidecar metadata file already exists") == NULL);
+
+    fixture.input = "A:HOST GET *.A86 O\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 12));
+    if (countOccurrences(fixture.output, "GET HELLO.A86: complete.") != 1 ||
+        countOccurrences(fixture.output, "GET OTHER.A86: complete.") != 2 ||
+        countOccurrences(fixture.output, "GET HOST.A86: complete.") != 1 ||
+        strstr(fixture.output, "sidecar metadata file already exists") != NULL)
+    {
+      fprintf(stderr, "CP/M-86 HOST wildcard GET O output:\n%s\n", fixture.output);
+    }
+    assert(countOccurrences(fixture.output, "GET HELLO.A86: complete.") == 1);
+    assert(countOccurrences(fixture.output, "GET OTHER.A86: complete.") == 2);
+    assert(countOccurrences(fixture.output, "GET HOST.A86: complete.") == 1);
+    assert(strstr(fixture.output, "sidecar metadata file already exists") == NULL);
+
     assert(imageClose(&hostBuildDisk));
     hostExchangeClose(&exchange);
     assert(unlink(exchangeSourcePath) == 0);
@@ -1856,6 +1884,43 @@ static void testCpm80GuestBoot(void)
   }
   assert(instructions < 17000000);
   assert(strstr(fixture.output, "INPUT2   HST") != NULL);
+
+  instructions = 0;
+  const char *overwriteCommands[] = {"A:HOST GET INPUT.BIN O\r", "ERA E:INPUT.BIN\r",
+                                     "A:HOST GET INPUT.BIN\r", "A:HOST GET INPUT.BIN O\r"};
+  size_t completeCountBefore = countOccurrences(fixture.output, "GET complete.");
+  size_t sidecarCountBefore =
+      countOccurrences(fixture.output, "GET INPUT.BIN: sidecar metadata file already exists.");
+  for (size_t commandIndex = 0; commandIndex < 4; ++commandIndex)
+  {
+    priorWorkPrompts = countOccurrences(fixture.output, "E>");
+    fixture.input = overwriteCommands[commandIndex];
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
+           instructions < 10000000)
+    {
+      size_t executed = cpm80GuestRunFor(&guest, 10000);
+      assert(executed > 0);
+      instructions += executed;
+    }
+    assert(instructions < 10000000);
+    if (commandIndex == 0)
+    {
+      assert(countOccurrences(fixture.output, "GET complete.") == completeCountBefore + 1);
+    }
+    if (commandIndex == 2)
+    {
+      assert(countOccurrences(fixture.output,
+                              "GET INPUT.BIN: sidecar metadata file already exists.") ==
+             sidecarCountBefore + 1);
+    }
+    if (commandIndex == 3)
+    {
+      assert(countOccurrences(fixture.output, "GET complete.") == completeCountBefore + 2);
+    }
+  }
+  instructions = 0;
 
   priorWorkPrompts = countOccurrences(fixture.output, "E>");
   fixture.input = "A:HOST GET INPUT.BIN\r";

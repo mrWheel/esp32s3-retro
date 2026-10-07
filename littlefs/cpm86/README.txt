@@ -20,10 +20,12 @@ system.dsk
   Contains CPM.SYS, ASM86.CMD, ED.CMD, GENCMD.CMD, HOST.CMD, and PIP.CMD.
 
 HOST.CMD
-  Project-authored native CP/M-86 HOST DIR/GET/PUT utility (6,912 bytes,
+  Project-authored native CP/M-86 HOST DIR/GET/PUT utility (7,040 bytes,
   including final CP/M record padding). Built from guest/cpm86/host/HOST.A86
   with the supplied ASM86.CMD and GENCMD.CMD. Supports CP/M `*` and `?`
   wildcards for GET and PUT, reports per-file errors, and continues.
+  Add an O after a GET (for example A:HOST GET *.* O) to overwrite existing
+  files and their NAME.HST sidecars.
 
 Resource sizes, the on-disk directory, the BIOS overlay and the
 RETRO86_V1 boot prompt plus DIR listing are checked by tests/hostTests.c. This
