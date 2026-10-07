@@ -4,7 +4,7 @@
 ; The resulting raw COM image starts at 0100h.
 ;
 ; Exchange ABI: immediate byte IN/OUT on F8h; abort is OUT (F9h),00h.
-; Host commands: 1 DIR, 2 GET, 3 PUT.
+; Host commands: 1 DIR, 2 GET, 3 PUT. GET and PUT accept CP/M wildcards.
 
         org     0100h
 
@@ -37,6 +37,14 @@ start:
         jp      nz,userAreaRejected
         call    copyAndValidateFcb
         jp      c,badCommand
+        ld      a,(wildcardActive)
+        or      a
+        jp      z,startSingleCommand
+        ld      a,(commandKind)
+        cp      2
+        jp      z,commandGetWildcard
+        jp      commandPutWildcard
+startSingleCommand:
         ld      a,(commandKind)
         cp      2
         jp      z,commandGet
@@ -246,6 +254,9 @@ copyCcpName:
         inc     hl
         inc     de
         djnz    copyCcpName
+        call    normalizeWildcards
+        xor     a
+        ld      (wildcardActive),a
         ld      hl,workFcb+1
         ld      b,11
         ld      c,0
@@ -254,10 +265,13 @@ copyCcpName:
         jp      z,invalidFcb
 validateFcbName:
         ld      a,(hl)
-        cp      '*'
-        jp      z,invalidFcb
         cp      '?'
-        jp      z,invalidFcb
+        jp      nz,validateFcbSpace
+        ld      a,1
+        ld      (wildcardActive),a
+        jp      validateFcbNext
+validateFcbSpace:
+        ld      a,(hl)
         cp      ' '
         jp      z,validateFcbNext
         ld      c,1
@@ -272,6 +286,36 @@ validateFcbNext:
         ret
 invalidFcb:
         scf
+        ret
+
+normalizeWildcards:
+        ld      hl,workFcb+1
+        ld      b,8
+normalizeBase:
+        ld      a,(hl)
+        cp      '*'
+        jp      z,normalizeBaseFill
+        inc     hl
+        djnz    normalizeBase
+        jp      normalizeExtensionStart
+normalizeBaseFill:
+        ld      (hl),'?'
+        inc     hl
+        djnz    normalizeBaseFill
+normalizeExtensionStart:
+        ld      hl,workFcb+9
+        ld      b,3
+normalizeExtension:
+        ld      a,(hl)
+        cp      '*'
+        jp      z,normalizeExtensionFill
+        inc     hl
+        djnz    normalizeExtension
+        ret
+normalizeExtensionFill:
+        ld      (hl),'?'
+        inc     hl
+        djnz    normalizeExtensionFill
         ret
 
 initSideFcb:
@@ -332,7 +376,231 @@ dirListEnd:
         jp      nz,showHostError
         jp      terminate
 
+commandGetWildcard:
+        xor     a
+        ld      (wildcardCount),a
+        ld      hl,workFcb+1
+        ld      de,patternFcb
+        ld      bc,11
+        ldir
+        ld      a,1
+        call    sendByte
+        jp      c,operationAborted
+        call    readByte
+        jp      c,operationAborted
+        or      a
+        jp      nz,showHostError
+getWildcardReadName:
+        xor     a
+        ld      (hostNameLength),a
+        ld      (hostNameOverflow),a
+getWildcardReadCharacter:
+        call    readByte
+        jp      c,operationAborted
+        or      a
+        jp      z,getWildcardNameEnd
+        ld      (charValue),a
+        ld      a,(hostNameLength)
+        cp      12
+        jp      nc,getWildcardNameOverflow
+        ld      e,a
+        ld      d,0
+        ld      hl,hostFilename
+        add     hl,de
+        ld      a,(charValue)
+        ld      (hl),a
+        ld      a,(hostNameLength)
+        inc     a
+        ld      (hostNameLength),a
+        jp      getWildcardReadCharacter
+getWildcardNameOverflow:
+        ld      a,1
+        ld      (hostNameOverflow),a
+        jp      getWildcardReadCharacter
+getWildcardNameEnd:
+        ld      a,(hostNameOverflow)
+        or      a
+        jp      nz,getWildcardReadName
+        ld      a,(hostNameLength)
+        or      a
+        jp      z,getWildcardListEnd
+        ld      e,a
+        ld      d,0
+        ld      hl,hostFilename
+        add     hl,de
+        xor     a
+        ld      (hl),a
+        call    convertHostName
+        jp      c,getWildcardReadName
+        ld      a,(candidateName+8)
+        cp      'H'
+        jp      nz,getWildcardCheckPattern
+        ld      a,(candidateName+9)
+        cp      'S'
+        jp      nz,getWildcardCheckPattern
+        ld      a,(candidateName+10)
+        cp      'T'
+        jp      z,getWildcardReadName
+getWildcardCheckPattern:
+        call    matchHostName
+        jp      c,getWildcardReadName
+        ld      a,1
+        ld      (wildcardCount),a
+        ld      hl,candidateName
+        ld      de,workFcb+1
+        ld      bc,11
+        ldir
+        ld      hl,workFcb+12
+        ld      b,24
+        xor     a
+getWildcardClearFcb:
+        ld      (hl),a
+        inc     hl
+        djnz    getWildcardClearFcb
+        call    initSideFcb
+        call    commandGetSingle
+getWildcardListEnd:
+        call    readByte
+        jp      c,operationAborted
+        or      a
+        jp      nz,showHostError
+        ld      a,(wildcardCount)
+        or      a
+        jp      nz,getWildcardFinished
+        ld      de,msgNoMatches
+        call    printString
+        jp      terminate
+getWildcardFinished:
+        jp      printGetDone
+
+convertHostName:
+        ld      hl,candidateName
+        ld      b,11
+        ld      a,' '
+convertHostClearCandidate:
+        ld      (hl),a
+        inc     hl
+        djnz    convertHostClearCandidate
+        xor     a
+        ld      (hostNameExtension),a
+        ld      (candidatePosition),a
+        ld      (candidateBaseLength),a
+        ld      hl,hostFilename
+        ld      (hostSourcePointer),hl
+convertHostCharacter:
+        ld      hl,(hostSourcePointer)
+        ld      a,(hl)
+        or      a
+        jp      z,convertHostDone
+        inc     hl
+        ld      (hostSourcePointer),hl
+        cp      '.'
+        jp      z,convertHostDot
+        cp      'a'
+        jp      c,convertHostUppercaseDone
+        cp      'z'+1
+        jp      nc,convertHostUppercaseDone
+        sub     20h
+convertHostUppercaseDone:
+        call    validHostNameCharacter
+        jp      c,convertHostInvalid
+        ld      e,a
+        ld      a,(hostNameExtension)
+        or      a
+        jp      nz,convertHostStoreExtension
+        ld      a,(candidateBaseLength)
+        cp      8
+        jp      nc,convertHostInvalid
+        inc     a
+        ld      (candidateBaseLength),a
+        ld      c,a
+        dec     c
+        ld      b,0
+        ld      hl,candidateName
+        add     hl,bc
+        ld      a,e
+        ld      (hl),a
+        jp      convertHostCharacter
+convertHostStoreExtension:
+        ld      a,(candidatePosition)
+        cp      11
+        jp      nc,convertHostInvalid
+        ld      c,a
+        ld      b,0
+        ld      hl,candidateName
+        add     hl,bc
+        ld      a,e
+        ld      (hl),a
+        ld      a,(candidatePosition)
+        inc     a
+        ld      (candidatePosition),a
+        jp      convertHostCharacter
+convertHostDot:
+        ld      a,(hostNameExtension)
+        or      a
+        jp      nz,convertHostInvalid
+        ld      a,(candidateBaseLength)
+        or      a
+        jp      z,convertHostInvalid
+        ld      a,1
+        ld      (hostNameExtension),a
+        ld      a,8
+        ld      (candidatePosition),a
+        jp      convertHostCharacter
+convertHostDone:
+        ld      a,(candidateBaseLength)
+        or      a
+        jp      z,convertHostInvalid
+        or      a
+        ret
+convertHostInvalid:
+        scf
+        ret
+
+validHostNameCharacter:
+        cp      'A'
+        jp      c,validHostNameCheckDigit
+        cp      'Z'+1
+        jp      c,validHostNameGood
+validHostNameCheckDigit:
+        cp      '0'
+        jp      c,validHostNameCheckSymbol
+        cp      '9'+1
+        jp      c,validHostNameGood
+validHostNameCheckSymbol:
+        cp      '_'
+        jp      z,validHostNameGood
+        cp      '-'
+        jp      z,validHostNameGood
+        scf
+        ret
+validHostNameGood:
+        or      a
+        ret
+
+matchHostName:
+        ld      hl,patternFcb
+        ld      de,candidateName
+        ld      b,11
+matchHostNameByte:
+        ld      a,(hl)
+        cp      '?'
+        jp      z,matchHostNameNext
+        ld      a,(de)
+        cp      (hl)
+        jp      nz,matchHostNameBad
+matchHostNameNext:
+        inc     hl
+        inc     de
+        djnz    matchHostNameByte
+        or      a
+        ret
+matchHostNameBad:
+        scf
+        ret
+
 commandGet:
+commandGetSingle:
         xor     a
         ld      (workOpen),a
         ld      (workCreated),a
@@ -437,6 +705,9 @@ getPayloadCrc:
         jp      z,getFailure
         call    writeSidecar
         jp      c,getFailure
+        ld      a,(wildcardActive)
+        or      a
+        jp      nz,getWildcardReadName
         jp      printGetDone
 
 getFailure:
@@ -477,14 +748,28 @@ sidecarAbsent:
         ret
 
 sidecarExists:
+        ld      a,(wildcardActive)
+        or      a
+        jp      nz,getWildcardSidecarExists
         ld      de,msgSidecarExists
         call    printString
         jp      terminate
+getWildcardSidecarExists:
+        ld      de,msgSidecarExists
+        call    printString
+        jp      getWildcardReadName
 
 targetExists:
+        ld      a,(wildcardActive)
+        or      a
+        jp      nz,getWildcardTargetExists
         ld      de,msgTargetExists
         call    printString
         jp      terminate
+getWildcardTargetExists:
+        ld      de,msgTargetExists
+        call    printString
+        jp      getWildcardReadName
 
 copyGetLengthToRemaining:
         ld      hl,getLength
@@ -700,9 +985,171 @@ closeWorkFile:
         ld      a,(statusValue)
         ret
 
+commandPutWildcard:
+        xor     a
+        ld      (wildcardCount),a
+        ld      (wildcardIndex),a
+        ld      hl,workFcb
+        ld      de,searchFcb
+        ld      bc,36
+        ldir
+        ld      de,recordBuffer
+        ld      c,26
+        call    bdos
+        ld      de,searchFcb
+        ld      c,17
+        call    bdos
+putWildcardSearchResult:
+        cp      0ffh
+        jp      z,putWildcardCollected
+        ld      (searchResult),a
+        ld      l,a
+        ld      h,0
+        add     hl,hl
+        add     hl,hl
+        add     hl,hl
+        add     hl,hl
+        add     hl,hl
+        ld      de,recordBuffer+1
+        add     hl,de
+        ld      de,candidateName
+        ld      b,11
+putWildcardSaveName:
+        ld      a,(hl)
+        and     07fh
+        ld      (de),a
+        inc     hl
+        inc     de
+        djnz    putWildcardSaveName
+        ld      a,(candidateName+8)
+        cp      'H'
+        jp      nz,putWildcardCheckDuplicate
+        ld      a,(candidateName+9)
+        cp      'S'
+        jp      nz,putWildcardCheckDuplicate
+        ld      a,(candidateName+10)
+        cp      'T'
+        jp      z,putWildcardSearchNext
+putWildcardCheckDuplicate:
+        ld      a,(wildcardCount)
+        ld      b,a
+        ld      hl,fileList
+putWildcardDuplicateLoop:
+        ld      a,b
+        or      a
+        jp      z,putWildcardAddName
+        push    bc
+        push    hl
+        ld      de,candidateName
+        ld      c,11
+putWildcardCompareName:
+        ld      a,(de)
+        cp      (hl)
+        jp      nz,putWildcardDuplicateNo
+        inc     de
+        inc     hl
+        dec     c
+        jp      nz,putWildcardCompareName
+        pop     hl
+        pop     bc
+        jp      putWildcardSearchNext
+putWildcardDuplicateNo:
+        pop     hl
+        pop     bc
+        ld      de,11
+        add     hl,de
+        dec     b
+        jp      putWildcardDuplicateLoop
+putWildcardAddName:
+        ld      a,(wildcardCount)
+        cp      128
+        jp      nc,putWildcardListFull
+        ld      b,a
+        ld      hl,fileList
+putWildcardFindListEnd:
+        ld      a,b
+        or      a
+        jp      z,putWildcardCopyName
+        ld      de,11
+        add     hl,de
+        dec     b
+        jp      putWildcardFindListEnd
+putWildcardCopyName:
+        ex      de,hl
+        ld      hl,candidateName
+        ld      b,11
+putWildcardStoreName:
+        ld      a,(hl)
+        ld      (de),a
+        inc     hl
+        inc     de
+        djnz    putWildcardStoreName
+        ld      a,(wildcardCount)
+        inc     a
+        ld      (wildcardCount),a
+        jp      putWildcardSearchNext
+putWildcardListFull:
+        ld      de,msgListFull
+        call    printString
+        jp      terminate
+putWildcardSearchNext:
+        ld      de,searchFcb
+        ld      c,18
+        call    bdos
+        jp      putWildcardSearchResult
+putWildcardCollected:
+        ld      a,(wildcardCount)
+        or      a
+        jp      nz,putWildcardLoadFile
+        ld      de,msgNoMatches
+        call    printString
+        jp      terminate
+putWildcardLoadFile:
+        ld      a,(wildcardIndex)
+        ld      b,a
+        ld      hl,fileList
+putWildcardFindFile:
+        ld      a,b
+        or      a
+        jp      z,putWildcardFileReady
+        ld      de,11
+        add     hl,de
+        dec     b
+        jp      putWildcardFindFile
+putWildcardFileReady:
+        ld      de,workFcb+1
+        ld      b,11
+putWildcardCopyFile:
+        ld      a,(hl)
+        ld      (de),a
+        inc     hl
+        inc     de
+        djnz    putWildcardCopyFile
+        ld      hl,workFcb+12
+        ld      b,24
+        xor     a
+putWildcardClearFcb:
+        ld      (hl),a
+        inc     hl
+        djnz    putWildcardClearFcb
+        call    initSideFcb
+        jp      commandPutSingle
+putWildcardNext:
+        ld      a,(wildcardIndex)
+        inc     a
+        ld      (wildcardIndex),a
+        ld      b,a
+        ld      a,(wildcardCount)
+        cp      b
+        jp      nz,putWildcardLoadFile
+        ld      de,msgPutDone
+        call    printString
+        jp      terminate
+
 commandPut:
+commandPutSingle:
         call    scanSourceFile
-        jp      c,localFileError
+        jp      c,putLocalFileError
         call    loadAndValidateSidecar
         call    choosePutTransfer
         ld      a,3
@@ -736,16 +1183,35 @@ putSendCrc:
         call    readByte
         jp      c,operationAborted
         or      a
-        jp      nz,showHostError
+        jp      nz,putWildcardHostStatus
         call    streamPutPayload
         jp      c,putTransferFailure
         call    readByte
         jp      c,putTransferFailure
         or      a
         jp      nz,showHostError
+        ld      a,(wildcardActive)
+        or      a
+        jp      nz,putWildcardNext
         ld      de,msgPutDone
         call    printString
         jp      terminate
+
+putWildcardHostStatus:
+        ld      a,(wildcardActive)
+        or      a
+        jp      z,showHostError
+        ld      de,msgWildcardItemError
+        call    printString
+        jp      putWildcardNext
+
+putLocalFileError:
+        ld      a,(wildcardActive)
+        or      a
+        jp      z,localFileError
+        ld      de,msgLocalError
+        call    printString
+        jp      putWildcardNext
 
 putTransferFailure:
         xor     a
@@ -1385,10 +1851,36 @@ msgGetDone:
         db      "HOST: GET complete",13,10,"$"
 msgPutDone:
         db      "HOST: PUT complete",13,10,"$"
+msgNoMatches:
+        db      "HOST: no matching files",13,10,"$"
+msgListFull:
+        db      "HOST: wildcard match list full; no files transferred",13,10,"$"
+msgWildcardItemError:
+        db      "HOST: wildcard file transfer failed; continuing",13,10,"$"
 metadataMagic:
         db      "HST1"
 
 commandKind:
+        db      0
+wildcardActive:
+        db      0
+wildcardCount:
+        db      0
+wildcardIndex:
+        db      0
+searchResult:
+        db      0
+hostNameLength:
+        db      0
+hostNameOverflow:
+        db      0
+hostNameExtension:
+        db      0
+hostSourcePointer:
+        dw      0
+candidatePosition:
+        db      0
+candidateBaseLength:
         db      0
 abortFlag:
         db      0
@@ -1451,8 +1943,18 @@ roundedLength:
         ds      4,0
 workFcb:
         ds      36,0
+searchFcb:
+        ds      36,0
 sideFcb:
         ds      36,0
+patternFcb:
+        ds      11,0
+candidateName:
+        ds      11,0
+hostFilename:
+        ds      13,0
+fileList:
+        ds      1408,0
 recordBuffer:
         ds      128,0
 sideBuffer:

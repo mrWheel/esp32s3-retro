@@ -31,7 +31,7 @@ python3 tools/diskImage.py --os cpm86 -h
 
   `buildDiskImageCpm80.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance, non-commercial use scope and per-file hashes are in `components/cpm80Core/os/utilities/README.md`. No SD work image is generated; E: requires a separately prepared matching CP/M image.
 
-  `HOST.COM` is project-authored Z80 source at `components/cpm80Core/os/host/HOST.ASM`. To rebuild it on macOS, install the Z80 assembler with `brew install z80asm`, then run `z80asm -o components/cpm80Core/os/host/HOST.COM components/cpm80Core/os/host/HOST.ASM`. Rebuild `system.dsk` with `python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk` after assembling. The checked-in COM image and source are both covered by the SHA-256 inventory.
+  `HOST.COM` is project-authored Z80 source at `guest/cpm80/host/HOST.ASM`. To rebuild it on macOS, install the Z80 assembler with `brew install z80asm`, then run `z80asm -o guest/cpm80/host/HOST.COM guest/cpm80/host/HOST.ASM`. Rebuild `system.dsk` with `python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk` after assembling. The checked-in COM image and source are both covered by the SHA-256 inventory.
 
 ## Prepare CP/M disk images on macOS
 

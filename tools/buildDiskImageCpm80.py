@@ -138,7 +138,11 @@ def build_disk(project_root: Path, output_path: Path) -> None:
         next_directory_entry,
     )
     for filename in UTILITY_FILES:
-        source_directory = cpm_directory / "host" if filename == "HOST.COM" else utility_directory
+        source_directory = (
+            project_root / "guest" / "cpm80" / "host"
+            if filename == "HOST.COM"
+            else utility_directory
+        )
         utility_path = source_directory / filename
         if not utility_path.is_file():
             raise FileNotFoundError(f"Missing CP/M utility resource: {utility_path}")
@@ -160,7 +164,7 @@ def build_disk(project_root: Path, output_path: Path) -> None:
 
 DETAILS = (
     "Composes system.dsk from the checked-in CCP/BDOS binaries and pinned\n"
-    "utilities under components/cpm80Core/os (SYSTEM profile)."
+    "utilities under components/cpm80Core/os and guest/cpm80/host (SYSTEM profile)."
 )
 
 

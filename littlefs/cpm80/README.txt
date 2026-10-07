@@ -2,7 +2,7 @@ CP/M-80 LittleFS A: image.
 
 system.dsk is a 256,256-byte raw image with 77 tracks, 26 128-byte sectors per
 track, two reserved tracks and the read-only 8-inch SSSD DPB. Its SHA-256 is
-6fac335ccc4cdae950a53474697d3ffa225ae7eaf45347f7914505f999623de0.
+fdd39698993c325fc03c6f06be3a9335f5b71828cc95042875854fb198e28ab0.
 It contains the genuine CCP and BDOS, resident ERA/REN/TYPE/USER/DIR commands,
 HELLO.COM, WELCOME.TXT, the custom HOST.COM guest transfer utility and the CP/M utility set documented in
 components/cpm80Core/os/utilities/README.md. The 16-byte RETROCPM resource header

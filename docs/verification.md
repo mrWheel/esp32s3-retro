@@ -60,3 +60,18 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 - Result: PASS under AddressSanitizer and UndefinedBehaviorSanitizer. The genuine CCP/BDOS guest ran `HOST DIR`; imported and exported a 777-byte binary containing NUL, `0x1A`, high-bit bytes and CR/LF with exact-byte equality; refused a duplicate destination; and refused an existing `.HST` sidecar while the E: directory still showed that sidecar afterward.
 - ESP-IDF 6.0.2 ESP32-S3 `build`: PASS. `retroHost.bin` is 0xDEA00 bytes, within the 3 MiB app partition.
 - This verifies the host guest emulator path only. USER-area rejection after launching HOST in USER 1, cancellation/error cleanup, full E: media, physical SD and ESP32 transfer remain separate acceptance items. No device was flashed.
+
+## CP/M-80 guest utility relocation — 2026-10-07
+
+- Moved project-authored `HOST.ASM` and `HOST.COM` from `components/cpm80Core/os/host/` to `guest/cpm80/host/`; updated the system-image builder and documentation to use the guest-owned location.
+- Reassembled `guest/cpm80/host/HOST.ASM` with z80asm and confirmed the output is byte-identical to `guest/cpm80/host/HOST.COM` (3,267 bytes, SHA-256 `bd74d9248023a2b082f8050208de8546febfdf353ad7dcaf868ab8bffe697758`).
+- `PYTHONPATH=tools python3 -m unittest discover -s tests -p 'test_diskImage.py' -v`: PASS, 7 tests; CP/M-80 system-image output remains byte-identical to the checked-in image.
+- `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`: PASS, including the host-side guest emulator test.
+- ESP-IDF 6.0.2 ESP32-S3 `build`: PASS; `retroHost.bin` is 0xE8410 bytes (70% of the 3 MiB app partition remains free). No device was flashed.
+
+## CP/M-80 HOST wildcards — 2026-10-07
+
+- Added `*` and `?` pattern matching to CP/M-80 `HOST GET` and `HOST PUT`. Wildcard PUT collects unique BDOS matches before transfers, skips `.HST` metadata entries and reports an explicit overflow instead of exceeding its 128-file staging list.
+- The genuine CCP/BDOS host fixture imported multiple exchange files with `HOST GET *.BIN`, reported and continued after an existing local target, and verified the other file appears on E:. `HOST PUT *.BIN` continued after an existing host destination and round-tripped a 257-byte binary exactly; `HOST PUT INP?T.BIN` exercised `?`.
+- `cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`: PASS under ASan/UBSan. `PYTHONPATH=tools python3 -m unittest discover -s tests -p 'test_diskImage.py' -v`: PASS, 7 tests. Reassembly of `guest/cpm80/host/HOST.ASM` matches checked-in `HOST.COM` (5,759 bytes, SHA-256 `d7d8d96baa4cf42c3b18abcf67d721983c16185dc024e4de947c53ef922153e5`). Rebuilt `littlefs/cpm80/system.dsk` is 256,256 bytes, SHA-256 `fdd39698993c325fc03c6f06be3a9335f5b71828cc95042875854fb198e28ab0`; updated the runtime hash pin.
+- ESP-IDF 6.0.2 ESP32-S3 `build`: PASS; `retroHost.bin` is 0xE8410 bytes, with 70% of the 3 MiB app partition free. No device was flashed.
