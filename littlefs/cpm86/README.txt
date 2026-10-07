@@ -12,7 +12,9 @@ retro86bios.h86
   components/cpm86Core/bios/retro86bios.a86. It supplies the RETRO86_V1 BIOS
   routines for console and A:–F: disk I/O, with a DPB for 160 KiB images and a
   second DPB (EXM=0, 2 KiB blocks, one 16 KiB extent per
-  directory entry) for 516 KiB RETRO86_DATA_LARGE_V1 images.
+  directory entry) for 516 KiB RETRO86_DATA_LARGE_V1 images, and a third
+  DPB (16 KiB blocks, EXM=7, 512 directory entries, DSM=511) for 8 MiB
+  RETRO86_DATA_BIG_V1 images.
 
 system.dsk
   Raw, 160 KiB, 40 tracks, 8 physical 512-byte sectors per track. Track 0 is

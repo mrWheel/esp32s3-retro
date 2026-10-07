@@ -31,7 +31,8 @@ typedef struct
 {
   imageFile image;
   bool configured;
-  bool large;
+  uint32_t tracks;
+  uint8_t geometryCode;
 } cpm86DiskDrive;
 
 typedef struct
@@ -55,9 +56,7 @@ static bool diskRecordOffset(uint64_t *offset)
 {
   if (offset == NULL || diskController.drive >= cpm86DiskDriveCount ||
       !diskController.drives[diskController.drive].configured || diskController.track == 0 ||
-      diskController.track >= (diskController.drives[diskController.drive].large
-                                   ? cpm86LargeDiskTracks
-                                   : cpm86SystemDiskTracks) ||
+      diskController.track >= diskController.drives[diskController.drive].tracks ||
       diskController.sector >= 32)
   {
     return false;
@@ -106,7 +105,7 @@ static bool portRead(void *context, uint16_t port, uint8_t *value)
   {
     bool available = diskController.drive < cpm86DiskDriveCount &&
                      diskController.drives[diskController.drive].configured;
-    *value = !available ? 0 : diskController.drives[diskController.drive].large ? 0x01 : 0xFF;
+    *value = !available ? 0 : diskController.drives[diskController.drive].geometryCode;
     return true;
   }
   return false;
@@ -359,9 +358,21 @@ esp_err_t cpm86MachineInitialize(void)
       continue;
     }
     uint64_t diskSize;
-    uint64_t expectedSize = driveConfig[drive].profile == cpm86DiskProfileDataLarge
-                                ? cpm86LargeDiskSize
-                                : cpm86SystemDiskSize;
+    uint64_t expectedSize = cpm86SystemDiskSize;
+    uint32_t tracks = cpm86SystemDiskTracks;
+    uint8_t geometryCode = 0xFF;
+    if (driveConfig[drive].profile == cpm86DiskProfileDataLarge)
+    {
+      expectedSize = cpm86LargeDiskSize;
+      tracks = cpm86LargeDiskTracks;
+      geometryCode = 0x01;
+    }
+    else if (driveConfig[drive].profile == cpm86DiskProfileDataBig)
+    {
+      expectedSize = cpm86BigDiskSize;
+      tracks = cpm86BigDiskTracks;
+      geometryCode = 0x02;
+    }
     if (!resourceSize(driveConfig[drive].path, &diskSize) || diskSize != expectedSize)
     {
       if (drive == 0)
@@ -387,7 +398,8 @@ esp_err_t cpm86MachineInitialize(void)
                driveConfig[drive].path);
       continue;
     }
-    diskController.drives[drive].large = driveConfig[drive].profile == cpm86DiskProfileDataLarge;
+    diskController.drives[drive].tracks = tracks;
+    diskController.drives[drive].geometryCode = geometryCode;
     diskController.drives[drive].configured = true;
   }
   if (!diskController.drives[0].configured)

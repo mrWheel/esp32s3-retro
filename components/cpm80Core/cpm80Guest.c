@@ -14,7 +14,7 @@ enum
   cpm80BiosCsvAddress = 0xDB30,
   cpm80BiosAlvAddress = 0xDB40,
   cpm80BiosAdditionalDphAddress = 0xDB60,
-  cpm80BiosAdditionalDriveStride = 0x00E0,
+  cpm80BiosAdditionalDriveStride = 0x0100,
   cpm80BiosAdditionalDpbOffset = 0x10,
   cpm80BiosAdditionalDirectoryBufferOffset = 0x20,
   cpm80BiosAdditionalCsvOffset = 0xA0,
@@ -22,6 +22,7 @@ enum
   cpm80BiosCsvSize = 16,
   cpm80BiosLargeCsvSize = 32,
   cpm80BiosAlvSize = 31,
+  cpm80BiosBigAlvSize = 64,
   cpm80BdosEntryAddress = cpm80BdosAddress + 6,
   cpm80VirtualDpbSpt = 26,
   cpm80VirtualDpbBsh = 3,
@@ -42,7 +43,16 @@ enum
   cpm80LargeVirtualDpbAl0 = 0xC0,
   cpm80LargeVirtualDpbAl1 = 0,
   cpm80LargeVirtualDpbCks = 32,
-  cpm80LargeVirtualDpbOff = 2
+  cpm80LargeVirtualDpbOff = 2,
+  cpm80BigVirtualDpbBsh = 7,
+  cpm80BigVirtualDpbBlm = 127,
+  cpm80BigVirtualDpbExm = 7,
+  cpm80BigVirtualDpbDsm = 511,
+  cpm80BigVirtualDpbDrm = 511,
+  cpm80BigVirtualDpbAl0 = 0x80,
+  cpm80BigVirtualDpbAl1 = 0,
+  cpm80BigVirtualDpbCks = 0,
+  cpm80BigVirtualDpbOff = 2
 };
 
 typedef enum
@@ -141,12 +151,21 @@ static void installBios(cpm80Guest *guest)
         drive == 0 ? cpm80BiosDirectoryBufferAddress : dphAddress + cpm80BiosAdditionalDirectoryBufferOffset;
     uint16_t csvAddress = drive == 0 ? cpm80BiosCsvAddress : dphAddress + cpm80BiosAdditionalCsvOffset;
     uint16_t alvAddress = drive == 0 ? cpm80BiosAlvAddress : dphAddress + cpm80BiosAdditionalAlvOffset;
-    bool large = guest->diskProfiles[drive] == cpm80DiskProfileLarge;
-    uint16_t spt = large ? cpm80LargeVirtualDpbSpt : cpm80VirtualDpbSpt;
-    uint16_t dsm = large ? cpm80LargeVirtualDpbDsm : cpm80VirtualDpbDsm;
-    uint16_t drm = large ? cpm80LargeVirtualDpbDrm : cpm80VirtualDpbDrm;
-    uint16_t cks = large ? cpm80LargeVirtualDpbCks : cpm80VirtualDpbCks;
-    uint16_t off = large ? cpm80LargeVirtualDpbOff : cpm80VirtualDpbOff;
+    cpm80DiskProfile profile = guest->diskProfiles[drive];
+    bool large = profile == cpm80DiskProfileLarge;
+    bool big = profile == cpm80DiskProfileBig;
+    uint16_t spt = cpm80DiskProfileSectorsPerTrack(profile);
+    uint16_t dsm = big ? cpm80BigVirtualDpbDsm : large ? cpm80LargeVirtualDpbDsm : cpm80VirtualDpbDsm;
+    uint16_t drm = big ? cpm80BigVirtualDpbDrm : large ? cpm80LargeVirtualDpbDrm : cpm80VirtualDpbDrm;
+    uint16_t cks = big ? cpm80BigVirtualDpbCks : large ? cpm80LargeVirtualDpbCks : cpm80VirtualDpbCks;
+    uint16_t off = big ? cpm80BigVirtualDpbOff : large ? cpm80LargeVirtualDpbOff : cpm80VirtualDpbOff;
+    uint8_t bsh = big ? cpm80BigVirtualDpbBsh : large ? cpm80LargeVirtualDpbBsh : cpm80VirtualDpbBsh;
+    uint8_t blm = big ? cpm80BigVirtualDpbBlm : large ? cpm80LargeVirtualDpbBlm : cpm80VirtualDpbBlm;
+    uint8_t exm = big ? cpm80BigVirtualDpbExm : large ? cpm80LargeVirtualDpbExm : cpm80VirtualDpbExm;
+    uint8_t al0 = big ? cpm80BigVirtualDpbAl0 : large ? cpm80LargeVirtualDpbAl0 : cpm80VirtualDpbAl0;
+    uint8_t al1 = big ? cpm80BigVirtualDpbAl1 : large ? cpm80LargeVirtualDpbAl1 : cpm80VirtualDpbAl1;
+    uint16_t csvSize = big ? 0 : large ? cpm80BiosLargeCsvSize : cpm80BiosCsvSize;
+    uint16_t alvSize = big ? cpm80BiosBigAlvSize : cpm80BiosAlvSize;
 
     memset(memory + dphAddress, 0, 16);
     writeWord(memory, dphAddress + 8, directoryBufferAddress);
@@ -154,18 +173,18 @@ static void installBios(cpm80Guest *guest)
     writeWord(memory, dphAddress + 12, csvAddress);
     writeWord(memory, dphAddress + 14, alvAddress);
     writeWord(memory, dpbAddress, spt);
-    memory[dpbAddress + 2] = large ? cpm80LargeVirtualDpbBsh : cpm80VirtualDpbBsh;
-    memory[dpbAddress + 3] = large ? cpm80LargeVirtualDpbBlm : cpm80VirtualDpbBlm;
-    memory[dpbAddress + 4] = large ? cpm80LargeVirtualDpbExm : cpm80VirtualDpbExm;
+    memory[dpbAddress + 2] = bsh;
+    memory[dpbAddress + 3] = blm;
+    memory[dpbAddress + 4] = exm;
     writeWord(memory, dpbAddress + 5, dsm);
     writeWord(memory, dpbAddress + 7, drm);
-    memory[dpbAddress + 9] = large ? cpm80LargeVirtualDpbAl0 : cpm80VirtualDpbAl0;
-    memory[dpbAddress + 10] = large ? cpm80LargeVirtualDpbAl1 : cpm80VirtualDpbAl1;
+    memory[dpbAddress + 9] = al0;
+    memory[dpbAddress + 10] = al1;
     writeWord(memory, dpbAddress + 11, cks);
     writeWord(memory, dpbAddress + 13, off);
     memset(memory + directoryBufferAddress, 0, cpm80DiskSectorSize);
-    memset(memory + csvAddress, 0, large ? cpm80BiosLargeCsvSize : cpm80BiosCsvSize);
-    memset(memory + alvAddress, 0, cpm80BiosAlvSize);
+    memset(memory + csvAddress, 0, csvSize);
+    memset(memory + alvAddress, 0, alvSize);
   }
 
   for (uint8_t function = 0; function < cpm80BiosFunctionCount; ++function)
@@ -247,14 +266,58 @@ static bool readConsoleCharacter(cpm80Guest *guest, uint8_t *character)
   return false;
 }
 
+uint16_t cpm80DiskProfileSectorsPerTrack(cpm80DiskProfile profile)
+{
+  switch (profile)
+  {
+  case cpm80DiskProfileBig:
+    return cpm80BigDiskSectorsPerTrack;
+  case cpm80DiskProfileLarge:
+    return cpm80LargeDiskSectorsPerTrack;
+  default:
+    return cpm80DiskSectorsPerTrack;
+  }
+}
+
+uint16_t cpm80DiskProfileTracks(cpm80DiskProfile profile)
+{
+  return profile == cpm80DiskProfileBig ? cpm80BigDiskTracks : cpm80DiskTracks;
+}
+
+uint64_t cpm80DiskProfileImageSize(cpm80DiskProfile profile)
+{
+  switch (profile)
+  {
+  case cpm80DiskProfileBig:
+    return cpm80BigImageSize;
+  case cpm80DiskProfileLarge:
+    return cpm80LargeImageSize;
+  default:
+    return cpm80SystemImageSize;
+  }
+}
+
+const char *cpm80DiskProfileName(cpm80DiskProfile profile)
+{
+  switch (profile)
+  {
+  case cpm80DiskProfileBig:
+    return "BIG";
+  case cpm80DiskProfileLarge:
+    return "LARGE";
+  default:
+    return "SYSTEM";
+  }
+}
+
 static uint16_t sectorsPerTrack(cpm80DiskProfile profile)
 {
-  return profile == cpm80DiskProfileLarge ? cpm80LargeDiskSectorsPerTrack : cpm80DiskSectorsPerTrack;
+  return cpm80DiskProfileSectorsPerTrack(profile);
 }
 
 static bool diskPositionValid(const cpm80Guest *guest)
 {
-  return guest->selectedDrive < cpm80DiskDriveCount && guest->currentTrack < cpm80DiskTracks &&
+  return guest->selectedDrive < cpm80DiskDriveCount && guest->currentTrack < cpm80DiskProfileTracks(guest->diskProfiles[guest->selectedDrive]) &&
          guest->currentSector < sectorsPerTrack(guest->diskProfiles[guest->selectedDrive]);
 }
 
@@ -422,7 +485,8 @@ bool cpm80GuestInitialize(cpm80Guest *guest, const cpm80HostOps *host, const uin
   {
     if (host->diskDriveAvailable(host->context, drive) &&
         (!host->diskDriveProfile(host->context, drive, &guest->diskProfiles[drive]) ||
-         (guest->diskProfiles[drive] != cpm80DiskProfileSystem && guest->diskProfiles[drive] != cpm80DiskProfileLarge)))
+         (guest->diskProfiles[drive] != cpm80DiskProfileSystem && guest->diskProfiles[drive] != cpm80DiskProfileLarge &&
+          guest->diskProfiles[drive] != cpm80DiskProfileBig)))
     {
       memset(guest, 0, sizeof(*guest));
       return false;

@@ -529,6 +529,7 @@ typedef struct
 {
   imageFile *disks[cpm86DiskDriveCount];
   bool largeDisks[cpm86DiskDriveCount];
+  bool bigDisks[cpm86DiskDriveCount];
   uint8_t record[128];
   uint16_t track;
   uint16_t sector;
@@ -572,7 +573,7 @@ static bool cpm86BootPortRead(void *context, uint16_t port, uint8_t *value)
   if (port == 0x00EF)
   {
     bool available = fixture->drive < cpm86DiskDriveCount && fixture->disks[fixture->drive] != NULL;
-    *value = !available ? 0 : fixture->largeDisks[fixture->drive] ? 0x01 : 0xFF;
+    *value = !available ? 0 : fixture->bigDisks[fixture->drive] ? 0x02 : fixture->largeDisks[fixture->drive] ? 0x01 : 0xFF;
     return true;
   }
   if (port == 0x00EE && fixture->reading && fixture->transferIndex < sizeof(fixture->record))
@@ -591,7 +592,8 @@ static bool cpm86BootDiskOffset(cpm86BootFixture *fixture, uint64_t *offset)
 {
   if (fixture->drive >= cpm86DiskDriveCount || fixture->disks[fixture->drive] == NULL ||
       offset == NULL || fixture->track == 0 ||
-      fixture->track >= (fixture->largeDisks[fixture->drive] ? 129 : 40) || fixture->sector >= 32)
+      fixture->track >= (fixture->bigDisks[fixture->drive] ? 2049 : fixture->largeDisks[fixture->drive] ? 129 : 40) ||
+      fixture->sector >= 32)
   {
     return false;
   }
@@ -745,6 +747,52 @@ static bool runCpm86UntilPrompt(cpm86Core *core, cpm86BootFixture *fixture, cons
             fixture->output);
   }
   return reachedPrompt;
+}
+
+//-- Builds a RETRO86_DATA_BIG_V1 image the way tools/diskImageCpm.py does: 16 KiB blocks, 16-bit block
+//-- pointers, EXM 7, one 16 KiB directory block. The file uses block 1 and the far block 300.
+static void writeCpm86BigTextImage(const char *path, size_t lineCount)
+{
+  enum
+  {
+    imageBytes = 8392704,
+    reservedBytes = 4096,
+    blockBytes = 16384,
+    farBlock = 300
+  };
+  size_t fileBytes = lineCount * 7;
+  assert(fileBytes > blockBytes && fileBytes <= 2 * blockBytes);
+  size_t recordCount = (fileBytes + 127) / 128;
+  uint8_t *content = malloc(2 * blockBytes);
+  assert(content != NULL);
+  memset(content, 0x1A, 2 * blockBytes);
+  for (size_t line = 0; line < lineCount; ++line)
+  {
+    char text[8];
+    snprintf(text, sizeof(text), "L%04u\r\n", (unsigned)(line + 1));
+    memcpy(content + line * 7, text, 7);
+  }
+  uint8_t directory[blockBytes];
+  memset(directory, 0xE5, sizeof(directory));
+  memset(directory, 0, 32);
+  memcpy(directory + 1, "BIG     TXT", 11);
+  directory[12] = (uint8_t)((recordCount - 1) / 128);
+  directory[15] = (uint8_t)(recordCount - 128);
+  directory[16] = 1;
+  directory[18] = (uint8_t)(farBlock & 0xFF);
+  directory[19] = (uint8_t)(farBlock >> 8);
+
+  FILE *file = fopen(path, "wb");
+  assert(file != NULL);
+  assert(ftruncate(fileno(file), imageBytes) == 0);
+  assert(fseek(file, reservedBytes, SEEK_SET) == 0);
+  assert(fwrite(directory, 1, sizeof(directory), file) == sizeof(directory));
+  assert(fseek(file, reservedBytes + 1L * blockBytes, SEEK_SET) == 0);
+  assert(fwrite(content, 1, blockBytes, file) == blockBytes);
+  assert(fseek(file, reservedBytes + (long)farBlock * blockBytes, SEEK_SET) == 0);
+  assert(fwrite(content + blockBytes, 1, blockBytes, file) == blockBytes);
+  assert(fclose(file) == 0);
+  free(content);
 }
 
 //-- Builds a RETRO86_DATA_LARGE_V1 image the way tools/diskImageCpm.py does: 2 KiB blocks, one
@@ -994,6 +1042,44 @@ static void testCpm86Boot(void)
   assert(fixture.diskReadFailures == 0);
   assert(imageClose(&textDisk));
   assert(unlink(textDiskPath) == 0);
+
+  //-- A 16,800 byte file in blocks 1 and 300 of an 8 MiB BIG drive: the BIOS must select DPB2 (EF=2),
+  //-- and the BDOS must follow 16-bit block pointers and EX=1 with the BIG track range.
+  const size_t bigLineCount = 2400;
+  char bigDiskPath[] = "/tmp/cpm86-big-text-XXXXXX";
+  int bigDescriptor = mkstemp(bigDiskPath);
+  assert(bigDescriptor >= 0);
+  close(bigDescriptor);
+  writeCpm86BigTextImage(bigDiskPath, bigLineCount);
+  imageFile bigDisk = {0};
+  assert(imageOpen(&bigDisk, bigDiskPath, true));
+  assert(imageSize(&bigDisk) == 8392704);
+  fixture.disks[3] = &bigDisk;
+  fixture.largeDisks[3] = false;
+  fixture.bigDisks[3] = true;
+  fixture.outputLength = 0;
+  fixture.output[0] = '\0';
+  fixture.input = "D:\rTYPE BIG.TXT\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompt(core, &fixture, "D>", 2));
+  typed = fixture.output;
+  for (size_t line = 1; line <= bigLineCount; ++line)
+  {
+    char expected[8];
+    snprintf(expected, sizeof(expected), "L%04u\r\n", (unsigned)line);
+    typed = strstr(typed, expected);
+    if (typed == NULL)
+    {
+      fprintf(stderr, "CP/M-86 BIG TYPE lost line %zu of %zu\n", line, bigLineCount);
+    }
+    assert(typed != NULL);
+    typed += 7;
+  }
+  assert(fixture.diskReadFailures == 0);
+  assert(imageClose(&bigDisk));
+  assert(unlink(bigDiskPath) == 0);
+  fixture.bigDisks[3] = false;
 
   if (hostBuildDiskPath != NULL)
   {
@@ -1321,7 +1407,7 @@ static void testCpm86DriveConfig(void)
       "A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM_V1\r\n"
       "B=/retro/images/cpm86/languages.dsk,RO,RETRO86_DATA_V1\n"
       "C=/retro/images/cpm86/tools.dsk,RO,RETRO86_DATA_V1\n"
-      "D=/retro/images/cpm86/utilities.dsk,RO,RETRO86_DATA_V1\n"
+      "D=/retro/images/cpm86/utilities.dsk,RO,RETRO86_DATA_BIG_V1\n"
       "E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_V1\n"
       "F=/retro/images/cpm86/archive.dsk,RW,RETRO86_DATA_LARGE_V1\n";
   char configPath[] = "/tmp/cpm86-drives-config-test-XXXXXX";
@@ -1338,6 +1424,7 @@ static void testCpm86DriveConfig(void)
   assert(drives[0].configured && drives[0].profile == cpm86DiskProfileSystem && drives[0].readOnly);
   assert(strcmp(drives[1].path, "/microSD/retro/images/cpm86/languages.dsk") == 0);
   assert(drives[1].configured && drives[1].profile == cpm86DiskProfileData && drives[1].readOnly);
+  assert(drives[3].configured && drives[3].profile == cpm86DiskProfileDataBig && drives[3].readOnly);
   assert(strcmp(drives[4].path, "/microSD/retro/images/cpm86/work86.dsk") == 0);
   assert(drives[4].configured && drives[4].profile == cpm86DiskProfileData && !drives[4].readOnly);
   assert(strcmp(drives[5].path, "/microSD/retro/images/cpm86/archive.dsk") == 0);
@@ -1471,10 +1558,8 @@ static bool cpm80TestDiskRead(void *context, uint8_t drive, uint16_t track, uint
   {
     return false;
   }
-  uint16_t sectorsPerTrack = fixture->diskProfiles[drive] == cpm80DiskProfileLarge
-                                 ? cpm80LargeDiskSectorsPerTrack
-                                 : cpm80DiskSectorsPerTrack;
-  if (fixture->disks[drive] == NULL || track >= cpm80DiskTracks || sector >= sectorsPerTrack)
+  uint16_t sectorsPerTrack = cpm80DiskProfileSectorsPerTrack(fixture->diskProfiles[drive]);
+  if (fixture->disks[drive] == NULL || track >= cpm80DiskProfileTracks(fixture->diskProfiles[drive]) || sector >= sectorsPerTrack)
   {
     return false;
   }
@@ -1490,10 +1575,8 @@ static bool cpm80TestDiskWrite(void *context, uint8_t drive, uint16_t track, uin
   {
     return false;
   }
-  uint16_t sectorsPerTrack = fixture->diskProfiles[drive] == cpm80DiskProfileLarge
-                                 ? cpm80LargeDiskSectorsPerTrack
-                                 : cpm80DiskSectorsPerTrack;
-  if (fixture->disks[drive] == NULL || !fixture->writableDrives[drive] || track >= cpm80DiskTracks ||
+  uint16_t sectorsPerTrack = cpm80DiskProfileSectorsPerTrack(fixture->diskProfiles[drive]);
+  if (fixture->disks[drive] == NULL || !fixture->writableDrives[drive] || track >= cpm80DiskProfileTracks(fixture->diskProfiles[drive]) ||
       sector >= sectorsPerTrack)
   {
     return false;
@@ -1595,6 +1678,33 @@ static void testCpm80GuestBoot(void)
   uint64_t largeDirectoryOffset = 2U * cpm80LargeDiskSectorsPerTrack * cpm80DiskSectorSize;
   assert(imageWriteAt(&largeDisk, largeDirectoryOffset, largeEmptyDirectory, sizeof(largeEmptyDirectory)));
   assert(imageFlush(&largeDisk));
+  char bigDiskPath[] = "cpm-big-test-XXXXXX";
+  int bigDiskDescriptor = mkstemp(bigDiskPath);
+  assert(bigDiskDescriptor >= 0);
+  assert(ftruncate(bigDiskDescriptor, cpm80BigImageSize) == 0);
+  close(bigDiskDescriptor);
+  imageFile bigDisk = {0};
+  assert(imageOpen(&bigDisk, bigDiskPath, false));
+  //-- BIG.TXT: 140 records over two 16 KiB blocks (1 and 300, so a 16-bit pointer) in one directory entry
+  //-- that spans two logical extents (EX=1, RC=12).
+  uint8_t bigDirectory[cpm80BigDiskDirectoryEntries * 32];
+  memset(bigDirectory, 0xE5, sizeof(bigDirectory));
+  const uint8_t bigEntry[32] = {0x00, 'B', 'I', 'G', ' ', ' ', ' ', ' ', ' ', 'T', 'X', 'T', 0x01, 0x00, 0x00,
+                                0x0C, 0x01, 0x00, 0x2C, 0x01};
+  memcpy(bigDirectory, bigEntry, sizeof(bigEntry));
+  uint64_t bigDirectoryOffset = 2U * cpm80BigDiskSectorsPerTrack * cpm80DiskSectorSize;
+  assert(imageWriteAt(&bigDisk, bigDirectoryOffset, bigDirectory, sizeof(bigDirectory)));
+  for (unsigned record = 0; record < 140; ++record)
+  {
+    uint8_t recordData[cpm80DiskSectorSize];
+    memset(recordData, ' ', sizeof(recordData));
+    snprintf((char *)recordData, 7, "REC%03u", record);
+    recordData[6] = ' ';
+    uint64_t block = record < 128 ? 1 : 300;
+    uint64_t offset = bigDirectoryOffset + block * cpm80BigDiskBlockSize + (record % 128) * cpm80DiskSectorSize;
+    assert(imageWriteAt(&bigDisk, offset, recordData, sizeof(recordData)));
+  }
+  assert(imageFlush(&bigDisk));
   assert(imageOpen(&disk, CPM80_SYSTEM_IMAGE_PATH, true));
   assert(imageSize(&disk) == cpm80SystemImageSize);
   uint8_t ccpImage[cpm80CcpSize];
@@ -1602,10 +1712,10 @@ static void testCpm80GuestBoot(void)
   assert(imageReadAt(&disk, 0, ccpImage, sizeof(ccpImage)));
   assert(imageReadAt(&disk, sizeof(ccpImage), bdosImage, sizeof(bdosImage)));
 
-  cpm80GuestFixture fixture = {.disks = {[0] = &disk, [1] = &disk, [4] = &writableDisk, [5] = &largeDisk},
-                             .availableDrives = {[0] = true, [1] = true, [4] = true, [5] = true},
+  cpm80GuestFixture fixture = {.disks = {[0] = &disk, [1] = &disk, [3] = &bigDisk, [4] = &writableDisk, [5] = &largeDisk},
+                             .availableDrives = {[0] = true, [1] = true, [3] = true, [4] = true, [5] = true},
                              .writableDrives = {[4] = true, [5] = true},
-                             .diskProfiles = {[5] = cpm80DiskProfileLarge},
+                             .diskProfiles = {[3] = cpm80DiskProfileBig, [5] = cpm80DiskProfileLarge},
                              .exchange = &exchange};
   const cpm80HostOps host = {.consoleAvailable = cpm80TestConsoleAvailable,
                            .consoleRead = cpm80TestConsoleRead,
@@ -1642,7 +1752,7 @@ static void testCpm80GuestBoot(void)
   assert(guest.cpu.memory[0xDAA8] == 0 && guest.cpu.memory[0xDAA9] == 192);
   assert(guest.cpu.memory[0xDAAA] == 0 && guest.cpu.memory[0xDAAB] == 16);
   assert(guest.cpu.memory[0xDAAC] == 0 && guest.cpu.memory[0xDAAD] == 2);
-  const uint16_t dphAddresses[cpm80DiskDriveCount] = {0xDA90, 0xDB60, 0xDC40, 0xDD20, 0xDE00, 0xDEE0};
+  const uint16_t dphAddresses[cpm80DiskDriveCount] = {0xDA90, 0xDB60, 0xDC60, 0xDD60, 0xDE60, 0xDF60};
   for (uint8_t drive = 1; drive < cpm80DiskDriveCount; ++drive)
   {
     uint16_t dphAddress = dphAddresses[drive];
@@ -1655,11 +1765,11 @@ static void testCpm80GuestBoot(void)
     assert(guest.cpu.memory[dphAddress + 14] == (uint8_t)(dphAddress + 0xC0));
     assert(guest.cpu.memory[dphAddress + 15] == (uint8_t)((dphAddress + 0xC0) >> 8));
   }
-  assert(guest.cpu.memory[0xDEF0] == 52 && guest.cpu.memory[0xDEF1] == 0);
-  assert(guest.cpu.memory[0xDEF2] == 4 && guest.cpu.memory[0xDEF3] == 15);
-  assert(guest.cpu.memory[0xDEF4] == 0 && guest.cpu.memory[0xDEF5] == 242);
-  assert(guest.cpu.memory[0xDEF6] == 0 && guest.cpu.memory[0xDEF7] == 127);
-  assert(guest.cpu.memory[0xDEFA] == 0 && guest.cpu.memory[0xDEFB] == 32);
+  assert(guest.cpu.memory[0xDF70] == 52 && guest.cpu.memory[0xDF71] == 0);
+  assert(guest.cpu.memory[0xDF72] == 4 && guest.cpu.memory[0xDF73] == 15);
+  assert(guest.cpu.memory[0xDF74] == 0 && guest.cpu.memory[0xDF75] == 242);
+  assert(guest.cpu.memory[0xDF76] == 0 && guest.cpu.memory[0xDF77] == 127);
+  assert(guest.cpu.memory[0xDF7A] == 0 && guest.cpu.memory[0xDF7B] == 32);
 
   size_t instructions = 0;
   size_t priorSystemPrompts;
@@ -2231,10 +2341,45 @@ static void testCpm80GuestBoot(void)
   }
   assert(instructions < 23000000);
 
+  //-- BIG DPB: SPT 128, BSH 7, BLM 127, EXM 7, DSM 511, DRM 511, AL0 0x80, CKS 0, OFF 2.
+  assert(guest.cpu.memory[0xDD70] == 128 && guest.cpu.memory[0xDD71] == 0);
+  assert(guest.cpu.memory[0xDD72] == 7 && guest.cpu.memory[0xDD73] == 127 && guest.cpu.memory[0xDD74] == 7);
+  assert(guest.cpu.memory[0xDD75] == 0xFF && guest.cpu.memory[0xDD76] == 0x01);
+  assert(guest.cpu.memory[0xDD77] == 0xFF && guest.cpu.memory[0xDD78] == 0x01);
+  assert(guest.cpu.memory[0xDD79] == 0x80 && guest.cpu.memory[0xDD7A] == 0);
+  assert(guest.cpu.memory[0xDD7B] == 0 && guest.cpu.memory[0xDD7C] == 0 && guest.cpu.memory[0xDD7D] == 2);
+
+  //-- Genuine BDOS: open BIG.TXT on D:, then random-read records 135 (block 300) and 5 (block 1).
+  const uint8_t bigRandomReadProgram[] = {0x0E, 0x0F, 0x11, 0x5C, 0x00, 0xCD, 0x05, 0x00, 0x32, 0x00, 0x03,
+                                          0x0E, 0x21, 0x11, 0x5C, 0x00, 0xCD, 0x05, 0x00, 0x32, 0x01, 0x03, 0x76};
+  const uint8_t bigRecords[2] = {135, 5};
+  for (unsigned index = 0; index < 2; ++index)
+  {
+    memset(guest.cpu.memory + 0x005C, 0, 36);
+    guest.cpu.memory[0x005C] = 4;
+    memcpy(guest.cpu.memory + 0x005D, "BIG     TXT", 11);
+    guest.cpu.memory[0x007D] = bigRecords[index];
+    assert(cpm80CpuLoad(&guest.cpu, 0x0100, bigRandomReadProgram, sizeof(bigRandomReadProgram)));
+    guest.cpu.processor.pc = 0x0100;
+    guest.cpu.processor.sp = 0x0200;
+    guest.cpu.processor.halted = false;
+    size_t bigSteps = 0;
+    while (!guest.cpu.processor.halted && bigSteps++ < 5000000)
+    {
+      assert(cpm80GuestStep(&guest));
+    }
+    char expectedRecord[8];
+    snprintf(expectedRecord, sizeof(expectedRecord), "REC%03u", bigRecords[index]);
+    assert(guest.cpu.processor.halted);
+    assert(guest.cpu.memory[0x0300] == 0 && guest.cpu.memory[0x0301] == 0);
+    assert(memcmp(guest.cpu.memory + 0x0080, expectedRecord, 6) == 0);
+  }
+
   const uint8_t selectDriveProgram[] = {0x0E, 0x01, 0xCD, 0x1B, 0xDA, 0x76};
   assert(cpm80CpuLoad(&guest.cpu, 0x0100, selectDriveProgram, sizeof(selectDriveProgram)));
   guest.cpu.processor.pc = 0x0100;
   guest.cpu.processor.sp = 0x0200;
+  guest.cpu.processor.halted = false;
   while (!guest.cpu.processor.halted)
   {
     assert(cpm80GuestStep(&guest));
@@ -2265,7 +2410,7 @@ static void testCpm80GuestBoot(void)
     assert(cpm80GuestStep(&guest));
   }
   assert(guest.selectedDrive == 5);
-  assert(guest.cpu.processor.h == 0xDE && guest.cpu.processor.l == 0xE0);
+  assert(guest.cpu.processor.h == 0xDF && guest.cpu.processor.l == 0x60);
 
   const uint8_t rejectOutOfRangeDriveProgram[] = {0x0E, 0x06, 0xCD, 0x1B, 0xDA, 0x76};
   assert(cpm80CpuLoad(&guest.cpu, 0x0100, rejectOutOfRangeDriveProgram, sizeof(rejectOutOfRangeDriveProgram)));
@@ -2358,6 +2503,8 @@ static void testCpm80GuestBoot(void)
   assert(imageClose(&disk));
   assert(imageClose(&writableDisk));
   assert(imageClose(&largeDisk));
+  assert(imageClose(&bigDisk));
+  unlink(bigDiskPath);
   unlink(writableDiskPath);
   unlink(largeDiskPath);
   hostExchangeClose(&exchange);

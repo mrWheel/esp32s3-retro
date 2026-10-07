@@ -39,11 +39,11 @@ pairs.
 | EDh | IN | Returns 00h on success or 01h on failure. |
 | EEh | IN | Reads the next byte of a successful read transfer. |
 | EEh | OUT | Supplies the next byte of a write transfer. Exactly 128 bytes commit the record. |
-| EFh | IN | Returns FFh when the selected drive is configured and open with the 160 KiB geometry, 01h when open with the large geometry; otherwise 00h. |
+| EFh | IN | Returns FFh when the selected drive is configured and open with the 160 KiB geometry, 01h when open with the large geometry, 02h when open with the BIG (8 MiB) geometry; otherwise 00h. |
 
 Drive selection probes EFh before returning a DPH; an unavailable drive returns
 no DPH and does not replace the current drive. Every transfer validates the
-selected drive, raw track 1–39 (1–128 for the large geometry), record 0–31 and the complete record range
+selected drive, raw track 1–39 (1–128 for the large geometry, 1–2048 for the BIG geometry), record 0–31 and the complete record range
 against that drive's image size. Invalid coordinates, read-only write
 attempts, short I/O and flush/sync failures set the transfer status to 01h.
 Reads and writes transfer exactly 128 bytes; accessing EEh outside an active
@@ -61,7 +61,10 @@ filesystem's first track. Record byte offset is:
 Every configured image must be exactly 163,840 bytes (profiles `RETRO86_SYSTEM_V1`
 and `RETRO86_DATA_V1`) or, for a `RETRO86_DATA_LARGE_V1` drive, exactly 528,384
 bytes: 129 tracks of 32 records, 2 KiB blocks, 128 directory entries, DSM=255
-(512 KiB of data). SELDSK uses the EFh answer to choose between DPB0 and DPB1. Its access mode is set in `drives.cfg`.
+(512 KiB of data). A `RETRO86_DATA_BIG_V1` drive is exactly 8,392,704 bytes: 2049
+tracks of 32 records, 16 KiB blocks, 512 directory entries, DSM=511, EXM=7 and
+16-bit block pointers (8 MiB of data, DPB2). SELDSK uses the EFh answer to choose
+between DPB0, DPB1 and DPB2. Its access mode is set in `drives.cfg`.
 Completed record writes are flushed and synced before reporting successful
 completion.
 

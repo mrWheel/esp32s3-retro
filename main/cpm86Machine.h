@@ -8,7 +8,9 @@ enum
   cpm86SystemDiskSize = 163840,
   cpm86SystemDiskTracks = 40,
   cpm86LargeDiskTracks = 129,
-  cpm86LargeDiskSize = 528384
+  cpm86LargeDiskSize = 528384,
+  cpm86BigDiskTracks = 2049,
+  cpm86BigDiskSize = 8392704
 };
 
 machineState cpm86MachineProbe(const retroMachine *machine);

@@ -9,7 +9,7 @@ enum
 {
   biosSegmentBase = 0x510,
   biosOverlayStart = 0x24B7,
-  biosOverlayEnd = 0x2931,
+  biosOverlayEnd = 0x2A0A,
   biosOverlayCapacity = biosOverlayEnd - biosOverlayStart,
   biosOverlayFileLimit = 4096
 };

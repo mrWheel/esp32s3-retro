@@ -47,6 +47,17 @@ def _profile_for_size(image_size, profiles):
     raise DiskImageError(f"Image size is {image_size} bytes; expected {expected}")
 
 
+def _entry_geometry(profile):
+    """Return (pointer_size, entry_records) for a profile.
+
+    Profiles with more than 256 blocks use 16-bit block pointers (8 per entry);
+    `exm` is the CP/M extent mask, so one entry spans (exm + 1) logical extents.
+    """
+    pointer_size = profile.get("block_pointer_size", 1)
+    entry_records = (profile.get("exm", 0) + 1) * MAX_RECORDS_PER_EXTENT
+    return pointer_size, entry_records
+
+
 def inspect_image(image, profiles):
     """Validate image geometry, directory entries, extents and block allocations."""
     profile = _profile_for_size(len(image), profiles)
@@ -54,6 +65,8 @@ def inspect_image(image, profiles):
     directory_offset = profile["directory_offset"]
     directory_entries = profile["directory_entries"]
     max_block_number = profile["max_block_number"]
+    pointer_size, entry_records = _entry_geometry(profile)
+    exm = profile.get("exm", 0)
 
     entries = []
     free_slots = []
@@ -71,14 +84,18 @@ def inspect_image(image, profiles):
 
         filename = _decode_directory_name(entry)
         extent = (entry[12] & 0x1F) | ((entry[14] & 0x3F) << 5)
-        record_count = entry[15]
-        if record_count > MAX_RECORDS_PER_EXTENT:
+        if entry[15] > MAX_RECORDS_PER_EXTENT:
             raise DiskImageError(f"Invalid record count in directory entry {slot}")
+        record_count = (extent % (exm + 1)) * MAX_RECORDS_PER_EXTENT + entry[15]
+        extent //= exm + 1
 
         block_count = (record_count + (block_size // SECTOR_SIZE) - 1) // (block_size // SECTOR_SIZE)
-        if block_count > MAX_BLOCKS_PER_EXTENT:
+        if block_count > MAX_BLOCKS_PER_EXTENT // pointer_size:
             raise DiskImageError(f"Too many blocks in directory entry {slot}")
-        blocks = entry[16 : 16 + block_count]
+        if pointer_size == 2:
+            blocks = [entry[16 + 2 * index] | (entry[17 + 2 * index] << 8) for index in range(block_count)]
+        else:
+            blocks = entry[16 : 16 + block_count]
         for block in blocks:
             if block < 2 or block > max_block_number:
                 raise DiskImageError(f"Invalid allocation block {block} in directory entry {slot}")
@@ -120,7 +137,9 @@ def _add_file(image, source_name, data, free_slots, used_blocks, existing_names,
     if blocks_needed > len(free_blocks):
         raise DiskImageError(f"CP/M disk is full while adding {filename}")
 
-    extent_count = (record_count + MAX_RECORDS_PER_EXTENT - 1) // MAX_RECORDS_PER_EXTENT
+    pointer_size, entry_records = _entry_geometry(profile)
+    exm = profile.get("exm", 0)
+    extent_count = (record_count + entry_records - 1) // entry_records
     if extent_count > len(free_slots):
         raise DiskImageError(f"CP/M directory is full while adding {filename}")
 
@@ -138,19 +157,25 @@ def _add_file(image, source_name, data, free_slots, used_blocks, existing_names,
     records_per_block = block_size // SECTOR_SIZE
 
     for extent in range(extent_count):
-        first_record = extent * MAX_RECORDS_PER_EXTENT
-        extent_records = min(MAX_RECORDS_PER_EXTENT, record_count - first_record)
+        first_record = extent * entry_records
+        extent_records = min(entry_records, record_count - first_record)
         first_block = first_record // records_per_block
         extent_block_count = (extent_records + records_per_block - 1) // records_per_block
+        logical_extents = (extent_records + MAX_RECORDS_PER_EXTENT - 1) // MAX_RECORDS_PER_EXTENT
+        extent_number = extent * (exm + 1) + logical_extents - 1
         entry = bytearray(32)
         entry[0] = 0
         entry[1:9] = name_bytes
         entry[9:12] = extension_bytes
-        entry[12] = extent & 0x1F
-        entry[14] = (extent >> 5) & 0x3F
-        entry[15] = extent_records
+        entry[12] = extent_number & 0x1F
+        entry[14] = (extent_number >> 5) & 0x3F
+        entry[15] = extent_records - (logical_extents - 1) * MAX_RECORDS_PER_EXTENT
         extent_blocks = allocated[first_block : first_block + extent_block_count]
-        entry[16 : 16 + len(extent_blocks)] = bytes(extent_blocks)
+        if pointer_size == 2:
+            for index, block in enumerate(extent_blocks):
+                entry[16 + 2 * index : 18 + 2 * index] = block.to_bytes(2, "little")
+        else:
+            entry[16 : 16 + len(extent_blocks)] = bytes(extent_blocks)
         slot = free_slots.pop(0)
         offset = directory_offset + slot * 32
         image[offset : offset + 32] = entry
@@ -241,7 +266,7 @@ def extract_file(image_path, filename, profiles, user=0):
             remaining -= count
         if remaining:
             raise DiskImageError(f"{filename} has incomplete allocation data")
-        if entry["records"] > MAX_RECORDS_PER_EXTENT:
+        if entry["records"] > _entry_geometry(profile)[1]:
             raise DiskImageError(f"{filename} has an invalid record count")
     return bytes(extracted)
 
@@ -249,6 +274,7 @@ def extract_file(image_path, filename, profiles, user=0):
 def list_files(image_path, profiles):
     image = Path(image_path).read_bytes()
     entries, _, _ = inspect_image(image, profiles)
+    entry_records = _entry_geometry(_profile_for_size(len(image), profiles))[1]
     file_extents = {}
     for entry in entries:
         key = (entry["user"], entry["filename"])
@@ -260,5 +286,5 @@ def list_files(image_path, profiles):
 
     for (user, filename), extents in sorted(file_extents.items()):
         last_extent = max(extents, key=lambda entry: entry["extent"])
-        record_length = last_extent["extent"] * MAX_RECORDS_PER_EXTENT + last_extent["records"]
+        record_length = last_extent["extent"] * entry_records + last_extent["records"]
         print(f"User {user:02d}  {filename:<12} {record_length * SECTOR_SIZE:>7} bytes")

@@ -14,11 +14,16 @@ enum
   cpm80BiosServicePort = 0xFE,
   cpm80SystemImageSize = 256256,
   cpm80LargeImageSize = 512512,
+  cpm80BigImageSize = 8421376,
   cpm80SystemHeaderOffset = cpm80CcpSize + cpm80BdosSize,
   cpm80SystemHeaderSize = 16,
   cpm80DiskTracks = 77,
   cpm80DiskSectorsPerTrack = 26,
   cpm80LargeDiskSectorsPerTrack = 52,
+  cpm80BigDiskTracks = 514,
+  cpm80BigDiskSectorsPerTrack = 128,
+  cpm80BigDiskBlockSize = 16384,
+  cpm80BigDiskDirectoryEntries = 512,
   cpm80DiskSectorSize = 128,
   cpm80DiskBlockSize = 1024,
   cpm80DiskDirectoryEntries = 64,
@@ -31,7 +36,8 @@ enum
 typedef enum
 {
   cpm80DiskProfileSystem,
-  cpm80DiskProfileLarge
+  cpm80DiskProfileLarge,
+  cpm80DiskProfileBig
 } cpm80DiskProfile;
 
 typedef struct
@@ -67,6 +73,11 @@ typedef struct
   bool skipLineFeed;
   bool initialized;
 } cpm80Guest;
+
+uint16_t cpm80DiskProfileSectorsPerTrack(cpm80DiskProfile profile);
+uint16_t cpm80DiskProfileTracks(cpm80DiskProfile profile);
+uint64_t cpm80DiskProfileImageSize(cpm80DiskProfile profile);
+const char *cpm80DiskProfileName(cpm80DiskProfile profile);
 
 //— Initialize guest instances with {0}; destroy them before initializing them again.
 bool cpm80GuestInitialize(cpm80Guest *guest, const cpm80HostOps *host, const uint8_t *ccpImage, const uint8_t *bdosImage);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CP/M-80 disk images: SYSTEM and LARGE geometries on top of diskImageCpm.
+"""CP/M-80 disk images: SYSTEM, LARGE and BIG geometries on top of diskImageCpm.
 
 Running this file directly is the same as `diskImage.py --os cpm80`.
 """
@@ -28,7 +28,15 @@ LARGE_DIRECTORY_ENTRIES = 128
 LARGE_IMAGE_SIZE = SECTOR_SIZE * LARGE_SECTORS_PER_TRACK * TRACKS
 LARGE_DIRECTORY_OFFSET = RESERVED_TRACKS * SECTOR_SIZE * LARGE_SECTORS_PER_TRACK
 LARGE_DIRECTORY_SIZE = LARGE_DIRECTORY_ENTRIES * 32
-MAX_IMAGE_SIZE = max(IMAGE_SIZE, LARGE_IMAGE_SIZE)
+BIG_SECTORS_PER_TRACK = 128
+BIG_TRACKS = 514
+BIG_BLOCK_SIZE = 16384
+BIG_DIRECTORY_ENTRIES = 512
+BIG_IMAGE_SIZE = SECTOR_SIZE * BIG_SECTORS_PER_TRACK * BIG_TRACKS
+BIG_DIRECTORY_OFFSET = RESERVED_TRACKS * SECTOR_SIZE * BIG_SECTORS_PER_TRACK
+BIG_DSM = 511
+BIG_EXM = 7
+MAX_IMAGE_SIZE = max(IMAGE_SIZE, LARGE_IMAGE_SIZE, BIG_IMAGE_SIZE)
 
 PROFILES = {
     "SYSTEM": {
@@ -46,6 +54,16 @@ PROFILES = {
         "directory_entries": LARGE_DIRECTORY_ENTRIES,
         "directory_offset": LARGE_DIRECTORY_OFFSET,
         "max_block_number": DSM,
+    },
+    "BIG": {
+        "image_size": BIG_IMAGE_SIZE,
+        "sectors_per_track": BIG_SECTORS_PER_TRACK,
+        "block_size": BIG_BLOCK_SIZE,
+        "directory_entries": BIG_DIRECTORY_ENTRIES,
+        "directory_offset": BIG_DIRECTORY_OFFSET,
+        "max_block_number": BIG_DSM,
+        "block_pointer_size": 2,
+        "exm": BIG_EXM,
     },
 }
 IMAGE_PROFILES = PROFILES

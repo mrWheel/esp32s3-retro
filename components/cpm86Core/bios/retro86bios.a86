@@ -92,8 +92,13 @@ SELDSK:
 	mov	byte ptr CURRENTDRIVE,cl
 	mov	dx,offset DPB0
 	cmp	al,1
-	jne	SELDSK_DPB
+	jne	SELDSK_TRYBIG
 	mov	dx,offset DPB1
+	jmp	SELDSK_DPB
+SELDSK_TRYBIG:
+	cmp	al,2
+	jne	SELDSK_DPB
+	mov	dx,offset DPB2
 SELDSK_DPB:
 	sub	ch,ch
 	mov	bx,cx
@@ -302,19 +307,28 @@ DPB1:
 	dw	0020h
 	dw	0001h
 
+DPB2:
+	dw	0020h
+	db	07h,7Fh,07h
+	dw	01FFh
+	dw	01FFh
+	db	80h,00h
+	dw	0000h
+	dw	0001h
+
 DIRBUF rb	128
 CSV0 rb	32
-ALV0 rb	32
+ALV0 rb	64
 CSV1 rb	32
-ALV1 rb	32
+ALV1 rb	64
 CSV2 rb	32
-ALV2 rb	32
+ALV2 rb	64
 CSV3 rb	32
-ALV3 rb	32
+ALV3 rb	64
 CSV4 rb	32
-ALV4 rb	32
+ALV4 rb	64
 CSV5 rb	32
-ALV5 rb	32
+ALV5 rb	64
 MRT:
 	db	1
 	dw	0518h

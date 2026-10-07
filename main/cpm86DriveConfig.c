@@ -123,6 +123,10 @@ static bool parseLine(char *line, cpm86DriveConfig drives[cpm86DiskDriveCount],
   {
     profile = cpm86DiskProfileDataLarge;
   }
+  else if (strcmp(profileName, "RETRO86_DATA_BIG_V1") == 0)
+  {
+    profile = cpm86DiskProfileDataBig;
+  }
   else
   {
     return false;

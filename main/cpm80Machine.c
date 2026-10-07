@@ -58,14 +58,14 @@ static bool diskDriveProfile(void *context, uint8_t drive, cpm80DiskProfile *pro
 
 static uint16_t diskSectorsPerTrack(uint8_t drive)
 {
-  return driveTable[drive].profile == cpm80DiskProfileLarge ? cpm80LargeDiskSectorsPerTrack : cpm80DiskSectorsPerTrack;
+  return cpm80DiskProfileSectorsPerTrack(driveTable[drive].profile);
 }
 
 static bool diskReadRecord(void *context, uint8_t drive, uint16_t track, uint16_t sector,
                            uint8_t record[cpm80DiskSectorSize])
 {
   (void)context;
-  if (drive >= cpm80DiskDriveCount || track >= cpm80DiskTracks || sector >= diskSectorsPerTrack(drive))
+  if (drive >= cpm80DiskDriveCount || track >= cpm80DiskProfileTracks(driveTable[drive].profile) || sector >= diskSectorsPerTrack(drive))
   {
     return false;
   }
@@ -78,7 +78,7 @@ static bool diskWriteRecord(void *context, uint8_t drive, uint16_t track, uint16
                             const uint8_t record[cpm80DiskSectorSize])
 {
   (void)context;
-  if (drive >= cpm80DiskDriveCount || track >= cpm80DiskTracks || sector >= diskSectorsPerTrack(drive))
+  if (drive >= cpm80DiskDriveCount || track >= cpm80DiskProfileTracks(driveTable[drive].profile) || sector >= diskSectorsPerTrack(drive))
   {
     return false;
   }
@@ -132,12 +132,12 @@ static void openOptionalDiskImages(void)
       ESP_LOGW(tag, "CP/M %c: image is missing: %s", 'A' + drive, driveTable[drive].path);
       continue;
     }
-    uint64_t expectedSize = driveTable[drive].profile == cpm80DiskProfileLarge ? cpm80LargeImageSize : cpm80SystemImageSize;
+    uint64_t expectedSize = cpm80DiskProfileImageSize(driveTable[drive].profile);
     if (size != expectedSize)
     {
       ESP_LOGE(tag, "Ignoring CP/M %c: image %s: size=%llu, expected %s profile size=%llu", 'A' + drive,
                driveTable[drive].path, (unsigned long long)size,
-               driveTable[drive].profile == cpm80DiskProfileLarge ? "LARGE" : "SYSTEM",
+               cpm80DiskProfileName(driveTable[drive].profile),
                (unsigned long long)expectedSize);
       continue;
     }

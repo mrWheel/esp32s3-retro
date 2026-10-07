@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """CP/M-86 disk images: the RETRO86 CPM86 geometry on top of diskImageCpm.
 
-The BIOS (components/cpm86Core/bios/retro86bios.a86) has two DPBs, one per
-profile: CPM86 (160 KiB, RETRO86_DATA_V1) and LARGE (516 KiB,
-RETRO86_DATA_LARGE_V1). Add further profiles only after the BIOS and firmware
+The BIOS (components/cpm86Core/bios/retro86bios.a86) has three DPBs, one per
+profile: CPM86 (160 KiB, RETRO86_DATA_V1), LARGE (516 KiB,
+RETRO86_DATA_LARGE_V1) and BIG (8 MiB, RETRO86_DATA_BIG_V1). Add further profiles only after the BIOS and firmware
 support them. Running this file directly is the same as `diskImage.py --os cpm86`.
 """
 
@@ -31,7 +31,15 @@ LARGE_BLOCK_SIZE = 2048
 LARGE_DIRECTORY_ENTRIES = 128
 LARGE_IMAGE_SIZE = PHYSICAL_SECTOR_SIZE * LARGE_SECTORS_PER_TRACK * LARGE_TRACKS
 LARGE_DSM = 255
-MAX_IMAGE_SIZE = max(IMAGE_SIZE, LARGE_IMAGE_SIZE)
+
+BIG_SECTORS_PER_TRACK = 8
+BIG_TRACKS = 2049
+BIG_BLOCK_SIZE = 16384
+BIG_DIRECTORY_ENTRIES = 512
+BIG_IMAGE_SIZE = PHYSICAL_SECTOR_SIZE * BIG_SECTORS_PER_TRACK * BIG_TRACKS
+BIG_DSM = 511
+BIG_EXM = 7
+MAX_IMAGE_SIZE = max(IMAGE_SIZE, LARGE_IMAGE_SIZE, BIG_IMAGE_SIZE)
 
 PROFILES = {
     "CPM86": {
@@ -49,6 +57,16 @@ PROFILES = {
         "directory_entries": LARGE_DIRECTORY_ENTRIES,
         "directory_offset": DIRECTORY_OFFSET,
         "max_block_number": LARGE_DSM,
+    },
+    "BIG": {
+        "image_size": BIG_IMAGE_SIZE,
+        "sectors_per_track": BIG_SECTORS_PER_TRACK,
+        "block_size": BIG_BLOCK_SIZE,
+        "directory_entries": BIG_DIRECTORY_ENTRIES,
+        "directory_offset": DIRECTORY_OFFSET,
+        "max_block_number": BIG_DSM,
+        "block_pointer_size": 2,
+        "exm": BIG_EXM,
     },
 }
 DEFAULT_PROFILE = "CPM86"

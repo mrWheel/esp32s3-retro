@@ -114,6 +114,10 @@ static bool parseLine(char *line, cpm80DriveConfig drives[cpm80DiskDriveCount], 
   {
     profile = cpm80DiskProfileLarge;
   }
+  else if (strcmp(profileName, "BIG") == 0)
+  {
+    profile = cpm80DiskProfileBig;
+  }
   else
   {
     return false;
@@ -132,7 +136,7 @@ static bool parseLine(char *line, cpm80DriveConfig drives[cpm80DiskDriveCount], 
     return false;
   }
 
-  //-- A: is the LittleFS system image; B: to F: are SD images (SYSTEM = 256256 bytes or LARGE = 512512 bytes).
+  //-- A: is the LittleFS system image; B: to F: are SD images (SYSTEM = 256256 bytes, LARGE = 512512 bytes or BIG = 8421376 bytes).
   const char *requiredPrefix = drive == 0 ? systemPathPrefix : largePathPrefix;
   size_t storedPathLength = strlen(imagePath) + (drive != 0 ? strlen(largeVfsPrefix) : 0);
   if ((drive == 0 && (profile != cpm80DiskProfileSystem || !readOnly)) || !safePath(imagePath, requiredPrefix) ||
