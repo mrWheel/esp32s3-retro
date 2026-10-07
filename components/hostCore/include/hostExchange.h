@@ -59,6 +59,7 @@ typedef struct
   uint32_t crc;
   uint32_t expectedCrc;
   bool directoryNameReady;
+  bool resumeDirectory;
 } hostExchange;
 
 bool hostExchangeInitialize(hostExchange *exchange, const char *root);

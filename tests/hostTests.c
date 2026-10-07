@@ -702,7 +702,7 @@ static bool runCpm86UntilPrompt(cpm86Core *core, cpm86BootFixture *fixture, cons
                                 size_t promptCount)
 {
   size_t instructions = 0;
-  size_t instructionBudget = getenv("CPM86_HOST_BUILD_DISK") == NULL ? 5000000 : 500000000;
+  size_t instructionBudget = getenv("CPM86_HOST_BUILD_DISK") == NULL ? 5000000 : 100000000;
   while (countOccurrences(fixture->output, prompt) < promptCount && instructions < instructionBudget)
   {
     size_t executed = 0;
@@ -840,6 +840,9 @@ static void testCpm86Boot(void)
   hostExchange exchange = {0};
   char exchangeDirectoryPath[] = "/tmp/cpm86-host-exchange-XXXXXX";
   char exchangeSourcePath[sizeof(exchangeDirectoryPath) + sizeof("/HELLO.A86")];
+  char exchangeOtherPath[sizeof(exchangeDirectoryPath) + sizeof("/OTHER.A86")];
+  char exchangeHostPath[sizeof(exchangeDirectoryPath) + sizeof("/HOST.A86")];
+  static const uint8_t otherSource[] = {0x00, 0x01, 0x7F, 0x80, 0xFE, 0xFF, 0x0D, 0x0A, 0x1A};
   if (hostBuildDiskPath != NULL)
   {
     assert(imageOpen(&hostBuildDisk, hostBuildDiskPath, false));
@@ -850,6 +853,8 @@ static void testCpm86Boot(void)
     assert(mkdtemp(exchangeDirectoryPath) != NULL);
     assert(hostExchangeInitialize(&exchange, exchangeDirectoryPath));
     snprintf(exchangeSourcePath, sizeof(exchangeSourcePath), "%s/HELLO.A86", exchangeDirectoryPath);
+    snprintf(exchangeOtherPath, sizeof(exchangeOtherPath), "%s/OTHER.A86", exchangeDirectoryPath);
+    snprintf(exchangeHostPath, sizeof(exchangeHostPath), "%s/HOST.A86", exchangeDirectoryPath);
     uint8_t exchangeSource[43 * 128];
     for (size_t index = 0; index < sizeof(exchangeSource); ++index)
     {
@@ -860,6 +865,10 @@ static void testCpm86Boot(void)
     assert(fwrite(exchangeSource, 1, sizeof(exchangeSource), exchangeSourceFile) ==
            sizeof(exchangeSource));
     assert(fclose(exchangeSourceFile) == 0);
+    FILE *exchangeOtherFile = fopen(exchangeOtherPath, "wb");
+    assert(exchangeOtherFile != NULL);
+    assert(fwrite(otherSource, 1, sizeof(otherSource), exchangeOtherFile) == sizeof(otherSource));
+    assert(fclose(exchangeOtherFile) == 0);
   }
   const cpm86CoreConfig config = {
       .ramSize = 640 * 1024,
@@ -1008,6 +1017,19 @@ static void testCpm86Boot(void)
     fixture.inputPosition = 0;
     assert(runCpm86UntilPrompt(core, &fixture, "E>", 3));
 
+    if (getenv("CPM86_HOST_COMPILE_ONLY") != NULL)
+    {
+      assert(imageClose(&hostBuildDisk));
+      hostExchangeClose(&exchange);
+      assert(unlink(exchangeSourcePath) == 0);
+      assert(unlink(exchangeOtherPath) == 0);
+      assert(rmdir(exchangeDirectoryPath) == 0);
+      cpm86CoreDestroy(core);
+      assert(imageClose(&disk));
+      assert(unlink(temporaryDiskPath) == 0);
+      return;
+    }
+
     fixture.input = "A:HOST DIR\r";
     fixture.inputLength = strlen(fixture.input);
     fixture.inputPosition = 0;
@@ -1049,9 +1071,66 @@ static void testCpm86Boot(void)
     {
       assert(actualResult[index] == (uint8_t)(index * 37U + (index >> 3)));
     }
+
+    fixture.input = "A:HOST GET *.A86\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 7));
+    if (strstr(fixture.output, "GET HELLO.A86: target file already exists.") == NULL ||
+        strstr(fixture.output, "GET OTHER.A86: complete.") == NULL)
+    {
+      fprintf(stderr, "CP/M-86 HOST wildcard GET output:\n%s\n", fixture.output);
+    }
+    assert(strstr(fixture.output, "GET HELLO.A86: target file already exists.") != NULL);
+    assert(strstr(fixture.output, "GET OTHER.A86: complete.") != NULL);
+
+    fixture.input = "A:HOST GET H?LLO.A86\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 8));
+    assert(strstr(fixture.output, "GET HELLO.A86: target file already exists.") != NULL);
+    assert(unlink(exchangeOtherPath) == 0);
+    FILE *exchangeHostFile = fopen(exchangeHostPath, "wb");
+    assert(exchangeHostFile != NULL);
+    assert(fputc(0xA5, exchangeHostFile) == 0xA5);
+    assert(fclose(exchangeHostFile) == 0);
+
+    fixture.input = "A:HOST PUT *.A86\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 9));
+    if (strstr(fixture.output, "PUT HELLO.A86: exchange destination already exists.") == NULL ||
+        strstr(fixture.output, "PUT OTHER.A86: complete.") == NULL ||
+        strstr(fixture.output, "PUT HOST.A86: exchange destination already exists.") == NULL ||
+        countOccurrences(fixture.output, "PUT HOST.A86:") != 1)
+    {
+      fprintf(stderr, "CP/M-86 HOST wildcard PUT output:\n%s\n", fixture.output);
+    }
+    assert(strstr(fixture.output, "PUT HELLO.A86: exchange destination already exists.") != NULL);
+    assert(strstr(fixture.output, "PUT OTHER.A86: complete.") != NULL);
+    assert(strstr(fixture.output, "PUT HOST.A86: exchange destination already exists.") != NULL);
+    assert(countOccurrences(fixture.output, "PUT HOST.A86:") == 1);
+
+    FILE *exchangeOtherResultFile = fopen(exchangeOtherPath, "rb");
+    assert(exchangeOtherResultFile != NULL);
+    uint8_t actualOtherResult[sizeof(otherSource)];
+    assert(fread(actualOtherResult, 1, sizeof(actualOtherResult), exchangeOtherResultFile) ==
+           sizeof(actualOtherResult));
+    assert(fgetc(exchangeOtherResultFile) == EOF);
+    assert(fclose(exchangeOtherResultFile) == 0);
+    assert(memcmp(actualOtherResult, otherSource, sizeof(otherSource)) == 0);
+
+    fixture.input = "A:HOST PUT H?LLO.A86\r";
+    fixture.inputLength = strlen(fixture.input);
+    fixture.inputPosition = 0;
+    assert(runCpm86UntilPrompt(core, &fixture, "E>", 10));
+    assert(strstr(fixture.output, "PUT HELLO.A86: exchange destination already exists.") != NULL);
+
     assert(imageClose(&hostBuildDisk));
     hostExchangeClose(&exchange);
     assert(unlink(exchangeSourcePath) == 0);
+    assert(unlink(exchangeOtherPath) == 0);
+    assert(unlink(exchangeHostPath) == 0);
     assert(rmdir(exchangeDirectoryPath) == 0);
   }
 

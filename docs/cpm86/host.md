@@ -6,7 +6,14 @@ code. The source implements `HOST DIR`, `HOST GET name.ext`, and
 `HOST PUT name.ext` over the RETRO86_V1 byte ports F8h/F9h, including QUERY,
 NUL-terminated directory names, streaming payloads, CRC-32, `NAME.HST`
 metadata, no-overwrite checks, USER 0 enforcement, abort handling, and
-cleanup of files created by an unsuccessful GET.
+cleanup of files created by an unsuccessful GET. GET and PUT also accept
+CP/M-style `*` and `?` wildcards. A failed wildcard transfer prints the
+operation, filename and reason, then continues with the remaining matches.
+
+Wildcard PUT first collects up to 128 unique local filenames with BDOS Search
+First/Next, then starts the transfers; this avoids changing the BDOS search
+cursor while reading files. Repeated directory extents are deduplicated, and
+reserved `.HST` metadata files are reported and skipped.
 
 ## Audited CP/M-86 ABI
 
@@ -100,8 +107,13 @@ CPM86_HOST_SYSTEM_DISK=littlefs/cpm86/system.dsk ./build-host/hostTests
 The guest fixture assembles the current source on E:, then exercises the
 installed `A:HOST.CMD` for DIR, GET and PUT. It uses a 43-record source file
 and checks the returned bytes exactly, exercising the boundary between
-consecutive BDOS records. The installed CMD and system image hashes are
-recorded in `littlefs/cpm86/README.txt`.
+consecutive BDOS records. Wildcard regressions cover both `*` and `?`, existing
+destinations, unique-name handling across directory extents, a named per-file
+error, and successful processing of later matches. When preparing a new
+candidate command, `CPM86_HOST_COMPILE_ONLY=1` makes the fixture stop after
+ASM86/GENCMD have generated `HOST.CMD`; extract it and rebuild the candidate A:
+image before running the full fixture. The installed CMD and system image
+hashes are recorded in `littlefs/cpm86/README.txt`.
 
 The first on-device `HOST DIR` attempt stopped with a guest I/O error because
 the CP/M-86 firmware had created its CPU core without connecting the shared
@@ -112,11 +124,15 @@ persistence remain unverified.
 
 ## Verification status
 
-ASM-86 reported zero errors and GENCMD created a 3,456-byte `HOST.CMD`. The
+ASM-86 reported zero errors and GENCMD created a 6,912-byte `HOST.CMD`. The
 host CP/M-86 fixture booted the rebuilt system image and passed native DIR,
-GET, and exact-byte PUT round-trip checks for 43 records. PUT now sends at most
-one 128-byte DMA record per BDOS read; the prior loop walked past that buffer
-and faulted on larger files. Image extraction tests also cover multi-extent
+single-file GET/PUT and exact-byte round-trip checks for 43 records. Wildcard
+GET and PUT regressions also passed: `*` and `?` match as expected, errors name
+the affected file and reason, and later matches are still processed. The PUT
+regression includes a multi-extent local file and confirms it is processed
+once. PUT sends at most one 128-byte DMA record per BDOS read; the prior loop
+walked past that buffer and faulted on larger files. The checked-in A: image
+contains the rebuilt command. Image extraction tests also cover multi-extent
 files, final-record padding, and refusal to overwrite an existing output.
 Hardware transfer acceptance and broader CP/M-86 acceptance remain open; this
 desktop guest result is not a hardware claim.

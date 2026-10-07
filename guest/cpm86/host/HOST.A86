@@ -13,6 +13,7 @@ start:
         mov     ax,cs
         mov     ds,ax
         mov     es,ax
+        mov     byte ptr userAbort,0
         call    setDma
         call    parseCommand
         jnc     startCommandValid
@@ -235,6 +236,7 @@ fcbUsesCurrentDrive:
         mov     di,offset workFcb+1
         mov     cx,11
         rep     movsb
+        call    normalizeWildcards
         mov     si,offset workFcb+1
         mov     cx,8
         xor     bx,bx
@@ -248,6 +250,10 @@ validateBase:
         jmp     invalidFcb
 validateBaseContiguous:
         inc     bx
+        cmp     al,'?'
+        je      validateBaseNext
+        cmp     al,'*'
+        je      validateBaseNext
         call    validFilenameCharacter
         jnc     validateBaseNext
         jmp     invalidFcb
@@ -258,7 +264,9 @@ validateBaseNext:
         loop    validateBase
 validateBaseDone:
         or      bx,bx
-        jz      invalidFcb
+        jnz     validateBaseReady
+        jmp     invalidFcb
+validateBaseReady:
         mov     cx,3
         xor     dx,dx
 validateExtension:
@@ -269,6 +277,10 @@ validateExtension:
         je      validateExtensionContiguous
         jmp     invalidFcb
 validateExtensionContiguous:
+        cmp     al,'?'
+        je      validateExtensionNext
+        cmp     al,'*'
+        je      validateExtensionNext
         call    validFilenameCharacter
         jnc     validateExtensionNext
         jmp     invalidFcb
@@ -284,6 +296,23 @@ validateExtensionNext:
         cmp     byte ptr workFcb+11,'T'
         je      invalidFcb
 makeSidecarFcb:
+        mov     byte ptr wildcardActive,0
+        mov     si,offset workFcb+1
+        mov     cx,11
+findWildcard:
+        cmp     byte ptr [si],'?'
+        je      wildcardFound
+        cmp     byte ptr [si],'*'
+        jne     findWildcardNext
+wildcardFound:
+        mov     byte ptr wildcardActive,1
+findWildcardNext:
+        inc     si
+        loop    findWildcard
+        mov     si,offset workFcb+1
+        mov     di,offset patternFcb
+        mov     cx,11
+        rep     movsb
         mov     di,offset sideFcb
         mov     cx,36
         xor     ax,ax
@@ -299,6 +328,36 @@ makeSidecarFcb:
         ret
 invalidFcb:
         stc
+        ret
+
+normalizeWildcards:
+        mov     si,offset workFcb+1
+        mov     cx,8
+        xor     dx,dx
+normalizeBaseWildcard:
+        cmp     byte ptr [si],'*'
+        jne     normalizeBaseCheck
+        mov     dl,1
+normalizeBaseCheck:
+        cmp     dl,0
+        je      normalizeBaseNext
+        mov     byte ptr [si],'?'
+normalizeBaseNext:
+        inc     si
+        loop    normalizeBaseWildcard
+        mov     cx,3
+        xor     dx,dx
+normalizeExtensionWildcard:
+        cmp     byte ptr [si],'*'
+        jne     normalizeExtensionCheck
+        mov     dl,1
+normalizeExtensionCheck:
+        cmp     dl,0
+        je      normalizeExtensionNext
+        mov     byte ptr [si],'?'
+normalizeExtensionNext:
+        inc     si
+        loop    normalizeExtensionWildcard
         ret
 
 validFilenameCharacter:
@@ -396,22 +455,114 @@ dirFinished:
         jmp     terminate
 
 commandGet:
+        cmp     byte ptr wildcardActive,0
+        jne     getWildcardCommand
+        jmp     getSingleFile
+getWildcardCommand:
+        jmp     commandGetWildcard
+commandGetWildcard:
+        mov     word ptr wildcardCount,0
+        mov     al,1
+        call    sendByte
+        jnc     getWildcardCommandSent
+        jmp     transferAborted
+getWildcardCommandSent:
+        call    readByte
+        jnc     getWildcardStatusRead
+        jmp     transferAborted
+getWildcardStatusRead:
+        or      al,al
+        je      getWildcardReadName
+        jmp     hostError
+getWildcardReadName:
+        mov     di,offset hostFilename
+getWildcardReadCharacter:
+        call    readByte
+        jnc     getWildcardCharacterRead
+        jmp     transferAborted
+getWildcardCharacterRead:
+        or      al,al
+        jz      getWildcardNameEnd
+        mov     byte ptr [di],al
+        inc     di
+        jmp     getWildcardReadCharacter
+getWildcardNameEnd:
+        cmp     di,offset hostFilename
+        jne     getWildcardNameAvailable
+        jmp     getWildcardListEnd
+getWildcardNameAvailable:
+        mov     byte ptr [di],0
+        call    convertHostName
+        call    matchHostName
+        jc      getWildcardReadName
+        push    ds
+        pop     es
+        mov     si,offset candidateName
+        mov     di,offset workFcb+1
+        mov     cx,11
+        rep     movsb
+        mov     di,offset workFcb+12
+        mov     cx,24
+        xor     ax,ax
+        rep     stosb
+        mov     si,offset workFcb
+        mov     di,offset sideFcb
+        mov     cx,12
+        rep     movsb
+        mov     byte ptr sideFcb+9,'H'
+        mov     byte ptr sideFcb+10,'S'
+        mov     byte ptr sideFcb+11,'T'
+        cmp     byte ptr workFcb+9,'H'
+        jne     getWildcardPayload
+        cmp     byte ptr workFcb+10,'S'
+        jne     getWildcardPayload
+        cmp     byte ptr workFcb+11,'T'
+        jne     getWildcardPayload
+        mov     byte ptr fileError,17
+        call    printFileFailure
+        jmp     getWildcardReadName
+getWildcardPayload:
+        inc     word ptr wildcardCount
+        jmp     getSingleFile
+getWildcardListEnd:
+        call    readByte
+        jnc     getWildcardFinalStatusRead
+        jmp     transferAborted
+getWildcardFinalStatusRead:
+        or      al,al
+        je      getWildcardListComplete
+        jmp     hostError
+getWildcardListComplete:
+        cmp     word ptr wildcardCount,0
+        jne     getWildcardFinished
+        mov     byte ptr fileError,16
+        call    printFileFailure
+        jmp     terminate
+getWildcardFinished:
+        mov     dx,offset msgGetDone
+        call    printString
+        jmp     terminate
+getSingleFile:
+        mov     byte ptr fileError,0
+        call    printFileStart
         mov     byte ptr workCreated,0
         mov     byte ptr workOpen,0
         mov     byte ptr sideCreated,0
         mov     byte ptr sideOpen,0
         call    ensureTargetAbsent
         jnc     getTargetAvailable
-        jmp     targetExists
+        mov     byte ptr fileError,1
+        jmp     getFileFailure
 getTargetAvailable:
         call    ensureSidecarAbsent
         jnc     getSidecarAvailable
-        jmp     sidecarExists
+        mov     byte ptr fileError,2
+        jmp     getFileFailure
 getSidecarAvailable:
         mov     al,2
         call    sendByte
         jnc     getRequestSent
-        jmp     transferAborted
+        jmp     getTransferFailed
 getRequestSent:
         mov     si,offset workFcb+1
         mov     cx,11
@@ -419,23 +570,25 @@ getSendName:
         lodsb
         call    sendByte
         jnc     getNameByteSent
-        jmp     transferAborted
+        jmp     getTransferFailed
 getNameByteSent:
         loop    getSendName
         call    readByte
         jnc     getStatusRead
-        jmp     transferAborted
+        jmp     getTransferFailed
 getStatusRead:
         or      al,al
         je      getAccepted
-        jmp     hostError
+        add     al,10
+        mov     byte ptr fileError,al
+        jmp     getFileFailure
 getAccepted:
         mov     di,offset transferLength
         mov     cx,4
 getReadLength:
         call    readByte
         jnc     getLengthByteRead
-        jmp     transferAborted
+        jmp     getTransferFailed
 getLengthByteRead:
         mov     byte ptr [di],al
         inc     di
@@ -446,8 +599,8 @@ getLengthByteRead:
         int     bdosInt
         cmp     al,0ffh
         jne     getTargetCreated
-        call    abortHost
-        jmp     localFileError
+        mov     byte ptr fileError,7
+        jmp     getLocalFailure
 getTargetCreated:
         mov     byte ptr workOpen,1
         mov     byte ptr workCreated,1
@@ -503,7 +656,11 @@ getReadExpected:
         call    readByte
         jc      getFailed
         or      al,al
-        jne     getFailed
+        je      getFinalStatusOk
+        add     al,10
+        mov     byte ptr fileError,al
+        jmp     getFailed
+getFinalStatusOk:
         mov     dx,offset workFcb
         mov     cl,16
         int     bdosInt
@@ -512,15 +669,106 @@ getReadExpected:
         mov     byte ptr workOpen,0
         call    writeSidecar
         jc      getFailed
+        cmp     byte ptr wildcardActive,0
+        je      getSingleComplete
+        call    printFileSuccess
+        jmp     getWildcardNext
+getSingleComplete:
         mov     dx,offset msgGetDone
         call    printString
         jmp     terminate
 getFailed:
-        call    abortHost
+        cmp     byte ptr fileError,0
+        jne     getFailureStatusReady
+        mov     byte ptr fileError,6
+getFailureStatusReady:
+        call    abortHostForFile
         call    cleanupGet
-        mov     dx,offset msgTransferError
+        cmp     byte ptr userAbort,0
+        jne     getUserAbort
+        jmp     getFileFailure
+getTransferFailed:
+        mov     byte ptr fileError,6
+        call    abortHostForFile
+        cmp     byte ptr userAbort,0
+        jne     getUserAbort
+        jmp     getFileFailure
+getLocalFailure:
+        call    abortHostForFile
+        jmp     getFileFailure
+getFileFailure:
+        call    printFileFailure
+        cmp     byte ptr wildcardActive,0
+        jne     getWildcardNext
+        jmp     terminate
+getUserAbort:
+        call    abortHost
+        call    printFileFailure
+        mov     dx,offset msgAborted
         call    printString
         jmp     terminate
+getWildcardNext:
+        mov     di,offset hostFilename
+        mov     byte ptr [di],0
+        jmp     getWildcardReadName
+
+convertHostName:
+        push    ax
+        push    cx
+        push    di
+        push    si
+        push    es
+        push    ds
+        pop     es
+        mov     di,offset candidateName
+        mov     cx,11
+        mov     al,' '
+        rep     stosb
+        mov     si,offset hostFilename
+        mov     di,offset candidateName
+convertHostBase:
+        lodsb
+        or      al,al
+        jz      convertHostDone
+        cmp     al,'.'
+        je      convertHostExtensionStart
+        stosb
+        jmp     convertHostBase
+convertHostExtensionStart:
+        mov     di,offset candidateName+8
+convertHostExtension:
+        lodsb
+        or      al,al
+        jz      convertHostDone
+        stosb
+        jmp     convertHostExtension
+convertHostDone:
+        pop     es
+        pop     si
+        pop     di
+        pop     cx
+        pop     ax
+        ret
+
+matchHostName:
+        mov     si,offset patternFcb
+        mov     di,offset candidateName
+        mov     cx,11
+matchHostNameByte:
+        mov     al,byte ptr [si]
+        cmp     al,'?'
+        je      matchHostNameNext
+        cmp     al,byte ptr [di]
+        jne     matchHostNameNo
+matchHostNameNext:
+        inc     si
+        inc     di
+        loop    matchHostNameByte
+        clc
+        ret
+matchHostNameNo:
+        stc
+        ret
 
 ensureTargetAbsent:
         mov     dx,offset workFcb
@@ -656,16 +904,24 @@ cleanupDone:
         ret
 
 commandPut:
+        cmp     byte ptr wildcardActive,0
+        je      putSingleFile
+        jmp     commandPutWildcard
+putSingleFile:
+        mov     byte ptr fileError,0
+        mov     byte ptr paddedNote,0
+        call    printFileStart
         call    loadSidecar
         call    scanSource
         jnc     putSourceReady
-        jmp     localFileError
+        mov     byte ptr fileError,7
+        jmp     putFileFailure
 putSourceReady:
         call    choosePutLength
         mov     al,3
         call    sendByte
         jnc     putRequestSent
-        jmp     transferAborted
+        jmp     putTransferFailed
 putRequestSent:
         mov     si,offset workFcb+1
         mov     cx,11
@@ -673,7 +929,7 @@ putSendName:
         lodsb
         call    sendByte
         jnc     putNameByteSent
-        jmp     transferAborted
+        jmp     putTransferFailed
 putNameByteSent:
         loop    putSendName
         mov     si,offset putLength
@@ -682,7 +938,7 @@ putSendLength:
         lodsb
         call    sendByte
         jnc     putLengthByteSent
-        jmp     transferAborted
+        jmp     putTransferFailed
 putLengthByteSent:
         loop    putSendLength
         mov     si,offset exactCrc
@@ -691,23 +947,27 @@ putSendCrc:
         lodsb
         call    sendByte
         jnc     putCrcByteSent
-        jmp     transferAborted
+        jmp     putTransferFailed
 putCrcByteSent:
         loop    putSendCrc
         call    readByte
         jnc     putStatusRead
-        jmp     transferAborted
+        jmp     putTransferFailed
 putStatusRead:
         or      al,al
         je      putAccepted
-        jmp     hostError
+        add     al,10
+        mov     byte ptr fileError,al
+        jmp     putFileFailure
 putAccepted:
         mov     dx,offset workFcb
         mov     cl,15
         int     bdosInt
         cmp     al,0ffh
         jne     putFileOpened
-        jmp     localFileError
+        mov     byte ptr fileError,7
+        call    abortHost
+        jmp     putFileFailure
 putFileOpened:
         mov     byte ptr workFcb+32,0
         mov     byte ptr workOpen,1
@@ -741,16 +1001,40 @@ putPayloadDone:
         call    readByte
         jc      putFailed
         or      al,al
-        jne     putFailed
+        je      putHostTransferComplete
+        add     al,10
+        mov     byte ptr fileError,al
+        jmp     putHostFailure
+putHostTransferComplete:
+        mov     dx,offset workFcb
+        mov     cl,16
+        int     bdosInt
+        cmp     al,0ffh
+        je      putLocalCloseFailed
+        mov     byte ptr workOpen,0
+        cmp     byte ptr wildcardActive,0
+        je      putSingleComplete
+        call    printFileSuccess
+        jmp     putWildcardNext
+putSingleComplete:
+        mov     dx,offset msgPutDone
+        call    printString
+        jmp     terminate
+putLocalCloseFailed:
+        mov     byte ptr workOpen,0
+        mov     byte ptr fileError,7
+        jmp     putFileFailure
+putHostFailure:
+        cmp     byte ptr workOpen,0
+        je      putFileFailure
         mov     dx,offset workFcb
         mov     cl,16
         int     bdosInt
         mov     byte ptr workOpen,0
-        mov     dx,offset msgPutDone
-        call    printString
-        jmp     terminate
+        jmp     putFileFailure
 putFailed:
         call    abortHost
+        mov     byte ptr fileError,6
         cmp     byte ptr workOpen,0
         je      putFailedMessage
         mov     dx,offset workFcb
@@ -758,7 +1042,169 @@ putFailed:
         int     bdosInt
         mov     byte ptr workOpen,0
 putFailedMessage:
-        mov     dx,offset msgTransferError
+        cmp     byte ptr userAbort,0
+        jne     putUserAbort
+        jmp     putFileFailure
+putTransferFailed:
+        mov     byte ptr fileError,6
+        call    abortHost
+        cmp     byte ptr userAbort,0
+        jne     putUserAbort
+        jmp     putFileFailure
+putFileFailure:
+        call    printFileFailure
+        cmp     byte ptr userAbort,0
+        jne     putUserAbort
+        cmp     byte ptr wildcardActive,0
+        je      putFileFailureSingle
+        jmp     putWildcardNext
+putFileFailureSingle:
+        jmp     terminate
+putUserAbort:
+        call    printFileFailure
+        mov     dx,offset msgAborted
+        call    printString
+        jmp     terminate
+commandPutWildcard:
+        jmp     putWildcardCollect
+putWildcardCollect:
+        push    ds
+        pop     es
+        mov     si,offset workFcb
+        mov     di,offset searchFcb
+        mov     cx,36
+        rep     movsb
+        mov     word ptr wildcardCount,0
+        mov     dx,offset searchFcb
+        mov     cl,17
+        int     bdosInt
+        cmp     al,0ffh
+        jne     putWildcardCollectFound
+        jmp     putWildcardNoMatches
+putWildcardCollectFound:
+        mov     byte ptr searchResult,al
+        xor     ah,ah
+        mov     bx,32
+        mul     bx
+        mov     si,offset recordBuffer
+        add     si,ax
+        inc     si
+        push    ds
+        pop     es
+        mov     di,offset candidateName
+        mov     cx,11
+putWildcardSaveName:
+        lodsb
+        and     al,7fh
+        stosb
+        loop    putWildcardSaveName
+        mov     si,offset candidateName
+        mov     di,offset workFcb+1
+        mov     cx,11
+        rep     movsb
+        cmp     byte ptr candidateName+8,'H'
+        jne     putWildcardCheckDuplicate
+        cmp     byte ptr candidateName+9,'S'
+        jne     putWildcardCheckDuplicate
+        cmp     byte ptr candidateName+10,'T'
+        jne     putWildcardCheckDuplicate
+        mov     si,offset candidateName
+        mov     di,offset workFcb+1
+        mov     cx,11
+        rep     movsb
+        mov     byte ptr fileError,17
+        call    printFileFailure
+        jmp     putWildcardSearchNext
+putWildcardCheckDuplicate:
+        push    ds
+        pop     es
+        mov     word ptr listIndex,0
+putWildcardDuplicateLoop:
+        mov     ax,word ptr listIndex
+        cmp     ax,word ptr wildcardCount
+        jae     putWildcardAddName
+        mov     bx,11
+        mul     bx
+        mov     si,offset fileList
+        add     si,ax
+        mov     di,offset candidateName
+        mov     cx,11
+        repe    cmpsb
+        je      putWildcardSearchNext
+        inc     word ptr listIndex
+        jmp     putWildcardDuplicateLoop
+putWildcardAddName:
+        mov     ax,word ptr wildcardCount
+        cmp     ax,128
+        jae     putWildcardListFull
+        mov     bx,11
+        mul     bx
+        mov     di,offset fileList
+        add     di,ax
+        mov     si,offset candidateName
+        mov     cx,11
+        rep     movsb
+        inc     word ptr wildcardCount
+        jmp     putWildcardSearchNext
+putWildcardListFull:
+        mov     si,offset candidateName
+        mov     di,offset workFcb+1
+        mov     cx,11
+        rep     movsb
+        mov     byte ptr fileError,18
+        call    printFileFailure
+putWildcardSearchNext:
+        mov     dx,offset searchFcb
+        mov     cl,18
+        int     bdosInt
+        cmp     al,0ffh
+        je      putWildcardCollected
+        jmp     putWildcardCollectFound
+putWildcardCollected:
+        cmp     word ptr wildcardCount,0
+        jne     putWildcardStartTransfers
+putWildcardNoMatches:
+        mov     byte ptr fileError,16
+        call    printFileFailure
+        jmp     terminate
+putWildcardStartTransfers:
+        mov     word ptr listIndex,0
+        jmp     putWildcardLoadFile
+putWildcardLoadFile:
+        mov     ax,word ptr listIndex
+        mov     bx,11
+        mul     bx
+        mov     si,offset fileList
+        add     si,ax
+        push    ds
+        pop     es
+        mov     di,offset workFcb+1
+        mov     cx,11
+        rep     movsb
+        mov     di,offset workFcb+12
+        mov     cx,24
+        xor     ax,ax
+        rep     stosb
+        mov     si,offset workFcb
+        mov     di,offset sideFcb
+        mov     cx,12
+        rep     movsb
+        mov     byte ptr sideFcb+9,'H'
+        mov     byte ptr sideFcb+10,'S'
+        mov     byte ptr sideFcb+11,'T'
+        mov     di,offset sideFcb+12
+        mov     cx,24
+        xor     ax,ax
+        rep     stosb
+        jmp     putSingleFile
+putWildcardNext:
+        inc     word ptr listIndex
+        mov     ax,word ptr listIndex
+        cmp     ax,word ptr wildcardCount
+        jae     putWildcardTransferFinished
+        jmp     putWildcardLoadFile
+putWildcardTransferFinished:
+        mov     dx,offset msgPutDone
         call    printString
         jmp     terminate
 
@@ -931,8 +1377,7 @@ checkMetadataCrc:
         mov     byte ptr sideUsable,1
         ret
 choosePaddedLength:
-        mov     dx,offset msgPaddedWarning
-        call    printString
+        mov     byte ptr paddedNote,1
         push    ds
         pop     es
         mov     si,offset paddedLength
@@ -1048,6 +1493,7 @@ pollConsoleAbort:
         int     bdosInt
         cmp     al,03h
         jne     pollAbortDone
+        mov     byte ptr userAbort,1
         xor     al,al
         out     portAbort,al
         stc
@@ -1066,6 +1512,185 @@ pollAbortReturn:
 abortHost:
         xor     al,al
         out     portAbort,al
+        ret
+
+abortHostForFile:
+        cmp     byte ptr wildcardActive,0
+        je      abortHost
+        mov     al,1
+        out     portAbort,al
+        ret
+
+printFileStart:
+        cmp     byte ptr commandKind,2
+        jne     printStartPut
+        mov     dx,offset msgGetFailurePrefix
+        call    printString
+        jmp     printStartName
+printStartPut:
+        mov     dx,offset msgPutFailurePrefix
+        call    printString
+printStartName:
+        call    printFilename
+        mov     dx,offset msgFailureSeparator
+        call    printString
+        mov     byte ptr startPrinted,1
+        ret
+
+printFileFailure:
+        cmp     byte ptr startPrinted,0
+        je      printFileFailureFull
+        mov     byte ptr startPrinted,0
+        jmp     printFailureReason
+printFileFailureFull:
+        cmp     byte ptr commandKind,2
+        jne     printPutFailurePrefix
+        mov     dx,offset msgGetFailurePrefix
+        call    printString
+        jmp     printFailureFilename
+printPutFailurePrefix:
+        mov     dx,offset msgPutFailurePrefix
+        call    printString
+printFailureFilename:
+        call    printFilename
+        mov     dx,offset msgFailureSeparator
+        call    printString
+printFailureReason:
+        mov     al,byte ptr fileError
+        cmp     al,1
+        je      printReasonTargetExists
+        cmp     al,2
+        je      printReasonSidecarExists
+        cmp     al,6
+        je      printReasonTransfer
+        cmp     al,7
+        je      printReasonLocalIo
+        cmp     al,11
+        je      printReasonInvalid
+        cmp     al,12
+        je      printReasonUnavailable
+        cmp     al,13
+        je      printReasonHostExists
+        cmp     al,14
+        je      printReasonHostIo
+        cmp     al,15
+        je      printReasonBusy
+        cmp     al,16
+        je      printReasonNoMatches
+        cmp     al,17
+        je      printReasonReserved
+        cmp     al,18
+        je      printReasonListFull
+        mov     dx,offset msgReasonUnknown
+        jmp     printReason
+printReasonTargetExists:
+        mov     dx,offset msgReasonTargetExists
+        jmp     printReason
+printReasonSidecarExists:
+        mov     dx,offset msgReasonSidecarExists
+        jmp     printReason
+printReasonTransfer:
+        mov     dx,offset msgReasonTransfer
+        jmp     printReason
+printReasonLocalIo:
+        mov     dx,offset msgReasonLocalIo
+        jmp     printReason
+printReasonInvalid:
+        mov     dx,offset msgReasonInvalid
+        jmp     printReason
+printReasonUnavailable:
+        mov     dx,offset msgReasonUnavailable
+        jmp     printReason
+printReasonHostExists:
+        mov     dx,offset msgReasonHostExists
+        jmp     printReason
+printReasonHostIo:
+        mov     dx,offset msgReasonHostIo
+        jmp     printReason
+printReasonBusy:
+        mov     dx,offset msgReasonBusy
+        jmp     printReason
+printReasonNoMatches:
+        mov     dx,offset msgReasonNoMatches
+        jmp     printReason
+printReasonReserved:
+        mov     dx,offset msgReasonReserved
+        jmp     printReason
+printReasonListFull:
+        mov     dx,offset msgReasonListFull
+printReason:
+        call    printString
+        ret
+
+printFileSuccess:
+        cmp     byte ptr startPrinted,0
+        je      printFileSuccessFull
+        mov     byte ptr startPrinted,0
+        mov     dx,offset msgCompleteOnly
+        cmp     byte ptr paddedNote,0
+        je      printCompleteOnly
+        mov     dx,offset msgCompletePadded
+printCompleteOnly:
+        jmp     printString
+printFileSuccessFull:
+        cmp     byte ptr commandKind,2
+        jne     printPutSuccessPrefix
+        mov     dx,offset msgGetFailurePrefix
+        call    printString
+        jmp     printSuccessFilename
+printPutSuccessPrefix:
+        mov     dx,offset msgPutFailurePrefix
+        call    printString
+printSuccessFilename:
+        call    printFilename
+        mov     dx,offset msgSuccessSeparator
+        call    printString
+        ret
+
+printFilename:
+        push    ax
+        push    cx
+        push    dx
+        push    si
+        mov     si,offset workFcb+1
+        mov     cx,8
+printFilenameBase:
+        lodsb
+        cmp     al,' '
+        je      printFilenameExtension
+        mov     dl,al
+        push    cx
+        push    si
+        mov     cl,2
+        int     bdosInt
+        pop     si
+        pop     cx
+        loop    printFilenameBase
+printFilenameExtension:
+        cmp     byte ptr workFcb+9,' '
+        je      printFilenameDone
+        mov     dl,'.'
+        mov     cl,2
+        int     bdosInt
+        mov     si,offset workFcb+9
+        mov     cx,3
+printFilenameExtensionLoop:
+        lodsb
+        cmp     al,' '
+        je      printFilenameDone
+        mov     dl,al
+        push    cx
+        push    si
+        mov     cl,2
+        int     bdosInt
+        pop     si
+        pop     cx
+        loop    printFilenameExtensionLoop
+printFilenameDone:
+        pop     si
+        pop     dx
+        pop     cx
+        pop     ax
         ret
 
 printString:
@@ -1141,7 +1766,25 @@ msgTransferError db     'Transfer failed; partial GET cleanup attempted.',13,10,
 msgAborted      db      'Transfer aborted.',13,10,'$'
 msgGetDone      db      'GET complete.',13,10,'$'
 msgPutDone      db      'PUT complete.',13,10,'$'
-msgPaddedWarning db     'No valid HST metadata; PUT sends complete records.',13,10,'$'
+msgCompletePadded db    'complete (no valid HST metadata; complete records sent).',13,10,'$'
+msgGetFailurePrefix db  'GET ','$'
+msgPutFailurePrefix db  'PUT ','$'
+msgFailureSeparator db  ': ','$'
+msgSuccessSeparator db  ': complete.',13,10,'$'
+msgCompleteOnly db      'complete.',13,10,'$'
+msgReasonTargetExists db 'target file already exists.',13,10,'$'
+msgReasonSidecarExists db 'sidecar metadata file already exists.',13,10,'$'
+msgReasonTransfer db    'transfer failed (I/O or checksum error).',13,10,'$'
+msgReasonLocalIo db     'local CP/M-86 file I/O failed.',13,10,'$'
+msgReasonInvalid db     'invalid or reserved filename.',13,10,'$'
+msgReasonUnavailable db 'exchange file is missing or unavailable.',13,10,'$'
+msgReasonHostExists db  'exchange destination already exists.',13,10,'$'
+msgReasonHostIo db      'exchange I/O or checksum error.',13,10,'$'
+msgReasonBusy db        'exchange service is busy.',13,10,'$'
+msgReasonNoMatches db   'no matching files.',13,10,'$'
+msgReasonReserved db    'reserved .HST metadata file; not transferred.',13,10,'$'
+msgReasonListFull db   'wildcard match list is full; not transferred.',13,10,'$'
+msgReasonUnknown db     'unspecified error.',13,10,'$'
 
 commandKind     db      0
 workOpen        db      0
@@ -1151,8 +1794,16 @@ sideCreated     db      0
 sideValid       db      0
 sideUsable      db      0
 hostStatus      db      0
+wildcardActive  db      0
+startPrinted    db      0
+paddedNote      db      0
+userAbort       db      0
+fileError       db      0
+searchResult    db      0
 recordIndex     dw      0
 tailEnd         dw      0
+wildcardCount   dw      0
+listIndex       dw      0
 transferLength  dw      0,0
 remaining       dw      0,0
 expectedCrc     dw      0,0
@@ -1166,6 +1817,9 @@ putLength       dw      0,0
 workFcb         db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
                 db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
                 db      0,0,0,0
+searchFcb       db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+                db      0,0,0,0
 sideFcb         db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
                 db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
                 db      0,0,0,0
@@ -1177,4 +1831,9 @@ recordBuffer    db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
                 db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
                 db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 db      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+patternFcb      db      0,0,0,0,0,0,0,0,0,0,0
+candidateName   db      0,0,0,0,0,0,0,0,0,0,0
+hostFilename    db      0,0,0,0,0,0,0,0,0,0,0,0,0
+fileList        rb      1408
+                db      0
         end

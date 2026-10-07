@@ -151,14 +151,15 @@ static void closeTransfer(hostExchange *exchange, bool removeTemporary)
   }
 }
 
-static void resetExchange(hostExchange *exchange)
+static void resetExchange(hostExchange *exchange, bool preserveDirectory)
 {
   closeTransfer(exchange, true);
-  if (exchange->directory != NULL)
+  if (!preserveDirectory && exchange->directory != NULL)
   {
     closedir(exchange->directory);
     exchange->directory = NULL;
   }
+  exchange->resumeDirectory = false;
   exchange->state = hostExchangeIdle;
   exchange->activeCommand = 0;
   exchange->inputIndex = 0;
@@ -273,7 +274,10 @@ static void prepareWriteFile(hostExchange *exchange)
 
 static void beginCommand(hostExchange *exchange, uint8_t command)
 {
-  resetExchange(exchange);
+  bool resumeDirectory = command == hostExchangeCommandGet &&
+                         exchange->state == hostExchangeDirectory && exchange->directory != NULL;
+  resetExchange(exchange, resumeDirectory);
+  exchange->resumeDirectory = resumeDirectory;
   exchange->activeCommand = command;
   exchange->status = hostExchangeStatusInvalid;
   switch (command)
@@ -433,7 +437,7 @@ void hostExchangeClose(hostExchange *exchange)
   {
     return;
   }
-  resetExchange(exchange);
+  resetExchange(exchange, false);
   memset(exchange, 0, sizeof(*exchange));
 }
 
@@ -449,7 +453,8 @@ uint8_t hostExchangePortInput(void *context, uint8_t port)
   case hostExchangeStatus:
     if (exchange->status != hostExchangeStatusOk)
     {
-      exchange->state = hostExchangeIdle;
+      exchange->state = exchange->resumeDirectory ? hostExchangeDirectory : hostExchangeIdle;
+      exchange->resumeDirectory = false;
     }
     else if (exchange->activeCommand == hostExchangeCommandDirectory)
     {
@@ -544,7 +549,8 @@ uint8_t hostExchangePortInput(void *context, uint8_t port)
     return value;
   }
   case hostExchangeGetFinalStatus:
-    exchange->state = hostExchangeIdle;
+    exchange->state = exchange->resumeDirectory ? hostExchangeDirectory : hostExchangeIdle;
+    exchange->resumeDirectory = false;
     return exchange->status;
   case hostExchangePutStatus:
     exchange->state = exchange->status == hostExchangeStatusOk ? hostExchangePutData : hostExchangeIdle;
@@ -570,11 +576,22 @@ void hostExchangePortOutput(void *context, uint8_t port, uint8_t value)
   }
   if (port == hostExchangeAbortPort)
   {
-    resetExchange(exchange);
+    bool resumeDirectory = value != 0 && exchange->directory != NULL &&
+                           (exchange->resumeDirectory || exchange->state == hostExchangeDirectory);
+    resetExchange(exchange, resumeDirectory);
+    if (resumeDirectory)
+    {
+      exchange->state = hostExchangeDirectory;
+    }
     return;
   }
   if (port != hostExchangePort)
   {
+    return;
+  }
+  if (exchange->state == hostExchangeDirectory && value == hostExchangeCommandGet)
+  {
+    beginCommand(exchange, value);
     return;
   }
   switch (exchange->state)

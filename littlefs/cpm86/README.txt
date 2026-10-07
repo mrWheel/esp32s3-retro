@@ -20,13 +20,14 @@ system.dsk
   Raw, 160 KiB, 40 tracks, 8 physical 512-byte sectors per track. Track 0 is
   reserved; CP/M-86 uses 32 128-byte records per track and DPB OFF=1.
   Contains CPM.SYS, ASM86.CMD, ED.CMD, GENCMD.CMD, HOST.CMD, and PIP.CMD.
-  SHA-256: aaf0a2a55cc0b0af9bc9de27deb351fff7ef4939b886d75b5da041564509fc3c
+  SHA-256: d62be66f8e945ad916428c0bfaf83de75db1d6d207c6203e042b80b1abbb82e5
 
 HOST.CMD
-  Project-authored native CP/M-86 HOST DIR/GET/PUT utility (3,456 bytes,
+  Project-authored native CP/M-86 HOST DIR/GET/PUT utility (6,912 bytes,
   including final CP/M record padding). Built from guest/cpm86/host/HOST.A86
-  with the supplied ASM86.CMD and GENCMD.CMD.
-  SHA-256: 613be623092cc2cdb2c9a293ed4cc80a2246130a1b81f6691c5d412672b4d649
+  with the supplied ASM86.CMD and GENCMD.CMD. Supports CP/M `*` and `?`
+  wildcards for GET and PUT, reports per-file errors, and continues.
+  SHA-256: 74d4bee8b2d08a69bfba7f34cfd2dcc9fe2a5f73d65c322486fc0dc55f0f3284
 
 Resource sizes and hashes, the on-disk directory, the BIOS overlay and the
 RETRO86_V1 boot prompt plus DIR listing are checked by tests/hostTests.c. This
@@ -42,6 +43,7 @@ configured in /retro/images/cpm86/drives.cfg; use disposable images for drives
 configured read/write.
 
 HOST.CMD is installed on system.dsk. The host CP/M-86 fixture assembles the
-source in a guest and passes DIR/GET/PUT round-trip tests for a 43-record file;
-hardware transfer testing remains open. See docs/cpm86/host.md for the build
-procedure and verification details.
+source in a guest and passes DIR/GET/PUT tests, including wildcard matching,
+per-file errors with continued processing, and exact-byte round trips for a
+43-record file. Hardware transfer testing remains open. See docs/cpm86/host.md
+for the build procedure and verification details.
