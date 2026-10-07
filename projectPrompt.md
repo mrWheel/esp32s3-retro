@@ -28,6 +28,7 @@ Keep the host services and machine-specific emulation separate so additional sys
 - ESP32-S3; the current configured board is the LOLIN S3 Pro with ESP32-S3-WROOM-1, 16 MB flash and 8 MB octal PSRAM. Verify the actual board and configuration before hardware acceptance.
 - ESP-IDF 6.0.2, native ESP-IDF only; no Arduino framework or PlatformIO.
 - USB Serial/JTAG console.
+- LOLIN S3 Pro WS2812B RGB LED on GPIO 38, used as guest disk-I/O activity feedback.
 - Internal flash with LittleFS for minimum boot resources.
 - microSDHC formatted as FAT32; 32 GB recommended and 16 GB acceptable. Do not require exFAT.
 - CP/M-86's current 640 KiB guest-memory profile requires external PSRAM on the configured board.
@@ -77,6 +78,7 @@ The common host owns:
 - SD/FatFS
 - SD layout validation
 - generic virtual-image file access
+- shared guest disk-activity RGB indicator
 - exchange filesystem
 - WiFi lifecycle
 - File Transfer HTTP server
@@ -302,6 +304,8 @@ The host may later offer an explicit format/prepare function, but must never sil
 Historical floppy images remain supported, but the host must also support large image files on SD where the guest permits them. Never impose a 140/160/360 KB host limit.
 
 The generic image layer supports open, close, size, bounded read-at-offset, write-at-offset, flush and read-only mode. Stream I/O; do not load an entire image into RAM.
+
+The shared host disk-activity indicator uses the LOLIN S3 Pro WS2812B RGB LED on GPIO 38. The current CP/M-80 and CP/M-86 disk-record paths signal green for reads and red for writes; the LED turns off 120 ms after the most recent activity. This is guest disk-record activity feedback, not an indicator for every host filesystem access.
 
 The machine design, not this file, determines guest sector size, geometry, block size, maximum capacity, filesystem limits and bootability.
 

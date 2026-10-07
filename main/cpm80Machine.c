@@ -4,6 +4,7 @@
 #include "hostExchange.h"
 #include "hostConsole.h"
 #include "imageFile.h"
+#include "diskActivity.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -69,6 +70,7 @@ static bool diskReadRecord(void *context, uint8_t drive, uint16_t track, uint16_
     return false;
   }
   uint64_t recordIndex = (uint64_t)track * diskSectorsPerTrack(drive) + sector;
+  diskActivityRead();
   return imageReadAt(&diskImages[drive], recordIndex * cpm80DiskSectorSize, record, cpm80DiskSectorSize);
 }
 
@@ -81,6 +83,7 @@ static bool diskWriteRecord(void *context, uint8_t drive, uint16_t track, uint16
     return false;
   }
   uint64_t recordIndex = (uint64_t)track * diskSectorsPerTrack(drive) + sector;
+  diskActivityWrite();
   return imageWriteAt(&diskImages[drive], recordIndex * cpm80DiskSectorSize, record, cpm80DiskSectorSize) &&
          imageFlush(&diskImages[drive]);
 }

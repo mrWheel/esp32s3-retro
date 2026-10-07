@@ -42,6 +42,8 @@ The project uses the native USB Serial/JTAG connector and SPI2 for the microSD i
 
 Check the exact board schematic, module circuitry, pin availability, flash and PSRAM settings before connecting hardware or changing configuration. A 16 or 32 GB microSDHC card formatted as FAT32 is recommended; exFAT is not required.
 
+The LOLIN S3 Pro's WS2812B RGB LED is connected to GPIO 38. The firmware shows green for CP/M-80 and CP/M-86 guest disk-record reads and red for writes, then turns the LED off 120 ms after the latest disk activity. This indicates guest disk-record I/O, not every access to the SD card or LittleFS.
+
 ## Build
 
 Use the Espressif VS Code extension or an ESP-IDF terminal configured for **ESP-IDF 6.0.2** and the ESP32-S3 target. The project rejects other ESP-IDF versions and targets.

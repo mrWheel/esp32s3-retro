@@ -5,6 +5,7 @@
 #include "hostExchange.h"
 #include "hostConsole.h"
 #include "imageFile.h"
+#include "diskActivity.h"
 #include "storage.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -125,6 +126,7 @@ static bool startDiskTransfer(uint8_t command)
   imageFile *image = &diskController.drives[diskController.drive].image;
   if (command == 0)
   {
+    diskActivityRead();
     if (!imageReadAt(image, offset, diskController.record, sizeof(diskController.record)))
     {
       return true;
@@ -185,9 +187,14 @@ static bool portWrite(void *context, uint16_t port, uint8_t value)
     {
       uint64_t offset;
       imageFile *image = &diskController.drives[diskController.drive].image;
-      if (!diskRecordOffset(&offset) ||
-          !imageWriteAt(image, offset, diskController.record, sizeof(diskController.record)) ||
-          !imageFlush(image))
+      bool writeSucceeded = diskRecordOffset(&offset);
+      if (writeSucceeded)
+      {
+        diskActivityWrite();
+        writeSucceeded = imageWriteAt(image, offset, diskController.record, sizeof(diskController.record)) &&
+                         imageFlush(image);
+      }
+      if (!writeSucceeded)
       {
         diskController.transferStatus = 1;
       }

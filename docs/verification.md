@@ -75,3 +75,10 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 - The genuine CCP/BDOS host fixture imported multiple exchange files with `HOST GET *.*`, reported and continued after an existing local target, exercised `HOST GET INP?T.BIN`, rejected a pre-existing `.HST` sidecar, and verified the other file appears on E:. `HOST PUT *.BIN` continued after an existing host destination and round-tripped a 257-byte binary exactly; `HOST PUT INP?T.BIN` exercised `?`.
 - `cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`: PASS under ASan/UBSan. `PYTHONPATH=tools python3 -m unittest discover -s tests -p 'test_diskImage.py' -v`: PASS, 7 tests. Reassembly of `guest/cpm80/host/HOST.ASM` matches checked-in `HOST.COM` (6,950 bytes). Rebuilt `littlefs/cpm80/system.dsk` is 256,256 bytes.
 - ESP-IDF 6.0.2 ESP32-S3 `build`: PASS; `retroHost.bin` is 0xE8410 bytes, with 70% of the 3 MiB app partition free. No device was flashed.
+
+## Guest disk activity RGB indicator — 2026-10-07
+
+- Added WS2812B control on the LOLIN S3 Pro RGB LED GPIO 38 using the ESP-IDF RMT driver. CP/M-80 and CP/M-86 disk-record reads signal green; record writes signal red. A dedicated task handles LED updates and turns the LED off 120 ms after the latest activity. Other host filesystem access is not indicated.
+- ESP-IDF 6.0.2 ESP32-S3 firmware build: PASS; `retroHost.bin` is 0xEC660 bytes, within the 3 MiB app partition.
+- Host regression command: `cmake --build build-host && ctest --test-dir build-host --output-on-failure`: PASS, 1/1 test.
+- Physical RGB output: NOT RUN. Firmware was not flashed; LED color and board-level behavior remain to be verified on hardware.
