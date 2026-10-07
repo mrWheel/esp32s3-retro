@@ -1,8 +1,7 @@
 CP/M-80 LittleFS A: image.
 
 system.dsk is a 256,256-byte raw image with 77 tracks, 26 128-byte sectors per
-track, two reserved tracks and the read-only 8-inch SSSD DPB. Its SHA-256 is
-fdd39698993c325fc03c6f06be3a9335f5b71828cc95042875854fb198e28ab0.
+track, two reserved tracks and the read-only 8-inch SSSD DPB..
 It contains the genuine CCP and BDOS, resident ERA/REN/TYPE/USER/DIR commands,
 HELLO.COM, WELCOME.TXT, the custom HOST.COM guest transfer utility and the CP/M utility set documented in
 components/cpm80Core/os/utilities/README.md. The 16-byte RETROCPM resource header
@@ -31,15 +30,14 @@ tools/README.md for configuration, image creation and software rights details.
 HOST DIR lists files in /retro/exchange/cpm. HOST GET NAME.EXT copies a host
 file into the current CP/M drive; HOST PUT NAME.EXT copies it back. Transfer
 works only in USER 0; HOST DIR works in all user areas. A: is read-only, so
-from E: run the utility with A:HOST GET NAME.EXT or A:HOST PUT NAME.EXT. The
-BIOS returns to A: after the transient command; select E: again before another
-work-disk operation. HOST uses exact byte lengths and a visible NAME.HST
+from E: run the utility with A:HOST GET NAME.EXT or A:HOST PUT NAME.EXT. HOST
+returns to the drive it was started from. HOST uses exact byte lengths and a visible NAME.HST
 sidecar to preserve the length of imported files; the sidecar is reserved for
 HOST and should not be edited or deleted separately. Modified files fall back
 to full 128-byte CP/M records. No WiFi connection is required.
 
-Regenerate the A: image with python tools/buildCpmDisk.py from the project
-root. The composer uses the checked-in assembled images and utilities under
-components/cpm80Core/os. See designCPM80.md and components/cpm80Core/os/README.md for source,
+Regenerate the A: image with python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk
+from the project root. The composer uses the checked-in assembled images and
+utilities under guest/cpm80/ and components/cpm80Core/os/. See designCPM80.md and components/cpm80Core/os/README.md for source,
 license scope and geometry details.
-Firmware verifies the exact image size, signature and SHA-256.
+Firmware verifies the exact image size and signature.

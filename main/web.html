@@ -67,7 +67,7 @@ progress
 <h2 id="location">/microSD/retro/exchange/cpm80/</h2>
 <button id="up">Parent folder</button><button id="refresh">Refresh</button>
 <form id="upload">
-<input id="file" type="file" required><button id="send">Upload</button>
+<input id="file" type="file" multiple required><button id="send">Upload</button>
 </form>
 <p>Existing files are never overwritten. Every listed item shows its full SD-card VFS path. Names must begin with a letter or digit; use letters, digits, spaces, dots, underscores or hyphens (64 characters per name). No trailing space or dot.</p>
 <table>
@@ -277,23 +277,32 @@ element("upload").onsubmit = (event) =>
   event.preventDefault();
   run(async () =>
   {
-    const file = element("file").files[0];
-    if (!file)
+    const files = Array.from(element("file").files);
+    if (files.length === 0)
     {
       return;
     }
-    if (file.size > 4294967294)
+    for (const file of files)
     {
-      throw new Error("Maximum file size is 4 GiB minus 2 bytes.");
+      if (file.size > 4294967294)
+      {
+        throw new Error("Maximum file size is 4 GiB minus 2 bytes: " + file.name);
+      }
     }
     element("send").disabled = true;
-    showStatus("Uploading " + file.name + "...");
-    showProgress("Uploading " + file.name, 0, file.size);
     try
     {
-      await transfer("PUT", childPath(file.name), file, file.size, file.name);
+      let done = 0;
+      for (const file of files)
+      {
+        const label = "Uploading " + file.name + " (" + (done + 1) + "/" + files.length + ")";
+        showStatus(label + "...");
+        showProgress(label, 0, file.size);
+        await transfer("PUT", childPath(file.name), file, file.size, file.name + " (" + (done + 1) + "/" + files.length + ")");
+        done++;
+      }
       await refresh();
-      showStatus("Upload complete: " + areaRoot() + "/" + childPath(file.name));
+      showStatus("Upload complete: " + done + " file(s) to " + areaRoot() + (currentPath ? "/" + currentPath : ""));
       element("file").value = "";
     }
     finally

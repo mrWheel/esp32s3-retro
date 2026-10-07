@@ -1703,11 +1703,11 @@ static void testCpm80GuestBoot(void)
   assert(instructions < 7000000);
 
   priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  priorWorkPrompts = countOccurrences(fixture.output, "E>");
   fixture.input = "A:HOST GET INPUT.BIN\r";
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
+  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
          instructions < 10000000)
   {
     size_t executed = cpm80GuestRunFor(&guest, 10000);
@@ -1715,7 +1715,7 @@ static void testCpm80GuestBoot(void)
     instructions += executed;
   }
   assert(instructions < 10000000);
-  assert(strstr(fixture.output, "HOST: GET complete") != NULL);
+  assert(strstr(fixture.output, "GET complete.") != NULL);
 
   priorWorkPrompts = countOccurrences(fixture.output, "E>");
   fixture.input = "E:\r";
@@ -1731,24 +1731,38 @@ static void testCpm80GuestBoot(void)
 
   instructions = 0;
   assert(guest.selectedDrive == 4);
-  size_t priorTargetErrors = countOccurrences(fixture.output, "HOST: target already exists");
-  priorSystemPrompts = countOccurrences(fixture.output, "A>");
-  fixture.input = "A:HOST GET *.BIN\r";
+  priorWorkPrompts = countOccurrences(fixture.output, "E>");
+  fixture.input = "A:HOST GET *.*\r";
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 && instructions < 3000000)
+  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 3000000)
   {
     size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
   assert(instructions < 3000000);
-  if (countOccurrences(fixture.output, "HOST: target already exists") != priorTargetErrors + 1)
+  if (strstr(fixture.output, "GET INPUT.BIN: target file already exists.") == NULL ||
+      strstr(fixture.output, "GET OTHER.BIN: complete.") == NULL)
   {
     fprintf(stderr, "CP/M-80 HOST wildcard GET output:\n%s\n", fixture.output);
   }
-  assert(countOccurrences(fixture.output, "HOST: target already exists") == priorTargetErrors + 1);
-  assert(strstr(fixture.output, "HOST: GET complete") != NULL);
+  assert(strstr(fixture.output, "GET INPUT.BIN: target file already exists.") != NULL);
+  assert(strstr(fixture.output, "GET OTHER.BIN: complete.") != NULL);
+  assert(strstr(fixture.output, "GET complete.") != NULL);
+
+  priorWorkPrompts = countOccurrences(fixture.output, "E>");
+  fixture.input = "A:HOST GET INP?T.BIN\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 5000000)
+  {
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 5000000);
+  assert(strstr(fixture.output, "GET INPUT.BIN: target file already exists.") != NULL);
 
   priorWorkPrompts = countOccurrences(fixture.output, "E>");
   fixture.input = "E:\r";
@@ -1776,11 +1790,11 @@ static void testCpm80GuestBoot(void)
   assert(instructions < 12000000);
   assert(strstr(fixture.output, "OTHER    BIN") != NULL);
 
-  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  priorWorkPrompts = countOccurrences(fixture.output, "E>");
   fixture.input = "A:PIP E:INPUT2.HST=E:INPUT.HST\r";
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
+  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
          instructions < 12000000)
   {
     size_t executed = cpm80GuestRunFor(&guest, 10000);
@@ -1802,11 +1816,11 @@ static void testCpm80GuestBoot(void)
   }
   assert(instructions < 13000000);
 
-  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  priorWorkPrompts = countOccurrences(fixture.output, "E>");
   fixture.input = "A:HOST GET INPUT2.BIN\r";
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
+  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
          instructions < 15000000)
   {
     size_t executed = cpm80GuestRunFor(&guest, 10000);
@@ -1814,7 +1828,7 @@ static void testCpm80GuestBoot(void)
     instructions += executed;
   }
   assert(instructions < 15000000);
-  assert(strstr(fixture.output, "HOST: metadata file (.HST) already exists") != NULL);
+  assert(strstr(fixture.output, "GET INPUT2.BIN: sidecar metadata file already exists.") != NULL);
 
   priorWorkPrompts = countOccurrences(fixture.output, "E>");
   fixture.input = "E:\r";
@@ -1843,11 +1857,11 @@ static void testCpm80GuestBoot(void)
   assert(instructions < 17000000);
   assert(strstr(fixture.output, "INPUT2   HST") != NULL);
 
-  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  priorWorkPrompts = countOccurrences(fixture.output, "E>");
   fixture.input = "A:HOST GET INPUT.BIN\r";
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
+  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
          instructions < 18000000)
   {
     size_t executed = cpm80GuestRunFor(&guest, 10000);
@@ -1855,7 +1869,7 @@ static void testCpm80GuestBoot(void)
     instructions += executed;
   }
   assert(instructions < 18000000);
-  assert(strstr(fixture.output, "HOST: target already exists") != NULL);
+  assert(strstr(fixture.output, "GET INPUT.BIN: target file already exists.") != NULL);
   assert(unlink(exchangeFilePath) == 0);
 
   priorWorkPrompts = countOccurrences(fixture.output, "E>");
@@ -1871,11 +1885,11 @@ static void testCpm80GuestBoot(void)
   }
   assert(instructions < 19000000);
 
-  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  priorWorkPrompts = countOccurrences(fixture.output, "E>");
   fixture.input = "A:HOST PUT INPUT.BIN\r";
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
+  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 &&
          instructions < 22000000)
   {
     size_t executed = cpm80GuestRunFor(&guest, 10000);
@@ -1883,7 +1897,11 @@ static void testCpm80GuestBoot(void)
     instructions += executed;
   }
   assert(instructions < 22000000);
-  assert(strstr(fixture.output, "HOST: PUT complete") != NULL);
+  if (strstr(fixture.output, "PUT complete.") == NULL)
+  {
+    fprintf(stderr, "CP/M-80 HOST PUT output:\n%s\n", fixture.output);
+  }
+  assert(strstr(fixture.output, "PUT complete.") != NULL);
   exchangeFile = fopen(exchangeFilePath, "rb");
   assert(exchangeFile != NULL);
   uint8_t roundTripBytes[sizeof(exchangeFileBytes)];
@@ -1907,25 +1925,25 @@ static void testCpm80GuestBoot(void)
   assert(guest.selectedDrive == 4);
 
   assert(unlink(exchangeOtherFilePath) == 0);
-  size_t priorWildcardPutErrors = countOccurrences(fixture.output, "HOST: wildcard file transfer failed");
-  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  priorWorkPrompts = countOccurrences(fixture.output, "E>");
   fixture.input = "A:HOST PUT *.BIN\r";
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 && instructions < 7000000)
+  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 7000000)
   {
     size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
   assert(instructions < 7000000);
-  if (countOccurrences(fixture.output, "HOST: wildcard file transfer failed") != priorWildcardPutErrors + 1)
+  if (strstr(fixture.output, "PUT INPUT.BIN: exchange destination already exists.") == NULL ||
+      strstr(fixture.output, "PUT OTHER.BIN: complete.") == NULL)
   {
     fprintf(stderr, "CP/M-80 HOST wildcard PUT output:\n%s\n", fixture.output);
   }
-  assert(countOccurrences(fixture.output, "HOST: wildcard file transfer failed") ==
-         priorWildcardPutErrors + 1);
-  assert(strstr(fixture.output, "HOST: PUT complete") != NULL);
+  assert(strstr(fixture.output, "PUT INPUT.BIN: exchange destination already exists.") != NULL);
+  assert(strstr(fixture.output, "PUT OTHER.BIN: complete.") != NULL);
+  assert(strstr(fixture.output, "PUT complete.") != NULL);
   exchangeFile = fopen(exchangeOtherFilePath, "rb");
   assert(exchangeFile != NULL);
   uint8_t wildcardPutBytes[sizeof(exchangeOtherFileBytes)];
@@ -1948,20 +1966,32 @@ static void testCpm80GuestBoot(void)
   assert(instructions < 2000000);
   assert(guest.selectedDrive == 4);
 
-  priorWildcardPutErrors = countOccurrences(fixture.output, "HOST: wildcard file transfer failed");
-  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  priorWorkPrompts = countOccurrences(fixture.output, "E>");
   fixture.input = "A:HOST PUT INP?T.BIN\r";
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 && instructions < 4000000)
+  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 4000000)
   {
     size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);
     instructions += executed;
   }
   assert(instructions < 4000000);
-  assert(countOccurrences(fixture.output, "HOST: wildcard file transfer failed") ==
-         priorWildcardPutErrors + 1);
+  assert(strstr(fixture.output, "PUT INPUT.BIN: exchange destination already exists.") != NULL);
+
+  instructions = 0;
+  priorSystemPrompts = countOccurrences(fixture.output, "A>");
+  fixture.input = "A:\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 &&
+         instructions < 5000000)
+  {
+    size_t executed = cpm80GuestRunFor(&guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(instructions < 5000000);
 
   instructions = 0;
   priorSystemPrompts = countOccurrences(fixture.output, "A>");
@@ -2065,10 +2095,10 @@ static void testCpm80GuestBoot(void)
   assert(countOccurrences(fixture.output, "HELLO    COM") > priorDirectoryEntries);
 
   priorSystemPrompts = countOccurrences(fixture.output, "A>");
-  fixture.input = "PIP E:=A:HELLO.COM\r";
+  fixture.input = "A:\rPIP E:=A:HELLO.COM\r";
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 && instructions < 12000000)
+  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 2 && instructions < 12000000)
   {
     size_t executed = cpm80GuestRunFor(&guest, 10000);
     assert(executed > 0);

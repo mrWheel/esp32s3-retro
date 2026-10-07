@@ -186,6 +186,7 @@ static void installBios(cpm80Guest *guest)
 static void installSystem(cpm80Guest *guest, bool coldBoot)
 {
   uint8_t *memory = guest->cpu.memory;
+  uint8_t currentDisk = coldBoot ? 0 : memory[0x0004];
   if (coldBoot)
   {
     memset(memory, 0, cpm80MemorySize);
@@ -202,7 +203,7 @@ static void installSystem(cpm80Guest *guest, bool coldBoot)
   memory[0x0000] = 0xC3;
   writeWord(memory, 0x0001, cpm80BiosAddress + cpm80BiosVectorSize);
   memory[0x0003] = 0;
-  memory[0x0004] = 0;
+  memory[0x0004] = currentDisk;
   memory[0x0005] = 0xC3;
   writeWord(memory, 0x0006, cpm80BdosEntryAddress);
 
@@ -216,6 +217,7 @@ static void installSystem(cpm80Guest *guest, bool coldBoot)
     guest->skipLineFeed = false;
   }
   resetProcessor(guest, cpm80CcpAddress);
+  guest->cpu.processor.c = currentDisk;
 }
 
 static bool readConsoleCharacter(cpm80Guest *guest, uint8_t *character)

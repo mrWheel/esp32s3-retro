@@ -112,8 +112,7 @@ destinations, unique-name handling across directory extents, a named per-file
 error, and successful processing of later matches. When preparing a new
 candidate command, `CPM86_HOST_COMPILE_ONLY=1` makes the fixture stop after
 ASM86/GENCMD have generated `HOST.CMD`; extract it and rebuild the candidate A:
-image before running the full fixture. The installed CMD and system image
-hashes are recorded in `littlefs/cpm86/README.txt`.
+image before running the full fixture.
 
 The first on-device `HOST DIR` attempt stopped with a guest I/O error because
 the CP/M-86 firmware had created its CPU core without connecting the shared

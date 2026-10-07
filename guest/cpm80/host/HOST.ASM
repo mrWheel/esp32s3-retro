@@ -23,8 +23,6 @@ start:
         ld      (workCreated),a
         ld      (sidecarOpen),a
         ld      (sidecarCreated),a
-        call    checkService
-        jp      c,unsupportedService
         call    parseCommand
         jp      c,badCommand
         ld      a,(commandKind)
@@ -36,7 +34,9 @@ start:
         or      a
         jp      nz,userAreaRejected
         call    copyAndValidateFcb
-        jp      c,badCommand
+        jp      c,filenameRejected
+        call    checkService
+        jp      c,unsupportedService
         ld      a,(wildcardActive)
         or      a
         jp      z,startSingleCommand
@@ -96,6 +96,7 @@ parseSkipLeading:
         jp      parseSkipLeading
 parseAction:
         ld      a,(hl)
+        call    uppercaseCharacter
         cp      'D'
         jp      z,parseDirToken
         cp      'G'
@@ -106,10 +107,12 @@ parseAction:
 parseDirToken:
         inc     hl
         ld      a,(hl)
+        call    uppercaseCharacter
         cp      'I'
         jp      nz,parseBad
         inc     hl
         ld      a,(hl)
+        call    uppercaseCharacter
         cp      'R'
         jp      nz,parseBad
         inc     hl
@@ -123,10 +126,12 @@ parseDirToken:
 parseGetToken:
         inc     hl
         ld      a,(hl)
+        call    uppercaseCharacter
         cp      'E'
         jp      nz,parseBad
         inc     hl
         ld      a,(hl)
+        call    uppercaseCharacter
         cp      'T'
         jp      nz,parseBad
         inc     hl
@@ -142,10 +147,12 @@ parseGetToken:
 parsePutToken:
         inc     hl
         ld      a,(hl)
+        call    uppercaseCharacter
         cp      'U'
         jp      nz,parseBad
         inc     hl
         ld      a,(hl)
+        call    uppercaseCharacter
         cp      'T'
         jp      nz,parseBad
         inc     hl
@@ -162,6 +169,14 @@ parseGood:
         ret
 parseBad:
         scf
+        ret
+
+uppercaseCharacter:
+        cp      'a'
+        ret     c
+        cp      'z'+1
+        ret     nc
+        sub     20h
         ret
 
 checkTokenBoundary:
@@ -258,29 +273,74 @@ copyCcpName:
         xor     a
         ld      (wildcardActive),a
         ld      hl,workFcb+1
-        ld      b,11
+        ld      b,8
         ld      c,0
+        ld      d,0
+validateBase:
         ld      a,(hl)
         cp      ' '
-        jp      z,invalidFcb
-validateFcbName:
+        jp      z,validateBaseSpace
+        ld      a,d
+        or      a
+        jp      nz,invalidFcb
+        inc     c
         ld      a,(hl)
         cp      '?'
-        jp      nz,validateFcbSpace
+        jp      z,validateBaseWildcard
+        cp      '*'
+        jp      z,validateBaseWildcard
+        call    validFilenameCharacter
+        jp      c,invalidFcb
+        jp      validateBaseNext
+validateBaseWildcard:
         ld      a,1
         ld      (wildcardActive),a
-        jp      validateFcbNext
-validateFcbSpace:
-        ld      a,(hl)
-        cp      ' '
-        jp      z,validateFcbNext
-        ld      c,1
-validateFcbNext:
+        jp      validateBaseNext
+validateBaseSpace:
+        ld      d,1
+validateBaseNext:
         inc     hl
-        djnz    validateFcbName
+        djnz    validateBase
         ld      a,c
         or      a
         jp      z,invalidFcb
+        ld      b,3
+        xor     a
+        ld      d,a
+validateExtension:
+        ld      a,(hl)
+        cp      ' '
+        jp      z,validateExtensionSpace
+        ld      a,d
+        or      a
+        jp      nz,invalidFcb
+        ld      a,(hl)
+        cp      '?'
+        jp      z,validateExtensionWildcard
+        cp      '*'
+        jp      z,validateExtensionWildcard
+        call    validFilenameCharacter
+        jp      c,invalidFcb
+        jp      validateExtensionNext
+validateExtensionWildcard:
+        ld      a,1
+        ld      (wildcardActive),a
+        jp      validateExtensionNext
+validateExtensionSpace:
+        ld      d,1
+validateExtensionNext:
+        inc     hl
+        djnz    validateExtension
+        ld      a,(workFcb+9)
+        cp      'H'
+        jp      nz,copyInitSideFcb
+        ld      a,(workFcb+10)
+        cp      'S'
+        jp      nz,copyInitSideFcb
+        ld      a,(workFcb+11)
+        cp      'T'
+        jp      z,invalidFcb
+copyInitSideFcb:
         call    initSideFcb
         or      a
         ret
@@ -316,6 +376,27 @@ normalizeExtensionFill:
         ld      (hl),'?'
         inc     hl
         djnz    normalizeExtensionFill
+        ret
+
+validFilenameCharacter:
+        cp      'A'
+        jp      c,validFilenameDigit
+        cp      'Z'+1
+        jp      c,validFilenameGood
+validFilenameDigit:
+        cp      '0'
+        jp      c,validFilenameSymbol
+        cp      '9'+1
+        jp      c,validFilenameGood
+validFilenameSymbol:
+        cp      '_'
+        jp      z,validFilenameGood
+        cp      '-'
+        jp      z,validFilenameGood
+        scf
+        ret
+validFilenameGood:
+        or      a
         ret
 
 initSideFcb:
@@ -440,11 +521,20 @@ getWildcardNameEnd:
         jp      nz,getWildcardCheckPattern
         ld      a,(candidateName+10)
         cp      'T'
-        jp      z,getWildcardReadName
+        jp      nz,getWildcardCheckPattern
+        ld      hl,candidateName
+        ld      de,workFcb+1
+        ld      bc,11
+        ldir
+        ld      a,17
+        ld      (fileError),a
+        call    printFileFailure
+        jp      getWildcardReadName
 getWildcardCheckPattern:
         call    matchHostName
         jp      c,getWildcardReadName
-        ld      a,1
+        ld      a,(wildcardCount)
+        inc     a
         ld      (wildcardCount),a
         ld      hl,candidateName
         ld      de,workFcb+1
@@ -467,11 +557,14 @@ getWildcardListEnd:
         ld      a,(wildcardCount)
         or      a
         jp      nz,getWildcardFinished
-        ld      de,msgNoMatches
-        call    printString
+        ld      a,16
+        ld      (fileError),a
+        call    printFileFailure
         jp      terminate
 getWildcardFinished:
-        jp      printGetDone
+        ld      de,msgGetDone
+        call    printString
+        jp      terminate
 
 convertHostName:
         ld      hl,candidateName
@@ -602,35 +695,50 @@ matchHostNameBad:
 commandGet:
 commandGetSingle:
         xor     a
+        ld      (fileError),a
+        call    printFileStart
+        xor     a
         ld      (workOpen),a
         ld      (workCreated),a
         ld      (sidecarOpen),a
         ld      (sidecarCreated),a
         call    ensureTargetAbsent
-        jp      c,targetExists
+        jp      nc,getTargetAvailable
+        ld      a,1
+        ld      (fileError),a
+        jp      getFileFailure
+getTargetAvailable:
         call    ensureSidecarAbsent
-        jp      c,sidecarExists
+        jp      nc,getSidecarAvailable
+        ld      a,2
+        ld      (fileError),a
+        jp      getFileFailure
+getSidecarAvailable:
         ld      a,2
         call    sendByte
-        jp      c,operationAborted
+        jp      c,getTransferFailed
         ld      hl,workFcb+1
         ld      b,11
 getSendName:
         ld      a,(hl)
         and     07fh
         call    sendByte
-        jp      c,operationAborted
+        jp      c,getTransferFailed
         inc     hl
         djnz    getSendName
         call    readByte
-        jp      c,operationAborted
+        jp      c,getTransferFailed
         or      a
-        jp      nz,showHostError
+        jp      z,getAccepted
+        add     a,10
+        ld      (fileError),a
+        jp      getFileFailure
+getAccepted:
         ld      hl,getLength
         ld      b,4
 getReadLength:
         call    readByte
-        jp      c,operationAborted
+        jp      c,getTransferFailed
         ld      (hl),a
         inc     hl
         djnz    getReadLength
@@ -640,7 +748,11 @@ getReadLength:
         ld      c,22
         call    bdos
         cp      0ffh
-        jp      z,getCreateBad
+        jp      nz,getTargetCreated
+        ld      a,7
+        ld      (fileError),a
+        jp      getLocalFailure
+getTargetCreated:
         ld      a,1
         ld      (workOpen),a
         ld      (workCreated),a
@@ -699,7 +811,11 @@ getPayloadCrc:
         call    readByte
         jp      c,getFailure
         or      a
-        jp      nz,getFailure
+        jp      z,getFinalStatusOk
+        add     a,10
+        ld      (fileError),a
+        jp      getFailure
+getFinalStatusOk:
         call    closeWorkFile
         cp      0ffh
         jp      z,getFailure
@@ -707,19 +823,54 @@ getPayloadCrc:
         jp      c,getFailure
         ld      a,(wildcardActive)
         or      a
-        jp      nz,getWildcardReadName
-        jp      printGetDone
-
-getFailure:
-        call    abortHost
-        call    cleanupGetFiles
-        ld      de,msgTransferError
+        jp      z,getSingleComplete
+        call    printFileSuccess
+        jp      getWildcardReadName
+getSingleComplete:
+        ld      de,msgGetDone
         call    printString
         jp      terminate
 
-getCreateBad:
+getFailure:
+        ld      a,(fileError)
+        or      a
+        jp      nz,getFailureStatusReady
+        ld      a,6
+        ld      (fileError),a
+getFailureStatusReady:
+        call    abortHostForFile
+        call    cleanupGetFiles
+        ld      a,(abortFlag)
+        or      a
+        jp      nz,getUserAbort
+        jp      getFileFailure
+
+getTransferFailed:
+        ld      a,6
+        ld      (fileError),a
+        call    abortHostForFile
+        ld      a,(abortFlag)
+        or      a
+        jp      nz,getUserAbort
+        jp      getFileFailure
+
+getLocalFailure:
+        call    abortHostForFile
+        jp      getFileFailure
+
+getFileFailure:
+        call    printFileFailure
+        ld      a,(wildcardActive)
+        or      a
+        jp      nz,getWildcardReadName
+        jp      terminate
+
+getUserAbort:
         call    abortHost
-        jp      localFileError
+        call    printFileFailure
+        ld      de,msgAborted
+        call    printString
+        jp      terminate
 
 ensureTargetAbsent:
         call    openWorkFcb
@@ -746,30 +897,6 @@ ensureSidecarAbsent:
 sidecarAbsent:
         or      a
         ret
-
-sidecarExists:
-        ld      a,(wildcardActive)
-        or      a
-        jp      nz,getWildcardSidecarExists
-        ld      de,msgSidecarExists
-        call    printString
-        jp      terminate
-getWildcardSidecarExists:
-        ld      de,msgSidecarExists
-        call    printString
-        jp      getWildcardReadName
-
-targetExists:
-        ld      a,(wildcardActive)
-        or      a
-        jp      nz,getWildcardTargetExists
-        ld      de,msgTargetExists
-        call    printString
-        jp      terminate
-getWildcardTargetExists:
-        ld      de,msgTargetExists
-        call    printString
-        jp      getWildcardReadName
 
 copyGetLengthToRemaining:
         ld      hl,getLength
@@ -947,6 +1074,7 @@ cleanupSkipSide:
         xor     a
         ld      (workOpen),a
         ld      (workCreated),a
+        ld      (sidecarOpen),a
         ld      (sidecarCreated),a
         ret
 
@@ -983,6 +1111,14 @@ closeWorkFile:
         xor     a
         ld      (workOpen),a
         ld      a,(statusValue)
+        ret
+
+abortHostForFile:
+        ld      a,(wildcardActive)
+        or      a
+        jp      z,abortHost
+        ld      a,1
+        out     (portAbort),a
         ret
 
 commandPutWildcard:
@@ -1029,7 +1165,15 @@ putWildcardSaveName:
         jp      nz,putWildcardCheckDuplicate
         ld      a,(candidateName+10)
         cp      'T'
-        jp      z,putWildcardSearchNext
+        jp      nz,putWildcardCheckDuplicate
+        ld      hl,candidateName
+        ld      de,workFcb+1
+        ld      bc,11
+        ldir
+        ld      a,17
+        ld      (fileError),a
+        call    printFileFailure
+        jp      putWildcardSearchNext
 putWildcardCheckDuplicate:
         ld      a,(wildcardCount)
         ld      b,a
@@ -1089,9 +1233,14 @@ putWildcardStoreName:
         ld      (wildcardCount),a
         jp      putWildcardSearchNext
 putWildcardListFull:
-        ld      de,msgListFull
-        call    printString
-        jp      terminate
+        ld      hl,candidateName
+        ld      de,workFcb+1
+        ld      bc,11
+        ldir
+        ld      a,18
+        ld      (fileError),a
+        call    printFileFailure
+        jp      putWildcardSearchNext
 putWildcardSearchNext:
         ld      de,searchFcb
         ld      c,18
@@ -1101,8 +1250,9 @@ putWildcardCollected:
         ld      a,(wildcardCount)
         or      a
         jp      nz,putWildcardLoadFile
-        ld      de,msgNoMatches
-        call    printString
+        ld      a,16
+        ld      (fileError),a
+        call    printFileFailure
         jp      terminate
 putWildcardLoadFile:
         ld      a,(wildcardIndex)
@@ -1148,20 +1298,28 @@ putWildcardNext:
 
 commandPut:
 commandPutSingle:
+        xor     a
+        ld      (fileError),a
+        ld      (paddedNote),a
+        call    printFileStart
         call    scanSourceFile
-        jp      c,putLocalFileError
+        jp      nc,putSourceReady
+        ld      a,7
+        ld      (fileError),a
+        jp      putFileFailure
+putSourceReady:
         call    loadAndValidateSidecar
         call    choosePutTransfer
         ld      a,3
         call    sendByte
-        jp      c,operationAborted
+        jp      c,putTransferFailed
         ld      hl,workFcb+1
         ld      b,11
 putSendName:
         ld      a,(hl)
         and     07fh
         call    sendByte
-        jp      c,operationAborted
+        jp      c,putTransferFailed
         inc     hl
         djnz    putSendName
         ld      hl,putLength
@@ -1169,7 +1327,7 @@ putSendName:
 putSendLength:
         ld      a,(hl)
         call    sendByte
-        jp      c,operationAborted
+        jp      c,putTransferFailed
         inc     hl
         djnz    putSendLength
         ld      hl,expectedCrc
@@ -1177,46 +1335,128 @@ putSendLength:
 putSendCrc:
         ld      a,(hl)
         call    sendByte
-        jp      c,operationAborted
+        jp      c,putTransferFailed
         inc     hl
         djnz    putSendCrc
         call    readByte
-        jp      c,operationAborted
+        jp      c,putTransferFailed
         or      a
-        jp      nz,putWildcardHostStatus
-        call    streamPutPayload
-        jp      c,putTransferFailure
+        jp      z,putAccepted
+        add     a,10
+        ld      (fileError),a
+        jp      putFileFailure
+putAccepted:
+        call    openWorkFcb
+        cp      0ffh
+        jp      nz,putFileOpened
+        ld      a,7
+        ld      (fileError),a
+        call    abortHost
+        jp      putFileFailure
+putFileOpened:
+        ld      a,1
+        ld      (workOpen),a
+        ld      hl,putLength
+        ld      de,remaining
+        ld      bc,4
+        ldir
+        ld      de,recordBuffer
+        ld      c,26
+        call    bdos
+putReadRecord:
+        call    remainingIsZero
+        jp      z,putPayloadDone
+        ld      de,workFcb
+        ld      c,20
+        call    bdos
+        or      a
+        jp      nz,putFailed
+        ld      hl,recordBuffer
+        ld      b,128
+putSendRecord:
+        push    bc
+        call    remainingIsZero
+        pop     bc
+        jp      z,putPayloadDone
+        ld      a,(hl)
+        call    sendByte
+        jp      c,putFailed
+        inc     hl
+        call    decrementRemaining
+        djnz    putSendRecord
+        jp      putReadRecord
+putPayloadDone:
         call    readByte
-        jp      c,putTransferFailure
+        jp      c,putFailed
         or      a
-        jp      nz,showHostError
+        jp      z,putHostTransferComplete
+        add     a,10
+        ld      (fileError),a
+        jp      putHostFailure
+putHostTransferComplete:
+        call    closeWorkFile
+        cp      0ffh
+        jp      z,putLocalCloseFailed
         ld      a,(wildcardActive)
         or      a
-        jp      nz,putWildcardNext
+        jp      z,putSingleComplete
+        call    printFileSuccess
+        jp      putWildcardNext
+putSingleComplete:
         ld      de,msgPutDone
         call    printString
         jp      terminate
 
-putWildcardHostStatus:
-        ld      a,(wildcardActive)
-        or      a
-        jp      z,showHostError
-        ld      de,msgWildcardItemError
-        call    printString
-        jp      putWildcardNext
-
-putLocalFileError:
-        ld      a,(wildcardActive)
-        or      a
-        jp      z,localFileError
-        ld      de,msgLocalError
-        call    printString
-        jp      putWildcardNext
-
-putTransferFailure:
+putLocalCloseFailed:
         xor     a
-        out     (portAbort),a
-        ld      de,msgTransferError
+        ld      (workOpen),a
+        ld      a,7
+        ld      (fileError),a
+        jp      putFileFailure
+
+putHostFailure:
+        ld      a,(workOpen)
+        or      a
+        jp      z,putFileFailure
+        call    closeWorkFile
+        jp      putFileFailure
+
+putFailed:
+        call    abortHost
+        ld      a,6
+        ld      (fileError),a
+        ld      a,(workOpen)
+        or      a
+        jp      z,putFailedMessage
+        call    closeWorkFile
+putFailedMessage:
+        ld      a,(abortFlag)
+        or      a
+        jp      nz,putUserAbort
+        jp      putFileFailure
+
+putTransferFailed:
+        ld      a,6
+        ld      (fileError),a
+        call    abortHost
+        ld      a,(abortFlag)
+        or      a
+        jp      nz,putUserAbort
+        jp      putFileFailure
+
+putFileFailure:
+        call    printFileFailure
+        ld      a,(abortFlag)
+        or      a
+        jp      nz,putUserAbort
+        ld      a,(wildcardActive)
+        or      a
+        jp      z,terminate
+        jp      putWildcardNext
+
+putUserAbort:
+        call    printFileFailure
+        ld      de,msgAborted
         call    printString
         jp      terminate
 
@@ -1505,6 +1745,8 @@ sideExactBad:
         ret
 
 choosePutTransfer:
+        xor     a
+        ld      (paddedNote),a
         ld      hl,fileBytes
         ld      de,putLength
         ld      bc,4
@@ -1515,7 +1757,11 @@ choosePutTransfer:
         ldir
         ld      a,(sidecarValid)
         or      a
-        ret     z
+        jp      nz,choosePutMetadata
+        ld      a,1
+        ld      (paddedNote),a
+        ret
+choosePutMetadata:
         ld      hl,metaLength
         ld      de,putLength
         ld      bc,4
@@ -1779,7 +2025,12 @@ userAreaRejected:
         jp      terminate
 
 unsupportedService:
-        ld      de,msgUnsupported
+        ld      de,msgServiceError
+        call    printString
+        jp      terminate
+
+filenameRejected:
+        ld      de,msgFilename
         call    printString
         jp      terminate
 
@@ -1805,10 +2056,190 @@ badCommand:
         call    printString
         jp      terminate
 
-printGetDone:
-        ld      de,msgGetDone
+printFileStart:
+        ld      a,(commandKind)
+        cp      2
+        jp      nz,printStartPut
+        ld      de,msgGetFailurePrefix
         call    printString
-        jp      terminate
+        jp      printStartName
+printStartPut:
+        ld      de,msgPutFailurePrefix
+        call    printString
+printStartName:
+        call    printFilename
+        ld      de,msgFailureSeparator
+        call    printString
+        ld      a,1
+        ld      (startPrinted),a
+        ret
+
+printFileFailure:
+        ld      a,(startPrinted)
+        or      a
+        jp      z,printFileFailureFull
+        xor     a
+        ld      (startPrinted),a
+        jp      printFailureReason
+printFileFailureFull:
+        ld      a,(commandKind)
+        cp      2
+        jp      nz,printPutFailurePrefix
+        ld      de,msgGetFailurePrefix
+        call    printString
+        jp      printFailureFilename
+printPutFailurePrefix:
+        ld      de,msgPutFailurePrefix
+        call    printString
+printFailureFilename:
+        call    printFilename
+        ld      de,msgFailureSeparator
+        call    printString
+printFailureReason:
+        ld      a,(fileError)
+        cp      1
+        jp      z,printReasonTargetExists
+        cp      2
+        jp      z,printReasonSidecarExists
+        cp      6
+        jp      z,printReasonTransfer
+        cp      7
+        jp      z,printReasonLocalIo
+        cp      11
+        jp      z,printReasonInvalid
+        cp      12
+        jp      z,printReasonUnavailable
+        cp      13
+        jp      z,printReasonHostExists
+        cp      14
+        jp      z,printReasonHostIo
+        cp      15
+        jp      z,printReasonBusy
+        cp      16
+        jp      z,printReasonNoMatches
+        cp      17
+        jp      z,printReasonReserved
+        cp      18
+        jp      z,printReasonListFull
+        ld      de,msgReasonUnknown
+        jp      printReason
+printReasonTargetExists:
+        ld      de,msgReasonTargetExists
+        jp      printReason
+printReasonSidecarExists:
+        ld      de,msgReasonSidecarExists
+        jp      printReason
+printReasonTransfer:
+        ld      de,msgReasonTransfer
+        jp      printReason
+printReasonLocalIo:
+        ld      de,msgReasonLocalIo
+        jp      printReason
+printReasonInvalid:
+        ld      de,msgReasonInvalid
+        jp      printReason
+printReasonUnavailable:
+        ld      de,msgReasonUnavailable
+        jp      printReason
+printReasonHostExists:
+        ld      de,msgReasonHostExists
+        jp      printReason
+printReasonHostIo:
+        ld      de,msgReasonHostIo
+        jp      printReason
+printReasonBusy:
+        ld      de,msgReasonBusy
+        jp      printReason
+printReasonNoMatches:
+        ld      de,msgReasonNoMatches
+        jp      printReason
+printReasonReserved:
+        ld      de,msgReasonReserved
+        jp      printReason
+printReasonListFull:
+        ld      de,msgReasonListFull
+printReason:
+        call    printString
+        ret
+
+printFileSuccess:
+        ld      a,(startPrinted)
+        or      a
+        jp      z,printFileSuccessFull
+        xor     a
+        ld      (startPrinted),a
+        ld      a,(paddedNote)
+        or      a
+        ld      de,msgCompleteOnly
+        jp      z,printCompleteLine
+        ld      de,msgCompletePadded
+printCompleteLine:
+        call    printString
+        ret
+printFileSuccessFull:
+        ld      a,(commandKind)
+        cp      2
+        jp      nz,printPutSuccessPrefix
+        ld      de,msgGetFailurePrefix
+        call    printString
+        jp      printSuccessFilename
+printPutSuccessPrefix:
+        ld      de,msgPutFailurePrefix
+        call    printString
+printSuccessFilename:
+        call    printFilename
+        ld      de,msgSuccessSeparator
+        call    printString
+        ret
+
+printFilename:
+        push    af
+        push    bc
+        push    de
+        push    hl
+        ld      hl,workFcb+1
+        ld      b,8
+printFilenameBase:
+        ld      a,(hl)
+        inc     hl
+        cp      ' '
+        jp      z,printFilenameExtension
+        ld      e,a
+        push    bc
+        push    hl
+        ld      c,2
+        call    bdos
+        pop     hl
+        pop     bc
+        djnz    printFilenameBase
+printFilenameExtension:
+        ld      a,(workFcb+9)
+        cp      ' '
+        jp      z,printFilenameDone
+        ld      e,'.'
+        ld      c,2
+        call    bdos
+        ld      hl,workFcb+9
+        ld      b,3
+printFilenameExtensionLoop:
+        ld      a,(hl)
+        inc     hl
+        cp      ' '
+        jp      z,printFilenameDone
+        ld      e,a
+        push    bc
+        push    hl
+        ld      c,2
+        call    bdos
+        pop     hl
+        pop     bc
+        djnz    printFilenameExtensionLoop
+printFilenameDone:
+        pop     hl
+        pop     de
+        pop     bc
+        pop     af
+        ret
 
 printString:
         ld      c,9
@@ -1830,39 +2261,73 @@ terminate:
         jp      terminate
 
 msgUsage:
-        db      "Usage: HOST DIR | HOST GET FILE.EXT | HOST PUT FILE.EXT",13,10,"$"
-msgSidecarExists:
-        db      "HOST: metadata file (.HST) already exists$"
-msgTargetExists:
-        db      "HOST: target already exists",13,10,"$"
-msgLocalError:
-        db      "HOST: local file I/O error",13,10,"$"
-msgTransferError:
-        db      "HOST: transfer failed or checksum mismatch",13,10,"$"
-msgHostError:
-        db      "HOST: exchange status $"
-msgAborted:
-        db      "HOST: aborted",13,10,"$"
+        db      "Usage: HOST DIR | HOST GET name.ext | HOST PUT name.ext",13,10,"$"
+msgFilename:
+        db      "Invalid or reserved filename.",13,10,"$"
 msgUserArea:
-        db      "HOST: GET/PUT only support user area 0",13,10,"$"
-msgUnsupported:
-        db      "HOST: unsupported exchange service",13,10,"$"
+        db      "HOST GET/PUT requires USER 0.",13,10,"$"
+msgServiceError:
+        db      "Host exchange service unavailable.",13,10,"$"
+msgHostError:
+        db      "Host exchange status: ","$"
+msgLocalError:
+        db      "Local file I/O error.",13,10,"$"
+msgAborted:
+        db      "Transfer aborted.",13,10,"$"
 msgGetDone:
-        db      "HOST: GET complete",13,10,"$"
+        db      "GET complete.",13,10,"$"
 msgPutDone:
-        db      "HOST: PUT complete",13,10,"$"
-msgNoMatches:
-        db      "HOST: no matching files",13,10,"$"
-msgListFull:
-        db      "HOST: wildcard match list full; no files transferred",13,10,"$"
-msgWildcardItemError:
-        db      "HOST: wildcard file transfer failed; continuing",13,10,"$"
+        db      "PUT complete.",13,10,"$"
+msgCompletePadded:
+        db      "complete (no valid HST metadata; complete records sent).",13,10,"$"
+msgGetFailurePrefix:
+        db      "GET ","$"
+msgPutFailurePrefix:
+        db      "PUT ","$"
+msgFailureSeparator:
+        db      ": ","$"
+msgSuccessSeparator:
+        db      ": complete.",13,10,"$"
+msgCompleteOnly:
+        db      "complete.",13,10,"$"
+msgReasonTargetExists:
+        db      "target file already exists.",13,10,"$"
+msgReasonSidecarExists:
+        db      "sidecar metadata file already exists.",13,10,"$"
+msgReasonTransfer:
+        db      "transfer failed (I/O or checksum error).",13,10,"$"
+msgReasonLocalIo:
+        db      "local CP/M-80 file I/O failed.",13,10,"$"
+msgReasonInvalid:
+        db      "invalid or reserved filename.",13,10,"$"
+msgReasonUnavailable:
+        db      "exchange file is missing or unavailable.",13,10,"$"
+msgReasonHostExists:
+        db      "exchange destination already exists.",13,10,"$"
+msgReasonHostIo:
+        db      "exchange I/O or checksum error.",13,10,"$"
+msgReasonBusy:
+        db      "exchange service is busy.",13,10,"$"
+msgReasonNoMatches:
+        db      "no matching files.",13,10,"$"
+msgReasonReserved:
+        db      "reserved .HST metadata file; not transferred.",13,10,"$"
+msgReasonListFull:
+        db      "wildcard match list is full; not transferred.",13,10,"$"
+msgReasonUnknown:
+        db      "unspecified error.",13,10,"$"
 metadataMagic:
         db      "HST1"
 
 commandKind:
         db      0
 wildcardActive:
+        db      0
+startPrinted:
+        db      0
+paddedNote:
+        db      0
+fileError:
         db      0
 wildcardCount:
         db      0

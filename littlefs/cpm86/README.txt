@@ -6,7 +6,6 @@ cpm.sys
   00927e17f43ea4241cc0809531cf68ce835e9c16. The IBM PC BIOS is not linked into
   this file; the project-owned RETRO86_V1 BIOS is supplied separately as
   retro86bios.h86 and loaded by the firmware.
-  SHA-256: 72ad573b5c2126d17cca6b1fdf5babea8f8a3403b21453dec9d401adc81dfd56
 
 retro86bios.h86
   ASM-86 1.1N H86 overlay assembled from
@@ -14,22 +13,19 @@ retro86bios.h86
   routines for console and A:–F: disk I/O, with a DPB for 160 KiB images and a
   second DPB (EXM=0, 2 KiB blocks, one 16 KiB extent per
   directory entry) for 516 KiB RETRO86_DATA_LARGE_V1 images.
-  SHA-256: 3c978c2e4a24ef271a9630aa9f5c8fb00af01f579f38e47c10fb5f835bfeaab6
 
 system.dsk
   Raw, 160 KiB, 40 tracks, 8 physical 512-byte sectors per track. Track 0 is
   reserved; CP/M-86 uses 32 128-byte records per track and DPB OFF=1.
   Contains CPM.SYS, ASM86.CMD, ED.CMD, GENCMD.CMD, HOST.CMD, and PIP.CMD.
-  SHA-256: d62be66f8e945ad916428c0bfaf83de75db1d6d207c6203e042b80b1abbb82e5
 
 HOST.CMD
   Project-authored native CP/M-86 HOST DIR/GET/PUT utility (6,912 bytes,
   including final CP/M record padding). Built from guest/cpm86/host/HOST.A86
   with the supplied ASM86.CMD and GENCMD.CMD. Supports CP/M `*` and `?`
   wildcards for GET and PUT, reports per-file errors, and continues.
-  SHA-256: 74d4bee8b2d08a69bfba7f34cfd2dcc9fe2a5f73d65c322486fc0dc55f0f3284
 
-Resource sizes and hashes, the on-disk directory, the BIOS overlay and the
+Resource sizes, the on-disk directory, the BIOS overlay and the
 RETRO86_V1 boot prompt plus DIR listing are checked by tests/hostTests.c. This
 desktop test does not establish ESP32-S3 hardware boot or performance.
 

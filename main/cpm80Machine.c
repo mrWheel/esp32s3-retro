@@ -7,7 +7,6 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "mbedtls/md.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -15,10 +14,6 @@ static const char *tag = "cpm80Machine";
 static const char *driveConfigPath = "/microSD/retro/images/cpm80/drives.cfg";
 static const uint8_t systemHeader[cpm80SystemHeaderSize] = {'R', 'E', 'T', 'R', 'O', 'C', 'P', 'M', 1, 1, 0x00, 0xC4,
                                                           0x00, 0xCC, 0x00, 0xDA};
-static const uint8_t expectedSystemDiskHash[32] = {0xFD, 0xD3, 0x96, 0x98, 0x99, 0x3C, 0x32, 0x5F,
-                                                   0xC0, 0x3C, 0x6F, 0x06, 0xBE, 0x3A, 0x93, 0x35,
-                                                   0xF5, 0xB7, 0x18, 0x28, 0xCC, 0x95, 0x04, 0x28,
-                                                   0x75, 0x85, 0x4F, 0xB1, 0x98, 0xE2, 0x8A, 0xB0};
 static imageFile diskImages[cpm80DiskDriveCount];
 static cpm80DriveConfig driveTable[cpm80DiskDriveCount];
 static cpm80Guest guest;
@@ -169,55 +164,6 @@ static bool readSystemImageHeader(imageFile *image)
          memcmp(header, systemHeader, sizeof(header)) == 0;
 }
 
-static bool calculateSystemImageHash(imageFile *image, uint8_t hash[32])
-{
-  const mbedtls_md_info_t *hashInfo = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-  if (hashInfo == NULL)
-  {
-    return false;
-  }
-
-  mbedtls_md_context_t hashContext;
-  mbedtls_md_init(&hashContext);
-  int result = mbedtls_md_setup(&hashContext, hashInfo, 0);
-  if (result == 0)
-  {
-    result = mbedtls_md_starts(&hashContext);
-  }
-
-  uint8_t buffer[512];
-  for (uint64_t offset = 0; result == 0 && offset < imageSize(image); offset += sizeof(buffer))
-  {
-    size_t remaining = (size_t)(imageSize(image) - offset);
-    size_t length = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
-    if (!imageReadAt(image, offset, buffer, length))
-    {
-      result = -1;
-    }
-    else
-    {
-      result = mbedtls_md_update(&hashContext, buffer, length);
-    }
-  }
-  if (result == 0)
-  {
-    result = mbedtls_md_finish(&hashContext, hash);
-  }
-  mbedtls_md_free(&hashContext);
-  return result == 0;
-}
-
-static void formatHash(const uint8_t hash[32], char text[65])
-{
-  static const char digits[] = "0123456789abcdef";
-  for (size_t index = 0; index < 32; ++index)
-  {
-    text[index * 2] = digits[hash[index] >> 4];
-    text[index * 2 + 1] = digits[hash[index] & 0x0F];
-  }
-  text[64] = '\0';
-}
-
 machineState cpm80MachineProbe(const retroMachine *machine)
 {
   if (machine == NULL || !machine->implemented)
@@ -250,25 +196,6 @@ machineState cpm80MachineProbe(const retroMachine *machine)
     else
     {
       ESP_LOGE(tag, "Invalid CP/M system image header signature: %s", systemDiskPath);
-    }
-  }
-  if (valid)
-  {
-    uint8_t actualHash[32];
-    if (!calculateSystemImageHash(&image, actualHash))
-    {
-      ESP_LOGE(tag, "Could not calculate CP/M system image SHA-256: %s", systemDiskPath);
-      valid = false;
-    }
-    else if (memcmp(actualHash, expectedSystemDiskHash, sizeof(actualHash)) != 0)
-    {
-      char actualHashText[65];
-      char expectedHashText[65];
-      formatHash(actualHash, actualHashText);
-      formatHash(expectedSystemDiskHash, expectedHashText);
-      ESP_LOGE(tag, "CP/M system image checksum mismatch for %s: actual=%s expected=%s", systemDiskPath,
-               actualHashText, expectedHashText);
-      valid = false;
     }
   }
   if (!imageClose(&image))
