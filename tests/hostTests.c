@@ -409,7 +409,8 @@ static void testCpm86Core(void)
                                       .portWrite = cpm86TestPortWrite,
                                       .portContext = &portFixture,
                                       .readMilliseconds = NULL,
-                                      .clockContext = NULL};
+                                      .clockContext = NULL,
+                                      .captureInstructionTrace = true};
   assert(cpm86CoreCreate(&core, &exchange, &coreConfig) == cpm86CoreOk);
   cpm86Core *secondCore = NULL;
   assert(cpm86CoreCreate(&secondCore, &exchange, &coreConfig) == cpm86CoreBusy);
@@ -619,6 +620,7 @@ static void testCpm86TimerPorts(void)
       .portContext = &clockFixture,
       .readMilliseconds = cpm86TestReadMilliseconds,
       .clockContext = &clockFixture,
+      .captureInstructionTrace = false,
   };
   cpm86Core *core = NULL;
   assert(cpm86CoreCreate(&core, NULL, &config) == cpm86CoreOk);
@@ -632,6 +634,10 @@ static void testCpm86TimerPorts(void)
   assert(cpm86CoreRead(core, 0x0300, &capability, sizeof(capability)) == cpm86CoreOk);
   assert(capability == 0xB1);
   assert(clockFixture.readMillisecondsCalls == 0);
+  cpm86CoreTraceEntry trace[cpm86CoreTraceDepth];
+  size_t traceCount = 0;
+  assert(cpm86CoreGetRecentTrace(core, trace, cpm86CoreTraceDepth, &traceCount) == cpm86CoreOk);
+  assert(traceCount == 0);
 
   assert(cpm86CoreReset(core) == cpm86CoreOk);
   const uint8_t snapshotProgram[] = {
@@ -731,6 +737,7 @@ static void testCpm86TimerPorts(void)
       .portContext = NULL,
       .readMilliseconds = NULL,
       .clockContext = NULL,
+      .captureInstructionTrace = false,
   };
   assert(cpm86CoreCreate(&core, NULL, &noClockConfig) == cpm86CoreOk);
   const uint8_t unavailableProgram[] = {
@@ -1148,6 +1155,7 @@ static void testCpm86Boot(void)
       .portContext = &fixture,
       .readMilliseconds = NULL,
       .clockContext = NULL,
+      .captureInstructionTrace = true,
   };
   cpm86Core *core = NULL;
   assert(cpm86CoreCreate(&core, hostBuildDiskPath == NULL ? NULL : &exchange, &config) ==
@@ -3054,6 +3062,7 @@ static void testCpm86LargeSystemBoot(void)
       .portContext = &fixture,
       .readMilliseconds = NULL,
       .clockContext = NULL,
+      .captureInstructionTrace = true,
   };
   cpm86Core *core = NULL;
   assert(cpm86CoreCreate(&core, NULL, &config) == cpm86CoreOk);

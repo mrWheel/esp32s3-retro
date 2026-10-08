@@ -12,6 +12,7 @@
 
 extern char op_code_str [];
 extern byte_t op_code_pos;
+void op_set_text_enabled(int enabled);
 
 extern byte_t * op_code_base;
 extern word_t op_code_seg;

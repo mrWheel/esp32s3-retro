@@ -49,6 +49,15 @@ int hostConsoleGetChar(void)
   return -1;
 }
 
+int hostConsolePeekChar(void)
+{
+  if (!hostConsoleCharAvailable())
+  {
+    return -1;
+  }
+  return pendingCharacter;
+}
+
 void hostConsolePutChar(char value)
 {
   //— Write directly to the driver so echo does not depend on stdio buffering

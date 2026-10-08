@@ -27,6 +27,7 @@ typedef struct
   void *portContext;
   hostReadMilliseconds readMilliseconds;
   void *clockContext;
+  bool captureInstructionTrace;
 } cpm86CoreConfig;
 
 typedef struct

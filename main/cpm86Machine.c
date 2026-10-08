@@ -52,6 +52,15 @@ static cpm86Core *guestCore;
 static cpm86Disk diskController;
 static hostExchange exchangeService;
 static bool guestReady;
+static bool guestStopRequested;
+
+static void logExecutionMetrics(uint64_t elapsedUs, uint64_t runUs, uint64_t delayUs, uint64_t instructions,
+                               uint64_t batches)
+{
+  ESP_LOGI(tag, "CP/M-86 timing: elapsed=%llu ms run=%llu ms delay=%llu ms instructions=%llu batches=%llu",
+           (unsigned long long)(elapsedUs / 1000ULL), (unsigned long long)(runUs / 1000ULL),
+           (unsigned long long)(delayUs / 1000ULL), (unsigned long long)instructions, (unsigned long long)batches);
+}
 
 static uint32_t readMilliseconds(void *context)
 {
@@ -92,6 +101,11 @@ static bool portRead(void *context, uint16_t port, uint8_t *value)
     int character = hostConsoleGetChar();
     if (character < 0)
     {
+      return false;
+    }
+    if (character == 0x1D)
+    {
+      guestStopRequested = true;
       return false;
     }
     *value = (uint8_t)character;
@@ -448,6 +462,11 @@ esp_err_t cpm86MachineInitialize(void)
       .portContext = &diskController,
       .readMilliseconds = readMilliseconds,
       .clockContext = NULL,
+#if CONFIG_CPM86_INSTRUCTION_TRACE
+      .captureInstructionTrace = true,
+#else
+      .captureInstructionTrace = false,
+#endif
   };
   cpm86CoreResult result = cpm86CoreCreate(&guestCore, &exchangeService, &config);
   if (result != cpm86CoreOk)
@@ -498,13 +517,44 @@ void cpm86MachineRun(void)
     (void)hostConsoleGetChar();
   }
   puts("\nStarting CP/M-86.");
+  guestStopRequested = false;
+  const int64_t measurementStartUs = esp_timer_get_time();
+  int64_t lastMetricsLogUs = measurementStartUs;
+  uint64_t runTimeUs = 0;
+  uint64_t delayTimeUs = 0;
+  uint64_t instructionCount = 0;
+  uint64_t batchCount = 0;
   while (true)
   {
-    size_t instructionsExecuted;
+    if (hostConsolePeekChar() == 0x1D)
+    {
+      (void)hostConsoleGetChar();
+      guestStopRequested = true;
+      break;
+    }
+    size_t instructionsExecuted = 0;
+    int64_t runStartUs = esp_timer_get_time();
     cpm86CoreResult result = cpm86CoreRun(guestCore, 4096, &instructionsExecuted);
+    int64_t runEndUs = esp_timer_get_time();
+    runTimeUs += (uint64_t)(runEndUs - runStartUs);
+    instructionCount += instructionsExecuted;
+    ++batchCount;
+    if (guestStopRequested)
+    {
+      break;
+    }
     if (result == cpm86CoreOk)
     {
+      int64_t delayStartUs = esp_timer_get_time();
       vTaskDelay(1);
+      int64_t delayEndUs = esp_timer_get_time();
+      delayTimeUs += (uint64_t)(delayEndUs - delayStartUs);
+      if (delayEndUs - lastMetricsLogUs >= 10000000)
+      {
+        logExecutionMetrics((uint64_t)(delayEndUs - measurementStartUs), runTimeUs, delayTimeUs, instructionCount,
+                            batchCount);
+        lastMetricsLogUs = delayEndUs;
+      }
       continue;
     }
     if (result == cpm86CoreHalted)
@@ -571,6 +621,12 @@ void cpm86MachineRun(void)
     break;
   }
 
+  if (guestStopRequested)
+  {
+    puts("CP/M-86 stopped by Ctrl+].");
+  }
+  logExecutionMetrics((uint64_t)(esp_timer_get_time() - measurementStartUs), runTimeUs, delayTimeUs, instructionCount,
+                      batchCount);
   cpm86CoreDestroy(guestCore);
   guestCore = NULL;
   guestReady = false;

@@ -23,6 +23,7 @@ struct cpm86Core
   hostReadMilliseconds readMilliseconds;
   void *clockContext;
   uint32_t millisecondsSnapshot;
+  bool captureInstructionTrace;
   op_desc_t instruction;
   uint16_t decodedSegment;
   uint16_t decodedOffset;
@@ -130,6 +131,8 @@ cpm86CoreResult cpm86CoreCreate(cpm86Core **core, hostExchange *exchange, const 
   created->portContext = config->portContext;
   created->readMilliseconds = config->readMilliseconds;
   created->clockContext = config->clockContext;
+  created->captureInstructionTrace = config->captureInstructionTrace;
+  op_set_text_enabled(created->captureInstructionTrace);
 #ifdef ESP_PLATFORM
   created->memory = heap_caps_malloc(created->ramSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (created->memory == NULL)
@@ -174,6 +177,7 @@ void cpm86CoreDestroy(cpm86Core *core)
   if (core == activeCore)
   {
     resetExchange(core);
+    op_set_text_enabled(1);
     activeCore = NULL;
     mem_stat = NULL;
     mem_set_size(0);
@@ -300,33 +304,37 @@ cpm86CoreResult cpm86CoreStep(cpm86Core *core)
   {
     memset(&core->instruction, 0, sizeof(core->instruction));
     int decodeResult = op_decode(&core->instruction);
-    uint32_t tracePhysical = (((uint32_t)op_code_seg << 4) + op_code_off) & 0x000FFFFF;
-    bool zeroOpcode = tracePhysical + 1 < core->ramSize && core->memory[tracePhysical] == 0 &&
-                      core->memory[tracePhysical + 1] == 0;
-    size_t previousIndex = (core->traceNext + cpm86CoreTraceDepth - 1) % cpm86CoreTraceDepth;
-    //-- Collapse runs of 00 00 so the trace keeps the code that led into them.
-    bool collapse = zeroOpcode && core->traceCount > 0 && strcmp(core->trace[previousIndex].instruction, "00 00") == 0;
-    //-- Keep only control-flow changes so the trace spans the path that led here.
-    bool sequential = core->expectedValid && op_code_seg == core->expectedSegment &&
-                      reg16_get(REG_IP) == core->expectedOffset;
-    if (!collapse && !sequential)
+    if (core->captureInstructionTrace)
     {
-      cpm86CoreTraceEntry *traceEntry = &core->trace[core->traceNext];
-      traceEntry->segment = op_code_seg;
-      traceEntry->offset = reg16_get(REG_IP);
-      traceEntry->stackSegment = seg_get(SEG_SS);
-      traceEntry->stackPointer = reg16_get(REG_SP);
-      traceEntry->accumulator = reg16_get(REG_AX);
-      snprintf(traceEntry->instruction, sizeof(traceEntry->instruction), "%s",
-               zeroOpcode ? "00 00" : op_code_str);
-      if (core->headCount < cpm86CoreHeadDepth)
+      uint32_t tracePhysical = (((uint32_t)op_code_seg << 4) + op_code_off) & 0x000FFFFF;
+      bool zeroOpcode = tracePhysical + 1 < core->ramSize && core->memory[tracePhysical] == 0 &&
+                        core->memory[tracePhysical + 1] == 0;
+      size_t previousIndex = (core->traceNext + cpm86CoreTraceDepth - 1) % cpm86CoreTraceDepth;
+      //-- Collapse runs of 00 00 so the trace keeps the code that led into them.
+      bool collapse =
+          zeroOpcode && core->traceCount > 0 && strcmp(core->trace[previousIndex].instruction, "00 00") == 0;
+      //-- Keep only control-flow changes so the trace spans the path that led here.
+      bool sequential = core->expectedValid && op_code_seg == core->expectedSegment &&
+                        reg16_get(REG_IP) == core->expectedOffset;
+      if (!collapse && !sequential)
       {
-        core->head[core->headCount++] = *traceEntry;
-      }
-      core->traceNext = (core->traceNext + 1) % cpm86CoreTraceDepth;
-      if (core->traceCount < cpm86CoreTraceDepth)
-      {
-        ++core->traceCount;
+        cpm86CoreTraceEntry *traceEntry = &core->trace[core->traceNext];
+        traceEntry->segment = op_code_seg;
+        traceEntry->offset = reg16_get(REG_IP);
+        traceEntry->stackSegment = seg_get(SEG_SS);
+        traceEntry->stackPointer = reg16_get(REG_SP);
+        traceEntry->accumulator = reg16_get(REG_AX);
+        snprintf(traceEntry->instruction, sizeof(traceEntry->instruction), "%s",
+                 zeroOpcode ? "00 00" : op_code_str);
+        if (core->headCount < cpm86CoreHeadDepth)
+        {
+          core->head[core->headCount++] = *traceEntry;
+        }
+        core->traceNext = (core->traceNext + 1) % cpm86CoreTraceDepth;
+        if (core->traceCount < cpm86CoreTraceDepth)
+        {
+          ++core->traceCount;
+        }
       }
     }
     core->expectedSegment = op_code_seg;

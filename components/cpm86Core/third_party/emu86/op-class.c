@@ -24,6 +24,12 @@ byte_t op_code_null = 0;
 extern char op_code_str [3 * OPCODE_MAX + 2];
 extern byte_t op_code_pos;
 
+static int op_text_enabled = 1;
+
+void op_set_text_enabled(int enabled)
+{
+	op_text_enabled = enabled;
+}
 
 static byte_t fetch_byte ()
 	{
@@ -34,8 +40,11 @@ static byte_t fetch_byte ()
 		}
 	byte_t b = mem_read_byte (addr_seg_off (op_code_seg, op_code_off++));
 
-	snprintf (op_code_str + op_code_pos, 4, "%.2X ", b);
-	op_code_pos += 3;
+	if (op_text_enabled)
+		{
+		snprintf (op_code_str + op_code_pos, 4, "%.2X ", b);
+		op_code_pos += 3;
+		}
 
 	return b;
 	}
@@ -1186,8 +1195,11 @@ int op_decode (op_desc_t * op_desc)
 
 	while (1)
 		{
-		memset (op_code_str, 0, sizeof op_code_str);
-		op_code_pos = 0;
+		if (op_text_enabled)
+			{
+			memset (op_code_str, 0, sizeof op_code_str);
+			op_code_pos = 0;
+			}
 
 		byte_t code = fetch_code_1 (op_desc);
 

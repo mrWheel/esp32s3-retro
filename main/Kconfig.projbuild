@@ -16,3 +16,13 @@ menu "Retro Host hardware"
     range 0 48
     default 10
 endmenu
+
+menu "CP/M-86 diagnostics"
+  config CPM86_INSTRUCTION_TRACE
+    bool "Capture instruction traces and opcode text"
+    default y
+    help
+      Keep CP/M-86 instruction history and format decoded opcode bytes for
+      diagnostic reports. Disable this option to measure CPU execution without
+      instruction trace collection and formatting.
+endmenu

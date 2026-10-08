@@ -1,5 +1,26 @@
 # CP/M-86 HOST utility
 
+## Stop the emulator
+
+Press Ctrl+] (ASCII 1Dh) in the USB Serial/JTAG terminal to stop CP/M-86 and
+return to the host prompt. The host intercepts this byte instead of sending it
+to the guest. It checks between instruction batches and also stops if the guest
+is currently polling for console input. After stopping, press ENTER at the
+host's return prompt to show the main menu. This shortcut is currently
+implemented for CP/M-86 only; do not assume it stops another emulator.
+
+## CPU timing experiment
+
+The host logs cumulative elapsed time, CPU-core time, `vTaskDelay(1)` time,
+guest instruction count and batch count every 10 seconds. To compare execution
+with and without diagnostic overhead, open ESP-IDF menuconfig and toggle
+**CP/M-86 diagnostics → Capture instruction traces and opcode text**. It is
+enabled by default. With it disabled, the core does not collect instruction
+history or format fetched opcode bytes; CPU execution, the 4096-instruction
+batch size and scheduler delay remain unchanged. Rebuild and flash each
+configuration, then run the same guest workload and compare the timing logs.
+Trace-based failure diagnostics are unavailable when the option is disabled.
+
 `guest/cpm86/host/HOST.A86` is project-authored 8086 source for the native
 `HOST.CMD` transfer utility. It is not a translation of `HOST.COM` machine
 code. The source implements `HOST DIR`, `HOST GET name.ext`, and
