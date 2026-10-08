@@ -13,6 +13,7 @@ enum
   hostExchangeCommandDirectory = 1,
   hostExchangeCommandGet = 2,
   hostExchangeCommandPut = 3,
+  hostExchangeCommandPutOverwrite = 4,
   hostExchangeStatusOk = 0,
   hostExchangeStatusInvalid = 1,
   hostExchangeStatusUnavailable = 2,
@@ -60,6 +61,7 @@ typedef struct
   uint32_t expectedCrc;
   bool directoryNameReady;
   bool resumeDirectory;
+  bool overwrite;
 } hostExchange;
 
 bool hostExchangeInitialize(hostExchange *exchange, const char *root);

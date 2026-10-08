@@ -30,12 +30,14 @@ system.dsk
   Any other size is reported as an error and A: is not mounted.
 
 HOST.CMD
-  Project-authored native CP/M-86 HOST DIR/GET/PUT utility (7,040 bytes,
+  Project-authored native CP/M-86 HOST DIR/GET/PUT utility (7,424 bytes,
   including final CP/M record padding). Built from guest/cpm86/host/HOST.A86
   with the supplied ASM86.CMD and GENCMD.CMD. Supports CP/M `*` and `?`
   wildcards for GET and PUT, reports per-file errors, and continues.
   Add an O after a GET (for example A:HOST GET *.* O) to overwrite existing
-  files and their NAME.HST sidecars.
+  files and their NAME.HST sidecars. Add an O after a PUT (A:HOST PUT NAME.EXT O)
+  to overwrite an existing exchange file. Dots show transfer progress; "disk
+  full" means the CP/M drive is too small for the file.
 
 Resource sizes, the on-disk directory, the BIOS overlay and the
 RETRO86_V1 boot prompt plus DIR listing are checked by tests/hostTests.c. This

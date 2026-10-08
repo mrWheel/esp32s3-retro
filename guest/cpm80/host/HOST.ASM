@@ -1,2460 +1,2612 @@
 ; HOST.COM - CP/M-80 host exchange utility
-; Build from this directory with:
-;   z80asm -o HOST.COM HOST.ASM
-; The resulting raw COM image starts at 0100h.
+;
+; By Willem Aandewiel
+;
+; 8080 source for the standard Digital Research CP/M ASM.COM and LOAD.COM.
+; Build it inside CP/M-80 (the source must keep its CR+LF line endings):
+;   A>ASM HOST
+;   A>LOAD HOST
+; ASM writes HOST.HEX and HOST.PRN, LOAD turns HOST.HEX into HOST.COM.
+; The COM image starts at 0100h; the work drive needs about 40 KB free.
 ;
 ; Exchange ABI: immediate byte IN/OUT on F8h; abort is OUT (F9h),00h.
 ; Host commands: 1 DIR, 2 GET, 3 PUT. GET and PUT accept CP/M wildcards.
 ; HOST GET name.ext O replaces an existing target and its .HST sidecar.
+; HOST PUT name.ext O replaces an existing exchange file (host command 4).
+; A dot is printed for every 16 records (2 KB) while GET and PUT run.
 
-        org     0100h
+        org 0100h
 
-bdos:           equ     0005h
-tailLength:     equ     0080h
-tailText:       equ     0081h
-ccpFcb:         equ     005ch
-portData:       equ     0f8h
-portAbort:      equ     0f9h
+bdos equ 0005h
+tailLength equ 0080h
+tailText equ 0081h
+ccpFcb equ 005ch
+portData equ 0f8h
+portAbort equ 0f9h
 
 start:
-        ld      sp,0ffffh
-        xor     a
-        ld      (abortFlag),a
-        ld      (overwriteFlag),a
-        ld      (workOpen),a
-        ld      (workCreated),a
-        ld      (sidecarOpen),a
-        ld      (sidecarCreated),a
-        call    parseCommand
-        jp      c,badCommand
-        ld      a,(commandKind)
-        cp      1
-        jp      z,commandDir
-        ld      e,0ffh
-        ld      c,32
-        call    bdos
-        or      a
-        jp      nz,userAreaRejected
-        call    copyAndValidateFcb
-        jp      c,filenameRejected
-        call    checkService
-        jp      c,unsupportedService
-        ld      a,(wildcardActive)
-        or      a
-        jp      z,startSingleCommand
-        ld      a,(commandKind)
-        cp      2
-        jp      z,commandGetWildcard
-        jp      commandPutWildcard
+        lxi sp,0ffffh
+        xra a
+        sta abortFlag
+        sta overwriteFlag
+        sta workOpen
+        sta workCreated
+        sta sidecarOpen
+        sta sidecarCreated
+        call parseCommand
+        jc badCommand
+        lda commandKind
+        cpi 1
+        jz commandDir
+        mvi e,0ffh
+        mvi c,32
+        call bdos
+        ora a
+        jnz userAreaRejected
+        call copyAndValidateFcb
+        jc filenameRejected
+        call checkService
+        jc unsupportedService
+        lda wildcardActive
+        ora a
+        jz startSingleCommand
+        lda commandKind
+        cpi 2
+        jz commandGetWildcard
+        jmp commandPutWildcard
 startSingleCommand:
-        ld      a,(commandKind)
-        cp      2
-        jp      z,commandGet
-        jp      commandPut
+        lda commandKind
+        cpi 2
+        jz commandGet
+        jmp commandPut
 
 checkService:
-        xor     a
-        call    sendByte
-        ret     c
-        call    readByte
-        ret     c
-        or      a
-        jp      nz,serviceCheckBad
-        call    readByte
-        ret     c
-        cp      1
-        jp      nz,serviceCheckBad
-        call    readByte
-        ret     c
-        and     7
-        cp      7
-        jp      nz,serviceCheckBad
-        or      a
+        xra a
+        call sendByte
+        rc
+        call readByte
+        rc
+        ora a
+        jnz serviceCheckBad
+        call readByte
+        rc
+        cpi 1
+        jnz serviceCheckBad
+        call readByte
+        rc
+        ani 7
+        cpi 7
+        jnz serviceCheckBad
+        ora a
         ret
 serviceCheckBad:
-        scf
+        stc
         ret
 
 parseCommand:
-        ld      a,(tailLength)
-        or      a
-        jp      z,parseBad
-        ld      e,a
-        ld      d,0
-        ld      hl,tailText
-        add     hl,de
-        ld      (tailEndPtr),hl
-        ld      hl,tailText
+        lda tailLength
+        ora a
+        jz parseBad
+        mov e,a
+        mvi d,0
+        lxi h,tailText
+        dad d
+        shld tailEndPtr
+        lxi h,tailText
 parseSkipLeading:
-        ld      de,(tailEndPtr)
-        or      a
-        sbc     hl,de
-        jp      z,parseBad
-        add     hl,de
-        ld      a,(hl)
-        cp      ' '
-        jp      nz,parseAction
-        inc     hl
-        jp      parseSkipLeading
+        xchg
+        lhld tailEndPtr
+        xchg
+        call compareHlDe
+        jz parseBad
+        mov a,m
+        cpi ' '
+        jnz parseAction
+        inx h
+        jmp parseSkipLeading
 parseAction:
-        ld      a,(hl)
-        call    uppercaseCharacter
-        cp      'D'
-        jp      z,parseDirToken
-        cp      'G'
-        jp      z,parseGetToken
-        cp      'P'
-        jp      z,parsePutToken
-        jp      parseBad
+        mov a,m
+        call uppercaseCharacter
+        cpi 'D'
+        jz parseDirToken
+        cpi 'G'
+        jz parseGetToken
+        cpi 'P'
+        jz parsePutToken
+        jmp parseBad
 parseDirToken:
-        inc     hl
-        ld      a,(hl)
-        call    uppercaseCharacter
-        cp      'I'
-        jp      nz,parseBad
-        inc     hl
-        ld      a,(hl)
-        call    uppercaseCharacter
-        cp      'R'
-        jp      nz,parseBad
-        inc     hl
-        ld      a,1
-        ld      (commandKind),a
-        call    checkTokenBoundary
-        jp      c,parseBad
-        call    skipSpaces
-        jp      nc,parseBad
-        jp      parseGood
+        inx h
+        mov a,m
+        call uppercaseCharacter
+        cpi 'I'
+        jnz parseBad
+        inx h
+        mov a,m
+        call uppercaseCharacter
+        cpi 'R'
+        jnz parseBad
+        inx h
+        mvi a,1
+        sta commandKind
+        call checkTokenBoundary
+        jc parseBad
+        call skipSpaces
+        jnc parseBad
+        jmp parseGood
 parseGetToken:
-        inc     hl
-        ld      a,(hl)
-        call    uppercaseCharacter
-        cp      'E'
-        jp      nz,parseBad
-        inc     hl
-        ld      a,(hl)
-        call    uppercaseCharacter
-        cp      'T'
-        jp      nz,parseBad
-        inc     hl
-        ld      a,2
-        ld      (commandKind),a
-        call    checkTokenBoundary
-        jp      c,parseBad
-        call    skipSpaces
-        jp      c,parseBad
-        call    checkFilenameArgument
-        jp      c,parseBad
-        jp      parseGood
+        inx h
+        mov a,m
+        call uppercaseCharacter
+        cpi 'E'
+        jnz parseBad
+        inx h
+        mov a,m
+        call uppercaseCharacter
+        cpi 'T'
+        jnz parseBad
+        inx h
+        mvi a,2
+        sta commandKind
+        call checkTokenBoundary
+        jc parseBad
+        call skipSpaces
+        jc parseBad
+        call checkFilenameArgument
+        jc parseBad
+        jmp parseGood
 parsePutToken:
-        inc     hl
-        ld      a,(hl)
-        call    uppercaseCharacter
-        cp      'U'
-        jp      nz,parseBad
-        inc     hl
-        ld      a,(hl)
-        call    uppercaseCharacter
-        cp      'T'
-        jp      nz,parseBad
-        inc     hl
-        ld      a,3
-        ld      (commandKind),a
-        call    checkTokenBoundary
-        jp      c,parseBad
-        call    skipSpaces
-        jp      c,parseBad
-        call    checkFilenameArgument
-        jp      c,parseBad
+        inx h
+        mov a,m
+        call uppercaseCharacter
+        cpi 'U'
+        jnz parseBad
+        inx h
+        mov a,m
+        call uppercaseCharacter
+        cpi 'T'
+        jnz parseBad
+        inx h
+        mvi a,3
+        sta commandKind
+        call checkTokenBoundary
+        jc parseBad
+        call skipSpaces
+        jc parseBad
+        call checkFilenameArgument
+        jc parseBad
 parseGood:
-        or      a
+        ora a
         ret
 parseBad:
-        scf
+        stc
         ret
 
 uppercaseCharacter:
-        cp      'a'
-        ret     c
-        cp      'z'+1
-        ret     nc
-        sub     20h
+        cpi 'a'
+        rc
+        cpi 'z'+1
+        rnc
+        sui 20h
         ret
 
 checkTokenBoundary:
-        ld      de,(tailEndPtr)
-        or      a
-        sbc     hl,de
-        jp      z,tokenBoundaryAtEnd
-        add     hl,de
-        ld      a,(hl)
-        cp      ' '
-        jp      z,tokenBoundaryAfterSpace
-        scf
+        xchg
+        lhld tailEndPtr
+        xchg
+        call compareHlDe
+        jz tokenBoundaryAtEnd
+        mov a,m
+        cpi ' '
+        jz tokenBoundaryAfterSpace
+        stc
         ret
 tokenBoundaryAtEnd:
-        add     hl,de
-        or      a
+        ora a
         ret
 tokenBoundaryAfterSpace:
-        or      a
+        ora a
         ret
 
 skipSpaces:
-        ld      de,(tailEndPtr)
-        or      a
-        sbc     hl,de
-        jp      z,skipSpacesEnd
-        add     hl,de
-        ld      a,(hl)
-        cp      ' '
-        jp      nz,skipSpacesDone
-        inc     hl
-        jp      skipSpaces
+        xchg
+        lhld tailEndPtr
+        xchg
+        call compareHlDe
+        jz skipSpacesEnd
+        mov a,m
+        cpi ' '
+        jnz skipSpacesDone
+        inx h
+        jmp skipSpaces
 skipSpacesEnd:
-        add     hl,de
-        scf
+        stc
         ret
 skipSpacesDone:
-        or      a
+        ora a
         ret
 
 checkFilenameArgument:
-        ld      de,(tailEndPtr)
-        or      a
-        sbc     hl,de
-        jp      z,filenameArgumentBad
-        add     hl,de
-        ld      a,(hl)
-        cp      ' '
-        jp      z,filenameArgumentBad
+        xchg
+        lhld tailEndPtr
+        xchg
+        call compareHlDe
+        jz filenameArgumentBad
+        mov a,m
+        cpi ' '
+        jz filenameArgumentBad
 filenameScan:
-        ld      de,(tailEndPtr)
-        or      a
-        sbc     hl,de
-        jp      z,filenameArgumentGood
-        add     hl,de
-        ld      a,(hl)
-        cp      ' '
-        jp      z,filenameTrailingSpaces
-        inc     hl
-        jp      filenameScan
+        xchg
+        lhld tailEndPtr
+        xchg
+        call compareHlDe
+        jz filenameArgumentGood
+        mov a,m
+        cpi ' '
+        jz filenameTrailingSpaces
+        inx h
+        jmp filenameScan
 filenameTrailingSpaces:
-        call    skipSpaces
-        jp      c,filenameArgumentGood
-        ld      a,(commandKind)
-        cp      2
-        jp      nz,filenameArgumentBad
-        ld      a,(hl)
-        call    uppercaseCharacter
-        cp      'O'
-        jp      nz,filenameArgumentBad
-        inc     hl
-        call    checkTokenBoundary
-        jp      c,filenameArgumentBad
-        ld      a,1
-        ld      (overwriteFlag),a
-        call    skipSpaces
-        jp      c,filenameArgumentGood
-        jp      filenameArgumentBad
+        call skipSpaces
+        jc filenameArgumentGood
+        lda commandKind
+        cpi 2
+        jz filenameOptionAllowed
+        cpi 3
+        jnz filenameArgumentBad
+filenameOptionAllowed:
+        mov a,m
+        call uppercaseCharacter
+        cpi 'O'
+        jnz filenameArgumentBad
+        inx h
+        call checkTokenBoundary
+        jc filenameArgumentBad
+        mvi a,1
+        sta overwriteFlag
+        call skipSpaces
+        jc filenameArgumentGood
+        jmp filenameArgumentBad
 filenameArgumentGood:
-        add     hl,de
-        or      a
+        ora a
         ret
 filenameArgumentBad:
-        scf
+        stc
         ret
 
 copyAndValidateFcb:
-        ld      hl,workFcb
-        ld      b,36
-        xor     a
+        lxi h,workFcb
+        mvi b,36
+        xra a
 clearWorkFcb:
-        ld      (hl),a
-        inc     hl
-        djnz    clearWorkFcb
-        ld      a,(ccpFcb+16)
-        ld      (workFcb),a
-        ld      hl,ccpFcb+17
-        ld      de,workFcb+1
-        ld      b,11
+        mov m,a
+        inx h
+        dcr b
+        jnz clearWorkFcb
+        lda ccpFcb+16
+        sta workFcb
+        lxi h,ccpFcb+17
+        lxi d,workFcb+1
+        mvi b,11
 copyCcpName:
-        ld      a,(hl)
-        ld      (de),a
-        inc     hl
-        inc     de
-        djnz    copyCcpName
-        call    normalizeWildcards
-        xor     a
-        ld      (wildcardActive),a
-        ld      hl,workFcb+1
-        ld      b,8
-        ld      c,0
-        ld      d,0
+        mov a,m
+        stax d
+        inx h
+        inx d
+        dcr b
+        jnz copyCcpName
+        call normalizeWildcards
+        xra a
+        sta wildcardActive
+        lxi h,workFcb+1
+        mvi b,8
+        mvi c,0
+        mvi d,0
 validateBase:
-        ld      a,(hl)
-        cp      ' '
-        jp      z,validateBaseSpace
-        ld      a,d
-        or      a
-        jp      nz,invalidFcb
-        inc     c
-        ld      a,(hl)
-        cp      '?'
-        jp      z,validateBaseWildcard
-        cp      '*'
-        jp      z,validateBaseWildcard
-        call    validFilenameCharacter
-        jp      c,invalidFcb
-        jp      validateBaseNext
+        mov a,m
+        cpi ' '
+        jz validateBaseSpace
+        mov a,d
+        ora a
+        jnz invalidFcb
+        inr c
+        mov a,m
+        cpi '?'
+        jz validateBaseWildcard
+        cpi '*'
+        jz validateBaseWildcard
+        call validFilenameCharacter
+        jc invalidFcb
+        jmp validateBaseNext
 validateBaseWildcard:
-        ld      a,1
-        ld      (wildcardActive),a
-        jp      validateBaseNext
+        mvi a,1
+        sta wildcardActive
+        jmp validateBaseNext
 validateBaseSpace:
-        ld      d,1
+        mvi d,1
 validateBaseNext:
-        inc     hl
-        djnz    validateBase
-        ld      a,c
-        or      a
-        jp      z,invalidFcb
-        ld      b,3
-        xor     a
-        ld      d,a
+        inx h
+        dcr b
+        jnz validateBase
+        mov a,c
+        ora a
+        jz invalidFcb
+        mvi b,3
+        xra a
+        mov d,a
 validateExtension:
-        ld      a,(hl)
-        cp      ' '
-        jp      z,validateExtensionSpace
-        ld      a,d
-        or      a
-        jp      nz,invalidFcb
-        ld      a,(hl)
-        cp      '?'
-        jp      z,validateExtensionWildcard
-        cp      '*'
-        jp      z,validateExtensionWildcard
-        call    validFilenameCharacter
-        jp      c,invalidFcb
-        jp      validateExtensionNext
+        mov a,m
+        cpi ' '
+        jz validateExtensionSpace
+        mov a,d
+        ora a
+        jnz invalidFcb
+        mov a,m
+        cpi '?'
+        jz validateExtensionWildcard
+        cpi '*'
+        jz validateExtensionWildcard
+        call validFilenameCharacter
+        jc invalidFcb
+        jmp validateExtensionNext
 validateExtensionWildcard:
-        ld      a,1
-        ld      (wildcardActive),a
-        jp      validateExtensionNext
+        mvi a,1
+        sta wildcardActive
+        jmp validateExtensionNext
 validateExtensionSpace:
-        ld      d,1
+        mvi d,1
 validateExtensionNext:
-        inc     hl
-        djnz    validateExtension
-        ld      a,(workFcb+9)
-        cp      'H'
-        jp      nz,copyInitSideFcb
-        ld      a,(workFcb+10)
-        cp      'S'
-        jp      nz,copyInitSideFcb
-        ld      a,(workFcb+11)
-        cp      'T'
-        jp      z,invalidFcb
+        inx h
+        dcr b
+        jnz validateExtension
+        lda workFcb+9
+        cpi 'H'
+        jnz copyInitSideFcb
+        lda workFcb+10
+        cpi 'S'
+        jnz copyInitSideFcb
+        lda workFcb+11
+        cpi 'T'
+        jz invalidFcb
 copyInitSideFcb:
-        call    initSideFcb
-        or      a
+        call initSideFcb
+        ora a
         ret
 invalidFcb:
-        scf
+        stc
         ret
 
 normalizeWildcards:
-        ld      hl,workFcb+1
-        ld      b,8
+        lxi h,workFcb+1
+        mvi b,8
 normalizeBase:
-        ld      a,(hl)
-        cp      '*'
-        jp      z,normalizeBaseFill
-        inc     hl
-        djnz    normalizeBase
-        jp      normalizeExtensionStart
+        mov a,m
+        cpi '*'
+        jz normalizeBaseFill
+        inx h
+        dcr b
+        jnz normalizeBase
+        jmp normalizeExtensionStart
 normalizeBaseFill:
-        ld      (hl),'?'
-        inc     hl
-        djnz    normalizeBaseFill
+        mvi m,'?'
+        inx h
+        dcr b
+        jnz normalizeBaseFill
 normalizeExtensionStart:
-        ld      hl,workFcb+9
-        ld      b,3
+        lxi h,workFcb+9
+        mvi b,3
 normalizeExtension:
-        ld      a,(hl)
-        cp      '*'
-        jp      z,normalizeExtensionFill
-        inc     hl
-        djnz    normalizeExtension
+        mov a,m
+        cpi '*'
+        jz normalizeExtensionFill
+        inx h
+        dcr b
+        jnz normalizeExtension
         ret
 normalizeExtensionFill:
-        ld      (hl),'?'
-        inc     hl
-        djnz    normalizeExtensionFill
+        mvi m,'?'
+        inx h
+        dcr b
+        jnz normalizeExtensionFill
         ret
 
 validFilenameCharacter:
-        cp      'A'
-        jp      c,validFilenameDigit
-        cp      'Z'+1
-        jp      c,validFilenameGood
+        cpi 'A'
+        jc validFilenameDigit
+        cpi 'Z'+1
+        jc validFilenameGood
 validFilenameDigit:
-        cp      '0'
-        jp      c,validFilenameSymbol
-        cp      '9'+1
-        jp      c,validFilenameGood
+        cpi '0'
+        jc validFilenameSymbol
+        cpi '9'+1
+        jc validFilenameGood
 validFilenameSymbol:
-        cp      '_'
-        jp      z,validFilenameGood
-        cp      '-'
-        jp      z,validFilenameGood
-        scf
+        cpi '_'
+        jz validFilenameGood
+        cpi '-'
+        jz validFilenameGood
+        stc
         ret
 validFilenameGood:
-        or      a
+        ora a
         ret
 
 initSideFcb:
-        ld      hl,sideFcb
-        ld      b,36
-        xor     a
+        lxi h,sideFcb
+        mvi b,36
+        xra a
 clearSideFcb:
-        ld      (hl),a
-        inc     hl
-        djnz    clearSideFcb
-        ld      hl,workFcb
-        ld      de,sideFcb
-        ld      bc,12
-        ldir
-        ld      a,'H'
-        ld      (sideFcb+9),a
-        ld      a,'S'
-        ld      (sideFcb+10),a
-        ld      a,'T'
-        ld      (sideFcb+11),a
+        mov m,a
+        inx h
+        dcr b
+        jnz clearSideFcb
+        lxi h,workFcb
+        lxi d,sideFcb
+        lxi b,12
+        call copyBlock
+        mvi a,'H'
+        sta sideFcb+9
+        mvi a,'S'
+        sta sideFcb+10
+        mvi a,'T'
+        sta sideFcb+11
         ret
 
 commandDir:
-        ld      a,1
-        call    sendByte
-        jp      c,operationAborted
-        call    readByte
-        jp      c,operationAborted
-        or      a
-        jp      nz,showHostError
-        xor     a
-        ld      (dirNameActive),a
+        mvi a,1
+        call sendByte
+        jc operationAborted
+        call readByte
+        jc operationAborted
+        ora a
+        jnz showHostError
+        xra a
+        sta dirNameActive
 dirRead:
-        call    readByte
-        jp      c,operationAborted
-        or      a
-        jp      z,dirStringEnd
-        ld      (charValue),a
-        ld      a,1
-        ld      (dirNameActive),a
-        ld      a,(charValue)
-        ld      e,a
-        ld      c,2
-        call    bdos
-        jp      dirRead
+        call readByte
+        jc operationAborted
+        ora a
+        jz dirStringEnd
+        sta charValue
+        mvi a,1
+        sta dirNameActive
+        lda charValue
+        mov e,a
+        mvi c,2
+        call bdos
+        jmp dirRead
 dirStringEnd:
-        ld      a,(dirNameActive)
-        or      a
-        jp      z,dirListEnd
-        call    printCrLf
-        xor     a
-        ld      (dirNameActive),a
-        jp      dirRead
+        lda dirNameActive
+        ora a
+        jz dirListEnd
+        call printCrLf
+        xra a
+        sta dirNameActive
+        jmp dirRead
 dirListEnd:
-        call    readByte
-        jp      c,operationAborted
-        or      a
-        jp      nz,showHostError
-        jp      terminate
+        call readByte
+        jc operationAborted
+        ora a
+        jnz showHostError
+        jmp terminate
 
 commandGetWildcard:
-        xor     a
-        ld      (wildcardCount),a
-        ld      hl,workFcb+1
-        ld      de,patternFcb
-        ld      bc,11
-        ldir
-        ld      a,1
-        call    sendByte
-        jp      c,operationAborted
-        call    readByte
-        jp      c,operationAborted
-        or      a
-        jp      nz,showHostError
+        xra a
+        sta wildcardCount
+        lxi h,workFcb+1
+        lxi d,patternFcb
+        lxi b,11
+        call copyBlock
+        mvi a,1
+        call sendByte
+        jc operationAborted
+        call readByte
+        jc operationAborted
+        ora a
+        jnz showHostError
 getWildcardReadName:
-        xor     a
-        ld      (hostNameLength),a
-        ld      (hostNameOverflow),a
+        xra a
+        sta hostNameLength
+        sta hostNameOverflow
 getWildcardReadCharacter:
-        call    readByte
-        jp      c,operationAborted
-        or      a
-        jp      z,getWildcardNameEnd
-        ld      (charValue),a
-        ld      a,(hostNameLength)
-        cp      12
-        jp      nc,getWildcardNameOverflow
-        ld      e,a
-        ld      d,0
-        ld      hl,hostFilename
-        add     hl,de
-        ld      a,(charValue)
-        ld      (hl),a
-        ld      a,(hostNameLength)
-        inc     a
-        ld      (hostNameLength),a
-        jp      getWildcardReadCharacter
+        call readByte
+        jc operationAborted
+        ora a
+        jz getWildcardNameEnd
+        sta charValue
+        lda hostNameLength
+        cpi 12
+        jnc getWildcardNameOverflow
+        mov e,a
+        mvi d,0
+        lxi h,hostFilename
+        dad d
+        lda charValue
+        mov m,a
+        lda hostNameLength
+        inr a
+        sta hostNameLength
+        jmp getWildcardReadCharacter
 getWildcardNameOverflow:
-        ld      a,1
-        ld      (hostNameOverflow),a
-        jp      getWildcardReadCharacter
+        mvi a,1
+        sta hostNameOverflow
+        jmp getWildcardReadCharacter
 getWildcardNameEnd:
-        ld      a,(hostNameOverflow)
-        or      a
-        jp      nz,getWildcardReadName
-        ld      a,(hostNameLength)
-        or      a
-        jp      z,getWildcardListEnd
-        ld      e,a
-        ld      d,0
-        ld      hl,hostFilename
-        add     hl,de
-        xor     a
-        ld      (hl),a
-        call    convertHostName
-        jp      c,getWildcardReadName
-        ld      a,(candidateName+8)
-        cp      'H'
-        jp      nz,getWildcardCheckPattern
-        ld      a,(candidateName+9)
-        cp      'S'
-        jp      nz,getWildcardCheckPattern
-        ld      a,(candidateName+10)
-        cp      'T'
-        jp      nz,getWildcardCheckPattern
-        ld      hl,candidateName
-        ld      de,workFcb+1
-        ld      bc,11
-        ldir
-        ld      a,17
-        ld      (fileError),a
-        call    printFileFailure
-        jp      getWildcardReadName
+        lda hostNameOverflow
+        ora a
+        jnz getWildcardReadName
+        lda hostNameLength
+        ora a
+        jz getWildcardListEnd
+        mov e,a
+        mvi d,0
+        lxi h,hostFilename
+        dad d
+        xra a
+        mov m,a
+        call convertHostName
+        jc getWildcardReadName
+        lda candidateName+8
+        cpi 'H'
+        jnz getWildcardCheckPattern
+        lda candidateName+9
+        cpi 'S'
+        jnz getWildcardCheckPattern
+        lda candidateName+10
+        cpi 'T'
+        jnz getWildcardCheckPattern
+        lxi h,candidateName
+        lxi d,workFcb+1
+        lxi b,11
+        call copyBlock
+        mvi a,17
+        sta fileError
+        call printFileFailure
+        jmp getWildcardReadName
 getWildcardCheckPattern:
-        call    matchHostName
-        jp      c,getWildcardReadName
-        ld      a,(wildcardCount)
-        inc     a
-        ld      (wildcardCount),a
-        ld      hl,candidateName
-        ld      de,workFcb+1
-        ld      bc,11
-        ldir
-        ld      hl,workFcb+12
-        ld      b,24
-        xor     a
+        call matchHostName
+        jc getWildcardReadName
+        lda wildcardCount
+        inr a
+        sta wildcardCount
+        lxi h,candidateName
+        lxi d,workFcb+1
+        lxi b,11
+        call copyBlock
+        lxi h,workFcb+12
+        mvi b,24
+        xra a
 getWildcardClearFcb:
-        ld      (hl),a
-        inc     hl
-        djnz    getWildcardClearFcb
-        call    initSideFcb
-        call    commandGetSingle
+        mov m,a
+        inx h
+        dcr b
+        jnz getWildcardClearFcb
+        call initSideFcb
+        call commandGetSingle
 getWildcardListEnd:
-        call    readByte
-        jp      c,operationAborted
-        or      a
-        jp      nz,showHostError
-        ld      a,(wildcardCount)
-        or      a
-        jp      nz,getWildcardFinished
-        ld      a,16
-        ld      (fileError),a
-        call    printFileFailure
-        jp      terminate
+        call readByte
+        jc operationAborted
+        ora a
+        jnz showHostError
+        lda wildcardCount
+        ora a
+        jnz getWildcardFinished
+        mvi a,16
+        sta fileError
+        call printFileFailure
+        jmp terminate
 getWildcardFinished:
-        ld      de,msgGetDone
-        call    printString
-        jp      terminate
+        lxi d,msgGetDone
+        call printString
+        jmp terminate
 
 convertHostName:
-        ld      hl,candidateName
-        ld      b,11
-        ld      a,' '
+        lxi h,candidateName
+        mvi b,11
+        mvi a,' '
 convertHostClearCandidate:
-        ld      (hl),a
-        inc     hl
-        djnz    convertHostClearCandidate
-        xor     a
-        ld      (hostNameExtension),a
-        ld      (candidatePosition),a
-        ld      (candidateBaseLength),a
-        ld      hl,hostFilename
-        ld      (hostSourcePointer),hl
+        mov m,a
+        inx h
+        dcr b
+        jnz convertHostClearCandidate
+        xra a
+        sta hostNameExtension
+        sta candidatePosition
+        sta candidateBaseLength
+        lxi h,hostFilename
+        shld hostSourcePointer
 convertHostCharacter:
-        ld      hl,(hostSourcePointer)
-        ld      a,(hl)
-        or      a
-        jp      z,convertHostDone
-        inc     hl
-        ld      (hostSourcePointer),hl
-        cp      '.'
-        jp      z,convertHostDot
-        cp      'a'
-        jp      c,convertHostUppercaseDone
-        cp      'z'+1
-        jp      nc,convertHostUppercaseDone
-        sub     20h
+        lhld hostSourcePointer
+        mov a,m
+        ora a
+        jz convertHostDone
+        inx h
+        shld hostSourcePointer
+        cpi '.'
+        jz convertHostDot
+        cpi 'a'
+        jc convertHostUppercaseDone
+        cpi 'z'+1
+        jnc convertHostUppercaseDone
+        sui 20h
 convertHostUppercaseDone:
-        call    validHostNameCharacter
-        jp      c,convertHostInvalid
-        ld      e,a
-        ld      a,(hostNameExtension)
-        or      a
-        jp      nz,convertHostStoreExtension
-        ld      a,(candidateBaseLength)
-        cp      8
-        jp      nc,convertHostInvalid
-        inc     a
-        ld      (candidateBaseLength),a
-        ld      c,a
-        dec     c
-        ld      b,0
-        ld      hl,candidateName
-        add     hl,bc
-        ld      a,e
-        ld      (hl),a
-        jp      convertHostCharacter
+        call validHostNameCharacter
+        jc convertHostInvalid
+        mov e,a
+        lda hostNameExtension
+        ora a
+        jnz convertHostStoreExtension
+        lda candidateBaseLength
+        cpi 8
+        jnc convertHostInvalid
+        inr a
+        sta candidateBaseLength
+        mov c,a
+        dcr c
+        mvi b,0
+        lxi h,candidateName
+        dad b
+        mov a,e
+        mov m,a
+        jmp convertHostCharacter
 convertHostStoreExtension:
-        ld      a,(candidatePosition)
-        cp      11
-        jp      nc,convertHostInvalid
-        ld      c,a
-        ld      b,0
-        ld      hl,candidateName
-        add     hl,bc
-        ld      a,e
-        ld      (hl),a
-        ld      a,(candidatePosition)
-        inc     a
-        ld      (candidatePosition),a
-        jp      convertHostCharacter
+        lda candidatePosition
+        cpi 11
+        jnc convertHostInvalid
+        mov c,a
+        mvi b,0
+        lxi h,candidateName
+        dad b
+        mov a,e
+        mov m,a
+        lda candidatePosition
+        inr a
+        sta candidatePosition
+        jmp convertHostCharacter
 convertHostDot:
-        ld      a,(hostNameExtension)
-        or      a
-        jp      nz,convertHostInvalid
-        ld      a,(candidateBaseLength)
-        or      a
-        jp      z,convertHostInvalid
-        ld      a,1
-        ld      (hostNameExtension),a
-        ld      a,8
-        ld      (candidatePosition),a
-        jp      convertHostCharacter
+        lda hostNameExtension
+        ora a
+        jnz convertHostInvalid
+        lda candidateBaseLength
+        ora a
+        jz convertHostInvalid
+        mvi a,1
+        sta hostNameExtension
+        mvi a,8
+        sta candidatePosition
+        jmp convertHostCharacter
 convertHostDone:
-        ld      a,(candidateBaseLength)
-        or      a
-        jp      z,convertHostInvalid
-        or      a
+        lda candidateBaseLength
+        ora a
+        jz convertHostInvalid
+        ora a
         ret
 convertHostInvalid:
-        scf
+        stc
         ret
 
 validHostNameCharacter:
-        cp      'A'
-        jp      c,validHostNameCheckDigit
-        cp      'Z'+1
-        jp      c,validHostNameGood
+        cpi 'A'
+        jc validHostNameCheckDigit
+        cpi 'Z'+1
+        jc validHostNameGood
 validHostNameCheckDigit:
-        cp      '0'
-        jp      c,validHostNameCheckSymbol
-        cp      '9'+1
-        jp      c,validHostNameGood
+        cpi '0'
+        jc validHostNameCheckSymbol
+        cpi '9'+1
+        jc validHostNameGood
 validHostNameCheckSymbol:
-        cp      '_'
-        jp      z,validHostNameGood
-        cp      '-'
-        jp      z,validHostNameGood
-        scf
+        cpi '_'
+        jz validHostNameGood
+        cpi '-'
+        jz validHostNameGood
+        stc
         ret
 validHostNameGood:
-        or      a
+        ora a
         ret
 
 matchHostName:
-        ld      hl,patternFcb
-        ld      de,candidateName
-        ld      b,11
+        lxi h,patternFcb
+        lxi d,candidateName
+        mvi b,11
 matchHostNameByte:
-        ld      a,(hl)
-        cp      '?'
-        jp      z,matchHostNameNext
-        ld      a,(de)
-        cp      (hl)
-        jp      nz,matchHostNameBad
+        mov a,m
+        cpi '?'
+        jz matchHostNameNext
+        ldax d
+        cmp m
+        jnz matchHostNameBad
 matchHostNameNext:
-        inc     hl
-        inc     de
-        djnz    matchHostNameByte
-        or      a
+        inx h
+        inx d
+        dcr b
+        jnz matchHostNameByte
+        ora a
         ret
 matchHostNameBad:
-        scf
+        stc
         ret
 
 commandGet:
 commandGetSingle:
-        xor     a
-        ld      (fileError),a
-        call    printFileStart
-        xor     a
-        ld      (workOpen),a
-        ld      (workCreated),a
-        ld      (sidecarOpen),a
-        ld      (sidecarCreated),a
-        ld      a,(overwriteFlag)
-        or      a
-        jp      nz,getSidecarAvailable
-        call    ensureTargetAbsent
-        jp      nc,getTargetAvailable
-        ld      a,1
-        ld      (fileError),a
-        jp      getFileFailure
+        xra a
+        sta fileError
+        sta dotCounter
+        sta dotsPrinted
+        call printFileStart
+        xra a
+        sta workOpen
+        sta workCreated
+        sta sidecarOpen
+        sta sidecarCreated
+        lda overwriteFlag
+        ora a
+        jnz getSidecarAvailable
+        call ensureTargetAbsent
+        jnc getTargetAvailable
+        mvi a,1
+        sta fileError
+        jmp getFileFailure
 getTargetAvailable:
-        call    ensureSidecarAbsent
-        jp      nc,getSidecarAvailable
-        ld      a,2
-        ld      (fileError),a
-        jp      getFileFailure
+        call ensureSidecarAbsent
+        jnc getSidecarAvailable
+        mvi a,2
+        sta fileError
+        jmp getFileFailure
 getSidecarAvailable:
-        ld      a,2
-        call    sendByte
-        jp      c,getTransferFailed
-        ld      hl,workFcb+1
-        ld      b,11
+        mvi a,2
+        call sendByte
+        jc getTransferFailed
+        lxi h,workFcb+1
+        mvi b,11
 getSendName:
-        ld      a,(hl)
-        and     07fh
-        call    sendByte
-        jp      c,getTransferFailed
-        inc     hl
-        djnz    getSendName
-        call    readByte
-        jp      c,getTransferFailed
-        or      a
-        jp      z,getAccepted
-        add     a,10
-        ld      (fileError),a
-        jp      getFileFailure
+        mov a,m
+        ani 07fh
+        call sendByte
+        jc getTransferFailed
+        inx h
+        dcr b
+        jnz getSendName
+        call readByte
+        jc getTransferFailed
+        ora a
+        jz getAccepted
+        adi 10
+        sta fileError
+        jmp getFileFailure
 getAccepted:
-        ld      hl,getLength
-        ld      b,4
+        lxi h,getLength
+        mvi b,4
 getReadLength:
-        call    readByte
-        jp      c,getTransferFailed
-        ld      (hl),a
-        inc     hl
-        djnz    getReadLength
-        call    copyGetLengthToRemaining
-        call    initGetCrcs
-        ld      a,(overwriteFlag)
-        or      a
-        call    nz,deleteExistingTargets
-        ld      de,workFcb
-        ld      c,22
-        call    bdos
-        cp      0ffh
-        jp      nz,getTargetCreated
-        ld      a,7
-        ld      (fileError),a
-        jp      getLocalFailure
+        call readByte
+        jc getTransferFailed
+        mov m,a
+        inx h
+        dcr b
+        jnz getReadLength
+        call copyGetLengthToRemaining
+        call initGetCrcs
+        lda overwriteFlag
+        ora a
+        cnz deleteExistingTargets
+        lxi d,workFcb
+        mvi c,22
+        call bdos
+        cpi 0ffh
+        jnz getTargetCreated
+        mvi a,20
+        sta fileError
+        jmp getLocalFailure
 getTargetCreated:
-        ld      a,1
-        ld      (workOpen),a
-        ld      (workCreated),a
-        ld      de,recordBuffer
-        ld      c,26
-        call    bdos
-        call    fillRecordBuffer
-        xor     a
-        ld      (recordCount),a
+        mvi a,1
+        sta workOpen
+        sta workCreated
+        lxi d,recordBuffer
+        mvi c,26
+        call bdos
+        call fillRecordBuffer
+        xra a
+        sta recordCount
 getPayloadLoop:
-        call    remainingIsZero
-        jp      z,getPayloadDone
-        call    readByte
-        jp      c,getFailure
-        ld      (crcInput),a
-        push    hl
-        ld      hl,exactCrc
-        ld      (crcPointer),hl
-        ld      a,(crcInput)
-        call    crcUpdate
-        pop     hl
+        call remainingIsZero
+        jz getPayloadDone
+        call readByte
+        jc getFailure
+        sta crcInput
+        push h
+        lxi h,exactCrc
+        shld crcPointer
+        lda crcInput
+        call crcUpdate
+        pop h
         ; The DMA buffer cursor is advanced independently of the CRC routine.
-        ld      a,(recordCount)
-        ld      e,a
-        ld      d,0
-        ld      hl,recordBuffer
-        add     hl,de
-        ld      a,(crcInput)
-        ld      (hl),a
-        call    decrementRemaining
-        ld      a,(recordCount)
-        inc     a
-        ld      (recordCount),a
-        cp      128
-        jp      nz,getPayloadLoop
-        call    writeGetRecord
-        jp      c,getFailure
-        xor     a
-        ld      (recordCount),a
-        call    fillRecordBuffer
-        jp      getPayloadLoop
+        lda recordCount
+        mov e,a
+        mvi d,0
+        lxi h,recordBuffer
+        dad d
+        lda crcInput
+        mov m,a
+        call decrementRemaining
+        lda recordCount
+        inr a
+        sta recordCount
+        cpi 128
+        jnz getPayloadLoop
+        call writeGetRecord
+        jc getFailure
+        call progressTick
+        xra a
+        sta recordCount
+        call fillRecordBuffer
+        jmp getPayloadLoop
 getPayloadDone:
-        ld      a,(recordCount)
-        or      a
-        jp      z,getPayloadCrc
-        call    writeGetRecord
-        jp      c,getFailure
+        lda recordCount
+        ora a
+        jz getPayloadCrc
+        call writeGetRecord
+        jc getFailure
 getPayloadCrc:
-        ld      hl,exactCrc
-        ld      (crcPointer),hl
-        call    finalizeCrc
-        call    readExpectedCrc
-        jp      c,getFailure
-        call    compareExactCrc
-        jp      c,getFailure
-        call    readByte
-        jp      c,getFailure
-        or      a
-        jp      z,getFinalStatusOk
-        add     a,10
-        ld      (fileError),a
-        jp      getFailure
+        lxi h,exactCrc
+        shld crcPointer
+        call finalizeCrc
+        call readExpectedCrc
+        jc getFailure
+        call compareExactCrc
+        jc getFailure
+        call readByte
+        jc getFailure
+        ora a
+        jz getFinalStatusOk
+        adi 10
+        sta fileError
+        jmp getFailure
 getFinalStatusOk:
-        call    closeWorkFile
-        cp      0ffh
-        jp      z,getFailure
-        call    writeSidecar
-        jp      c,getFailure
-        ld      a,(wildcardActive)
-        or      a
-        jp      z,getSingleComplete
-        call    printFileSuccess
-        jp      getWildcardReadName
+        call closeWorkFile
+        cpi 0ffh
+        jnz getClosedOk
+        mvi a,7
+        sta fileError
+        jmp getFailure
+getClosedOk:
+        call writeSidecar
+        jc getFailure
+        lda wildcardActive
+        ora a
+        jz getSingleComplete
+        call printFileSuccess
+        jmp getWildcardReadName
 getSingleComplete:
-        ld      de,msgGetDone
-        call    printString
-        jp      terminate
+        call endProgress
+        lxi d,msgGetDone
+        call printString
+        jmp terminate
 
 getFailure:
-        ld      a,(fileError)
-        or      a
-        jp      nz,getFailureStatusReady
-        ld      a,6
-        ld      (fileError),a
+        lda fileError
+        ora a
+        jnz getFailureStatusReady
+        mvi a,6
+        sta fileError
 getFailureStatusReady:
-        call    abortHostForFile
-        call    cleanupGetFiles
-        ld      a,(abortFlag)
-        or      a
-        jp      nz,getUserAbort
-        jp      getFileFailure
+        call abortHostForFile
+        call cleanupGetFiles
+        lda abortFlag
+        ora a
+        jnz getUserAbort
+        jmp getFileFailure
 
 getTransferFailed:
-        ld      a,6
-        ld      (fileError),a
-        call    abortHostForFile
-        ld      a,(abortFlag)
-        or      a
-        jp      nz,getUserAbort
-        jp      getFileFailure
+        mvi a,6
+        sta fileError
+        call abortHostForFile
+        lda abortFlag
+        ora a
+        jnz getUserAbort
+        jmp getFileFailure
 
 getLocalFailure:
-        call    abortHostForFile
-        jp      getFileFailure
+        call abortHostForFile
+        jmp getFileFailure
 
 getFileFailure:
-        call    printFileFailure
-        ld      a,(wildcardActive)
-        or      a
-        jp      nz,getWildcardReadName
-        jp      terminate
+        call printFileFailure
+        lda wildcardActive
+        ora a
+        jnz getWildcardReadName
+        jmp terminate
 
 getUserAbort:
-        call    abortHost
-        call    printFileFailure
-        ld      de,msgAborted
-        call    printString
-        jp      terminate
+        call abortHost
+        call printFileFailure
+        lxi d,msgAborted
+        call printString
+        jmp terminate
 
 ensureTargetAbsent:
-        call    openWorkFcb
-        cp      0ffh
-        jp      z,targetAbsent
-        ld      de,workFcb
-        ld      c,16
-        call    bdos
-        scf
+        call openWorkFcb
+        cpi 0ffh
+        jz targetAbsent
+        lxi d,workFcb
+        mvi c,16
+        call bdos
+        stc
         ret
 targetAbsent:
-        or      a
+        ora a
         ret
 
 ensureSidecarAbsent:
-        call    openSideFcb
-        cp      0ffh
-        jp      z,sidecarAbsent
-        ld      de,sideFcb
-        ld      c,16
-        call    bdos
-        scf
+        call openSideFcb
+        cpi 0ffh
+        jz sidecarAbsent
+        lxi d,sideFcb
+        mvi c,16
+        call bdos
+        stc
         ret
 sidecarAbsent:
-        or      a
+        ora a
         ret
 
 deleteExistingTargets:
-        call    openWorkFcb
-        ld      de,workFcb
-        ld      c,19
-        call    bdos
-        call    openSideFcb
-        ld      de,sideFcb
-        ld      c,19
-        call    bdos
+        call openWorkFcb
+        lxi d,workFcb
+        mvi c,19
+        call bdos
+        call openSideFcb
+        lxi d,sideFcb
+        mvi c,19
+        call bdos
         ret
 
 copyGetLengthToRemaining:
-        ld      hl,getLength
-        ld      de,remaining
-        ld      bc,4
-        ldir
+        lxi h,getLength
+        lxi d,remaining
+        lxi b,4
+        call copyBlock
         ret
 
 initGetCrcs:
-        ld      hl,exactCrc
-        ld      (crcPointer),hl
-        call    initCrc
-        ld      hl,paddedCrc
-        ld      (crcPointer),hl
-        call    initCrc
+        lxi h,exactCrc
+        shld crcPointer
+        call initCrc
+        lxi h,paddedCrc
+        shld crcPointer
+        call initCrc
         ret
 
 fillRecordBuffer:
-        ld      hl,recordBuffer
-        ld      b,128
+        lxi h,recordBuffer
+        mvi b,128
 fillRecordLoop:
-        ld      (hl),01ah
-        inc     hl
-        djnz    fillRecordLoop
+        mvi m,01ah
+        inx h
+        dcr b
+        jnz fillRecordLoop
         ret
 
 writeGetRecord:
-        ld      hl,recordBuffer
-        ld      (crcDataPointer),hl
-        ld      a,128
-        ld      (crcByteCount),a
-        ld      hl,paddedCrc
-        ld      (crcPointer),hl
-        call    crcBuffer
-        ld      de,workFcb
-        ld      c,21
-        call    bdos
-        or      a
-        ret     z
-        scf
+        lxi h,recordBuffer
+        shld crcDataPointer
+        mvi a,128
+        sta crcByteCount
+        lxi h,paddedCrc
+        shld crcPointer
+        call crcBuffer
+        lxi d,workFcb
+        mvi c,21
+        call bdos
+        ora a
+        rz
+        call setWriteError
+        stc
+        ret
+
+setWriteError:
+        cpi 2
+        jz setWriteErrorDiskFull
+        cpi 1
+        jz setWriteErrorDirFull
+        mvi a,7
+        jmp setWriteErrorStore
+setWriteErrorDiskFull:
+        mvi a,19
+        jmp setWriteErrorStore
+setWriteErrorDirFull:
+        mvi a,20
+setWriteErrorStore:
+        sta fileError
+        ret
+
+progressTick:
+        lda dotCounter
+        inr a
+        sta dotCounter
+        ani 0fh
+        rnz
+        mvi a,1
+        sta dotsPrinted
+        mvi e,'.'
+        mvi c,2
+        call bdos
+        ret
+
+endProgress:
+        lda dotsPrinted
+        ora a
+        rz
+        xra a
+        sta dotsPrinted
+        mvi e,' '
+        mvi c,2
+        call bdos
         ret
 
 readExpectedCrc:
-        ld      hl,expectedCrc
-        ld      b,4
+        lxi h,expectedCrc
+        mvi b,4
 readExpectedLoop:
-        call    readByte
-        ret     c
-        ld      (hl),a
-        inc     hl
-        djnz    readExpectedLoop
-        or      a
+        call readByte
+        rc
+        mov m,a
+        inx h
+        dcr b
+        jnz readExpectedLoop
+        ora a
         ret
 
 compareExactCrc:
-        ld      hl,exactCrc
-        ld      de,expectedCrc
-        ld      b,4
+        lxi h,exactCrc
+        lxi d,expectedCrc
+        mvi b,4
 compareExactLoop:
-        ld      a,(de)
-        cp      (hl)
-        jp      nz,compareExactBad
-        inc     hl
-        inc     de
-        djnz    compareExactLoop
-        or      a
+        ldax d
+        cmp m
+        jnz compareExactBad
+        inx h
+        inx d
+        dcr b
+        jnz compareExactLoop
+        ora a
         ret
 compareExactBad:
-        scf
+        stc
         ret
 
 writeSidecar:
-        call    finalizeCrcAtPadded
-        ld      hl,sideBuffer
-        call    initializeSideBuffer
-        ld      hl,metadataMagic
-        ld      de,sideBuffer
-        ld      bc,4
-        ldir
-        ld      hl,getLength
-        ld      de,sideBuffer+4
-        ld      bc,4
-        ldir
-        ld      hl,paddedCrc
-        ld      de,sideBuffer+8
-        ld      bc,4
-        ldir
-        ld      hl,exactCrc
-        ld      de,sideBuffer+12
-        ld      bc,4
-        ldir
-        ld      de,sideFcb
-        ld      c,22
-        call    bdos
-        cp      0ffh
-        jp      z,sidecarWriteBad
-        ld      a,1
-        ld      (sidecarOpen),a
-        ld      (sidecarCreated),a
-        ld      de,sideBuffer
-        ld      c,26
-        call    bdos
-        ld      de,sideFcb
-        ld      c,21
-        call    bdos
-        or      a
-        jp      nz,sidecarWriteCloseBad
-        ld      de,sideFcb
-        ld      c,16
-        call    bdos
-        ld      (statusValue),a
-        xor     a
-        ld      (sidecarOpen),a
-        ld      a,(statusValue)
-        cp      0ffh
-        jp      z,sidecarWriteBad
-        or      a
+        call finalizeCrcAtPadded
+        lxi h,sideBuffer
+        call initializeSideBuffer
+        lxi h,metadataMagic
+        lxi d,sideBuffer
+        lxi b,4
+        call copyBlock
+        lxi h,getLength
+        lxi d,sideBuffer+4
+        lxi b,4
+        call copyBlock
+        lxi h,paddedCrc
+        lxi d,sideBuffer+8
+        lxi b,4
+        call copyBlock
+        lxi h,exactCrc
+        lxi d,sideBuffer+12
+        lxi b,4
+        call copyBlock
+        lxi d,sideFcb
+        mvi c,22
+        call bdos
+        cpi 0ffh
+        jnz sidecarCreated0
+        mvi a,20
+        sta fileError
+        jmp sidecarWriteBad
+sidecarCreated0:
+        mvi a,1
+        sta sidecarOpen
+        sta sidecarCreated
+        lxi d,sideBuffer
+        mvi c,26
+        call bdos
+        lxi d,sideFcb
+        mvi c,21
+        call bdos
+        ora a
+        jnz sidecarWriteCloseBad
+        lxi d,sideFcb
+        mvi c,16
+        call bdos
+        sta statusValue
+        xra a
+        sta sidecarOpen
+        lda statusValue
+        cpi 0ffh
+        jnz sidecarClosedOk
+        mvi a,7
+        sta fileError
+        jmp sidecarWriteBad
+sidecarClosedOk:
+        ora a
         ret
 sidecarWriteCloseBad:
-        ld      de,sideFcb
-        ld      c,16
-        call    bdos
-        xor     a
-        ld      (sidecarOpen),a
-        scf
+        call setWriteError
+        lxi d,sideFcb
+        mvi c,16
+        call bdos
+        xra a
+        sta sidecarOpen
+        stc
         ret
 sidecarWriteBad:
-        scf
+        stc
         ret
 
 finalizeCrcAtPadded:
-        ld      hl,paddedCrc
-        ld      (crcPointer),hl
-        call    finalizeCrc
+        lxi h,paddedCrc
+        shld crcPointer
+        call finalizeCrc
         ret
 
 initializeSideBuffer:
-        ld      hl,sideBuffer
-        ld      b,128
+        lxi h,sideBuffer
+        mvi b,128
 initializeSideLoop:
-        ld      (hl),01ah
-        inc     hl
-        djnz    initializeSideLoop
+        mvi m,01ah
+        inx h
+        dcr b
+        jnz initializeSideLoop
         ret
 
 cleanupGetFiles:
-        ld      a,(workOpen)
-        or      a
-        jp      z,cleanupDeleteFiles
-        call    closeWorkFile
+        lda workOpen
+        ora a
+        jz cleanupDeleteFiles
+        call closeWorkFile
 cleanupDeleteFiles:
-        ld      a,(sidecarOpen)
-        or      a
-        jp      z,cleanupDeleteNames
-        ld      de,sideFcb
-        ld      c,16
-        call    bdos
-        xor     a
-        ld      (sidecarOpen),a
+        lda sidecarOpen
+        ora a
+        jz cleanupDeleteNames
+        lxi d,sideFcb
+        mvi c,16
+        call bdos
+        xra a
+        sta sidecarOpen
 cleanupDeleteNames:
-        ld      a,(workCreated)
-        or      a
-        jp      z,cleanupSkipWork
-        ld      de,workFcb
-        ld      c,19
-        call    bdos
+        lda workCreated
+        ora a
+        jz cleanupSkipWork
+        lxi d,workFcb
+        mvi c,19
+        call bdos
 cleanupSkipWork:
-        ld      a,(sidecarCreated)
-        or      a
-        jp      z,cleanupSkipSide
-        ld      de,sideFcb
-        ld      c,19
-        call    bdos
+        lda sidecarCreated
+        ora a
+        jz cleanupSkipSide
+        lxi d,sideFcb
+        mvi c,19
+        call bdos
 cleanupSkipSide:
-        xor     a
-        ld      (workOpen),a
-        ld      (workCreated),a
-        ld      (sidecarOpen),a
-        ld      (sidecarCreated),a
+        xra a
+        sta workOpen
+        sta workCreated
+        sta sidecarOpen
+        sta sidecarCreated
         ret
 
 openWorkFcb:
-        ld      hl,workFcb
-        jp      openFcb
+        lxi h,workFcb
+        jmp openFcb
 openSideFcb:
-        ld      hl,sideFcb
+        lxi h,sideFcb
 openFcb:
-        push    hl
-        ld      de,12
-        add     hl,de
-        xor     a
-        ld      (hl),a
-        inc     hl
-        ld      (hl),a
-        inc     hl
-        ld      (hl),a
-        pop     hl
-        push    hl
-        ld      de,32
-        add     hl,de
-        xor     a
-        ld      (hl),a
-        pop     de
-        ld      c,15
-        jp      bdos
+        push h
+        lxi d,12
+        dad d
+        xra a
+        mov m,a
+        inx h
+        mov m,a
+        inx h
+        mov m,a
+        pop h
+        push h
+        lxi d,32
+        dad d
+        xra a
+        mov m,a
+        pop d
+        mvi c,15
+        jmp bdos
 
 closeWorkFile:
-        ld      de,workFcb
-        ld      c,16
-        call    bdos
-        ld      (statusValue),a
-        xor     a
-        ld      (workOpen),a
-        ld      a,(statusValue)
+        lxi d,workFcb
+        mvi c,16
+        call bdos
+        sta statusValue
+        xra a
+        sta workOpen
+        lda statusValue
         ret
 
 abortHostForFile:
-        ld      a,(wildcardActive)
-        or      a
-        jp      z,abortHost
-        ld      a,1
-        out     (portAbort),a
+        lda wildcardActive
+        ora a
+        jz abortHost
+        mvi a,1
+        out portAbort
         ret
 
 commandPutWildcard:
-        xor     a
-        ld      (wildcardCount),a
-        ld      (wildcardIndex),a
-        ld      hl,workFcb
-        ld      de,searchFcb
-        ld      bc,36
-        ldir
-        ld      de,recordBuffer
-        ld      c,26
-        call    bdos
-        ld      de,searchFcb
-        ld      c,17
-        call    bdos
+        xra a
+        sta wildcardCount
+        sta wildcardIndex
+        lxi h,workFcb
+        lxi d,searchFcb
+        lxi b,36
+        call copyBlock
+        lxi d,recordBuffer
+        mvi c,26
+        call bdos
+        lxi d,searchFcb
+        mvi c,17
+        call bdos
 putWildcardSearchResult:
-        cp      0ffh
-        jp      z,putWildcardCollected
-        ld      (searchResult),a
-        ld      l,a
-        ld      h,0
-        add     hl,hl
-        add     hl,hl
-        add     hl,hl
-        add     hl,hl
-        add     hl,hl
-        ld      de,recordBuffer+1
-        add     hl,de
-        ld      de,candidateName
-        ld      b,11
+        cpi 0ffh
+        jz putWildcardCollected
+        sta searchResult
+        mov l,a
+        mvi h,0
+        dad h
+        dad h
+        dad h
+        dad h
+        dad h
+        lxi d,recordBuffer+1
+        dad d
+        lxi d,candidateName
+        mvi b,11
 putWildcardSaveName:
-        ld      a,(hl)
-        and     07fh
-        ld      (de),a
-        inc     hl
-        inc     de
-        djnz    putWildcardSaveName
-        ld      a,(candidateName+8)
-        cp      'H'
-        jp      nz,putWildcardCheckDuplicate
-        ld      a,(candidateName+9)
-        cp      'S'
-        jp      nz,putWildcardCheckDuplicate
-        ld      a,(candidateName+10)
-        cp      'T'
-        jp      nz,putWildcardCheckDuplicate
-        ld      hl,candidateName
-        ld      de,workFcb+1
-        ld      bc,11
-        ldir
-        ld      a,17
-        ld      (fileError),a
-        call    printFileFailure
-        jp      putWildcardSearchNext
+        mov a,m
+        ani 07fh
+        stax d
+        inx h
+        inx d
+        dcr b
+        jnz putWildcardSaveName
+        lda candidateName+8
+        cpi 'H'
+        jnz putWildcardCheckDuplicate
+        lda candidateName+9
+        cpi 'S'
+        jnz putWildcardCheckDuplicate
+        lda candidateName+10
+        cpi 'T'
+        jnz putWildcardCheckDuplicate
+        lxi h,candidateName
+        lxi d,workFcb+1
+        lxi b,11
+        call copyBlock
+        mvi a,17
+        sta fileError
+        call printFileFailure
+        jmp putWildcardSearchNext
 putWildcardCheckDuplicate:
-        ld      a,(wildcardCount)
-        ld      b,a
-        ld      hl,fileList
+        lda wildcardCount
+        mov b,a
+        lxi h,fileList
 putWildcardDuplicateLoop:
-        ld      a,b
-        or      a
-        jp      z,putWildcardAddName
-        push    bc
-        push    hl
-        ld      de,candidateName
-        ld      c,11
+        mov a,b
+        ora a
+        jz putWildcardAddName
+        push b
+        push h
+        lxi d,candidateName
+        mvi c,11
 putWildcardCompareName:
-        ld      a,(de)
-        cp      (hl)
-        jp      nz,putWildcardDuplicateNo
-        inc     de
-        inc     hl
-        dec     c
-        jp      nz,putWildcardCompareName
-        pop     hl
-        pop     bc
-        jp      putWildcardSearchNext
+        ldax d
+        cmp m
+        jnz putWildcardDuplicateNo
+        inx d
+        inx h
+        dcr c
+        jnz putWildcardCompareName
+        pop h
+        pop b
+        jmp putWildcardSearchNext
 putWildcardDuplicateNo:
-        pop     hl
-        pop     bc
-        ld      de,11
-        add     hl,de
-        dec     b
-        jp      putWildcardDuplicateLoop
+        pop h
+        pop b
+        lxi d,11
+        dad d
+        dcr b
+        jmp putWildcardDuplicateLoop
 putWildcardAddName:
-        ld      a,(wildcardCount)
-        cp      128
-        jp      nc,putWildcardListFull
-        ld      b,a
-        ld      hl,fileList
+        lda wildcardCount
+        cpi 128
+        jnc putWildcardListFull
+        mov b,a
+        lxi h,fileList
 putWildcardFindListEnd:
-        ld      a,b
-        or      a
-        jp      z,putWildcardCopyName
-        ld      de,11
-        add     hl,de
-        dec     b
-        jp      putWildcardFindListEnd
+        mov a,b
+        ora a
+        jz putWildcardCopyName
+        lxi d,11
+        dad d
+        dcr b
+        jmp putWildcardFindListEnd
 putWildcardCopyName:
-        ex      de,hl
-        ld      hl,candidateName
-        ld      b,11
+        xchg
+        lxi h,candidateName
+        mvi b,11
 putWildcardStoreName:
-        ld      a,(hl)
-        ld      (de),a
-        inc     hl
-        inc     de
-        djnz    putWildcardStoreName
-        ld      a,(wildcardCount)
-        inc     a
-        ld      (wildcardCount),a
-        jp      putWildcardSearchNext
+        mov a,m
+        stax d
+        inx h
+        inx d
+        dcr b
+        jnz putWildcardStoreName
+        lda wildcardCount
+        inr a
+        sta wildcardCount
+        jmp putWildcardSearchNext
 putWildcardListFull:
-        ld      hl,candidateName
-        ld      de,workFcb+1
-        ld      bc,11
-        ldir
-        ld      a,18
-        ld      (fileError),a
-        call    printFileFailure
-        jp      putWildcardSearchNext
+        lxi h,candidateName
+        lxi d,workFcb+1
+        lxi b,11
+        call copyBlock
+        mvi a,18
+        sta fileError
+        call printFileFailure
+        jmp putWildcardSearchNext
 putWildcardSearchNext:
-        ld      de,searchFcb
-        ld      c,18
-        call    bdos
-        jp      putWildcardSearchResult
+        lxi d,searchFcb
+        mvi c,18
+        call bdos
+        jmp putWildcardSearchResult
 putWildcardCollected:
-        ld      a,(wildcardCount)
-        or      a
-        jp      nz,putWildcardLoadFile
-        ld      a,16
-        ld      (fileError),a
-        call    printFileFailure
-        jp      terminate
+        lda wildcardCount
+        ora a
+        jnz putWildcardLoadFile
+        mvi a,16
+        sta fileError
+        call printFileFailure
+        jmp terminate
 putWildcardLoadFile:
-        ld      a,(wildcardIndex)
-        ld      b,a
-        ld      hl,fileList
+        lda wildcardIndex
+        mov b,a
+        lxi h,fileList
 putWildcardFindFile:
-        ld      a,b
-        or      a
-        jp      z,putWildcardFileReady
-        ld      de,11
-        add     hl,de
-        dec     b
-        jp      putWildcardFindFile
+        mov a,b
+        ora a
+        jz putWildcardFileReady
+        lxi d,11
+        dad d
+        dcr b
+        jmp putWildcardFindFile
 putWildcardFileReady:
-        ld      de,workFcb+1
-        ld      b,11
+        lxi d,workFcb+1
+        mvi b,11
 putWildcardCopyFile:
-        ld      a,(hl)
-        ld      (de),a
-        inc     hl
-        inc     de
-        djnz    putWildcardCopyFile
-        ld      hl,workFcb+12
-        ld      b,24
-        xor     a
+        mov a,m
+        stax d
+        inx h
+        inx d
+        dcr b
+        jnz putWildcardCopyFile
+        lxi h,workFcb+12
+        mvi b,24
+        xra a
 putWildcardClearFcb:
-        ld      (hl),a
-        inc     hl
-        djnz    putWildcardClearFcb
-        call    initSideFcb
-        jp      commandPutSingle
+        mov m,a
+        inx h
+        dcr b
+        jnz putWildcardClearFcb
+        call initSideFcb
+        jmp commandPutSingle
 putWildcardNext:
-        ld      a,(wildcardIndex)
-        inc     a
-        ld      (wildcardIndex),a
-        ld      b,a
-        ld      a,(wildcardCount)
-        cp      b
-        jp      nz,putWildcardLoadFile
-        ld      de,msgPutDone
-        call    printString
-        jp      terminate
+        lda wildcardIndex
+        inr a
+        sta wildcardIndex
+        mov b,a
+        lda wildcardCount
+        cmp b
+        jnz putWildcardLoadFile
+        lxi d,msgPutDone
+        call printString
+        jmp terminate
 
 commandPut:
 commandPutSingle:
-        xor     a
-        ld      (fileError),a
-        ld      (paddedNote),a
-        call    printFileStart
-        call    scanSourceFile
-        jp      nc,putSourceReady
-        ld      a,7
-        ld      (fileError),a
-        jp      putFileFailure
+        xra a
+        sta fileError
+        sta paddedNote
+        sta dotCounter
+        sta dotsPrinted
+        call printFileStart
+        call scanSourceFile
+        jnc putSourceReady
+        mvi a,7
+        sta fileError
+        jmp putFileFailure
 putSourceReady:
-        call    loadAndValidateSidecar
-        call    choosePutTransfer
-        ld      a,3
-        call    sendByte
-        jp      c,putTransferFailed
-        ld      hl,workFcb+1
-        ld      b,11
+        call loadAndValidateSidecar
+        call choosePutTransfer
+        lda overwriteFlag
+        ora a
+        mvi a,3
+        jz putSendCommand
+        mvi a,4
+putSendCommand:
+        call sendByte
+        jc putTransferFailed
+        lxi h,workFcb+1
+        mvi b,11
 putSendName:
-        ld      a,(hl)
-        and     07fh
-        call    sendByte
-        jp      c,putTransferFailed
-        inc     hl
-        djnz    putSendName
-        ld      hl,putLength
-        ld      b,4
+        mov a,m
+        ani 07fh
+        call sendByte
+        jc putTransferFailed
+        inx h
+        dcr b
+        jnz putSendName
+        lxi h,putLength
+        mvi b,4
 putSendLength:
-        ld      a,(hl)
-        call    sendByte
-        jp      c,putTransferFailed
-        inc     hl
-        djnz    putSendLength
-        ld      hl,expectedCrc
-        ld      b,4
+        mov a,m
+        call sendByte
+        jc putTransferFailed
+        inx h
+        dcr b
+        jnz putSendLength
+        lxi h,expectedCrc
+        mvi b,4
 putSendCrc:
-        ld      a,(hl)
-        call    sendByte
-        jp      c,putTransferFailed
-        inc     hl
-        djnz    putSendCrc
-        call    readByte
-        jp      c,putTransferFailed
-        or      a
-        jp      z,putAccepted
-        add     a,10
-        ld      (fileError),a
-        jp      putFileFailure
+        mov a,m
+        call sendByte
+        jc putTransferFailed
+        inx h
+        dcr b
+        jnz putSendCrc
+        call readByte
+        jc putTransferFailed
+        ora a
+        jz putAccepted
+        adi 10
+        sta fileError
+        jmp putFileFailure
 putAccepted:
-        call    openWorkFcb
-        cp      0ffh
-        jp      nz,putFileOpened
-        ld      a,7
-        ld      (fileError),a
-        call    abortHost
-        jp      putFileFailure
+        call openWorkFcb
+        cpi 0ffh
+        jnz putFileOpened
+        mvi a,7
+        sta fileError
+        call abortHost
+        jmp putFileFailure
 putFileOpened:
-        ld      a,1
-        ld      (workOpen),a
-        ld      hl,putLength
-        ld      de,remaining
-        ld      bc,4
-        ldir
-        ld      de,recordBuffer
-        ld      c,26
-        call    bdos
+        mvi a,1
+        sta workOpen
+        lxi h,putLength
+        lxi d,remaining
+        lxi b,4
+        call copyBlock
+        lxi d,recordBuffer
+        mvi c,26
+        call bdos
 putReadRecord:
-        call    remainingIsZero
-        jp      z,putPayloadDone
-        ld      de,workFcb
-        ld      c,20
-        call    bdos
-        or      a
-        jp      nz,putFailed
-        ld      hl,recordBuffer
-        ld      b,128
+        call remainingIsZero
+        jz putPayloadDone
+        lxi d,workFcb
+        mvi c,20
+        call bdos
+        ora a
+        jnz putFailed
+        call progressTick
+        lxi h,recordBuffer
+        mvi b,128
 putSendRecord:
-        push    bc
-        call    remainingIsZero
-        pop     bc
-        jp      z,putPayloadDone
-        ld      a,(hl)
-        call    sendByte
-        jp      c,putFailed
-        inc     hl
-        call    decrementRemaining
-        djnz    putSendRecord
-        jp      putReadRecord
+        push b
+        call remainingIsZero
+        pop b
+        jz putPayloadDone
+        mov a,m
+        call sendByte
+        jc putFailed
+        inx h
+        call decrementRemaining
+        dcr b
+        jnz putSendRecord
+        jmp putReadRecord
 putPayloadDone:
-        call    readByte
-        jp      c,putFailed
-        or      a
-        jp      z,putHostTransferComplete
-        add     a,10
-        ld      (fileError),a
-        jp      putHostFailure
+        call readByte
+        jc putFailed
+        ora a
+        jz putHostTransferComplete
+        adi 10
+        sta fileError
+        jmp putHostFailure
 putHostTransferComplete:
-        call    closeWorkFile
-        cp      0ffh
-        jp      z,putLocalCloseFailed
-        ld      a,(wildcardActive)
-        or      a
-        jp      z,putSingleComplete
-        call    printFileSuccess
-        jp      putWildcardNext
+        call closeWorkFile
+        cpi 0ffh
+        jz putLocalCloseFailed
+        lda wildcardActive
+        ora a
+        jz putSingleComplete
+        call printFileSuccess
+        jmp putWildcardNext
 putSingleComplete:
-        ld      de,msgPutDone
-        call    printString
-        jp      terminate
+        call endProgress
+        lxi d,msgPutDone
+        call printString
+        jmp terminate
 
 putLocalCloseFailed:
-        xor     a
-        ld      (workOpen),a
-        ld      a,7
-        ld      (fileError),a
-        jp      putFileFailure
+        xra a
+        sta workOpen
+        mvi a,7
+        sta fileError
+        jmp putFileFailure
 
 putHostFailure:
-        ld      a,(workOpen)
-        or      a
-        jp      z,putFileFailure
-        call    closeWorkFile
-        jp      putFileFailure
+        lda workOpen
+        ora a
+        jz putFileFailure
+        call closeWorkFile
+        jmp putFileFailure
 
 putFailed:
-        call    abortHost
-        ld      a,6
-        ld      (fileError),a
-        ld      a,(workOpen)
-        or      a
-        jp      z,putFailedMessage
-        call    closeWorkFile
+        call abortHost
+        mvi a,6
+        sta fileError
+        lda workOpen
+        ora a
+        jz putFailedMessage
+        call closeWorkFile
 putFailedMessage:
-        ld      a,(abortFlag)
-        or      a
-        jp      nz,putUserAbort
-        jp      putFileFailure
+        lda abortFlag
+        ora a
+        jnz putUserAbort
+        jmp putFileFailure
 
 putTransferFailed:
-        ld      a,6
-        ld      (fileError),a
-        call    abortHost
-        ld      a,(abortFlag)
-        or      a
-        jp      nz,putUserAbort
-        jp      putFileFailure
+        mvi a,6
+        sta fileError
+        call abortHost
+        lda abortFlag
+        ora a
+        jnz putUserAbort
+        jmp putFileFailure
 
 putFileFailure:
-        call    printFileFailure
-        ld      a,(abortFlag)
-        or      a
-        jp      nz,putUserAbort
-        ld      a,(wildcardActive)
-        or      a
-        jp      z,terminate
-        jp      putWildcardNext
+        call printFileFailure
+        lda abortFlag
+        ora a
+        jnz putUserAbort
+        lda wildcardActive
+        ora a
+        jz terminate
+        jmp putWildcardNext
 
 putUserAbort:
-        call    printFileFailure
-        ld      de,msgAborted
-        call    printString
-        jp      terminate
+        call printFileFailure
+        lxi d,msgAborted
+        call printString
+        jmp terminate
 
 scanSourceFile:
-        xor     a
-        ld      (fileBytes),a
-        ld      (fileBytes+1),a
-        ld      (fileBytes+2),a
-        ld      (fileBytes+3),a
-        ld      hl,paddedCrc
-        ld      (crcPointer),hl
-        call    initCrc
-        call    openWorkFcb
-        cp      0ffh
-        jp      z,scanSourceBad
-        ld      de,recordBuffer
-        ld      c,26
-        call    bdos
+        xra a
+        sta fileBytes
+        sta fileBytes+1
+        sta fileBytes+2
+        sta fileBytes+3
+        lxi h,paddedCrc
+        shld crcPointer
+        call initCrc
+        call openWorkFcb
+        cpi 0ffh
+        jz scanSourceBad
+        lxi d,recordBuffer
+        mvi c,26
+        call bdos
 scanSourceRecord:
-        ld      de,workFcb
-        ld      c,20
-        call    bdos
-        cp      1
-        jp      z,scanSourceDone
-        or      a
-        jp      nz,scanSourceCloseBad
-        ld      hl,recordBuffer
-        ld      (crcDataPointer),hl
-        ld      a,128
-        ld      (crcByteCount),a
-        ld      hl,paddedCrc
-        ld      (crcPointer),hl
-        call    crcBuffer
-        call    addFileBytes128
-        jp      scanSourceRecord
+        lxi d,workFcb
+        mvi c,20
+        call bdos
+        cpi 1
+        jz scanSourceDone
+        ora a
+        jnz scanSourceCloseBad
+        lxi h,recordBuffer
+        shld crcDataPointer
+        mvi a,128
+        sta crcByteCount
+        lxi h,paddedCrc
+        shld crcPointer
+        call crcBuffer
+        call addFileBytes128
+        jmp scanSourceRecord
 scanSourceDone:
-        ld      de,workFcb
-        ld      c,16
-        call    bdos
-        cp      0ffh
-        jp      z,scanSourceBad
-        ld      hl,paddedCrc
-        ld      (crcPointer),hl
-        call    finalizeCrc
-        ld      hl,paddedCrc
-        ld      de,scanPaddedCrc
-        ld      bc,4
-        ldir
-        or      a
+        lxi d,workFcb
+        mvi c,16
+        call bdos
+        cpi 0ffh
+        jz scanSourceBad
+        lxi h,paddedCrc
+        shld crcPointer
+        call finalizeCrc
+        lxi h,paddedCrc
+        lxi d,scanPaddedCrc
+        lxi b,4
+        call copyBlock
+        ora a
         ret
 scanSourceCloseBad:
-        ld      de,workFcb
-        ld      c,16
-        call    bdos
+        lxi d,workFcb
+        mvi c,16
+        call bdos
 scanSourceBad:
-        scf
+        stc
         ret
 
 addFileBytes128:
-        ld      hl,fileBytes
-        ld      a,(hl)
-        add     a,128
-        ld      (hl),a
-        ret     nc
-        inc     hl
-        ld      a,(hl)
-        inc     a
-        ld      (hl),a
-        ret     nz
-        inc     hl
-        ld      a,(hl)
-        inc     a
-        ld      (hl),a
-        ret     nz
-        inc     hl
-        ld      a,(hl)
-        inc     a
-        ld      (hl),a
+        lxi h,fileBytes
+        mov a,m
+        adi 128
+        mov m,a
+        rnc
+        inx h
+        mov a,m
+        inr a
+        mov m,a
+        rnz
+        inx h
+        mov a,m
+        inr a
+        mov m,a
+        rnz
+        inx h
+        mov a,m
+        inr a
+        mov m,a
         ret
 
 loadAndValidateSidecar:
-        xor     a
-        ld      (sidecarValid),a
-        call    openSideFcb
-        cp      0ffh
-        ret     z
-        ld      de,sideBuffer
-        ld      c,26
-        call    bdos
-        ld      de,sideFcb
-        ld      c,20
-        call    bdos
-        or      a
-        jp      nz,sidecarInvalidClose
-        ld      de,sideFcb
-        ld      c,20
-        call    bdos
-        cp      1
-        jp      nz,sidecarInvalidClose
-        ld      de,sideFcb
-        ld      c,16
-        call    bdos
-        cp      0ffh
-        ret     z
-        call    validateSideMagic
-        ret     c
-        call    validateSideLength
-        ret     c
-        call    compareSidePaddedCrc
-        ret     c
-        call    validateSideExactCrc
-        ret     c
-        ld      a,1
-        ld      (sidecarValid),a
+        xra a
+        sta sidecarValid
+        call openSideFcb
+        cpi 0ffh
+        rz
+        lxi d,sideBuffer
+        mvi c,26
+        call bdos
+        lxi d,sideFcb
+        mvi c,20
+        call bdos
+        ora a
+        jnz sidecarInvalidClose
+        lxi d,sideFcb
+        mvi c,20
+        call bdos
+        cpi 1
+        jnz sidecarInvalidClose
+        lxi d,sideFcb
+        mvi c,16
+        call bdos
+        cpi 0ffh
+        rz
+        call validateSideMagic
+        rc
+        call validateSideLength
+        rc
+        call compareSidePaddedCrc
+        rc
+        call validateSideExactCrc
+        rc
+        mvi a,1
+        sta sidecarValid
         ret
 sidecarInvalidClose:
-        ld      de,sideFcb
-        ld      c,16
-        call    bdos
+        lxi d,sideFcb
+        mvi c,16
+        call bdos
         ret
 
 validateSideMagic:
-        ld      hl,sideBuffer
-        ld      de,metadataMagic
-        ld      b,4
+        lxi h,sideBuffer
+        lxi d,metadataMagic
+        mvi b,4
 sideMagicLoop:
-        ld      a,(de)
-        cp      (hl)
-        jp      nz,sideMagicBad
-        inc     hl
-        inc     de
-        djnz    sideMagicLoop
-        or      a
+        ldax d
+        cmp m
+        jnz sideMagicBad
+        inx h
+        inx d
+        dcr b
+        jnz sideMagicLoop
+        ora a
         ret
 sideMagicBad:
-        scf
+        stc
         ret
 
 validateSideLength:
-        ld      hl,sideBuffer+4
-        ld      de,metaLength
-        ld      bc,4
-        ldir
-        ld      hl,sideBuffer+8
-        ld      de,metaPaddedCrc
-        ld      bc,4
-        ldir
-        ld      hl,sideBuffer+12
-        ld      de,metaExactCrc
-        ld      bc,4
-        ldir
-        ld      hl,metaLength
-        ld      de,roundedLength
-        ld      bc,4
-        ldir
-        ld      hl,roundedLength
-        ld      a,(hl)
-        add     a,127
-        ld      (hl),a
-        inc     hl
-        ld      a,(hl)
-        adc     a,0
-        ld      (hl),a
-        inc     hl
-        ld      a,(hl)
-        adc     a,0
-        ld      (hl),a
-        inc     hl
-        ld      a,(hl)
-        adc     a,0
-        ld      (hl),a
-        jp      c,sideLengthBad
-        ld      a,(roundedLength)
-        and     080h
-        ld      (roundedLength),a
-        ld      hl,roundedLength
-        ld      de,fileBytes
-        ld      b,4
+        lxi h,sideBuffer+4
+        lxi d,metaLength
+        lxi b,4
+        call copyBlock
+        lxi h,sideBuffer+8
+        lxi d,metaPaddedCrc
+        lxi b,4
+        call copyBlock
+        lxi h,sideBuffer+12
+        lxi d,metaExactCrc
+        lxi b,4
+        call copyBlock
+        lxi h,metaLength
+        lxi d,roundedLength
+        lxi b,4
+        call copyBlock
+        lxi h,roundedLength
+        mov a,m
+        adi 127
+        mov m,a
+        inx h
+        mov a,m
+        aci 0
+        mov m,a
+        inx h
+        mov a,m
+        aci 0
+        mov m,a
+        inx h
+        mov a,m
+        aci 0
+        mov m,a
+        jc sideLengthBad
+        lda roundedLength
+        ani 080h
+        sta roundedLength
+        lxi h,roundedLength
+        lxi d,fileBytes
+        mvi b,4
 sideLengthCompare:
-        ld      a,(de)
-        cp      (hl)
-        jp      nz,sideLengthBad
-        inc     hl
-        inc     de
-        djnz    sideLengthCompare
-        or      a
+        ldax d
+        cmp m
+        jnz sideLengthBad
+        inx h
+        inx d
+        dcr b
+        jnz sideLengthCompare
+        ora a
         ret
 sideLengthBad:
-        scf
+        stc
         ret
 
 compareSidePaddedCrc:
-        ld      hl,metaPaddedCrc
-        ld      de,scanPaddedCrc
-        ld      b,4
+        lxi h,metaPaddedCrc
+        lxi d,scanPaddedCrc
+        mvi b,4
 sidePaddedCompare:
-        ld      a,(de)
-        cp      (hl)
-        jp      nz,sidePaddedBad
-        inc     hl
-        inc     de
-        djnz    sidePaddedCompare
-        or      a
+        ldax d
+        cmp m
+        jnz sidePaddedBad
+        inx h
+        inx d
+        dcr b
+        jnz sidePaddedCompare
+        ora a
         ret
 sidePaddedBad:
-        scf
+        stc
         ret
 
 validateSideExactCrc:
-        ld      hl,metaLength
-        ld      de,remaining
-        ld      bc,4
-        ldir
-        ld      hl,exactCrc
-        ld      (crcPointer),hl
-        call    initCrc
-        call    openWorkFcb
-        cp      0ffh
-        jp      z,sideExactBad
-        ld      de,recordBuffer
-        ld      c,26
-        call    bdos
-        xor     a
-        ld      (recordPosition),a
+        lxi h,metaLength
+        lxi d,remaining
+        lxi b,4
+        call copyBlock
+        lxi h,exactCrc
+        shld crcPointer
+        call initCrc
+        call openWorkFcb
+        cpi 0ffh
+        jz sideExactBad
+        lxi d,recordBuffer
+        mvi c,26
+        call bdos
+        xra a
+        sta recordPosition
 sideExactNextRecord:
-        call    remainingIsZero
-        jp      z,sideExactComplete
-        ld      de,workFcb
-        ld      c,20
-        call    bdos
-        or      a
-        jp      nz,sideExactCloseBad
-        xor     a
-        ld      (recordPosition),a
+        call remainingIsZero
+        jz sideExactComplete
+        lxi d,workFcb
+        mvi c,20
+        call bdos
+        ora a
+        jnz sideExactCloseBad
+        xra a
+        sta recordPosition
 sideExactByte:
-        call    remainingIsZero
-        jp      z,sideExactNextRecord
-        ld      a,(recordPosition)
-        ld      e,a
-        ld      d,0
-        ld      hl,recordBuffer
-        add     hl,de
-        ld      a,(hl)
-        ld      (crcInput),a
-        ld      hl,exactCrc
-        ld      (crcPointer),hl
-        ld      a,(crcInput)
-        call    crcUpdate
-        call    decrementRemaining
-        ld      a,(recordPosition)
-        inc     a
-        ld      (recordPosition),a
-        cp      128
-        jp      z,sideExactNextRecord
-        jp      sideExactByte
+        call remainingIsZero
+        jz sideExactNextRecord
+        lda recordPosition
+        mov e,a
+        mvi d,0
+        lxi h,recordBuffer
+        dad d
+        mov a,m
+        sta crcInput
+        lxi h,exactCrc
+        shld crcPointer
+        lda crcInput
+        call crcUpdate
+        call decrementRemaining
+        lda recordPosition
+        inr a
+        sta recordPosition
+        cpi 128
+        jz sideExactNextRecord
+        jmp sideExactByte
 sideExactComplete:
-        ld      de,workFcb
-        ld      c,16
-        call    bdos
-        cp      0ffh
-        jp      z,sideExactBad
-        ld      hl,exactCrc
-        ld      (crcPointer),hl
-        call    finalizeCrc
-        ld      hl,exactCrc
-        ld      de,metaExactCrc
-        ld      b,4
+        lxi d,workFcb
+        mvi c,16
+        call bdos
+        cpi 0ffh
+        jz sideExactBad
+        lxi h,exactCrc
+        shld crcPointer
+        call finalizeCrc
+        lxi h,exactCrc
+        lxi d,metaExactCrc
+        mvi b,4
 sideExactCompare:
-        ld      a,(de)
-        cp      (hl)
-        jp      nz,sideExactMismatch
-        inc     hl
-        inc     de
-        djnz    sideExactCompare
-        or      a
+        ldax d
+        cmp m
+        jnz sideExactMismatch
+        inx h
+        inx d
+        dcr b
+        jnz sideExactCompare
+        ora a
         ret
 sideExactMismatch:
-        scf
+        stc
         ret
 sideExactCloseBad:
-        ld      de,workFcb
-        ld      c,16
-        call    bdos
+        lxi d,workFcb
+        mvi c,16
+        call bdos
 sideExactBad:
-        scf
+        stc
         ret
 
 choosePutTransfer:
-        xor     a
-        ld      (paddedNote),a
-        ld      hl,fileBytes
-        ld      de,putLength
-        ld      bc,4
-        ldir
-        ld      hl,scanPaddedCrc
-        ld      de,expectedCrc
-        ld      bc,4
-        ldir
-        ld      a,(sidecarValid)
-        or      a
-        jp      nz,choosePutMetadata
-        ld      a,1
-        ld      (paddedNote),a
+        xra a
+        sta paddedNote
+        lxi h,fileBytes
+        lxi d,putLength
+        lxi b,4
+        call copyBlock
+        lxi h,scanPaddedCrc
+        lxi d,expectedCrc
+        lxi b,4
+        call copyBlock
+        lda sidecarValid
+        ora a
+        jnz choosePutMetadata
+        mvi a,1
+        sta paddedNote
         ret
 choosePutMetadata:
-        ld      hl,metaLength
-        ld      de,putLength
-        ld      bc,4
-        ldir
-        ld      hl,metaExactCrc
-        ld      de,expectedCrc
-        ld      bc,4
-        ldir
+        lxi h,metaLength
+        lxi d,putLength
+        lxi b,4
+        call copyBlock
+        lxi h,metaExactCrc
+        lxi d,expectedCrc
+        lxi b,4
+        call copyBlock
         ret
 
 streamPutPayload:
-        ld      hl,putLength
-        ld      de,remaining
-        ld      bc,4
-        ldir
-        xor     a
-        ld      (recordPosition),a
-        call    openWorkFcb
-        cp      0ffh
-        jp      z,streamPutBad
-        ld      de,recordBuffer
-        ld      c,26
-        call    bdos
+        lxi h,putLength
+        lxi d,remaining
+        lxi b,4
+        call copyBlock
+        xra a
+        sta recordPosition
+        call openWorkFcb
+        cpi 0ffh
+        jz streamPutBad
+        lxi d,recordBuffer
+        mvi c,26
+        call bdos
 streamPutNext:
-        call    remainingIsZero
-        jp      z,streamPutDone
-        ld      a,(recordPosition)
-        or      a
-        jp      nz,streamPutByte
-        ld      de,workFcb
-        ld      c,20
-        call    bdos
-        or      a
-        jp      nz,streamPutCloseBad
-        ld      a,128
-        ld      (recordPosition),a
-        ld      hl,recordBuffer
-        ld      (streamPointer),hl
+        call remainingIsZero
+        jz streamPutDone
+        lda recordPosition
+        ora a
+        jnz streamPutByte
+        lxi d,workFcb
+        mvi c,20
+        call bdos
+        ora a
+        jnz streamPutCloseBad
+        mvi a,128
+        sta recordPosition
+        lxi h,recordBuffer
+        shld streamPointer
 streamPutByte:
-        ld      hl,(streamPointer)
-        ld      a,(hl)
-        call    sendByte
-        jp      c,streamPutCloseBad
-        ld      hl,(streamPointer)
-        inc     hl
-        ld      (streamPointer),hl
-        ld      a,(recordPosition)
-        dec     a
-        ld      (recordPosition),a
-        call    decrementRemaining
-        jp      streamPutNext
+        lhld streamPointer
+        mov a,m
+        call sendByte
+        jc streamPutCloseBad
+        lhld streamPointer
+        inx h
+        shld streamPointer
+        lda recordPosition
+        dcr a
+        sta recordPosition
+        call decrementRemaining
+        jmp streamPutNext
 streamPutDone:
-        ld      de,workFcb
-        ld      c,16
-        call    bdos
-        cp      0ffh
-        jp      z,streamPutBad
-        or      a
+        lxi d,workFcb
+        mvi c,16
+        call bdos
+        cpi 0ffh
+        jz streamPutBad
+        ora a
         ret
 streamPutCloseBad:
-        ld      de,workFcb
-        ld      c,16
-        call    bdos
+        lxi d,workFcb
+        mvi c,16
+        call bdos
 streamPutBad:
-        scf
+        stc
         ret
 
 readByte:
-        call    pollConsoleAbort
-        ld      a,(abortFlag)
-        or      a
-        jp      nz,portAborted
-        in      a,(portData)
-        or      a
+        call pollConsoleAbort
+        lda abortFlag
+        ora a
+        jnz portAborted
+        in portData
+        ora a
         ret
 
 sendByte:
-        push    af
-        call    pollConsoleAbort
-        ld      a,(abortFlag)
-        or      a
-        jp      nz,sendWasAborted
-        pop     af
-        out     (portData),a
-        or      a
+        push psw
+        call pollConsoleAbort
+        lda abortFlag
+        ora a
+        jnz sendWasAborted
+        pop psw
+        out portData
+        ora a
         ret
 sendWasAborted:
-        pop     af
+        pop psw
 portAborted:
-        scf
+        stc
         ret
 
 pollConsoleAbort:
-        push    bc
-        push    de
-        push    hl
-        ld      c,11
-        call    bdos
-        or      a
-        jp      z,pollAbortDone
-        ld      c,1
-        call    bdos
-        cp      03h
-        jp      nz,pollAbortDone
-        xor     a
-        out     (portAbort),a
-        ld      a,1
-        ld      (abortFlag),a
+        push b
+        push d
+        push h
+        mvi c,11
+        call bdos
+        ora a
+        jz pollAbortDone
+        mvi c,1
+        call bdos
+        cpi 03h
+        jnz pollAbortDone
+        xra a
+        out portAbort
+        mvi a,1
+        sta abortFlag
 pollAbortDone:
-        pop     hl
-        pop     de
-        pop     bc
+        pop h
+        pop d
+        pop b
         ret
 
 abortHost:
-        xor     a
-        out     (portAbort),a
+        xra a
+        out portAbort
         ret
 
 remainingIsZero:
-        ld      a,(remaining)
-        ld      b,a
-        ld      a,(remaining+1)
-        or      b
-        ld      b,a
-        ld      a,(remaining+2)
-        or      b
-        ld      b,a
-        ld      a,(remaining+3)
-        or      b
+        lda remaining
+        mov b,a
+        lda remaining+1
+        ora b
+        mov b,a
+        lda remaining+2
+        ora b
+        mov b,a
+        lda remaining+3
+        ora b
         ret
 
 decrementRemaining:
-        ld      a,(remaining)
-        or      a
-        jp      nz,decrementRemainingLow
-        ld      a,0ffh
-        ld      (remaining),a
-        ld      a,(remaining+1)
-        or      a
-        jp      nz,decrementRemainingHigh1
-        ld      a,0ffh
-        ld      (remaining+1),a
-        ld      a,(remaining+2)
-        or      a
-        jp      nz,decrementRemainingHigh2
-        ld      a,0ffh
-        ld      (remaining+2),a
-        ld      a,(remaining+3)
-        dec     a
-        ld      (remaining+3),a
+        lda remaining
+        ora a
+        jnz decrementRemainingLow
+        mvi a,0ffh
+        sta remaining
+        lda remaining+1
+        ora a
+        jnz decrementRemainingHigh1
+        mvi a,0ffh
+        sta remaining+1
+        lda remaining+2
+        ora a
+        jnz decrementRemainingHigh2
+        mvi a,0ffh
+        sta remaining+2
+        lda remaining+3
+        dcr a
+        sta remaining+3
         ret
 decrementRemainingLow:
-        dec     a
-        ld      (remaining),a
+        dcr a
+        sta remaining
         ret
 decrementRemainingHigh1:
-        dec     a
-        ld      (remaining+1),a
+        dcr a
+        sta remaining+1
         ret
 decrementRemainingHigh2:
-        dec     a
-        ld      (remaining+2),a
+        dcr a
+        sta remaining+2
         ret
 
 initCrc:
-        ld      hl,(crcPointer)
-        ld      b,4
+        lhld crcPointer
+        mvi b,4
 initCrcLoop:
-        ld      (hl),0ffh
-        inc     hl
-        djnz    initCrcLoop
+        mvi m,0ffh
+        inx h
+        dcr b
+        jnz initCrcLoop
         ret
 
 crcUpdate:
-        ld      (crcInput),a
-        ld      hl,(crcPointer)
-        ld      a,(hl)
-        ld      c,a
-        ld      a,(crcInput)
-        xor     c
-        ld      (hl),a
-        ld      b,8
+        sta crcInput
+        lhld crcPointer
+        mov a,m
+        mov c,a
+        lda crcInput
+        xra c
+        mov m,a
+        mvi b,8
 crcBitLoop:
-        ld      hl,(crcPointer)
-        inc     hl
-        inc     hl
-        inc     hl
-        ld      a,(hl)
-        srl     a
-        ld      (hl),a
-        dec     hl
-        ld      a,(hl)
-        rr      a
-        ld      (hl),a
-        dec     hl
-        ld      a,(hl)
-        rr      a
-        ld      (hl),a
-        dec     hl
-        ld      a,(hl)
-        rr      a
-        ld      (hl),a
-        jp      nc,crcNoPolynomial
-        ld      hl,(crcPointer)
-        ld      a,(hl)
-        xor     020h
-        ld      (hl),a
-        inc     hl
-        ld      a,(hl)
-        xor     083h
-        ld      (hl),a
-        inc     hl
-        ld      a,(hl)
-        xor     0b8h
-        ld      (hl),a
-        inc     hl
-        ld      a,(hl)
-        xor     0edh
-        ld      (hl),a
+        lhld crcPointer
+        inx h
+        inx h
+        inx h
+        mov a,m
+        ora a
+        rar
+        mov m,a
+        dcx h
+        mov a,m
+        rar
+        mov m,a
+        dcx h
+        mov a,m
+        rar
+        mov m,a
+        dcx h
+        mov a,m
+        rar
+        mov m,a
+        jnc crcNoPolynomial
+        lhld crcPointer
+        mov a,m
+        xri 020h
+        mov m,a
+        inx h
+        mov a,m
+        xri 083h
+        mov m,a
+        inx h
+        mov a,m
+        xri 0b8h
+        mov m,a
+        inx h
+        mov a,m
+        xri 0edh
+        mov m,a
 crcNoPolynomial:
-        djnz    crcBitLoop
+        dcr b
+        jnz crcBitLoop
         ret
 
 crcBuffer:
-        ld      a,(crcByteCount)
-        or      a
-        ret     z
+        lda crcByteCount
+        ora a
+        rz
 crcBufferLoop:
-        ld      hl,(crcDataPointer)
-        ld      a,(hl)
-        inc     hl
-        ld      (crcDataPointer),hl
-        call    crcUpdate
-        ld      a,(crcByteCount)
-        dec     a
-        ld      (crcByteCount),a
-        jp      nz,crcBufferLoop
+        lhld crcDataPointer
+        mov a,m
+        inx h
+        shld crcDataPointer
+        call crcUpdate
+        lda crcByteCount
+        dcr a
+        sta crcByteCount
+        jnz crcBufferLoop
         ret
 
 finalizeCrc:
-        ld      hl,(crcPointer)
-        ld      b,4
+        lhld crcPointer
+        mvi b,4
 finalizeCrcLoop:
-        ld      a,(hl)
-        cpl
-        ld      (hl),a
-        inc     hl
-        djnz    finalizeCrcLoop
+        mov a,m
+        cma
+        mov m,a
+        inx h
+        dcr b
+        jnz finalizeCrcLoop
         ret
 
 operationAborted:
-        call    abortHost
-        ld      de,msgAborted
-        call    printString
-        jp      terminate
+        call abortHost
+        lxi d,msgAborted
+        call printString
+        jmp terminate
 
 userAreaRejected:
-        ld      de,msgUserArea
-        call    printString
-        jp      terminate
+        lxi d,msgUserArea
+        call printString
+        jmp terminate
 
 unsupportedService:
-        ld      de,msgServiceError
-        call    printString
-        jp      terminate
+        lxi d,msgServiceError
+        call printString
+        jmp terminate
 
 filenameRejected:
-        ld      de,msgFilename
-        call    printString
-        jp      terminate
+        lxi d,msgFilename
+        call printString
+        jmp terminate
 
 localFileError:
-        ld      de,msgLocalError
-        call    printString
-        jp      terminate
+        lxi d,msgLocalError
+        call printString
+        jmp terminate
 
 showHostError:
-        ld      (statusValue),a
-        ld      de,msgHostError
-        call    printString
-        ld      a,(statusValue)
-        add     a,'0'
-        ld      e,a
-        ld      c,2
-        call    bdos
-        call    printCrLf
-        jp      terminate
+        sta statusValue
+        lxi d,msgHostError
+        call printString
+        lda statusValue
+        adi '0'
+        mov e,a
+        mvi c,2
+        call bdos
+        call printCrLf
+        jmp terminate
 
 badCommand:
-        ld      de,msgUsage
-        call    printString
-        jp      terminate
+        lxi d,msgUsage
+        call printString
+        jmp terminate
 
 printFileStart:
-        ld      a,(commandKind)
-        cp      2
-        jp      nz,printStartPut
-        ld      de,msgGetFailurePrefix
-        call    printString
-        jp      printStartName
+        lda commandKind
+        cpi 2
+        jnz printStartPut
+        lxi d,msgGetFailurePrefix
+        call printString
+        jmp printStartName
 printStartPut:
-        ld      de,msgPutFailurePrefix
-        call    printString
+        lxi d,msgPutFailurePrefix
+        call printString
 printStartName:
-        call    printFilename
-        ld      de,msgFailureSeparator
-        call    printString
-        ld      a,1
-        ld      (startPrinted),a
+        call printFilename
+        lxi d,msgFailureSeparator
+        call printString
+        mvi a,1
+        sta startPrinted
         ret
 
 printFileFailure:
-        ld      a,(startPrinted)
-        or      a
-        jp      z,printFileFailureFull
-        xor     a
-        ld      (startPrinted),a
-        jp      printFailureReason
+        call endProgress
+        lda startPrinted
+        ora a
+        jz printFileFailureFull
+        xra a
+        sta startPrinted
+        jmp printFailureReason
 printFileFailureFull:
-        ld      a,(commandKind)
-        cp      2
-        jp      nz,printPutFailurePrefix
-        ld      de,msgGetFailurePrefix
-        call    printString
-        jp      printFailureFilename
+        lda commandKind
+        cpi 2
+        jnz printPutFailurePrefix
+        lxi d,msgGetFailurePrefix
+        call printString
+        jmp printFailureFilename
 printPutFailurePrefix:
-        ld      de,msgPutFailurePrefix
-        call    printString
+        lxi d,msgPutFailurePrefix
+        call printString
 printFailureFilename:
-        call    printFilename
-        ld      de,msgFailureSeparator
-        call    printString
+        call printFilename
+        lxi d,msgFailureSeparator
+        call printString
 printFailureReason:
-        ld      a,(fileError)
-        cp      1
-        jp      z,printReasonTargetExists
-        cp      2
-        jp      z,printReasonSidecarExists
-        cp      6
-        jp      z,printReasonTransfer
-        cp      7
-        jp      z,printReasonLocalIo
-        cp      11
-        jp      z,printReasonInvalid
-        cp      12
-        jp      z,printReasonUnavailable
-        cp      13
-        jp      z,printReasonHostExists
-        cp      14
-        jp      z,printReasonHostIo
-        cp      15
-        jp      z,printReasonBusy
-        cp      16
-        jp      z,printReasonNoMatches
-        cp      17
-        jp      z,printReasonReserved
-        cp      18
-        jp      z,printReasonListFull
-        ld      de,msgReasonUnknown
-        jp      printReason
+        lda fileError
+        cpi 1
+        jz printReasonTargetExists
+        cpi 2
+        jz printReasonSidecarExists
+        cpi 6
+        jz printReasonTransfer
+        cpi 7
+        jz printReasonLocalIo
+        cpi 11
+        jz printReasonInvalid
+        cpi 12
+        jz printReasonUnavailable
+        cpi 13
+        jz printReasonHostExists
+        cpi 14
+        jz printReasonHostIo
+        cpi 15
+        jz printReasonBusy
+        cpi 16
+        jz printReasonNoMatches
+        cpi 17
+        jz printReasonReserved
+        cpi 18
+        jz printReasonListFull
+        cpi 19
+        jz printReasonDiskFull
+        cpi 20
+        jz printReasonDirFull
+        lxi d,msgReasonUnknown
+        jmp printReason
 printReasonTargetExists:
-        ld      de,msgReasonTargetExists
-        jp      printReason
+        lxi d,msgReasonTargetExists
+        jmp printReason
 printReasonSidecarExists:
-        ld      de,msgReasonSidecarExists
-        jp      printReason
+        lxi d,msgReasonSidecarExists
+        jmp printReason
 printReasonTransfer:
-        ld      de,msgReasonTransfer
-        jp      printReason
+        lxi d,msgReasonTransfer
+        jmp printReason
 printReasonLocalIo:
-        ld      de,msgReasonLocalIo
-        jp      printReason
+        lxi d,msgReasonLocalIo
+        jmp printReason
 printReasonInvalid:
-        ld      de,msgReasonInvalid
-        jp      printReason
+        lxi d,msgReasonInvalid
+        jmp printReason
 printReasonUnavailable:
-        ld      de,msgReasonUnavailable
-        jp      printReason
+        lxi d,msgReasonUnavailable
+        jmp printReason
 printReasonHostExists:
-        ld      de,msgReasonHostExists
-        jp      printReason
+        lxi d,msgReasonHostExists
+        jmp printReason
 printReasonHostIo:
-        ld      de,msgReasonHostIo
-        jp      printReason
+        lxi d,msgReasonHostIo
+        jmp printReason
 printReasonBusy:
-        ld      de,msgReasonBusy
-        jp      printReason
+        lxi d,msgReasonBusy
+        jmp printReason
 printReasonNoMatches:
-        ld      de,msgReasonNoMatches
-        jp      printReason
+        lxi d,msgReasonNoMatches
+        jmp printReason
 printReasonReserved:
-        ld      de,msgReasonReserved
-        jp      printReason
+        lxi d,msgReasonReserved
+        jmp printReason
 printReasonListFull:
-        ld      de,msgReasonListFull
+        lxi d,msgReasonListFull
+        jmp printReason
+printReasonDiskFull:
+        lxi d,msgReasonDiskFull
+        jmp printReason
+printReasonDirFull:
+        lxi d,msgReasonDirFull
 printReason:
-        call    printString
+        call printString
         ret
 
 printFileSuccess:
-        ld      a,(startPrinted)
-        or      a
-        jp      z,printFileSuccessFull
-        xor     a
-        ld      (startPrinted),a
-        ld      a,(paddedNote)
-        or      a
-        ld      de,msgCompleteOnly
-        jp      z,printCompleteLine
-        ld      de,msgCompletePadded
+        call endProgress
+        lda startPrinted
+        ora a
+        jz printFileSuccessFull
+        xra a
+        sta startPrinted
+        lda paddedNote
+        ora a
+        lxi d,msgCompleteOnly
+        jz printCompleteLine
+        lxi d,msgCompletePadded
 printCompleteLine:
-        call    printString
+        call printString
         ret
 printFileSuccessFull:
-        ld      a,(commandKind)
-        cp      2
-        jp      nz,printPutSuccessPrefix
-        ld      de,msgGetFailurePrefix
-        call    printString
-        jp      printSuccessFilename
+        lda commandKind
+        cpi 2
+        jnz printPutSuccessPrefix
+        lxi d,msgGetFailurePrefix
+        call printString
+        jmp printSuccessFilename
 printPutSuccessPrefix:
-        ld      de,msgPutFailurePrefix
-        call    printString
+        lxi d,msgPutFailurePrefix
+        call printString
 printSuccessFilename:
-        call    printFilename
-        ld      de,msgSuccessSeparator
-        call    printString
+        call printFilename
+        lxi d,msgSuccessSeparator
+        call printString
         ret
 
 printFilename:
-        push    af
-        push    bc
-        push    de
-        push    hl
-        ld      hl,workFcb+1
-        ld      b,8
+        push psw
+        push b
+        push d
+        push h
+        lxi h,workFcb+1
+        mvi b,8
 printFilenameBase:
-        ld      a,(hl)
-        inc     hl
-        cp      ' '
-        jp      z,printFilenameExtension
-        ld      e,a
-        push    bc
-        push    hl
-        ld      c,2
-        call    bdos
-        pop     hl
-        pop     bc
-        djnz    printFilenameBase
+        mov a,m
+        inx h
+        cpi ' '
+        jz printFilenameExtension
+        mov e,a
+        push b
+        push h
+        mvi c,2
+        call bdos
+        pop h
+        pop b
+        dcr b
+        jnz printFilenameBase
 printFilenameExtension:
-        ld      a,(workFcb+9)
-        cp      ' '
-        jp      z,printFilenameDone
-        ld      e,'.'
-        ld      c,2
-        call    bdos
-        ld      hl,workFcb+9
-        ld      b,3
+        lda workFcb+9
+        cpi ' '
+        jz printFilenameDone
+        mvi e,'.'
+        mvi c,2
+        call bdos
+        lxi h,workFcb+9
+        mvi b,3
 printFilenameExtensionLoop:
-        ld      a,(hl)
-        inc     hl
-        cp      ' '
-        jp      z,printFilenameDone
-        ld      e,a
-        push    bc
-        push    hl
-        ld      c,2
-        call    bdos
-        pop     hl
-        pop     bc
-        djnz    printFilenameExtensionLoop
+        mov a,m
+        inx h
+        cpi ' '
+        jz printFilenameDone
+        mov e,a
+        push b
+        push h
+        mvi c,2
+        call bdos
+        pop h
+        pop b
+        dcr b
+        jnz printFilenameExtensionLoop
 printFilenameDone:
-        pop     hl
-        pop     de
-        pop     bc
-        pop     af
+        pop h
+        pop d
+        pop b
+        pop psw
         ret
 
 printString:
-        ld      c,9
-        call    bdos
+        mvi c,9
+        call bdos
         ret
 
 printCrLf:
-        ld      e,13
-        ld      c,2
-        call    bdos
-        ld      e,10
-        ld      c,2
-        call    bdos
+        mvi e,13
+        mvi c,2
+        call bdos
+        mvi e,10
+        mvi c,2
+        call bdos
         ret
 
 terminate:
-        ld      c,0
-        call    bdos
-        jp      terminate
+        mvi c,0
+        call bdos
+        jmp terminate
 
+compareHlDe:
+        mov a,l
+        cmp e
+        rnz
+        mov a,h
+        cmp d
+        ret
+copyBlock:
+        push psw
+copyBlockLoop:
+        mov a,m
+        stax d
+        inx h
+        inx d
+        dcx b
+        mov a,b
+        ora c
+        jnz copyBlockLoop
+        pop psw
+        ret
 msgUsage:
-        db      "Usage: HOST DIR | HOST GET name.ext [O] | HOST PUT name.ext",13,10,"$"
+        db 'Usage: HOST DIR | HOST GET name.ext [O] | HOST PUT name.ext [O]',13,10,'$'
 msgFilename:
-        db      "Invalid or reserved filename.",13,10,"$"
+        db 'Invalid or reserved filename.',13,10,'$'
 msgUserArea:
-        db      "HOST GET/PUT requires USER 0.",13,10,"$"
+        db 'HOST GET/PUT requires USER 0.',13,10,'$'
 msgServiceError:
-        db      "Host exchange service unavailable.",13,10,"$"
+        db 'Host exchange service unavailable.',13,10,'$'
 msgHostError:
-        db      "Host exchange status: ","$"
+        db 'Host exchange status: ','$'
 msgLocalError:
-        db      "Local file I/O error.",13,10,"$"
+        db 'Local file I/O error.',13,10,'$'
 msgAborted:
-        db      "Transfer aborted.",13,10,"$"
+        db 'Transfer aborted.',13,10,'$'
 msgGetDone:
-        db      "GET complete.",13,10,"$"
+        db 'GET complete.',13,10,'$'
 msgPutDone:
-        db      "PUT complete.",13,10,"$"
+        db 'PUT complete.',13,10,'$'
 msgCompletePadded:
-        db      "complete (no valid HST metadata; complete records sent).",13,10,"$"
+        db 'complete (no valid HST metadata; complete records sent).',13,10,'$'
 msgGetFailurePrefix:
-        db      "GET ","$"
+        db 'GET ','$'
 msgPutFailurePrefix:
-        db      "PUT ","$"
+        db 'PUT ','$'
 msgFailureSeparator:
-        db      ": ","$"
+        db ': ','$'
 msgSuccessSeparator:
-        db      ": complete.",13,10,"$"
+        db ': complete.',13,10,'$'
 msgCompleteOnly:
-        db      "complete.",13,10,"$"
+        db 'complete.',13,10,'$'
 msgReasonTargetExists:
-        db      "target file already exists.",13,10,"$"
+        db 'target file already exists.',13,10,'$'
 msgReasonSidecarExists:
-        db      "sidecar metadata file already exists.",13,10,"$"
+        db 'sidecar metadata file already exists.',13,10,'$'
 msgReasonTransfer:
-        db      "transfer failed (I/O or checksum error).",13,10,"$"
+        db 'transfer failed (I/O or checksum error).',13,10,'$'
 msgReasonLocalIo:
-        db      "local CP/M-80 file I/O failed.",13,10,"$"
+        db 'local CP/M-80 file I/O failed.',13,10,'$'
 msgReasonInvalid:
-        db      "invalid or reserved filename.",13,10,"$"
+        db 'invalid or reserved filename.',13,10,'$'
 msgReasonUnavailable:
-        db      "exchange file is missing or unavailable.",13,10,"$"
+        db 'exchange file is missing or unavailable.',13,10,'$'
 msgReasonHostExists:
-        db      "exchange destination already exists.",13,10,"$"
+        db 'exchange destination already exists.',13,10,'$'
 msgReasonHostIo:
-        db      "exchange I/O or checksum error.",13,10,"$"
+        db 'exchange I/O or checksum error.',13,10,'$'
 msgReasonBusy:
-        db      "exchange service is busy.",13,10,"$"
+        db 'exchange service is busy.',13,10,'$'
 msgReasonNoMatches:
-        db      "no matching files.",13,10,"$"
+        db 'no matching files.',13,10,'$'
 msgReasonReserved:
-        db      "reserved .HST metadata file; not transferred.",13,10,"$"
+        db 'reserved .HST metadata file; not transferred.',13,10,'$'
 msgReasonListFull:
-        db      "wildcard match list is full; not transferred.",13,10,"$"
+        db 'wildcard match list is full; not transferred.',13,10,'$'
+msgReasonDiskFull:
+        db 'disk full; the file does not fit on the CP/M drive.',13,10,'$'
+msgReasonDirFull:
+        db 'directory full or file cannot be created.',13,10,'$'
 msgReasonUnknown:
-        db      "unspecified error.",13,10,"$"
+        db 'unspecified error.',13,10,'$'
 metadataMagic:
-        db      "HST1"
+        db 'HST1'
 
 commandKind:
-        db      0
+        db 0
 wildcardActive:
-        db      0
+        db 0
 startPrinted:
-        db      0
+        db 0
 paddedNote:
-        db      0
+        db 0
 fileError:
-        db      0
+        db 0
 wildcardCount:
-        db      0
+        db 0
 wildcardIndex:
-        db      0
+        db 0
 searchResult:
-        db      0
+        db 0
 hostNameLength:
-        db      0
+        db 0
 hostNameOverflow:
-        db      0
+        db 0
 hostNameExtension:
-        db      0
+        db 0
 hostSourcePointer:
-        dw      0
+        dw 0
 candidatePosition:
-        db      0
+        db 0
 candidateBaseLength:
-        db      0
+        db 0
 abortFlag:
-        db      0
+        db 0
 overwriteFlag:
-        db      0
+        db 0
 dirNameActive:
-        db      0
+        db 0
+dotCounter:
+        db 0
+dotsPrinted:
+        db 0
 charValue:
-        db      0
+        db 0
 recordCount:
-        db      0
+        db 0
 recordPosition:
-        db      0
+        db 0
 crcByteCount:
-        db      0
+        db 0
 sidecarValid:
-        db      0
+        db 0
 workOpen:
-        db      0
+        db 0
 statusValue:
-        db      0
+        db 0
 sidecarOpen:
-        db      0
+        db 0
 workCreated:
-        db      0
+        db 0
 sidecarCreated:
-        db      0
+        db 0
 crcInput:
-        db      0
+        db 0
 tailEndPtr:
-        dw      0
+        dw 0
 crcPointer:
-        dw      0
+        dw 0
 crcDataPointer:
-        dw      0
+        dw 0
 streamPointer:
-        dw      0
+        dw 0
 
 getLength:
-        ds      4,0
+        db 0,0,0,0
 remaining:
-        ds      4,0
+        db 0,0,0,0
 expectedCrc:
-        ds      4,0
+        db 0,0,0,0
 exactCrc:
-        ds      4,0
+        db 0,0,0,0
 paddedCrc:
-        ds      4,0
+        db 0,0,0,0
 scanPaddedCrc:
-        ds      4,0
+        db 0,0,0,0
 fileBytes:
-        ds      4,0
+        db 0,0,0,0
 metaLength:
-        ds      4,0
+        db 0,0,0,0
 metaPaddedCrc:
-        ds      4,0
+        db 0,0,0,0
 metaExactCrc:
-        ds      4,0
+        db 0,0,0,0
 putLength:
-        ds      4,0
+        db 0,0,0,0
 roundedLength:
-        ds      4,0
+        db 0,0,0,0
 workFcb:
-        ds      36,0
+        db 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 searchFcb:
-        ds      36,0
+        db 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 sideFcb:
-        ds      36,0
+        db 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 patternFcb:
-        ds      11,0
+        db 0,0,0,0,0,0,0,0,0,0,0
 candidateName:
-        ds      11,0
+        db 0,0,0,0,0,0,0,0,0,0,0
 hostFilename:
-        ds      13,0
+        db 0,0,0,0,0,0,0,0,0,0,0,0,0
 fileList:
-        ds      1408,0
+        ds 1408
 recordBuffer:
-        ds      128,0
+        ds 128
 sideBuffer:
-        ds      128,0
+        ds 128
+        end

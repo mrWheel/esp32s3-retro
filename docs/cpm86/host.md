@@ -14,8 +14,27 @@ operation, filename and reason, then continues with the remaining matches.
 CP/M-80 option: the "target exists" and "sidecar exists" checks are skipped,
 and the old target and its `NAME.HST` sidecar are deleted only after the host
 has accepted the transfer, immediately before the new file is made. The `O`
-is a separate, case-insensitive token and is accepted for GET only; a read-only
+is a separate, case-insensitive token and is accepted for GET and PUT; a read-only
 existing file is not handled specially.
+
+`HOST PUT name.ext O` (also `HOST PUT *.* O`) replaces an existing exchange
+file. The guest then sends protocol command 4 (PUT-overwrite) instead of 3; the
+host still streams to a private temporary file and removes the old file only
+after the byte count and CRC-32 have been verified. Capability bits are
+unchanged (0x07). Without `O` a PUT onto an existing exchange file is refused.
+
+While a file is transferred HOST prints one `.` per 16 BDOS records (2 KiB)
+after the `GET name:` / `PUT name:` prefix, then a space and the final message,
+for example `GET HELLO.A86: .. GET complete.`
+
+A full CP/M drive is reported precisely: `disk full; the file does not fit on
+the CP/M drive.` (BDOS write error 2) or `directory full or file cannot be
+created.` (BDOS write error 1 or MAKE failure). The partial file and its
+`.HST` sidecar are removed. Earlier versions reported these cases only as
+`transfer failed (I/O or checksum error)`, which looked like an I/O error on
+large files; the usable space of the A: system disk is about 241 KB (SYSTEM)
+or 486 KB (LARGE), so use a larger writable drive (for example E:) for big
+files.
 
 Wildcard PUT first collects up to 128 unique local filenames with BDOS Search
 First/Next, then starts the transfers; this avoids changing the BDOS search
@@ -49,16 +68,16 @@ project's host image tools cannot assemble 8086 source, so assemble in a
 running CP/M-86 guest using a separate writable work image. Do not use A:
 for build output and do not reuse a work disk containing user data.
 
-ASM-86 requires carriage-return line endings; prepare a CRLF copy and put it
-on a fresh work image:
+`HOST.A86` is stored with CR+LF line endings, as ASM-86 requires; keep them
+(`.gitattributes` marks `*.A86` and `*.ASM` as binary-safe so git does not
+change them). Put the source on a fresh work image:
 
 ```sh
 mkdir -p build/cpm86-host
-python3 -c 'from pathlib import Path; p=Path("guest/cpm86/host/HOST.A86"); Path("build/cpm86-host/HOST.A86").write_bytes(p.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))'
 python3 tools/diskImage.py create --os cpm86 --profile LARGE \
   --sd-root build/cpm86-host hostbuild.dsk
 python3 tools/diskImage.py add --os cpm86 --sd-root build/cpm86-host \
-  hostbuild.dsk --name HOST.A86 build/cpm86-host/HOST.A86
+  hostbuild.dsk --name HOST.A86 guest/cpm86/host/HOST.A86
 ```
 
 Make this image available as a writable guest drive, then from its prompt run:
@@ -96,16 +115,16 @@ python3 tools/diskImage.py list --os cpm86 build/cpm86-host/system.dsk
 
 The checked-in A: disk now contains the verified command. The candidate was
 booted by the host CP/M-86 fixture before installation; the fixture assembles
-the current source and exercises DIR, GET, and PUT against the checked-in disk.
+the current source (with the standard ASM86.CMD and GENCMD.CMD) and exercises DIR, GET, and PUT against the checked-in disk.
 To repeat that test, create a separate fresh LARGE work image containing only
-the CRLF `HOST.A86` source (do not reuse the image with prior assembler
-outputs), then build `hostTests` and run:
+`HOST.A86` (do not reuse the image with prior assembler outputs), then build
+`hostTests` and run:
 
 ```sh
 python3 tools/diskImage.py create --os cpm86 --profile LARGE \
   --sd-root build/cpm86-host hosttest.dsk
 python3 tools/diskImage.py add --os cpm86 --sd-root build/cpm86-host \
-  hosttest.dsk --name HOST.A86 build/cpm86-host/HOST.A86
+  hosttest.dsk --name HOST.A86 guest/cpm86/host/HOST.A86
 cmake --build build-host -j4
 CPM86_HOST_BUILD_DISK=build/cpm86-host/retro/images/cpm86/hosttest.dsk \
 CPM86_HOST_SYSTEM_DISK=littlefs/cpm86/system.dsk ./build-host/hostTests

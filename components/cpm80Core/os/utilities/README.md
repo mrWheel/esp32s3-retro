@@ -41,8 +41,8 @@ been validated. The host tests verify all listed files are present in A:'s
 directory and exercise resident commands, PIP copying to E:, and ERA/REN on
 E:. They do not establish hardware runtime compatibility for every utility.
 
-`HOST.COM` is project-authored Z80 code in `guest/cpm80/host/HOST.COM`, not part of the
-RomWBW distribution. Its source is `guest/cpm80/host/HOST.ASM`; install `z80asm` with
-Homebrew and rebuild it with the command in `tools/README.md`. The disk builder
+`HOST.COM` is project-authored 8080 code in `guest/cpm80/host/HOST.COM`, not part of the
+RomWBW distribution. Its source is `guest/cpm80/host/HOST.ASM`; rebuild it inside CP/M-80
+with `ASM HOST` and `LOAD HOST` as described in `tools/README.md`. The disk builder
 installs this binary alongside the utilities listed above. The full transfer ABI and
 exact-length sidecar are documented in `designCPM80.md`.

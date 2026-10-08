@@ -239,11 +239,21 @@ static void prepareWriteFile(hostExchange *exchange)
   struct stat info;
   if (stat(exchange->finalPath, &info) == 0)
   {
-    exchange->status = hostExchangeStatusExists;
-    exchange->state = hostExchangeStatus;
-    return;
+    //-- PUT with the overwrite option only replaces a regular file; the old file stays until the new data is verified.
+    if (!exchange->overwrite)
+    {
+      exchange->status = hostExchangeStatusExists;
+      exchange->state = hostExchangeStatus;
+      return;
+    }
+    if (!S_ISREG(info.st_mode))
+    {
+      exchange->status = hostExchangeStatusIoError;
+      exchange->state = hostExchangeStatus;
+      return;
+    }
   }
-  if (errno != ENOENT)
+  else if (errno != ENOENT)
   {
     exchange->status = hostExchangeStatusIoError;
     exchange->state = hostExchangeStatus;
@@ -278,6 +288,11 @@ static void beginCommand(hostExchange *exchange, uint8_t command)
                          exchange->state == hostExchangeDirectory && exchange->directory != NULL;
   resetExchange(exchange, resumeDirectory);
   exchange->resumeDirectory = resumeDirectory;
+  exchange->overwrite = command == hostExchangeCommandPutOverwrite;
+  if (exchange->overwrite)
+  {
+    command = hostExchangeCommandPut;
+  }
   exchange->activeCommand = command;
   exchange->status = hostExchangeStatusInvalid;
   switch (command)
@@ -335,12 +350,23 @@ static void finishWrite(hostExchange *exchange)
   struct stat info;
   if (stat(exchange->finalPath, &info) == 0)
   {
-    exchange->status = hostExchangeStatusExists;
+    //-- The overwrite option removes the old file only now, after the new data has been received and verified.
+    if (!exchange->overwrite || !S_ISREG(info.st_mode) || unlink(exchange->finalPath) != 0)
+    {
+      exchange->status = exchange->overwrite ? hostExchangeStatusIoError : hostExchangeStatusExists;
+      closeTransfer(exchange, true);
+      exchange->state = hostExchangePutFinalStatus;
+      return;
+    }
+  }
+  else if (errno != ENOENT)
+  {
+    exchange->status = hostExchangeStatusIoError;
     closeTransfer(exchange, true);
     exchange->state = hostExchangePutFinalStatus;
     return;
   }
-  if (errno != ENOENT || rename(exchange->temporaryPath, exchange->finalPath) != 0)
+  if (rename(exchange->temporaryPath, exchange->finalPath) != 0)
   {
     exchange->status = errno == EEXIST ? hostExchangeStatusExists : hostExchangeStatusIoError;
     closeTransfer(exchange, true);

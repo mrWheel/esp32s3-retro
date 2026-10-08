@@ -1,3 +1,20 @@
+; HOST.CMD - CP/M-86 host exchange utility
+;
+; By Willem Aandewiel
+;
+; 8086 source for the standard Digital Research ASM86.CMD and GENCMD.CMD.
+; Build it inside CP/M-86 (the source must keep its CR+LF line endings):
+;   A>ASM86 HOST
+;   A>GENCMD HOST
+; ASM86 writes HOST.H86 and HOST.LST, GENCMD turns HOST.H86 into HOST.CMD.
+; The work drive needs about 40 KB free.
+;
+; Exchange ABI: IN/OUT on port F8h; abort is OUT F9h,00h.
+; Host commands: 1 DIR, 2 GET, 3 PUT. GET and PUT accept CP/M wildcards.
+; HOST GET name.ext O replaces an existing target and its .HST sidecar.
+; HOST PUT name.ext O replaces an existing exchange file (host command 4).
+; A dot is printed for every 16 records (2 KB) while GET and PUT run.
+;
         cseg
         org     0100h
 
@@ -205,7 +222,10 @@ parseBad:
 
 parseOverwriteOption:
         cmp     byte ptr commandKind,2
+        je      parseOverwriteKindOk
+        cmp     byte ptr commandKind,3
         jne     parseBad
+parseOverwriteKindOk:
         mov     al,byte ptr [si]
         call    uppercaseAl
         cmp     al,'O'
@@ -567,6 +587,8 @@ getWildcardFinished:
         jmp     terminate
 getSingleFile:
         mov     byte ptr fileError,0
+        mov     byte ptr dotCounter,0
+        mov     byte ptr dotsPrinted,0
         call    printFileStart
         mov     byte ptr workCreated,0
         mov     byte ptr workOpen,0
@@ -628,7 +650,7 @@ getCreateTarget:
         int     bdosInt
         cmp     al,0ffh
         jne     getTargetCreated
-        mov     byte ptr fileError,7
+        mov     byte ptr fileError,20
         jmp     getLocalFailure
 getTargetCreated:
         mov     byte ptr workOpen,1
@@ -656,7 +678,10 @@ getPayloadByteRead:
         cmp     word ptr recordIndex,128
         jne     getPayload
         call    writeGetRecord
-        jc      getFailed
+        jnc     getRecordWritten
+        jmp     getFailed
+getRecordWritten:
+        call    progressTick
         mov     word ptr recordIndex,0
         call    fillRecordBuffer
         jmp     getPayload
@@ -694,7 +719,10 @@ getFinalStatusOk:
         mov     cl,16
         int     bdosInt
         cmp     al,0ffh
-        je      getFailed
+        jne     getClosedOk
+        mov     byte ptr fileError,7
+        jmp     getFailed
+getClosedOk:
         mov     byte ptr workOpen,0
         call    writeSidecar
         jc      getFailed
@@ -703,6 +731,7 @@ getFinalStatusOk:
         call    printFileSuccess
         jmp     getWildcardNext
 getSingleComplete:
+        call    endProgress
         mov     dx,offset msgGetDone
         call    printString
         jmp     terminate
@@ -860,7 +889,68 @@ writeGetCrcLoop:
         clc
         ret
 writeGetBad:
+        call    setWriteError
         stc
+        ret
+
+setWriteError:
+        cmp     al,2
+        jne     setWriteErrorNotFull
+        mov     byte ptr fileError,19
+        ret
+setWriteErrorNotFull:
+        cmp     al,1
+        jne     setWriteErrorOther
+        mov     byte ptr fileError,20
+        ret
+setWriteErrorOther:
+        mov     byte ptr fileError,7
+        ret
+
+progressTick:
+        push    ax
+        push    bx
+        push    cx
+        push    dx
+        push    si
+        push    di
+        inc     byte ptr dotCounter
+        mov     al,byte ptr dotCounter
+        and     al,15
+        jne     progressTickDone
+        mov     dl,'.'
+        mov     cl,2
+        int     bdosInt
+        mov     byte ptr dotsPrinted,1
+progressTickDone:
+        pop     di
+        pop     si
+        pop     dx
+        pop     cx
+        pop     bx
+        pop     ax
+        ret
+
+endProgress:
+        cmp     byte ptr dotsPrinted,0
+        je      endProgressDone
+        mov     byte ptr dotsPrinted,0
+        push    ax
+        push    bx
+        push    cx
+        push    dx
+        push    si
+        push    di
+        mov     dl,' '
+        mov     cl,2
+        int     bdosInt
+        pop     di
+        pop     si
+        pop     dx
+        pop     cx
+        pop     bx
+        pop     ax
+endProgressDone:
         ret
 
 writeSidecar:
@@ -894,7 +984,10 @@ writeSidecar:
         mov     cl,22
         int     bdosInt
         cmp     al,0ffh
-        je      sideWriteBad
+        jne     sideMadeOk
+        mov     byte ptr fileError,20
+        jmp     sideWriteBad
+sideMadeOk:
         mov     byte ptr sideOpen,1
         mov     byte ptr sideCreated,1
         mov     dx,offset sideFcb
@@ -906,11 +999,15 @@ writeSidecar:
         mov     cl,16
         int     bdosInt
         cmp     al,0ffh
-        je      sideWriteBad
+        jne     sideClosedOk
+        mov     byte ptr fileError,7
+        jmp     sideWriteBad
+sideClosedOk:
         mov     byte ptr sideOpen,0
         clc
         ret
 sideWriteCloseBad:
+        call    setWriteError
         mov     dx,offset sideFcb
         mov     cl,16
         int     bdosInt
@@ -953,6 +1050,8 @@ commandPut:
         jmp     commandPutWildcard
 putSingleFile:
         mov     byte ptr fileError,0
+        mov     byte ptr dotCounter,0
+        mov     byte ptr dotsPrinted,0
         mov     byte ptr paddedNote,0
         call    printFileStart
         call    loadSidecar
@@ -963,6 +1062,10 @@ putSingleFile:
 putSourceReady:
         call    choosePutLength
         mov     al,3
+        cmp     byte ptr overwriteFlag,0
+        je      putSendCommand
+        mov     al,4
+putSendCommand:
         call    sendByte
         jnc     putRequestSent
         jmp     putTransferFailed
@@ -1004,6 +1107,8 @@ putStatusRead:
         mov     byte ptr fileError,al
         jmp     putFileFailure
 putAccepted:
+        mov     byte ptr workFcb+12,0
+        mov     byte ptr workFcb+14,0
         mov     dx,offset workFcb
         mov     cl,15
         int     bdosInt
@@ -1028,7 +1133,11 @@ putReadRecord:
         mov     cl,20
         int     bdosInt
         or      al,al
-        jne     putFailed
+        je      putRecordRead
+        mov     byte ptr fileError,7
+        jmp     putFailed
+putRecordRead:
+        call    progressTick
         mov     si,offset recordBuffer
         mov     cx,128
 putSendRecord:
@@ -1061,6 +1170,7 @@ putHostTransferComplete:
         call    printFileSuccess
         jmp     putWildcardNext
 putSingleComplete:
+        call    endProgress
         mov     dx,offset msgPutDone
         call    printString
         jmp     terminate
@@ -1078,7 +1188,10 @@ putHostFailure:
         jmp     putFileFailure
 putFailed:
         call    abortHost
+        cmp     byte ptr fileError,0
+        jne     putFailedKeepError
         mov     byte ptr fileError,6
+putFailedKeepError:
         cmp     byte ptr workOpen,0
         je      putFailedMessage
         mov     dx,offset workFcb
@@ -1582,6 +1695,7 @@ printStartName:
         ret
 
 printFileFailure:
+        call    endProgress
         cmp     byte ptr startPrinted,0
         je      printFileFailureFull
         mov     byte ptr startPrinted,0
@@ -1625,6 +1739,10 @@ printFailureReason:
         je      printReasonReserved
         cmp     al,18
         je      printReasonListFull
+        cmp     al,19
+        je      printReasonDiskFull
+        cmp     al,20
+        je      printReasonDirFull
         mov     dx,offset msgReasonUnknown
         jmp     printReason
 printReasonTargetExists:
@@ -1662,11 +1780,18 @@ printReasonReserved:
         jmp     printReason
 printReasonListFull:
         mov     dx,offset msgReasonListFull
+        jmp     printReason
+printReasonDiskFull:
+        mov     dx,offset msgReasonDiskFull
+        jmp     printReason
+printReasonDirFull:
+        mov     dx,offset msgReasonDirFull
 printReason:
         call    printString
         ret
 
 printFileSuccess:
+        call    endProgress
         cmp     byte ptr startPrinted,0
         je      printFileSuccessFull
         mov     byte ptr startPrinted,0
@@ -1798,7 +1923,7 @@ terminate:
         int     bdosInt
         retf
 
-msgUsage        db      'Usage: HOST DIR | HOST GET name.ext [O] | HOST PUT name.ext',13,10,'$'
+msgUsage        db      'Usage: HOST DIR | HOST GET name.ext [O] | HOST PUT name.ext [O]',13,10,'$'
 msgFilename     db      'Invalid or reserved filename.',13,10,'$'
 msgUserArea     db      'HOST GET/PUT requires USER 0.',13,10,'$'
 msgServiceError db      'Host exchange service unavailable.',13,10,'$'
@@ -1828,6 +1953,8 @@ msgReasonBusy db        'exchange service is busy.',13,10,'$'
 msgReasonNoMatches db   'no matching files.',13,10,'$'
 msgReasonReserved db    'reserved .HST metadata file; not transferred.',13,10,'$'
 msgReasonListFull db   'wildcard match list is full; not transferred.',13,10,'$'
+msgReasonDiskFull db    'disk full; the file does not fit on the CP/M drive.',13,10,'$'
+msgReasonDirFull db     'directory full or file cannot be created.',13,10,'$'
 msgReasonUnknown db     'unspecified error.',13,10,'$'
 
 commandKind     db      0
@@ -1844,6 +1971,8 @@ paddedNote      db      0
 userAbort       db      0
 overwriteFlag   db      0
 fileError       db      0
+dotCounter      db      0
+dotsPrinted     db      0
 searchResult    db      0
 recordIndex     dw      0
 tailEnd         dw      0

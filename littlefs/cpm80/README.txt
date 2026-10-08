@@ -36,7 +36,9 @@ sidecar to preserve the length of imported files; the sidecar is reserved for
 HOST and should not be edited or deleted separately. Modified files fall back
 to full 128-byte CP/M records. No WiFi connection is required.
 Add an O after a GET (for example A:HOST GET *.* O) to overwrite existing files
-and their NAME.HST sidecars.
+and their NAME.HST sidecars. Add an O after a PUT (A:HOST PUT NAME.EXT O) to
+overwrite an existing exchange file. Dots show the progress of each transfer;
+"disk full" means the CP/M drive is too small (A: has only about 486 KB free).
 
 Build the A: image from the files in bootDisks/cpm80/systemDsk with
 python3 tools/createSystemDsk.py --os cpm80 --profile SMALL. Executable files
