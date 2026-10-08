@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "hostClock.h"
 #include "hostExchange.h"
 
 enum
@@ -24,6 +25,8 @@ typedef struct
   cpm86PortRead portRead;
   cpm86PortWrite portWrite;
   void *portContext;
+  hostReadMilliseconds readMilliseconds;
+  void *clockContext;
 } cpm86CoreConfig;
 
 typedef struct

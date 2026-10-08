@@ -7,6 +7,12 @@ and `main/cpm86Machine.c`. Port numbers are 16-bit 8086 I/O addresses; the BIOS
 uses byte `IN` and `OUT` instructions. Disk operations complete synchronously.
 There is no interrupt-driven or asynchronous device completion.
 
+The F0h–F4h timer ports are introduced by firmware revision
+`RETRO86_TIMER_B1`. F0h reports capability B1h for this exact API protocol; only
+perform that capability read on this revision or newer, because older firmware
+may treat an unknown port as an I/O error. This is an emulator extension, not a
+standard CP/M feature.
+
 The F8h/F9h host-exchange ports are reserved by the CPU adapter and are not part
 of this BIOS contract. Access to any unmapped port is a guest I/O error.
 
@@ -20,6 +26,63 @@ of this BIOS contract. Access to any unmapped port is a guest I/O error.
 
 The guest BIOS polls E0h while waiting for input. The host scheduler regains
 control after each bounded CPU instruction batch.
+
+## Millisecond timer
+
+The timer reads ESP Timer's monotonic microsecond count and converts it to an
+unsigned 32-bit millisecond counter. It has 1 ms resolution and wraps after
+2^32 milliseconds (about 49.7 days). It does not require wall-clock time,
+network access or a configured date. The counter continues while the guest is
+not executing. Resetting or reinitializing ESP Timer invalidates an in-progress
+measurement.
+
+All accesses must be 8-bit `IN` instructions. Reading F1h takes one snapshot;
+F2h–F4h return its remaining bytes and never call the time source again. F0h
+does not change the snapshot. The initial and reset snapshot is zero. An
+emulator without an injected time source reports zero at F0h–F4h. Emulator
+reset clears only the snapshot; it does not reset ESP Timer. Writes to F0h–F4h
+and 16-bit I/O are unsupported and produce the existing guest I/O error.
+
+| Port | Direction | Contract |
+|---|---|---|
+| F0h | IN | Returns B1h when this API has a time source; otherwise 00h. |
+| F1h | IN | Captures the current millisecond counter and returns bits 0–7. |
+| F2h | IN | Returns bits 8–15 from the F1h snapshot. |
+| F3h | IN | Returns bits 16–23 from the F1h snapshot. |
+| F4h | IN | Returns bits 24–31 from the F1h snapshot. |
+
+The time callback is injected through the emulator configuration. CPU emulation
+has no ESP-IDF dependency, and other CPU emulators do not expose this guest API
+unless explicitly connected to it.
+
+An 8086 program may read the four bytes with:
+
+```asm
+read_milliseconds:
+    push bx
+    in   al, 0F1h
+    mov  bl, al
+    in   al, 0F2h
+    mov  bh, al
+    in   al, 0F3h
+    mov  dl, al
+    in   al, 0F4h
+    mov  dh, al
+    mov  ax, bx
+    pop  bx
+    ret
+```
+
+The result is `DX:AX`. Save that value as a start time and subtract it from a
+later result with `SUB AX, [start_low]` followed by `SBB DX, [start_high]`.
+Unsigned subtraction handles one counter wrap for measurements shorter than
+2^32 milliseconds, provided ESP Timer is not reset during the measurement.
+
+Hardware check after flashing: use host-driven 8-bit port reads to capture the
+counter, wait approximately 1,000 ms in the host layer (not in a guest
+instruction loop), and read it again. The unsigned difference must be between
+900 and 1,100 ms. This hardware check is not satisfied by desktop tests or a
+firmware build alone.
 
 ## Disk drives
 

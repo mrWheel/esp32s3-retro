@@ -20,6 +20,9 @@ struct cpm86Core
   cpm86PortRead portRead;
   cpm86PortWrite portWrite;
   void *portContext;
+  hostReadMilliseconds readMilliseconds;
+  void *clockContext;
+  uint32_t millisecondsSnapshot;
   op_desc_t instruction;
   uint16_t decodedSegment;
   uint16_t decodedOffset;
@@ -45,6 +48,19 @@ int _int_cpu;
 byte_t _break_int_flag;
 int_num_hand_t _int_tab[] = {{0, NULL}};
 static bool ioFault;
+
+enum
+{
+  cpm86TimerCapabilityPort = 0x00F0,
+  cpm86TimerLowPort = 0x00F1,
+  cpm86TimerHighPort = 0x00F4,
+  cpm86TimerCapability = 0x00B1
+};
+
+static bool isTimerPort(word_t port)
+{
+  return port >= cpm86TimerCapabilityPort && port <= cpm86TimerHighPort;
+}
 
 static void resetDecodeState(cpm86Core *core)
 {
@@ -112,6 +128,8 @@ cpm86CoreResult cpm86CoreCreate(cpm86Core **core, hostExchange *exchange, const 
   created->portRead = config->portRead;
   created->portWrite = config->portWrite;
   created->portContext = config->portContext;
+  created->readMilliseconds = config->readMilliseconds;
+  created->clockContext = config->clockContext;
 #ifdef ESP_PLATFORM
   created->memory = heap_caps_malloc(created->ramSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (created->memory == NULL)
@@ -190,6 +208,7 @@ cpm86CoreResult cpm86CoreReset(cpm86Core *core)
   _int_cpu = 0;
   _break_int_flag = 0;
   ioFault = false;
+  core->millisecondsSnapshot = 0;
   resetDecodeState(core);
   return cpm86CoreOk;
 }
@@ -470,6 +489,22 @@ int io_read_byte(word_t port, byte_t *value)
     ioFault = true;
     return -1;
   }
+  if (port == cpm86TimerCapabilityPort)
+  {
+    *value = activeCore->readMilliseconds == NULL ? 0 : cpm86TimerCapability;
+    return 0;
+  }
+  if (isTimerPort(port))
+  {
+    if (port == cpm86TimerLowPort)
+    {
+      activeCore->millisecondsSnapshot = activeCore->readMilliseconds == NULL
+                                             ? 0
+                                             : activeCore->readMilliseconds(activeCore->clockContext);
+    }
+    *value = (byte_t)(activeCore->millisecondsSnapshot >> ((port - cpm86TimerLowPort) * 8));
+    return 0;
+  }
   if (port == 0x00F8 && activeCore->exchange != NULL)
   {
     *value = hostExchangePortInput(activeCore->exchange, (uint8_t)port);
@@ -487,6 +522,11 @@ int io_read_byte(word_t port, byte_t *value)
 int io_write_byte(word_t port, byte_t value)
 {
   if (activeCore == NULL)
+  {
+    ioFault = true;
+    return -1;
+  }
+  if (isTimerPort(port))
   {
     ioFault = true;
     return -1;

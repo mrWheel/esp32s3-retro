@@ -9,6 +9,7 @@
 #include "storage.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdio.h>
@@ -51,6 +52,12 @@ static cpm86Core *guestCore;
 static cpm86Disk diskController;
 static hostExchange exchangeService;
 static bool guestReady;
+
+static uint32_t readMilliseconds(void *context)
+{
+  (void)context;
+  return (uint32_t)((uint64_t)esp_timer_get_time() / 1000ULL);
+}
 
 static bool diskRecordOffset(uint64_t *offset)
 {
@@ -439,6 +446,8 @@ esp_err_t cpm86MachineInitialize(void)
       .portRead = portRead,
       .portWrite = portWrite,
       .portContext = &diskController,
+      .readMilliseconds = readMilliseconds,
+      .clockContext = NULL,
   };
   cpm86CoreResult result = cpm86CoreCreate(&guestCore, &exchangeService, &config);
   if (result != cpm86CoreOk)

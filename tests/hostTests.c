@@ -115,12 +115,17 @@ typedef struct
 {
   uint8_t input;
   uint8_t output;
+  uint32_t milliseconds;
+  uint32_t millisecondsAfterWrite;
+  size_t readMillisecondsCalls;
+  size_t portWriteCalls;
+  bool updateMillisecondsOnWrite;
 } cpm86PortFixture;
 
 static bool cpm86TestPortRead(void *context, uint16_t port, uint8_t *value)
 {
   cpm86PortFixture *fixture = context;
-  if (port != 0x00F0 || fixture == NULL || value == NULL)
+  if (port != 0x00F6 || fixture == NULL || value == NULL)
   {
     return false;
   }
@@ -131,12 +136,29 @@ static bool cpm86TestPortRead(void *context, uint16_t port, uint8_t *value)
 static bool cpm86TestPortWrite(void *context, uint16_t port, uint8_t value)
 {
   cpm86PortFixture *fixture = context;
-  if (port != 0x00F1 || fixture == NULL)
+  if (fixture == NULL)
+  {
+    return false;
+  }
+  ++fixture->portWriteCalls;
+  if (port != 0x00F7)
   {
     return false;
   }
   fixture->output = value;
+  if (fixture->updateMillisecondsOnWrite)
+  {
+    fixture->milliseconds = fixture->millisecondsAfterWrite;
+  }
   return true;
+}
+
+static uint32_t cpm86TestReadMilliseconds(void *context)
+{
+  cpm86PortFixture *fixture = context;
+  assert(fixture != NULL);
+  ++fixture->readMillisecondsCalls;
+  return fixture->milliseconds;
 }
 
 static void testHostExchange(void)
@@ -385,7 +407,9 @@ static void testCpm86Core(void)
   const cpm86CoreConfig coreConfig = {.ramSize = 128 * 1024,
                                       .portRead = cpm86TestPortRead,
                                       .portWrite = cpm86TestPortWrite,
-                                      .portContext = &portFixture};
+                                      .portContext = &portFixture,
+                                      .readMilliseconds = NULL,
+                                      .clockContext = NULL};
   assert(cpm86CoreCreate(&core, &exchange, &coreConfig) == cpm86CoreOk);
   cpm86Core *secondCore = NULL;
   assert(cpm86CoreCreate(&secondCore, &exchange, &coreConfig) == cpm86CoreBusy);
@@ -549,7 +573,7 @@ static void testCpm86Core(void)
   assert(version == 1);
 
   assert(cpm86CoreReset(core) == cpm86CoreOk);
-  const uint8_t targetPortProgram[] = {0xE4, 0xF0, 0xA2, 0x00, 0x03, 0xB0, 0x5A, 0xE6, 0xF1, 0xF4};
+  const uint8_t targetPortProgram[] = {0xE4, 0xF6, 0xA2, 0x00, 0x03, 0xB0, 0x5A, 0xE6, 0xF7, 0xF4};
   assert(cpm86CoreLoad(core, 0, targetPortProgram, sizeof(targetPortProgram)) == cpm86CoreOk);
   assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
   assert(cpm86CoreRun(core, 8, &executed) == cpm86CoreHalted);
@@ -580,6 +604,148 @@ static void testCpm86Core(void)
   cpm86CoreDestroy(core);
   hostExchangeClose(&exchange);
   assert(rmdir(exchangeDirectoryPath) == 0);
+}
+
+static void testCpm86TimerPorts(void)
+{
+  cpm86PortFixture clockFixture = {
+      .milliseconds = 0x12345678,
+      .millisecondsAfterWrite = 0xDEADBEEF,
+      .updateMillisecondsOnWrite = true,
+  };
+  const cpm86CoreConfig config = {
+      .ramSize = 128 * 1024,
+      .portWrite = cpm86TestPortWrite,
+      .portContext = &clockFixture,
+      .readMilliseconds = cpm86TestReadMilliseconds,
+      .clockContext = &clockFixture,
+  };
+  cpm86Core *core = NULL;
+  assert(cpm86CoreCreate(&core, NULL, &config) == cpm86CoreOk);
+
+  const uint8_t capabilityProgram[] = {0xE4, 0xF0, 0xA2, 0x00, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, capabilityProgram, sizeof(capabilityProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  size_t executed = 0;
+  assert(cpm86CoreRun(core, 8, &executed) == cpm86CoreHalted);
+  uint8_t capability = 0;
+  assert(cpm86CoreRead(core, 0x0300, &capability, sizeof(capability)) == cpm86CoreOk);
+  assert(capability == 0xB1);
+  assert(clockFixture.readMillisecondsCalls == 0);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t snapshotProgram[] = {
+      0xE4, 0xF1, 0xA2, 0x00, 0x03, 0xE4, 0xF0, 0xA2, 0x04, 0x03, 0xB0, 0x00, 0xE6,
+      0xF7, 0xE4, 0xF2, 0xA2, 0x01, 0x03, 0xE4, 0xF3, 0xA2, 0x02, 0x03, 0xE4, 0xF4,
+      0xA2, 0x03, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, snapshotProgram, sizeof(snapshotProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 32, &executed) == cpm86CoreHalted);
+  const uint8_t expectedSnapshot[] = {0x78, 0x56, 0x34, 0x12, 0xB1};
+  uint8_t snapshot[sizeof(expectedSnapshot)];
+  assert(cpm86CoreRead(core, 0x0300, snapshot, sizeof(snapshot)) == cpm86CoreOk);
+  assert(memcmp(snapshot, expectedSnapshot, sizeof(snapshot)) == 0);
+  assert(clockFixture.milliseconds == 0xDEADBEEF);
+  assert(clockFixture.readMillisecondsCalls == 1);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  clockFixture.millisecondsAfterWrite = 0x00000018;
+  const uint8_t nextSnapshotProgram[] = {
+      0xE4, 0xF1, 0xA2, 0x04, 0x03, 0xB0, 0x00, 0xE6, 0xF7, 0xE4, 0xF1, 0xA2, 0x05, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, nextSnapshotProgram, sizeof(nextSnapshotProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 16, &executed) == cpm86CoreHalted);
+  uint8_t lowBytes[2];
+  assert(cpm86CoreRead(core, 0x0304, lowBytes, sizeof(lowBytes)) == cpm86CoreOk);
+  assert(lowBytes[0] == 0xEF && lowBytes[1] == 0x18);
+  assert(clockFixture.readMillisecondsCalls == 3);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  clockFixture.milliseconds = 0xFFFFFFF0;
+  clockFixture.millisecondsAfterWrite = 0x00000018;
+  const uint8_t elapsedRoutineProgram[] = {
+      0xBB, 0x5A, 0xA5, 0xE8, 0x24, 0x00, 0x89, 0x06, 0x00, 0x03, 0x89, 0x16, 0x02, 0x03, 0xB0, 0x00,
+      0xE6, 0xF7, 0xE8, 0x15, 0x00, 0x2B, 0x06, 0x00, 0x03, 0x1B, 0x16, 0x02, 0x03, 0x89, 0x06, 0x04,
+      0x03, 0x89, 0x16, 0x06, 0x03, 0x89, 0x1E, 0x08, 0x03, 0xF4, 0x53, 0xE4, 0xF1, 0x8A, 0xD8, 0xE4,
+      0xF2, 0x8A, 0xF8, 0xE4, 0xF3, 0x8A, 0xD0, 0xE4, 0xF4, 0x8A, 0xF0, 0x8B, 0xC3, 0x5B, 0xC3};
+  assert(cpm86CoreLoad(core, 0, elapsedRoutineProgram, sizeof(elapsedRoutineProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 64, &executed) == cpm86CoreHalted);
+  uint8_t elapsedResult[6];
+  assert(cpm86CoreRead(core, 0x0304, elapsedResult, sizeof(elapsedResult)) == cpm86CoreOk);
+  const uint8_t expectedElapsedResult[] = {0x28, 0x00, 0x00, 0x00, 0x5A, 0xA5};
+  assert(memcmp(elapsedResult, expectedElapsedResult, sizeof(elapsedResult)) == 0);
+  assert(clockFixture.readMillisecondsCalls == 5);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t resetSnapshotProgram[] = {
+      0xE4, 0xF2, 0xA2, 0x00, 0x03, 0xE4, 0xF3, 0xA2, 0x01, 0x03, 0xE4, 0xF4, 0xA2, 0x02, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, resetSnapshotProgram, sizeof(resetSnapshotProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 16, &executed) == cpm86CoreHalted);
+  uint8_t resetSnapshot[3];
+  assert(cpm86CoreRead(core, 0x0300, resetSnapshot, sizeof(resetSnapshot)) == cpm86CoreOk);
+  assert(resetSnapshot[0] == 0 && resetSnapshot[1] == 0 && resetSnapshot[2] == 0);
+  assert(clockFixture.readMillisecondsCalls == 5);
+  assert(clockFixture.milliseconds == 0x00000018);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t nextReadProgram[] = {0xE4, 0xF1, 0xA2, 0x00, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, nextReadProgram, sizeof(nextReadProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 8, &executed) == cpm86CoreHalted);
+  uint8_t nextRead = 0;
+  assert(cpm86CoreRead(core, 0x0300, &nextRead, sizeof(nextRead)) == cpm86CoreOk);
+  assert(nextRead == 0x18);
+  assert(clockFixture.readMillisecondsCalls == 6);
+
+  const size_t writesBeforeInvalidIo = clockFixture.portWriteCalls;
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t byteWriteProgram[] = {0xB0, 0x12, 0xE6, 0xF1};
+  assert(cpm86CoreLoad(core, 0, byteWriteProgram, sizeof(byteWriteProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreIoError);
+  assert(clockFixture.portWriteCalls == writesBeforeInvalidIo);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t wordReadProgram[] = {0xE5, 0xF1};
+  assert(cpm86CoreLoad(core, 0, wordReadProgram, sizeof(wordReadProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreIoError);
+  assert(clockFixture.readMillisecondsCalls == 6);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t wordWriteProgram[] = {0xB8, 0x34, 0x12, 0xE7, 0xF1};
+  assert(cpm86CoreLoad(core, 0, wordWriteProgram, sizeof(wordWriteProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreIoError);
+  assert(clockFixture.portWriteCalls == writesBeforeInvalidIo);
+  cpm86CoreDestroy(core);
+
+  const cpm86CoreConfig noClockConfig = {
+      .ramSize = 128 * 1024,
+      .portRead = NULL,
+      .portWrite = NULL,
+      .portContext = NULL,
+      .readMilliseconds = NULL,
+      .clockContext = NULL,
+  };
+  assert(cpm86CoreCreate(&core, NULL, &noClockConfig) == cpm86CoreOk);
+  const uint8_t unavailableProgram[] = {
+      0xE4, 0xF0, 0xA2, 0x00, 0x03, 0xE4, 0xF1, 0xA2, 0x01, 0x03, 0xE4, 0xF2, 0xA2, 0x02, 0x03,
+      0xE4, 0xF3, 0xA2, 0x03, 0x03, 0xE4, 0xF4, 0xA2, 0x04, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, unavailableProgram, sizeof(unavailableProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 16, &executed) == cpm86CoreHalted);
+  uint8_t unavailable[5];
+  assert(cpm86CoreRead(core, 0x0300, unavailable, sizeof(unavailable)) == cpm86CoreOk);
+  for (size_t index = 0; index < sizeof(unavailable); ++index)
+  {
+    assert(unavailable[index] == 0);
+  }
+  cpm86CoreDestroy(core);
 }
 
 typedef struct
@@ -980,6 +1146,8 @@ static void testCpm86Boot(void)
       .portRead = cpm86BootPortRead,
       .portWrite = cpm86BootPortWrite,
       .portContext = &fixture,
+      .readMilliseconds = NULL,
+      .clockContext = NULL,
   };
   cpm86Core *core = NULL;
   assert(cpm86CoreCreate(&core, hostBuildDiskPath == NULL ? NULL : &exchange, &config) ==
@@ -2884,6 +3052,8 @@ static void testCpm86LargeSystemBoot(void)
       .portRead = cpm86BootPortRead,
       .portWrite = cpm86BootPortWrite,
       .portContext = &fixture,
+      .readMilliseconds = NULL,
+      .clockContext = NULL,
   };
   cpm86Core *core = NULL;
   assert(cpm86CoreCreate(&core, NULL, &config) == cpm86CoreOk);
@@ -3176,6 +3346,7 @@ int main(void)
   testCpm86SystemProfileDetection();
   testCpm80Cpu();
   testCpm80GuestBoot();
+  testCpm86TimerPorts();
   testCpm80LargeTransfer();
   testCpm80HostAssemble();
   testCpm80LargeSystemBoot();
