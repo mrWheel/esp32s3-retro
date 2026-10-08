@@ -76,6 +76,7 @@ This tool prepares the Retro directory layout; it does not format the card or cr
 ```sh
 python3 tools/buildDiskImage.py --help
 python3 tools/buildDiskImage.py --os cpm80 --help
+python3 tools/createSystemDsk.py --os cpm80 --profile SMALL
 ```
 
 For complete instructions, image profiles and resource-rights guidance, see [Host tools](tools/README.md). Keep original user data backed up and safely eject the card before removing it.

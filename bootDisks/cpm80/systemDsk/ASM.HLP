@@ -1,0 +1,30 @@
+///1ASM
+Help by Willem Aandewiel
+ASM - Assemble 8080 source code
+
+///2SYNTAX
+ASM name
+Reads name.ASM and creates name.HEX and name.PRN.
+Omit the .ASM extension in this simple command form.
+
+///2EXAMPLE
+With DEMO.ASM on E: and ASM.COM on A:
+
+  E>A:ASM DEMO
+  E>TYPE DEMO.PRN
+  E>A:LOAD DEMO
+  E>DEMO
+
+Run LOAD only after correcting all assembly errors.
+
+///2FILES
+.ASM is the source. .PRN lists source lines, addresses and errors.
+.HEX contains Intel HEX data. LOAD converts it into a .COM file.
+ASM is the basic 8080 assembler. For macros, use a tool such as MAC.
+
+///2ERRORS
+A generated HEX file does not prove that assembly was successful.
+Inspect error letters beside source lines. Check labels and opcodes.
+For ASM 2.0, use ASCII source with CRLF and unique short symbols.
+USE FACTOR indicates symbol table usage, not the number of errors.
+

@@ -1,0 +1,24 @@
+///1LOAD
+Help by Willem Aandewiel
+LOAD - Convert an Intel HEX file into a COM file
+
+///2SYNTAX
+  E>A:LOAD DEMO
+
+LOAD reads DEMO.HEX and creates DEMO.COM.
+Omit the .HEX extension in this command.
+
+///2EXAMPLE
+  E>A:ASM DEMO
+  E>A:LOAD DEMO
+  E>DEMO
+
+First correct every assembly error reported by ASM.
+LOAD creates the executable. Typing DEMO actually starts it.
+
+///2FORMATS
+Use LOAD for absolute Intel HEX output from ASM or MAC.
+Use LINK for a .REL module produced by RMAC.
+An existing .COM file does not need to be processed by LOAD again.
+Successful conversion does not verify the program's logic.
+

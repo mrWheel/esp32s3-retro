@@ -1,0 +1,26 @@
+///1LIB
+Help by Willem Aandewiel
+LIB - Manage Digital Research object libraries
+
+///2LISTING
+  E>A:LIB MYLIB[M]
+
+Displays module names from MYLIB.REL.
+Use [P] to display public symbols as well.
+
+///2CREATING
+  E>A:LIB NEWLIB=MODA,MODB
+
+Creates NEWLIB.REL from MODA.REL and MODB.REL.
+Choose a new output name if you want to keep an existing library.
+
+///2FORMAT
+LIB manages object modules in Microsoft REL format.
+The [I] option creates an indexed .IRL library.
+A text .LIB file used by MACLIB is a different kind of library.
+
+///2VERSION
+This page describes Digital Research LIB-80.
+A compiler package may supply another program with the same name
+and different syntax. Check its banner and manual if in doubt.
+

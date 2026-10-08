@@ -1,0 +1,35 @@
+///1ED
+Help by Willem Aandewiel
+ED - Edit text with the CP/M line editor
+
+///2STARTING
+  E>A:ED NOTES.TXT
+
+ED is a command-driven editor, not a full-screen editor.
+Enter the following editing commands at the ED prompt.
+
+///2NEWFILE
+For a new file, enter I and press Return.
+Type the required text lines.
+Press Ctrl-Z to leave text-entry mode.
+Enter E to save the changes and exit ED.
+Ctrl-Z means the key combination, not the literal letters.
+
+///2EXISTING
+Read text from the existing file into the editing buffer:
+
+  #A
+  B
+  #T
+
+#A reads as much text as the buffer can hold.
+B moves to the beginning. #T displays text from the current position.
+A large file may not fit entirely in the buffer.
+
+///2SAVING
+E saves the result and exits ED.
+Q abandons the current editing session without saving its changes;
+answer any confirmation requested by your version.
+Keep a backup first. ED normally uses a .BAK backup file.
+Use ED for text, not for .COM files or other binary data.
+

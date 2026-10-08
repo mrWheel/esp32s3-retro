@@ -19,7 +19,13 @@ retro86bios.h86
 system.dsk
   Raw, 160 KiB, 40 tracks, 8 physical 512-byte sectors per track. Track 0 is
   reserved; CP/M-86 uses 32 128-byte records per track and DPB OFF=1.
-  Contains CPM.SYS, ASM86.CMD, ED.CMD, GENCMD.CMD, HOST.CMD, and PIP.CMD.
+  Contains ASM86.CMD, ED.CMD, GENCMD.CMD, HOST.CMD, and PIP.CMD. CPM.SYS is
+  deliberately kept outside the disk at /littlefs/cpm86/cpm.sys; the firmware
+  loads that file directly. The system-disk builder verifies the external
+  kernel and BIOS overlay and does not put either on A:.
+  Rebuild this disk with `python3 tools/createSystemDsk.py --os cpm86 --profile SMALL`.
+  The LARGE profile is 516 KiB but current firmware only accepts the SMALL
+  profile as boot drive A:.
 
 HOST.CMD
   Project-authored native CP/M-86 HOST DIR/GET/PUT utility (7,040 bytes,

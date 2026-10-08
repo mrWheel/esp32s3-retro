@@ -1,0 +1,27 @@
+///1MAC
+Help by Willem Aandewiel
+MAC - Digital Research macro assembler
+
+///2SYNTAX
+  E>A:MAC DEMO
+
+MAC reads DEMO.ASM and normally creates DEMO.HEX, DEMO.PRN
+and DEMO.SYM.
+
+///2EXAMPLE
+  E>A:MAC DEMO
+  E>TYPE DEMO.PRN
+  E>A:LOAD DEMO
+
+Check the listing before converting HEX output into a COM file.
+
+///2MACROS
+MAC supports macro definitions and macro calls.
+MACLIB can include external macro source from a .LIB file.
+A text macro library is different from a .REL object library.
+
+///2COMPARISON
+ASM is the basic assembler. MAC produces absolute HEX output.
+RMAC produces relocatable REL modules for LINK.
+This page describes Digital Research MAC, not Microsoft M80.
+

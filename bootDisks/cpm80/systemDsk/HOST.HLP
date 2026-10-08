@@ -1,0 +1,22 @@
+///1HOST
+Help by Willem Aandewiel
+HOST - Installation-specific program
+
+///2STATUS
+HOST.COM is not a standard Digital Research CP/M 2.2 command.
+Its behavior depends on the computer, emulator or distribution.
+Its name does not establish which host functions it provides
+or how to invoke them.
+
+///2ORIGIN
+Check your installation's documentation and WELCOME.TXT:
+
+  A>TYPE WELCOME.TXT
+
+Use parameters only after identifying the version and its syntax.
+Options from a different HOST program may not apply.
+
+///2DETAILS
+The specific HOST.COM binary has not been supplied or identified.
+This page explicitly records that missing information.
+

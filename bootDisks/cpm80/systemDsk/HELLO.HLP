@@ -1,0 +1,23 @@
+///1HELLO
+Help by Willem Aandewiel
+HELLO - Installation-specific program
+
+///2STATUS
+HELLO.COM appears in your directory, but it is not a fixed standard
+utility in the CP/M 2.2 command set. This particular version's
+function has not yet been established.
+The name alone does not prove that it displays a welcome message.
+
+///2ORIGIN
+Consult the documentation for your computer or emulator.
+WELCOME.TXT may contain information about the installation:
+
+  A>TYPE WELCOME.TXT
+
+A program banner, source file or vendor manual can identify HELLO's
+purpose and any supported parameters.
+
+///2DETAILS
+This page deliberately avoids unverified options or behavior.
+It can be expanded once the installed version has been identified.
+

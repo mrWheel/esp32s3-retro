@@ -1,0 +1,48 @@
+///1GENCMD
+Help by Willem Aandewiel
+GENCMD - Create an executable CP/M-86 CMD file
+
+GENCMD converts .H86 hexadecimal records into a .CMD load file.
+It does not assemble source code.
+
+///2SYNTAX
+  A>GENCMD HELP
+
+Reads HELP.H86 and writes HELP.CMD.
+Do not add .A86 to this command.
+With GENCMD on A: and HELP.H86 on B:, use:
+
+  B>A:GENCMD HELP
+
+///2WORKFLOW
+For the supplied HELP program:
+
+  A>ASM86 HELP
+  A>GENCMD HELP
+  A>HELP
+
+Correct assembler errors before generating or running HELP.CMD.
+
+///2MODELS
+GENCMD can describe code, data, stack and extra memory groups.
+ASM86 normally supplies the segment information it needs.
+The supplied HELP.A86 uses separate code and data groups.
+Use GENCMD HELP without an 8080 option for this source.
+
+The 8080 keyword selects a memory layout; it does not convert
+8080 instructions or a CP/M-80 .COM program into 8086 code.
+
+///2OPTIONS
+Advanced parameters include CODE, DATA, STACK and EXTRA.
+Their values control placement and memory allocation.
+Use the CP/M-86 System Guide for these parameters; they must
+match the program's actual memory layout.
+
+///2CHECKING
+After generation, check that HELP.CMD exists:
+
+  A>DIR HELP.CMD
+
+A CMD file can exist even when its input came from faulty source.
+Reassemble and regenerate after changing the source.
+

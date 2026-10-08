@@ -1,0 +1,35 @@
+///1STAT
+Help by Willem Aandewiel
+STAT - Disk usage, file information and attributes
+
+///2DISKS
+  E>A:STAT
+  E>A:STAT E:
+  E>A:STAT E:DSK:
+
+Displays free space or disk characteristics.
+
+///2FILES
+  E>A:STAT *.HLP
+  E>A:STAT DEMO.COM $S
+
+Displays sizes, records, extents and access indicators.
+CP/M uses records and allocation blocks, not exact text byte counts.
+
+///2ATTRIBUTES
+  E>A:STAT DEMO.COM $R/O
+  E>A:STAT DEMO.COM $R/W
+
+R/O makes a file read-only; R/W makes it writable again.
+$SYS hides a file from the ordinary DIR display.
+$DIR removes that system attribute.
+These commands change the attributes of the specified files.
+
+///2DEVICES
+  E>A:STAT DEV:
+  E>A:STAT VAL:
+  E>A:STAT USR:
+
+Displays device assignments, available settings or user information.
+Physical device support depends on your system's BIOS.
+

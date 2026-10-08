@@ -1,0 +1,46 @@
+///1ASM86
+Help by Willem Aandewiel
+ASM86 - Assemble 8086 and 8088 source for CP/M-86
+
+Use ASM86 to translate .A86 source into .H86 machine-code records.
+Use GENCMD afterwards to create the executable .CMD file.
+
+///2SYNTAX
+  A>ASM86 HELP
+
+The default source extension is .A86.
+With the tools on A: and source on B:, for example:
+
+  B>A:ASM86 HELP
+
+///2FILES
+  HELP.A86   Assembly source: edit this file.
+  HELP.H86   Hexadecimal output: input to GENCMD.
+  HELP.LST   Assembly listing, including diagnostic messages.
+  HELP.SYM   Symbol information.
+
+HELP.NAS, if present in the HELP package, is for NASM on a modern
+host. It is not the source to give to ASM86.
+
+///2BUILDING
+For the supplied HELP.A86, use:
+
+  A>ASM86 HELP
+  A>GENCMD HELP
+  A>HELP
+
+Run GENCMD only after correcting all assembler errors.
+
+///2ERRORS
+Inspect HELP.LST and the assembler's messages.
+Correct HELP.A86, then assemble again.
+A generated H86 file alone does not prove a successful assembly.
+
+///2OPTIONS
+Optional assembler parameters follow a dollar sign:
+
+  ASM86 filename $parameters
+
+Use the ASM-86 Programmer's Guide for the installed version.
+The supplied HELP.A86 needs no additional assembler parameters.
+

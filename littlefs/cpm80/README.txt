@@ -38,8 +38,15 @@ to full 128-byte CP/M records. No WiFi connection is required.
 Add an O after a GET (for example A:HOST GET *.* O) to overwrite existing files
 and their NAME.HST sidecars.
 
-Regenerate the A: image with python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk
-from the project root. The composer uses the checked-in assembled images and
-utilities under guest/cpm80/ and components/cpm80Core/os/. See designCPM80.md and components/cpm80Core/os/README.md for source,
-license scope and geometry details.
-Firmware verifies the exact image size and signature.
+Build the A: image from the files in bootDisks/cpm80/systemDsk with
+python3 tools/createSystemDsk.py --os cpm80 --profile SMALL. Executable files
+are installed first; the project HOST.COM is used instead of any conflicting
+HOST.COM in that source folder. The LARGE profile creates a 512,512-byte image, but
+current firmware accepts only the SMALL system profile for A:; LARGE is not
+bootable as A: until firmware support is added.
+
+The older curated image composer remains available as
+python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk.
+See designCPM80.md and components/cpm80Core/os/README.md for source, license
+scope and geometry details. Firmware verifies the exact boot image size and
+signature.

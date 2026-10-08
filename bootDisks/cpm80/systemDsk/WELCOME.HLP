@@ -1,0 +1,18 @@
+///1WELCOME
+Help by Willem Aandewiel
+WELCOME - About the WELCOME.TXT text file
+
+///2READING
+WELCOME.TXT is a text file, not an executable CP/M command.
+Read it from the CP/M prompt with:
+
+  A>TYPE WELCOME.TXT
+  E>TYPE A:WELCOME.TXT
+
+TYPE is built into CP/M; no TYPE.COM is required.
+
+///2CONTENTS
+Your WELCOME.TXT has not been supplied.
+This page therefore makes no claims about the installation details
+it contains. Read the original file for the actual information.
+

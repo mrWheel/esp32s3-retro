@@ -1,0 +1,20 @@
+///1LINK
+Help by Willem Aandewiel
+LINK - Digital Research LINK-80 linker
+
+///2SYNTAX
+  E>A:LINK DEMO
+  E>A:LINK MAIN,UTIL
+
+The default input extension is .REL.
+The second example normally creates MAIN.COM and MAIN.SYM.
+
+///2ORDER
+Place the startup module first, followed by the required modules.
+Do not run a resulting program with unresolved symbols.
+
+///2COMPARISON
+LINK combines relocatable modules. LOAD processes Intel HEX.
+This syntax applies to Digital Research LINK-80.
+Microsoft L80 and other linkers use different command forms.
+

@@ -1,0 +1,36 @@
+///1PIP
+Help by Willem Aandewiel
+PIP - Copy files and concatenate text
+
+///2SYNTAX
+PIP destination=source
+The destination is on the left; the source is on the right.
+
+  E>A:PIP E:COPY.TXT=A:WELCOME.TXT
+  E>A:PIP E:=A:*.HLP
+
+The second command copies matching .HLP files to E:.
+
+///2VERIFYING
+  E>A:PIP E:=A:HELP.COM[V]
+
+[V] verifies the copy by reading the written data again.
+Existing destination files may be replaced.
+Check the destination and source before issuing a command.
+
+///2BINARY
+  E>A:PIP E:=A:OLD.HLP[OV]
+
+[O] treats the source as binary data rather than stopping at 1AH.
+Use this for original indexed HLP files: their index may contain
+an embedded 1AH byte. [V] adds copy verification.
+PIP already treats .COM files as binary files.
+
+///2TEXT
+  E>A:PIP NEW.TXT=PART1.TXT,PART2.TXT
+
+Concatenates the text sources in the specified order.
+Do not use concatenation to link two executable programs.
+PIP without arguments displays its own * prompt.
+An empty line at that prompt exits PIP.
+

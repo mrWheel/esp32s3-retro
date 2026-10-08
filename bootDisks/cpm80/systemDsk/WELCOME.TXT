@@ -1,0 +1,3 @@
+CP/M utilities are installed.
+Use DIR, STAT, and HELP for help.
+

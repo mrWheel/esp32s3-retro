@@ -1,0 +1,21 @@
+///1RMAC
+Help by Willem Aandewiel
+RMAC - Digital Research relocatable macro assembler
+
+///2SYNTAX
+  E>A:RMAC DEMO
+
+Reads DEMO.ASM; creates DEMO.REL, DEMO.PRN and DEMO.SYM.
+
+///2EXAMPLE
+  E>A:RMAC DEMO
+  E>A:LINK DEMO
+
+Check assembly and linker messages before running DEMO.COM.
+
+///2MODULES
+PUBLIC exposes symbols to other modules.
+EXTRN refers to symbols defined elsewhere.
+CSEG and DSEG distinguish code and data segments.
+LOAD is not intended for RMAC output; use LINK.
+

@@ -1,0 +1,29 @@
+///1ED
+Help by Willem Aandewiel
+ED - CP/M-86 command-driven text editor
+
+///2STARTING
+  A>ED NOTES.TXT
+
+Enter editing commands at ED's prompt.
+
+///2NEWFILE
+Enter I, then Return. Type your text.
+Press Ctrl-Z to leave insertion mode.
+Enter E to save and exit.
+
+///2READING
+For an existing file, enter:
+
+  #A
+  B
+  #T
+
+#A fills the buffer from the file; large files may not fit.
+B selects the beginning. #T displays the remaining buffer.
+
+///2SAVING
+E saves and exits.
+Q discards this session's changes; confirm when asked.
+Use ED for text such as HELP.A86, not binary HELP.CMD.
+

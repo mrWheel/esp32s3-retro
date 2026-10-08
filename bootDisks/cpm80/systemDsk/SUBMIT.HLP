@@ -1,0 +1,32 @@
+///1SUBMIT
+Help by Willem Aandewiel
+SUBMIT - Execute a file of CP/M commands
+
+///2SYNTAX
+SUBMIT name arguments
+Reads name.SUB and substitutes parameters such as $1 and $2.
+
+///2EXAMPLE
+BUILD.SUB may contain:
+
+  ASM $1
+  DIR $1.*
+
+On a writable A: containing ASM and the required source:
+
+  A>SUBMIT BUILD DEMO
+
+This example assembles DEMO without running the result.
+
+///2DISKS
+The original SUBMIT creates $$$.SUB for the CCP.
+The standard CCP processes the submitted commands through A:.
+A read-only A: is therefore unsuitable for that standard workflow.
+Use a suitable writable system environment or the modified
+SUBMIT/CCP procedure supplied with your installation.
+
+///2INPUT
+Ordinary SUBMIT supplies commands to CP/M.
+XSUB extends this to line input for interactive programs.
+Automate LOAD only when assembly errors are being checked.
+

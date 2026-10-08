@@ -1,0 +1,190 @@
+///1HELP
+Help by Willem Aandewiel
+HELP.CMD 3.3-86 - CP/M-86 Help System
+
+HELP displays documentation from .HLP files on your CP/M disk.
+You can select topics, open subtopics and return to a higher level.
+The prompt always shows your current location.
+
+Enter a topic below, for example NAVIGATION.
+Press Return on an empty line to move up one level.
+
+///2STARTING
+Start HELP without arguments to see the available help files:
+
+  E>HELP
+
+The available .HLP files are listed, followed by the HELP> prompt.
+Enter a filename without .HLP, for example TURBOP.
+Enter HELP to open this help file about HELP.CMD itself.
+
+You can also open a file or topic directly from CP/M:
+
+  E>HELP HELP NAVIGATION
+  E>HELP TURBOP COMPILING
+
+With arguments, HELP opens the topic and stays interactive.
+For example, HELP PIP continues at HELP>PIP>.
+Enter a subtopic name, or press Return to move up one level.
+
+///2NAVIGATION
+The prompt shows the selected file and topic path.
+
+  HELP>                  Select a help file.
+  HELP>TURBOP>           Select a subtopic of TURBOP.
+  HELP>TURBOP>DRIVES>    You are in the DRIVES topic.
+
+Enter a subtopic name without a leading period, then press Return.
+Opening a topic displays its text and available subtopics.
+Moving up displays the list of topics at the parent level.
+
+No subtopics. means that there are no further subtopics.
+An empty line moves up one level. Return at HELP> exits.
+Select EXAMPLE, BACK or ABBREVIATION for more information.
+
+///3EXAMPLE
+Starting at HELP>, follow these steps:
+
+  Enter TURBOP. The prompt becomes HELP>TURBOP>.
+  Enter DRIVES. The prompt becomes HELP>TURBOP>DRIVES>.
+  Press Return. HELP>TURBOP> and its subtopic list reappear.
+  Enter COMPILING to open that topic.
+  Press Return to return to HELP>TURBOP>.
+  Enter RUNNING to read the next topic.
+
+A name without a leading period searches under the current topic.
+Move up first when you want to select a neighboring topic.
+
+///3BACK
+An empty input line moves up exactly one level:
+
+  HELP>TURBOP>DRIVES>  Return  gives  HELP>TURBOP>
+  HELP>TURBOP>        Return  gives  HELP>
+  HELP>              Return  exits HELP and returns to CP/M.
+
+Moving up does not print the parent topic's text again.
+It does list the topics available at the new level.
+At the top level, the list of help files appears again.
+
+To switch from TURBOP to MSCOBOL, return to HELP> first.
+Then enter MSCOBOL and press Return.
+
+///3ABBREVIATION
+Uppercase and lowercase input are treated alike.
+You may shorten a topic name if the abbreviation is unique.
+
+At HELP>TURBOP>, COMP can select COMPILING.
+The prompt then shows the full name: HELP>TURBOP>COMPILING>.
+An exact name takes precedence over a prefix match.
+
+If several names match, HELP reports Ambiguous topic.
+Type more letters. Your current path remains unchanged.
+An unknown topic also leaves your current location unchanged.
+
+///2PAGING
+After twenty displayed lines, HELP shows a paging prompt:
+
+  -- More -- RETURN=continue, Q=quit
+
+Press Return to continue reading.
+Q skips the remaining topic text and displays the subtopics.
+During a paged subtopic list, Q stops that list.
+
+The two prompts use Return differently:
+
+  At -- More --, Return means: next page.
+  At HELP>...>, Return means: move up one level.
+
+Wait for the HELP prompt before entering the next topic.
+
+///2DOTCOMMANDS
+A leading period provides a shortcut for relative navigation.
+Normal navigation does not require it.
+
+With .NAME, HELP first searches under the current topic.
+If nothing matches, it tries a neighboring topic.
+This fallback moves up at most one level.
+
+For example, at HELP>TURBOP>COMPILING>, enter .RUNNING.
+Because RUNNING is alongside COMPILING, the prompt becomes:
+
+  HELP>TURBOP>RUNNING>
+
+A child topic has priority. An ambiguous name produces an error;
+the search does not then continue somewhere else automatically.
+
+///2FILES
+HELP reads .HLP files in the current CP/M drive and user area.
+The file list at HELP> belongs to that drive and user area.
+An explicit drive letter is also accepted, for example:
+
+  E>HELP B:TURBOP
+
+You can also select B:TURBOP at HELP>.
+The prompt shows the base filename without its drive or extension.
+
+A help file may contain several top-level topics.
+Without a topic name, HELP displays the first top-level topic.
+You can explicitly select another one:
+
+  E>HELP CPMHELP DDT
+
+Keep an existing general HELP.HLP as, for example, CPMHELP.HLP
+before copying this new HELP.HLP to the same CP/M disk.
+
+///2INDEXED
+Original indexed CP/M Plus .HLP files also work.
+They do not need to be converted to plain text first.
+HELP recognizes the binary index and reads the topic text after it.
+
+Plain-text files and files in this original indexed format can
+therefore be used together on the same disk.
+This HELP.HLP is a plain-text file without a binary index.
+
+HELP also supports the older HELP.HLP supplied with your system:
+it has a missing level on DDT and zero padding at the end.
+The supplied HLP files were tested with the 8086 program using
+a simulated CP/M-86 BDOS interface.
+
+The .HLP extension alone does not guarantee compatibility.
+Other help formats, such as Windows Help, are not supported.
+
+///2MESSAGES
+Help file not found.
+  The file was not found. Check the name, drive and current
+  CP/M user area.
+
+Help topic not found.
+  The topic does not exist under the current topic.
+  Check the topic list or press Return to move up first.
+
+Ambiguous topic; type more characters.
+  Several topics match the abbreviation. Type more letters.
+
+Invalid name or input too long.
+  Check the name and input length. See LIMITS for details.
+
+Read error, bad index, or text limit exceeded.
+  The file could not be read correctly or exceeds a limit.
+  Check the file transfer and HLP format.
+
+///2LIMITS
+Filenames use CP/M 8.3 notation with the .HLP extension.
+A command may contain up to ten words, including the filename.
+Each word may contain up to twelve characters.
+A leading period counts towards this limit.
+
+HELP supports topic levels 1 through 9.
+A text line may contain up to 255 bytes.
+A file may contain up to 65,535 text lines.
+
+CRLF, LF and CR line endings are recognized.
+ASCII with CRLF is a suitable format for transfer to CP/M.
+This help file uses ASCII, CRLF and trailing Ctrl-Z padding.
+
+///2AUTHOR
+Help by Willem Aandewiel
+HELP.CMD - CP/M-86 Help System
+
+This documentation describes HELP.CMD version 3.3-86 for CP/M-86.
+

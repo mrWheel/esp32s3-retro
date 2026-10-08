@@ -1,0 +1,35 @@
+///1DDT
+Help by Willem Aandewiel
+DDT - Examine an 8080 program
+
+///2STARTING
+  E>A:DDT DEMO.COM
+
+DDT loads the program and displays its own command prompt.
+Addresses and values are hexadecimal. Enter the following commands
+at the debugger prompt, without a CP/M prompt prefix.
+
+///2EXAMINING
+  D100,13F
+  L100
+  X
+
+D displays memory bytes. L disassembles 8080 instructions.
+X displays processor status and registers.
+
+///2EXECUTION
+  T
+  G100
+  G0
+
+T executes one instruction and displays the resulting state.
+G100 starts execution at 0100H. It really runs the loaded program.
+G0 returns to CP/M through the warm-start entry point.
+
+///2CHANGING
+S followed by an address changes memory interactively, for example
+S100. Enter a period to finish this input.
+Memory changes do not automatically update DEMO.COM on disk.
+Use a copy of your program when experimenting.
+DDT uses 8080 mnemonics. For Z80 debugging, see ZSID.
+

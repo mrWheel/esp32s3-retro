@@ -1,0 +1,34 @@
+///1ZSID
+Help by Willem Aandewiel
+ZSID - Symbolic debugger for the Z80
+
+///2STARTING
+  E>A:ZSID DEMO.COM
+  E>A:ZSID DEMO.COM DEMO.SYM
+
+The second example loads the matching symbols as well.
+Use the SYM file from the same program build.
+ZSID requires a Z80. DDT is the usual 8080 debugger.
+
+///2EXAMINING
+D displays memory, L disassembles code and X shows processor status.
+Addresses are normally hexadecimal.
+Examples at the debugger prompt:
+
+  D100,13F
+  L100
+  X
+
+///2EXECUTION
+T steps through instructions while displaying the processor state.
+G starts or resumes execution; G100 starts at 0100H.
+G0 returns to CP/M.
+The debugger really executes program code. It is not a simulation
+isolated from files and devices.
+
+///2SYMBOLS
+ZSID can use loaded symbol names when examining a program.
+Additional tracing and histogram features may need separate
+utilities.
+This page describes the basics of Digital Research ZSID.
+

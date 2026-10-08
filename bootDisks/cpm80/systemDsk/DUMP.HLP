@@ -1,0 +1,22 @@
+///1DUMP
+Help by Willem Aandewiel
+DUMP - Display file bytes in hexadecimal
+
+///2SYNTAX
+  E>A:DUMP DEMO.COM
+  E>A:DUMP DATA.BIN
+
+Include the filename extension.
+DUMP reads the file without changing its contents.
+
+///2OUTPUT
+The standard display contains a hexadecimal offset and sixteen
+bytes per line. Some versions also display readable characters.
+Offsets refer to positions in the file, not loaded memory addresses.
+In a .COM file, offset 0000 corresponds to load address 0100H.
+
+///2USES
+Use DUMP to inspect binary files or identify CRLF and Ctrl-Z bytes.
+In hexadecimal, CR is 0D, LF is 0A and Ctrl-Z is 1A.
+Use TYPE for plain text and DDT for loaded program code.
+

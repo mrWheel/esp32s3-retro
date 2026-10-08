@@ -10,6 +10,8 @@ python3 tools/diskImage.py add --os cpm80 work.dsk ~/cpm/*.COM 'utils/*.HLP'
 python3 tools/diskImage.py list --os cpm86 work.dsk
 python3 tools/buildDiskImage.py --os cpm80
 python3 tools/buildDiskImage.py --os cpm86 --source-dir ~/cpm86/files
+python3 tools/createSystemDsk.py --os cpm80 --profile SMALL
+python3 tools/createSystemDsk.py --os cpm80 --profile LARGE
 python3 tools/prepareSd.py --os cpm86
 python3 tools/diskImage.py --os cpm86 -h
 ```
@@ -32,6 +34,40 @@ python3 tools/diskImage.py --os cpm86 -h
   `buildDiskImageCpm80.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance and non-commercial use scope are in `components/cpm80Core/os/utilities/README.md`. No SD work image is generated; E: requires a separately prepared matching CP/M image.
 
   `HOST.COM` is project-authored Z80 source at `guest/cpm80/host/HOST.ASM`. To rebuild it on macOS, install the Z80 assembler with `brew install z80asm`, then run `z80asm -o guest/cpm80/host/HOST.COM guest/cpm80/host/HOST.ASM`. Rebuild `system.dsk` with `python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk` after assembling. 
+
+### Create a LittleFS system disk
+
+`createSystemDsk.py` builds `littlefs/<os>/system.dsk` from the bootable OS
+resources and files in `bootDisks/<os>/systemDisk/` (it also accepts the
+existing CP/M-80 spelling `systemDsk`). Use `--source-dir` to select another
+folder and `--output` to choose another destination. The destination image is
+replaced when the build succeeds:
+
+```sh
+python3 tools/createSystemDsk.py --os cpm80 --profile SMALL
+python3 tools/createSystemDsk.py --os cpm80 --profile LARGE
+python3 tools/createSystemDsk.py --os cpm86 --profile SMALL
+```
+
+Executable files (`.COM` for CP/M-80 and `.CMD` for CP/M-86) are installed
+before other files. If remaining non-executable files do not fit, the builder
+keeps the executables, skips the files that do not fit, and prints
+`Disk too small`. If an executable itself cannot fit, the build fails rather
+than producing a disk missing a program. The project HOST program is used in
+preference to a different `HOST.COM`/`HOST.CMD` in the source folder.
+
+`SMALL` uses the currently bootable A: geometry: 256,256 bytes for CP/M-80 and
+163,840 bytes for CP/M-86. `LARGE` uses 512,512 bytes for CP/M-80 and 528,384
+bytes for CP/M-86. The current firmware only accepts the `SMALL` system-image
+profile as A:, so a `LARGE` image is created with its larger geometry but is
+not bootable as A: until firmware support is added. CP/M-86 is built from an empty
+image plus the source directory only (never from an older `system.dsk`), so
+`HOST.CMD` must be in `bootDisks/cpm86/systemDsk`. It requires
+`littlefs/cpm86/cpm.sys` and `littlefs/cpm86/retro86bios.h86` to remain in place.
+The builder validates these runtime files but does not put them on A::
+firmware loads them directly from LittleFS. In particular, the duplicate
+`CPM.SYS` is never placed on the generated CP/M-86 A: image.
+Other planned OSes are not supported by this builder yet.
 
 ## Prepare CP/M disk images on macOS
 

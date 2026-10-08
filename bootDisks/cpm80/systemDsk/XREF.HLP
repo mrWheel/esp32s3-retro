@@ -1,0 +1,23 @@
+///1XREF
+Help by Willem Aandewiel
+XREF - Find symbol references in assembly source
+
+///2SYNTAX
+  E>A:XREF DEMO
+
+XREF needs DEMO.PRN and DEMO.SYM from the same MAC or RMAC assembly.
+It creates DEMO.XRF.
+
+///2WORKFLOW
+  E>A:MAC DEMO
+  E>A:XREF DEMO
+  E>TYPE DEMO.XRF
+
+Use current PRN and SYM files with the same base name.
+
+///2OUTPUT
+The cross-reference helps locate uses of a symbol.
+XREF DEMO $P sends output to the list device.
+This requires a working printer device configuration.
+XREF is not an assembler and does not create an executable COM file.
+

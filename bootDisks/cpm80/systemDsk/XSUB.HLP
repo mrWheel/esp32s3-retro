@@ -1,0 +1,27 @@
+///1XSUB
+Help by Willem Aandewiel
+XSUB - Extend SUBMIT with program input
+
+///2USAGE
+Put XSUB on the first line of a .SUB file.
+Subsequent lines can also be supplied to programs using buffered
+console input through BDOS function 10.
+
+///2EXAMPLE
+A simple DDT test:
+
+  XSUB
+  DDT
+  X
+  G0
+
+Save this as TRY.SUB and run SUBMIT TRY in a suitable writable
+batch environment. DDT displays registers and then exits.
+
+///2LIMITS
+XSUB does not support every program or every kind of keyboard input.
+Single-character input and custom keyboard routines are not covered.
+A warm start may display (xsub active); XSUB is still resident.
+A cold restart removes it from memory.
+SUBMIT's disk requirements still apply.
+

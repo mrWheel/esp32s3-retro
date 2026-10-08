@@ -1,0 +1,32 @@
+///1PIP
+Help by Willem Aandewiel
+PIP - Copy files under CP/M-86
+
+///2SYNTAX
+  PIP destination=source
+
+Destination comes first. Existing files can be replaced.
+
+  A>PIP B:COPY.TXT=A:NOTES.TXT
+
+///2MULTIPLE
+  A>PIP B:=A:*.HLP[V]
+
+Copies matching files; V verifies written data.
+
+///2BINARY
+  A>PIP B:=A:HELP.CMD[OV]
+  A>PIP B:=A:CPMHELP.HLP[OV]
+
+O preserves binary data containing Ctrl-Z. V adds verification.
+Use OV for indexed HLP files as well as executable files.
+
+///2TEXT
+  A>PIP ALL.TXT=PART1.TXT,PART2.TXT
+
+Combines text in the specified order.
+
+///2INTERACTIVE
+PIP alone opens its * prompt.
+Enter copying commands there; an empty line exits.
+
