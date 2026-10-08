@@ -322,9 +322,12 @@ machineState cpm86MachineProbe(const retroMachine *machine)
   {
     return machineMissingResource;
   }
-  if (diskSize != cpm86SystemDiskSize)
+  cpm86DiskProfile systemProfile;
+  if (!cpm86DriveConfigSystemProfileFromSize(diskSize, &systemProfile))
   {
-    ESP_LOGE(tag, "Invalid CP/M-86 system disk size: %s", systemDiskPath);
+    ESP_LOGE(tag, "Invalid CP/M-86 system disk size %llu (expected %u or %u): %s; A: is not mounted",
+             (unsigned long long)diskSize, (unsigned)cpm86SystemDiskSize, (unsigned)cpm86LargeDiskSize,
+             systemDiskPath);
     return machineResourceInvalid;
   }
   return machineAvailable;
@@ -358,10 +361,28 @@ esp_err_t cpm86MachineInitialize(void)
       continue;
     }
     uint64_t diskSize;
+    if (drive == 0)
+    {
+      //-- The A: layout (small or large) follows from the size of the image file.
+      char profileError[96];
+      if (!resourceSize(driveConfig[0].path, &diskSize))
+      {
+        ESP_LOGE(tag, "Missing CP/M-86 system disk %s: A: is not mounted", driveConfig[0].path);
+        closeDiskImages();
+        return ESP_FAIL;
+      }
+      if (!cpm86DriveConfigResolveSystemProfile(&driveConfig[0], diskSize, profileError, sizeof(profileError)))
+      {
+        ESP_LOGE(tag, "Invalid CP/M-86 system disk %s: %s; A: is not mounted", driveConfig[0].path, profileError);
+        closeDiskImages();
+        return ESP_FAIL;
+      }
+    }
     uint64_t expectedSize = cpm86SystemDiskSize;
     uint32_t tracks = cpm86SystemDiskTracks;
     uint8_t geometryCode = 0xFF;
-    if (driveConfig[drive].profile == cpm86DiskProfileDataLarge)
+    if (driveConfig[drive].profile == cpm86DiskProfileDataLarge ||
+        driveConfig[drive].profile == cpm86DiskProfileSystemLarge)
     {
       expectedSize = cpm86LargeDiskSize;
       tracks = cpm86LargeDiskTracks;

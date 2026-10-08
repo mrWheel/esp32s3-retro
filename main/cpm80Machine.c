@@ -159,11 +159,22 @@ static void closeDiskImages(void)
   }
 }
 
+//-- The A: layout (SYSTEM or LARGE) follows from the size of the image file; the CCP/BDOS and header sit at the same offsets in both.
+static bool resolveSystemProfile(imageFile *image)
+{
+  char error[128];
+  if (!cpm80DriveConfigResolveSystemProfile(&driveTable[0], imageSize(image), error, sizeof(error)))
+  {
+    ESP_LOGE(tag, "Invalid CP/M system image %s: %s; A: is not mounted", driveTable[0].path, error);
+    return false;
+  }
+  return true;
+}
+
 static bool readSystemImageHeader(imageFile *image)
 {
   uint8_t header[cpm80SystemHeaderSize];
-  return imageSize(image) == cpm80SystemImageSize &&
-         imageReadAt(image, cpm80SystemHeaderOffset, header, sizeof(header)) &&
+  return imageReadAt(image, cpm80SystemHeaderOffset, header, sizeof(header)) &&
          memcmp(header, systemHeader, sizeof(header)) == 0;
 }
 
@@ -188,15 +199,11 @@ machineState cpm80MachineProbe(const retroMachine *machine)
     return machineMissingResource;
   }
 
-  bool valid = readSystemImageHeader(&image);
-  if (!valid)
+  bool valid = resolveSystemProfile(&image);
+  if (valid)
   {
-    if (imageSize(&image) != cpm80SystemImageSize)
-    {
-      ESP_LOGE(tag, "Invalid CP/M system image %s: size=%llu, expected=%u", systemDiskPath,
-               (unsigned long long)imageSize(&image), (unsigned)cpm80SystemImageSize);
-    }
-    else
+    valid = readSystemImageHeader(&image);
+    if (!valid)
     {
       ESP_LOGE(tag, "Invalid CP/M system image header signature: %s", systemDiskPath);
     }
@@ -223,17 +230,14 @@ esp_err_t cpm80MachineInitialize(void)
     return ESP_FAIL;
   }
 
-  if (!readSystemImageHeader(&diskImages[0]))
+  bool systemImageValid = resolveSystemProfile(&diskImages[0]);
+  if (systemImageValid && !readSystemImageHeader(&diskImages[0]))
   {
-    if (imageSize(&diskImages[0]) != cpm80SystemImageSize)
-    {
-      ESP_LOGE(tag, "Invalid CP/M system image %s: size=%llu, expected=%u", driveTable[0].path,
-               (unsigned long long)imageSize(&diskImages[0]), (unsigned)cpm80SystemImageSize);
-    }
-    else
-    {
-      ESP_LOGE(tag, "Invalid CP/M system image header signature: %s", driveTable[0].path);
-    }
+    ESP_LOGE(tag, "Invalid CP/M system image header signature: %s", driveTable[0].path);
+    systemImageValid = false;
+  }
+  if (!systemImageValid)
+  {
     if (!imageClose(&diskImages[0]))
     {
       ESP_LOGE(tag, "Failed to close invalid CP/M system image");

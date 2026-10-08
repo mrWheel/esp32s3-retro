@@ -24,8 +24,10 @@ system.dsk
   loads that file directly. The system-disk builder verifies the external
   kernel and BIOS overlay and does not put either on A:.
   Rebuild this disk with `python3 tools/createSystemDsk.py --os cpm86 --profile SMALL`.
-  The LARGE profile is 516 KiB but current firmware only accepts the SMALL
-  profile as boot drive A:.
+  The LARGE profile (`--profile LARGE`, 528,384 bytes, 516 KiB) also boots as A:.
+  The firmware picks the DPB from the size of system.dsk (163,840 or 528,384
+  bytes), so drives.cfg only needs A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM.
+  Any other size is reported as an error and A: is not mounted.
 
 HOST.CMD
   Project-authored native CP/M-86 HOST DIR/GET/PUT utility (7,040 bytes,

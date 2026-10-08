@@ -41,9 +41,11 @@ and their NAME.HST sidecars.
 Build the A: image from the files in bootDisks/cpm80/systemDsk with
 python3 tools/createSystemDsk.py --os cpm80 --profile SMALL. Executable files
 are installed first; the project HOST.COM is used instead of any conflicting
-HOST.COM in that source folder. The LARGE profile creates a 512,512-byte image, but
-current firmware accepts only the SMALL system profile for A:; LARGE is not
-bootable as A: until firmware support is added.
+HOST.COM in that source folder. The LARGE profile creates a 512,512-byte image
+(2 KiB blocks, 128 directory entries) that boots as A: as well. The firmware
+decides SMALL or LARGE from the size of littlefs/cpm80/system.dsk, so drives.cfg
+only needs A=/littlefs/cpm80/system.dsk,RO,SYSTEM. A size that matches neither
+profile is reported as an error and A: is not mounted.
 
 The older curated image composer remains available as
 python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk.

@@ -23,6 +23,7 @@ static void initializeDefaults(cpm80DriveConfig drives[cpm80DiskDriveCount])
   drives[0].profile = cpm80DiskProfileSystem;
   drives[0].readOnly = true;
   drives[0].configured = true;
+  drives[0].profileFromSize = true;
 }
 
 static char *trim(char *text)
@@ -136,10 +137,10 @@ static bool parseLine(char *line, cpm80DriveConfig drives[cpm80DiskDriveCount], 
     return false;
   }
 
-  //-- A: is the LittleFS system image; B: to F: are SD images (SYSTEM = 256256 bytes, LARGE = 512512 bytes or BIG = 8421376 bytes).
+  //-- A: is the LittleFS system image (SYSTEM or LARGE, never BIG); B: to F: are SD images (SYSTEM = 256256 bytes, LARGE = 512512 bytes or BIG = 8421376 bytes).
   const char *requiredPrefix = drive == 0 ? systemPathPrefix : largePathPrefix;
   size_t storedPathLength = strlen(imagePath) + (drive != 0 ? strlen(largeVfsPrefix) : 0);
-  if ((drive == 0 && (profile != cpm80DiskProfileSystem || !readOnly)) || !safePath(imagePath, requiredPrefix) ||
+  if ((drive == 0 && (profile == cpm80DiskProfileBig || !readOnly)) || !safePath(imagePath, requiredPrefix) ||
       storedPathLength >= sizeof(drives[drive].path))
   {
     return false;
@@ -156,6 +157,7 @@ static bool parseLine(char *line, cpm80DriveConfig drives[cpm80DiskDriveCount], 
   drives[drive].profile = profile;
   drives[drive].readOnly = readOnly;
   drives[drive].configured = true;
+  drives[drive].profileFromSize = drive == 0 && profile == cpm80DiskProfileSystem;
   seen[drive] = true;
   return true;
 }
@@ -221,4 +223,51 @@ cpm80DriveConfigResult cpm80DriveConfigLoad(const char *path, cpm80DriveConfig d
   }
   setError(error, errorCapacity, "");
   return cpm80DriveConfigLoaded;
+}
+
+bool cpm80DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm80DiskProfile *profile)
+{
+  if (profile == NULL)
+  {
+    return false;
+  }
+  if (imageSize == cpm80DiskProfileImageSize(cpm80DiskProfileSystem))
+  {
+    *profile = cpm80DiskProfileSystem;
+    return true;
+  }
+  if (imageSize == cpm80DiskProfileImageSize(cpm80DiskProfileLarge))
+  {
+    *profile = cpm80DiskProfileLarge;
+    return true;
+  }
+  return false;
+}
+
+bool cpm80DriveConfigResolveSystemProfile(cpm80DriveConfig *drive, uint64_t imageSize, char *error,
+                                          size_t errorCapacity)
+{
+  cpm80DiskProfile detected;
+  if (drive == NULL || !cpm80DriveConfigSystemProfileFromSize(imageSize, &detected))
+  {
+    if (error != NULL && errorCapacity > 0)
+    {
+      snprintf(error, errorCapacity, "size %llu matches no system profile (SYSTEM=%llu, LARGE=%llu)",
+               (unsigned long long)imageSize, (unsigned long long)cpm80DiskProfileImageSize(cpm80DiskProfileSystem),
+               (unsigned long long)cpm80DiskProfileImageSize(cpm80DiskProfileLarge));
+    }
+    return false;
+  }
+  if (!drive->profileFromSize && drive->profile != detected)
+  {
+    if (error != NULL && errorCapacity > 0)
+    {
+      snprintf(error, errorCapacity, "drives.cfg says %s but the image is %s (size %llu)",
+               cpm80DiskProfileName(drive->profile), cpm80DiskProfileName(detected), (unsigned long long)imageSize);
+    }
+    return false;
+  }
+  drive->profile = detected;
+  setError(error, errorCapacity, "");
+  return true;
 }

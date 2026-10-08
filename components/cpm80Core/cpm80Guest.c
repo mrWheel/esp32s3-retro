@@ -19,6 +19,8 @@ enum
   cpm80BiosAdditionalDirectoryBufferOffset = 0x20,
   cpm80BiosAdditionalCsvOffset = 0xA0,
   cpm80BiosAdditionalAlvOffset = 0xC0,
+  cpm80BiosLargeSystemCsvAddress = 0xE060,
+  cpm80BiosLargeSystemAlvAddress = 0xE080,
   cpm80BiosCsvSize = 16,
   cpm80BiosLargeCsvSize = 32,
   cpm80BiosAlvSize = 31,
@@ -152,6 +154,12 @@ static void installBios(cpm80Guest *guest)
     uint16_t csvAddress = drive == 0 ? cpm80BiosCsvAddress : dphAddress + cpm80BiosAdditionalCsvOffset;
     uint16_t alvAddress = drive == 0 ? cpm80BiosAlvAddress : dphAddress + cpm80BiosAdditionalAlvOffset;
     cpm80DiskProfile profile = guest->diskProfiles[drive];
+    if (drive == 0 && profile != cpm80DiskProfileSystem)
+    {
+      //-- The SYSTEM-sized CSV/ALV slots of A: are too small for a LARGE or BIG layout; use the free area above drive F:.
+      csvAddress = cpm80BiosLargeSystemCsvAddress;
+      alvAddress = cpm80BiosLargeSystemAlvAddress;
+    }
     bool large = profile == cpm80DiskProfileLarge;
     bool big = profile == cpm80DiskProfileBig;
     uint16_t spt = cpm80DiskProfileSectorsPerTrack(profile);

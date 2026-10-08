@@ -111,7 +111,7 @@ static bool parseLine(char *line, cpm86DriveConfig drives[cpm86DiskDriveCount],
   }
 
   cpm86DiskProfile profile;
-  if (strcmp(profileName, "RETRO86_SYSTEM_V1") == 0)
+  if (strcmp(profileName, "RETRO86_SYSTEM") == 0 || strcmp(profileName, "RETRO86_SYSTEM_V1") == 0)
   {
     profile = cpm86DiskProfileSystem;
   }
@@ -235,4 +235,42 @@ cpm86DriveConfigResult cpm86DriveConfigLoad(const char *path,
   }
   setError(error, errorCapacity, "");
   return cpm86DriveConfigLoaded;
+}
+
+bool cpm86DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm86DiskProfile *profile)
+{
+  if (profile == NULL)
+  {
+    return false;
+  }
+  if (imageSize == cpm86SystemDiskSize)
+  {
+    *profile = cpm86DiskProfileSystem;
+    return true;
+  }
+  if (imageSize == cpm86LargeDiskSize)
+  {
+    *profile = cpm86DiskProfileSystemLarge;
+    return true;
+  }
+  return false;
+}
+
+bool cpm86DriveConfigResolveSystemProfile(cpm86DriveConfig *drive, uint64_t imageSize, char *error,
+                                          size_t errorCapacity)
+{
+  cpm86DiskProfile detected;
+  if (drive == NULL || !cpm86DriveConfigSystemProfileFromSize(imageSize, &detected))
+  {
+    if (error != NULL && errorCapacity > 0)
+    {
+      snprintf(error, errorCapacity, "size %llu matches no system profile (small=%llu, large=%llu)",
+               (unsigned long long)imageSize, (unsigned long long)cpm86SystemDiskSize,
+               (unsigned long long)cpm86LargeDiskSize);
+    }
+    return false;
+  }
+  drive->profile = detected;
+  setError(error, errorCapacity, "");
+  return true;
 }

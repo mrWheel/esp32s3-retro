@@ -191,8 +191,8 @@ def create_system_disk(os_name, profile, output_path, source_dir=None, project_r
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description=(
-            "Create a SMALL bootable or larger LARGE CP/M system disk in littlefs/<os>/. "
-            "LARGE needs firmware support before it can boot as A:."
+            "Create a bootable SMALL or LARGE CP/M system disk in littlefs/<os>/. "
+            "The firmware detects the layout from the file size, so drives.cfg needs no profile choice for A:."
         )
     )
     parser.add_argument("--os", required=True, choices=("cpm80", "cpm86"))
@@ -213,10 +213,6 @@ def main(argv=None):
         parser.error(str(error))
 
     print(f"Created {output_path} ({output_path.stat().st_size} bytes)")
-    if arguments.profile == "LARGE":
-        print(
-            "LARGE image created, but current firmware only accepts the SMALL profile as boot drive A:."
-        )
     if arguments.os == "cpm86":
         print(f"CP/M-86 kernel kept outside A: at {PROJECT_ROOT / 'littlefs' / 'cpm86' / 'cpm.sys'}.")
         print(

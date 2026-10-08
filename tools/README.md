@@ -56,11 +56,12 @@ keeps the executables, skips the files that do not fit, and prints
 than producing a disk missing a program. The project HOST program is used in
 preference to a different `HOST.COM`/`HOST.CMD` in the source folder.
 
-`SMALL` uses the currently bootable A: geometry: 256,256 bytes for CP/M-80 and
-163,840 bytes for CP/M-86. `LARGE` uses 512,512 bytes for CP/M-80 and 528,384
-bytes for CP/M-86. The current firmware only accepts the `SMALL` system-image
-profile as A:, so a `LARGE` image is created with its larger geometry but is
-not bootable as A: until firmware support is added. CP/M-86 is built from an empty
+`SMALL` uses 256,256 bytes for CP/M-80 and 163,840 bytes for CP/M-86. `LARGE`
+uses 512,512 bytes for CP/M-80 and 528,384 bytes for CP/M-86. Both profiles boot
+as A:: the firmware detects the layout from the size of
+`littlefs/<os>/system.dsk`, so `drives.cfg` needs only `SYSTEM` (CP/M-80) or
+`RETRO86_SYSTEM` (CP/M-86) for A:. A size that matches no system profile is
+reported as an error and A: is not mounted. CP/M-86 is built from an empty
 image plus the source directory only (never from an older `system.dsk`), so
 `HOST.CMD` must be in `bootDisks/cpm86/systemDsk`. It requires
 `littlefs/cpm86/cpm.sys` and `littlefs/cpm86/retro86bios.h86` to remain in place.
@@ -91,7 +92,7 @@ cp sdcard/retro/images/cpm86/work86.dsk /Volumes/SDCARD/retro/images/cpm86/work8
 The configuration uses one line per drive:
 
 ```text
-A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM_V1
+A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM
 B=/retro/images/cpm86/languages.dsk,RO,RETRO86_DATA_V1
 C=/retro/images/cpm86/tools.dsk,RO,RETRO86_DATA_V1
 D=/retro/images/cpm86/utilities.dsk,RO,RETRO86_DATA_V1

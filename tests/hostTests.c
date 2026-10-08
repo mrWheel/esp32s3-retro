@@ -1369,7 +1369,8 @@ static void testCpm80DriveConfig(void)
   cpm80DriveConfig drives[cpm80DiskDriveCount];
   char error[96];
   assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigLoaded);
-  assert(drives[0].configured && drives[0].profile == cpm80DiskProfileSystem && drives[0].readOnly);
+  assert(drives[0].configured && drives[0].profile == cpm80DiskProfileSystem && drives[0].readOnly &&
+         drives[0].profileFromSize);
   assert(strcmp(drives[1].path, "/microSD/retro/images/cpm80/languages.dsk") == 0);
   assert(drives[1].configured && drives[1].profile == cpm80DiskProfileSystem && drives[1].readOnly);
   assert(strcmp(drives[5].path, "/microSD/retro/images/cpm80/archive.dsk") == 0);
@@ -1386,6 +1387,28 @@ static void testCpm80DriveConfig(void)
   {
     assert(!drives[drive].configured);
   }
+  //-- A: accepts both explicit system profiles; BIG, RW and foreign paths stay invalid.
+  static const char largeSystemConfig[] = "A=/littlefs/cpm80/system.dsk,RO,LARGE\n";
+  file = fopen(configPath, "wb");
+  assert(file != NULL);
+  assert(fwrite(largeSystemConfig, 1, sizeof(largeSystemConfig) - 1, file) == sizeof(largeSystemConfig) - 1);
+  assert(fclose(file) == 0);
+  assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigLoaded);
+  assert(drives[0].configured && drives[0].profile == cpm80DiskProfileLarge && drives[0].readOnly &&
+         !drives[0].profileFromSize);
+  static const char invalidSystemConfigs[][64] = {"A=/littlefs/cpm80/system.dsk,RO,BIG\n",
+                                                 "A=/littlefs/cpm80/system.dsk,RW,LARGE\n",
+                                                 "A=/retro/images/cpm80/system.dsk,RO,SYSTEM\n"};
+  for (size_t index = 0; index < sizeof(invalidSystemConfigs) / sizeof(invalidSystemConfigs[0]); ++index)
+  {
+    file = fopen(configPath, "wb");
+    assert(file != NULL);
+    assert(fwrite(invalidSystemConfigs[index], 1, strlen(invalidSystemConfigs[index]), file) ==
+           strlen(invalidSystemConfigs[index]));
+    assert(fclose(file) == 0);
+    assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigInvalid);
+    assert(drives[0].configured && drives[0].profile == cpm80DiskProfileSystem && drives[0].profileFromSize);
+  }
   assert(unlink(configPath) == 0);
 
   assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigMissing);
@@ -1394,6 +1417,38 @@ static void testCpm80DriveConfig(void)
   {
     assert(!drives[drive].configured);
   }
+}
+
+static void testCpm80SystemProfileDetection(void)
+{
+  cpm80DiskProfile profile;
+  char error[160];
+  assert(cpm80DriveConfigSystemProfileFromSize(256256, &profile) && profile == cpm80DiskProfileSystem);
+  assert(cpm80DriveConfigSystemProfileFromSize(512512, &profile) && profile == cpm80DiskProfileLarge);
+  assert(!cpm80DriveConfigSystemProfileFromSize(0, &profile));
+  assert(!cpm80DriveConfigSystemProfileFromSize(256257, &profile));
+  assert(!cpm80DriveConfigSystemProfileFromSize(300000, &profile));
+  assert(!cpm80DriveConfigSystemProfileFromSize(8421376, &profile));
+  assert(!cpm80DriveConfigSystemProfileFromSize(512512, NULL));
+
+  //-- "SYSTEM" (the default) follows the file size; an unknown size is a clear error.
+  cpm80DriveConfig drive = {.profile = cpm80DiskProfileSystem, .readOnly = true, .configured = true,
+                          .profileFromSize = true};
+  assert(cpm80DriveConfigResolveSystemProfile(&drive, 512512, error, sizeof(error)) &&
+         drive.profile == cpm80DiskProfileLarge);
+  assert(cpm80DriveConfigResolveSystemProfile(&drive, 256256, error, sizeof(error)) &&
+         drive.profile == cpm80DiskProfileSystem);
+  assert(!cpm80DriveConfigResolveSystemProfile(&drive, 300000, error, sizeof(error)));
+  assert(strstr(error, "300000") != NULL && strstr(error, "no system profile") != NULL);
+  assert(drive.profile == cpm80DiskProfileSystem);
+
+  //-- An explicit "LARGE" must match the file.
+  drive.profile = cpm80DiskProfileLarge;
+  drive.profileFromSize = false;
+  assert(cpm80DriveConfigResolveSystemProfile(&drive, 512512, error, sizeof(error)) &&
+         drive.profile == cpm80DiskProfileLarge);
+  assert(!cpm80DriveConfigResolveSystemProfile(&drive, 256256, error, sizeof(error)));
+  assert(strstr(error, "LARGE") != NULL && strstr(error, "SYSTEM") != NULL);
 }
 
 static void testCpm86DriveConfig(void)
@@ -1452,6 +1507,14 @@ static void testCpm86DriveConfig(void)
       assert(!drives[drive].configured);
     }
   }
+  //-- "RETRO86_SYSTEM" is the short name of the same A: profile; both follow the file size.
+  static const char shortNameConfig[] = "A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM\n";
+  file = fopen(configPath, "wb");
+  assert(file != NULL);
+  assert(fwrite(shortNameConfig, 1, sizeof(shortNameConfig) - 1, file) == sizeof(shortNameConfig) - 1);
+  assert(fclose(file) == 0);
+  assert(cpm86DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm86DriveConfigLoaded);
+  assert(drives[0].configured && drives[0].profile == cpm86DiskProfileSystem && drives[0].readOnly);
   assert(unlink(configPath) == 0);
 
   assert(cpm86DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm86DriveConfigMissing);
@@ -1460,6 +1523,28 @@ static void testCpm86DriveConfig(void)
   {
     assert(!drives[drive].configured);
   }
+}
+
+static void testCpm86SystemProfileDetection(void)
+{
+  cpm86DiskProfile profile;
+  char error[160];
+  assert(cpm86DriveConfigSystemProfileFromSize(163840, &profile) && profile == cpm86DiskProfileSystem);
+  assert(cpm86DriveConfigSystemProfileFromSize(528384, &profile) && profile == cpm86DiskProfileSystemLarge);
+  assert(!cpm86DriveConfigSystemProfileFromSize(0, &profile));
+  assert(!cpm86DriveConfigSystemProfileFromSize(163841, &profile));
+  assert(!cpm86DriveConfigSystemProfileFromSize(300000, &profile));
+  assert(!cpm86DriveConfigSystemProfileFromSize(8392704, &profile));
+  assert(!cpm86DriveConfigSystemProfileFromSize(528384, NULL));
+
+  cpm86DriveConfig drive = {.profile = cpm86DiskProfileSystem, .readOnly = true, .configured = true};
+  assert(cpm86DriveConfigResolveSystemProfile(&drive, 528384, error, sizeof(error)) &&
+         drive.profile == cpm86DiskProfileSystemLarge);
+  assert(cpm86DriveConfigResolveSystemProfile(&drive, 163840, error, sizeof(error)) &&
+         drive.profile == cpm86DiskProfileSystem);
+  assert(!cpm86DriveConfigResolveSystemProfile(&drive, 300000, error, sizeof(error)));
+  assert(strstr(error, "300000") != NULL && strstr(error, "no system profile") != NULL);
+  assert(drive.profile == cpm86DiskProfileSystem);
 }
 
 static void testCpm80Cpu(void)
@@ -2513,6 +2598,161 @@ static void testCpm80GuestBoot(void)
   assert(rmdir(exchangeDirectoryPath) == 0);
 }
 
+//-- Builds a LARGE system.dsk with tools/createSystemDsk.py from bootDisks/<os>/systemDsk into a temporary file.
+static void createLargeSystemDisk(const char *osName, char *diskPath, size_t diskPathCapacity)
+{
+  char temporaryDirectory[] = "/tmp/retro-large-system-XXXXXX";
+  assert(mkdtemp(temporaryDirectory) != NULL);
+  assert(snprintf(diskPath, diskPathCapacity, "%s/system.dsk", temporaryDirectory) < (int)diskPathCapacity);
+  char command[1024];
+  assert(snprintf(command, sizeof(command),
+                  "python3 \"%s/tools/createSystemDsk.py\" --os %s --profile LARGE --output \"%s\" >/dev/null",
+                  PROJECT_ROOT_PATH, osName, diskPath) < (int)sizeof(command));
+  assert(system(command) == 0);
+}
+
+static void removeLargeSystemDisk(const char *diskPath)
+{
+  char directoryPath[256];
+  assert(snprintf(directoryPath, sizeof(directoryPath), "%s", diskPath) < (int)sizeof(directoryPath));
+  *strrchr(directoryPath, '/') = '\0';
+  assert(unlink(diskPath) == 0);
+  assert(rmdir(directoryPath) == 0);
+}
+
+static void runCpm80UntilPrompt(cpm80Guest *guest, cpm80GuestFixture *fixture, const char *prompt, size_t promptCount)
+{
+  size_t instructions = 0;
+  while (countOccurrences(fixture->output, prompt) < promptCount && instructions < 8000000)
+  {
+    size_t executed = cpm80GuestRunFor(guest, 10000);
+    assert(executed > 0);
+    instructions += executed;
+  }
+  assert(countOccurrences(fixture->output, prompt) == promptCount);
+}
+
+static void testCpm80LargeSystemBoot(void)
+{
+  char largeSystemPath[256];
+  createLargeSystemDisk("cpm80", largeSystemPath, sizeof(largeSystemPath));
+  imageFile disk = {0};
+  assert(imageOpen(&disk, largeSystemPath, true));
+  assert(imageSize(&disk) == cpm80LargeImageSize);
+
+  //-- Same steps as the firmware: size -> profile, then the CCP/BDOS from offset 0, independent of the profile.
+  cpm80DriveConfig systemDrive = {.profile = cpm80DiskProfileSystem, .readOnly = true, .configured = true,
+                                .profileFromSize = true};
+  char error[160];
+  assert(cpm80DriveConfigResolveSystemProfile(&systemDrive, imageSize(&disk), error, sizeof(error)));
+  assert(systemDrive.profile == cpm80DiskProfileLarge);
+  uint8_t ccpImage[cpm80CcpSize];
+  uint8_t bdosImage[cpm80BdosSize];
+  assert(imageReadAt(&disk, 0, ccpImage, sizeof(ccpImage)));
+  assert(imageReadAt(&disk, sizeof(ccpImage), bdosImage, sizeof(bdosImage)));
+
+  cpm80GuestFixture fixture = {.disks = {[0] = &disk},
+                             .availableDrives = {[0] = true},
+                             .diskProfiles = {[0] = systemDrive.profile}};
+  const cpm80HostOps host = {.consoleAvailable = cpm80TestConsoleAvailable,
+                           .consoleRead = cpm80TestConsoleRead,
+                           .consoleWrite = cpm80TestConsoleWrite,
+                           .diskDriveAvailable = cpm80TestDiskDriveAvailable,
+                           .diskDriveProfile = cpm80TestDiskDriveProfile,
+                           .diskReadRecord = cpm80TestDiskRead,
+                           .diskWriteRecord = cpm80TestDiskWrite,
+                           .exchangePortInput = cpm80TestExchangePortInput,
+                           .exchangePortOutput = cpm80TestExchangePortOutput,
+                           .yield = cpm80TestYield,
+                           .context = &fixture};
+  cpm80Guest guest = {0};
+  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage));
+  assert(cpm80GuestColdBoot(&guest));
+
+  //-- A: carries the LARGE DPB and its own CSV/ALV areas (the SYSTEM-sized slots would overlap).
+  const uint8_t *memory = guest.cpu.memory;
+  uint16_t dpbAddress = (uint16_t)(memory[0xDA90 + 10] | (memory[0xDA90 + 11] << 8));
+  uint16_t csvAddress = (uint16_t)(memory[0xDA90 + 12] | (memory[0xDA90 + 13] << 8));
+  uint16_t alvAddress = (uint16_t)(memory[0xDA90 + 14] | (memory[0xDA90 + 15] << 8));
+  assert(dpbAddress == 0xDAA0);
+  assert(memory[dpbAddress] == 52 && memory[dpbAddress + 1] == 0);
+  assert(memory[dpbAddress + 2] == 4 && memory[dpbAddress + 3] == 15 && memory[dpbAddress + 4] == 0);
+  assert(memory[dpbAddress + 5] == 242 && memory[dpbAddress + 6] == 0);
+  assert(memory[dpbAddress + 7] == 127 && memory[dpbAddress + 8] == 0);
+  assert(memory[dpbAddress + 11] == 32 && memory[dpbAddress + 13] == 2);
+  assert(csvAddress + 32 <= alvAddress || alvAddress + 31 <= csvAddress);
+  assert(csvAddress >= 0xE060 && alvAddress >= 0xE060);
+
+  runCpm80UntilPrompt(&guest, &fixture, "A>", 1);
+  fixture.input = "DIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  runCpm80UntilPrompt(&guest, &fixture, "A>", 2);
+  assert(strstr(fixture.output, "HOST     COM") != NULL);
+  assert(strstr(fixture.output, "ASM      COM") != NULL);
+  assert(strstr(fixture.output, "ZSID     COM") != NULL);
+  assert(strstr(fixture.output, "WELCOME  TXT") != NULL);
+
+  fixture.input = "TYPE WELCOME.TXT\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  runCpm80UntilPrompt(&guest, &fixture, "A>", 3);
+  assert(strstr(fixture.output, "CP/M utilities are installed.") != NULL);
+
+  cpm80GuestDestroy(&guest);
+  assert(imageClose(&disk));
+  removeLargeSystemDisk(largeSystemPath);
+}
+
+static void testCpm86LargeSystemBoot(void)
+{
+  char largeSystemPath[256];
+  createLargeSystemDisk("cpm86", largeSystemPath, sizeof(largeSystemPath));
+  imageFile disk = {0};
+  assert(imageOpen(&disk, largeSystemPath, false));
+  cpm86DriveConfig systemDrive = {.profile = cpm86DiskProfileSystem, .readOnly = true, .configured = true};
+  char error[160];
+  assert(cpm86DriveConfigResolveSystemProfile(&systemDrive, imageSize(&disk), error, sizeof(error)));
+  assert(systemDrive.profile == cpm86DiskProfileSystemLarge);
+
+  FILE *systemFile = fopen(CPM86_SYSTEM_FILE_PATH, "rb");
+  assert(systemFile != NULL);
+  uint8_t systemImage[10240];
+  assert(fread(systemImage, 1, sizeof(systemImage), systemFile) == sizeof(systemImage));
+  assert(fclose(systemFile) == 0);
+
+  cpm86BootFixture fixture = {.disks = {[0] = &disk}, .largeDisks = {[0] = true}};
+  const cpm86CoreConfig config = {
+      .ramSize = 640 * 1024,
+      .portRead = cpm86BootPortRead,
+      .portWrite = cpm86BootPortWrite,
+      .portContext = &fixture,
+  };
+  cpm86Core *core = NULL;
+  assert(cpm86CoreCreate(&core, NULL, &config) == cpm86CoreOk);
+  assert(cpm86CoreLoad(core, 0x00510, systemImage + 128, sizeof(systemImage) - 128) == cpm86CoreOk);
+  const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
+  assert(cpm86CoreWrite(core, 0x00380, bdosVector, sizeof(bdosVector)) == cpm86CoreOk);
+  assert(cpm86BiosLoadOverlay(core, CPM86_BIOS_OVERLAY_PATH));
+  assert(cpm86CoreSetEntry(core, 0x0051, 0x2500) == cpm86CoreOk);
+
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 1));
+  fixture.input = "DIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 2));
+  assert(strstr(fixture.output, "ASM86") != NULL);
+  assert(strstr(fixture.output, "PIP") != NULL);
+  assert(strstr(fixture.output, "HOST") != NULL);
+  assert(strstr(fixture.output, "STAT") != NULL);
+  assert(fixture.diskReadRequests > 0);
+  assert(fixture.diskReadFailures == 0);
+
+  cpm86CoreDestroy(core);
+  assert(imageClose(&disk));
+  removeLargeSystemDisk(largeSystemPath);
+}
+
 int main(void)
 {
   testPaths();
@@ -2523,9 +2763,13 @@ int main(void)
   testMenu();
   testImages();
   testCpm80DriveConfig();
+  testCpm80SystemProfileDetection();
   testCpm86DriveConfig();
+  testCpm86SystemProfileDetection();
   testCpm80Cpu();
   testCpm80GuestBoot();
+  testCpm80LargeSystemBoot();
+  testCpm86LargeSystemBoot();
   puts("PASS: host utilities, Z80 and 8086 CPU fixtures, CP/M-86 boot and DIR");
   return 0;
 }

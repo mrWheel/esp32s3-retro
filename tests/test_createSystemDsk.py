@@ -141,6 +141,50 @@ class CreateSystemDskTests(unittest.TestCase):
         self.assertNotIn("CPM.SYS", filenames)
         self.assertIn("HOST.CMD", filenames)
 
+    def test_cli_large_does_not_claim_it_is_unbootable(self):
+        for os_name in ("cpm80", "cpm86"):
+            output = self.root / f"{os_name}-cli-large.dsk"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(createSystemDsk.__file__)),
+                    "--os",
+                    os_name,
+                    "--profile",
+                    "LARGE",
+                    "--output",
+                    str(output),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            combined = (result.stdout + result.stderr).lower()
+            self.assertNotIn("only accepts", combined)
+            self.assertNotIn("not bootable", combined)
+            self.assertTrue(output.is_file())
+
+    def test_all_boot_source_files_are_in_both_profiles(self):
+        inspectors = {
+            "cpm80": (diskImageCpm80, {"SMALL": diskImageCpm80.IMAGE_SIZE, "LARGE": diskImageCpm80.LARGE_IMAGE_SIZE}),
+            "cpm86": (diskImageCpm86, {"SMALL": diskImageCpm86.IMAGE_SIZE, "LARGE": diskImageCpm86.LARGE_IMAGE_SIZE}),
+        }
+        for os_name, (module, sizes) in inspectors.items():
+            source_names = sorted(
+                path.name.upper()
+                for path in (PROJECT_ROOT / "bootDisks" / os_name / "systemDsk").iterdir()
+                if path.is_file() and path.name != ".DS_Store"
+            )
+            for profile, expected_size in sizes.items():
+                with self.subTest(os=os_name, profile=profile):
+                    output = self.root / f"{os_name}-{profile}.dsk"
+                    skipped, _ = createSystemDsk.create_system_disk(os_name, profile, output)
+                    self.assertEqual(skipped, [])
+                    image = output.read_bytes()
+                    self.assertEqual(len(image), expected_size)
+                    present = {entry["filename"] for entry in module.inspect_image(image)[0]}
+                    self.assertEqual(sorted(set(source_names) - present), [])
+
     def test_unimplemented_os_is_rejected(self):
         with self.assertRaisesRegex(createSystemDsk.DiskImageError, "not implemented"):
             createSystemDsk.create_system_disk("ucsd", "SMALL", self.output_path)

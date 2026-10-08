@@ -41,7 +41,7 @@ def prepareSd(argv=None):
       ),
       "cpm86": (
           retro / "images" / "cpm86" / "drives.cfg",
-          "A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM_V1\n"
+          "A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM\n"
           "B=/retro/images/cpm86/languages.dsk,RO,RETRO86_DATA_V1\n"
           "C=/retro/images/cpm86/tools.dsk,RO,RETRO86_DATA_V1\n"
           "D=/retro/images/cpm86/utilities.dsk,RO,RETRO86_DATA_V1\n"
