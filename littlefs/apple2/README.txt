@@ -14,18 +14,25 @@ The source listing is bootDisks/apple2/systemDsk/TEST-NONGR.BAS. The builder
 does not modify the supplied base image.
 
 The image's VTOC and catalog and the stored tokenized program have been
-validated by host-side tests. This does not establish that the base image is
-bootable. The Apple II runtime does not yet implement Disk II controller or
-media reads, so the emulator cannot currently boot this disk or LOAD the
-program from it. No drives.cfg is needed for this single fixed drive.
+validated by host-side tests. The Apple II runtime now has a read-only,
+project-authored Disk II controller (slot 6, drive 1, 16-sector DOS 3.3) that
+reads this file sector by sector. In the host-side emulator this image boots
+Apple DOS 3.3P to the HELLO banner and `LOAD TEST-NONGR` succeeds. No
+drives.cfg is needed for this single fixed drive. Nothing has been tested on
+the ESP32-S3 hardware.
+
+Known blocker: `RUN` of TEST-NONGR does not work. The image builder stores the
+tokenized program without the 2-byte length prefix that Applesoft DOS files
+need and its token table skips `&` ($AF), so tokens from $AF upward are one
+too low (APPLE-ISSUE-014 in designApple2.md). This is not a Disk II fault.
 
 The separate project-authored diagnostic test fixture is at
 tests/fixtures/apple2-diagnostic.rom and can be regenerated with:
   python3 tools/buildApple2TestRom.py
 
-Phase 1 does not include the Language Card, expansion video card, disk
-controller or graphics renderer. The DOS 3.3 image builder is a host-side
-tool and does not change that runtime limitation. Next disk milestone: select
-and implement the documented read-only 16-sector Disk II controller path,
-mount littlefs/apple2/system.dsk without loading the whole image into RAM, and
-verify sector reads before attempting DOS boot.
+Phase 1 does not include the Language Card, expansion video card or graphics
+renderer. The Disk II is read-only: no writes, no second drive, no 13-sector
+media. Next step: fix the builder (length prefix and the `&` token) in
+tools/diskImageApple2Dos33.py and tools/apple2Basic.py, update
+tests/test_createSystemDsk.py, regenerate system.dsk with the command above,
+then check `LOAD TEST-NONGR` and `RUN` in DOS on the host and on the board.

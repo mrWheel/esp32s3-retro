@@ -2,6 +2,8 @@
 #include "m6502.h"
 
 #include "apple2Core.h"
+#include "apple2Disk.h"
+#include "apple2DiskBootRom.h"
 #include <stdlib.h>
 #include <string.h>
 #ifdef ESP_PLATFORM
@@ -70,6 +72,8 @@ struct apple2Core
   bool lowercaseCharacterRom;
   bool lowercaseKeyboard;
   bool romLoaded;
+  uint64_t cycles;
+  apple2Disk disk;
 };
 
 static void scrollVidexScreen(apple2Core *core)
@@ -215,6 +219,14 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   {
     value = 0x00;
   }
+  else if (address >= 0xC0E0 && address <= 0xC0EF && core->disk.attached)
+  {
+    value = apple2DiskAccess(&core->disk, (uint8_t)(address - 0xC0E0), false, core->cycles, core->busValue);
+  }
+  else if (address >= 0xC600 && address <= 0xC6FF && core->disk.attached)
+  {
+    value = apple2DiskBootRom[address - 0xC600];
+  }
   else if (address >= 0xC0B0 && address <= 0xC0BF)
   {
     value = readVidexIo(core, address);
@@ -314,6 +326,10 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   {
     clearKeyboardStrobe(core);
   }
+  else if (address >= 0xC0E0 && address <= 0xC0EF && core->disk.attached)
+  {
+    apple2DiskAccess(&core->disk, (uint8_t)(address - 0xC0E0), true, core->cycles, value);
+  }
   else if (address >= 0xC0B0 && address <= 0xC0BF)
   {
     writeVidexIo(core, address, value);
@@ -357,6 +373,7 @@ apple2CoreResult apple2CoreCreate(apple2Core **core)
     return apple2CoreNoMemory;
   }
   created->busValue = 0xFF;
+  apple2DiskInitialize(&created->disk);
   *core = created;
   return apple2CoreOk;
 }
@@ -405,6 +422,7 @@ apple2CoreResult apple2CoreReset(apple2Core *core)
   core->lowercaseEchoPending = false;
   core->lowercaseEchoCycles = 0;
   core->busValue = 0xFF;
+  apple2DiskResetSwitches(&core->disk);
   core->pins = m6502_init(&core->cpu, &(m6502_desc_t){.bcd_disabled = false});
   return apple2CoreOk;
 }
@@ -422,6 +440,7 @@ apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
     {
       core->lowercaseEchoPending = false;
     }
+    core->cycles++;
     core->cpuBusAccess = true;
     core->pins = m6502_tick(&core->cpu, core->pins);
     uint16_t address = M6502_GET_ADDR(core->pins);
@@ -581,4 +600,32 @@ bool apple2CoreGetTextCursor(const apple2Core *core, size_t *row, size_t *column
   *column = core->ram[0x0024];
   *row = core->ram[0x0025];
   return true;
+}
+
+apple2CoreResult apple2CoreAttachDisk(apple2Core *core, apple2DiskReadSectorFunction readSector, void *context)
+{
+  if (core == NULL || !apple2DiskAttach(&core->disk, readSector, context))
+  {
+    return apple2CoreInvalidArgument;
+  }
+  return apple2CoreOk;
+}
+
+apple2CoreResult apple2CoreDetachDisk(apple2Core *core)
+{
+  if (core == NULL)
+  {
+    return apple2CoreInvalidArgument;
+  }
+  apple2DiskDetach(&core->disk);
+  apple2DiskResetSwitches(&core->disk);
+  return apple2CoreOk;
+}
+
+void apple2CoreGetDiskState(const apple2Core *core, apple2DiskState *state)
+{
+  if (core != NULL && state != NULL)
+  {
+    apple2DiskGetState(&core->disk, state);
+  }
 }

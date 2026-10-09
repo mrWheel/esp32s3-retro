@@ -34,6 +34,23 @@ typedef struct
   bool videxTextMode;
 } apple2VideoState;
 
+//-- Reads one DOS-order 256-byte sector (track 0..34, logical sector 0..15) into buffer.
+typedef bool (*apple2DiskReadSectorFunction)(void *context, uint8_t track, uint8_t sector, uint8_t *buffer);
+
+typedef struct
+{
+  bool attached;
+  bool motorOn;
+  bool drive2Selected;
+  bool q6;
+  bool q7;
+  uint8_t phases;
+  uint8_t halfTrack;
+  uint32_t sectorReads;
+  uint32_t sectorReadFailures;
+  uint32_t writeAttempts;
+} apple2DiskState;
+
 apple2CoreResult apple2CoreCreate(apple2Core **core);
 void apple2CoreDestroy(apple2Core *core);
 apple2CoreResult apple2CoreLoadRom(apple2Core *core, const uint8_t *rom, size_t size);
@@ -54,3 +71,7 @@ apple2CoreResult apple2CoreReadVidexTextCell(const apple2Core *core, size_t row,
                                              uint8_t *value);
 bool apple2CoreGetVidexCursor(const apple2Core *core, size_t *row, size_t *column);
 bool apple2CoreGetTextCursor(const apple2Core *core, size_t *row, size_t *column);
+//-- Attach a read-only drive 1 (slot 6). The callback and context must stay valid until detach.
+apple2CoreResult apple2CoreAttachDisk(apple2Core *core, apple2DiskReadSectorFunction readSector, void *context);
+apple2CoreResult apple2CoreDetachDisk(apple2Core *core);
+void apple2CoreGetDiskState(const apple2Core *core, apple2DiskState *state);

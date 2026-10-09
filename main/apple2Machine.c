@@ -1,5 +1,7 @@
 #include "apple2Machine.h"
 #include "apple2Core.h"
+#include "apple2DiskImage.h"
+#include "diskActivity.h"
 #include "hostConsole.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -13,7 +15,9 @@
 
 static const char *tag = "apple2Machine";
 static const char *romPath = "/littlefs/apple2/apple2.rom";
+static const char *diskPath = "/littlefs/apple2/system.dsk";
 static apple2Core *guestCore;
+static apple2DiskImage guestDisk;
 static uint8_t renderedCells[apple2TextRows][apple2VidexTextColumns];
 static bool screenRendered;
 static bool renderedFlashOn;
@@ -264,6 +268,44 @@ machineState apple2MachineProbe(const retroMachine *machine)
   return valid && resetAddress >= 0xD000 ? machineAvailable : machineResourceInvalid;
 }
 
+static bool readDiskSector(void *context, uint8_t track, uint8_t sector, uint8_t *buffer)
+{
+  diskActivityRead();
+  return apple2DiskImageReadSectorCallback(context, track, sector, buffer);
+}
+
+static void releaseDisk(void)
+{
+  if (guestCore != NULL)
+  {
+    apple2CoreDetachDisk(guestCore);
+  }
+  if (apple2DiskImageIsOpen(&guestDisk) && apple2DiskImageClose(&guestDisk) != apple2DiskImageOk)
+  {
+    ESP_LOGW(tag, "closing %s failed", diskPath);
+  }
+  apple2DiskImageInitialize(&guestDisk);
+}
+
+//-- A missing or invalid disk image is reported but never prevents the machine from starting.
+static void attachDisk(void)
+{
+  apple2DiskImageInitialize(&guestDisk);
+  apple2DiskImageResult result = apple2DiskImageOpen(&guestDisk, diskPath);
+  if (result != apple2DiskImageOk)
+  {
+    ESP_LOGW(tag, "no Disk II media: %s: %s", diskPath, apple2DiskImageResultText(result));
+    return;
+  }
+  if (apple2CoreAttachDisk(guestCore, readDiskSector, &guestDisk) != apple2CoreOk)
+  {
+    ESP_LOGE(tag, "attaching %s to the Disk II controller failed", diskPath);
+    releaseDisk();
+    return;
+  }
+  ESP_LOGI(tag, "Disk II drive 1 (read-only): %s", diskPath);
+}
+
 esp_err_t apple2MachineInitialize(void)
 {
   FILE *romFile = fopen(romPath, "rb");
@@ -286,6 +328,7 @@ esp_err_t apple2MachineInitialize(void)
   }
   if (guestCore != NULL)
   {
+    releaseDisk();
     apple2CoreDestroy(guestCore);
     guestCore = NULL;
   }
@@ -316,6 +359,7 @@ esp_err_t apple2MachineInitialize(void)
     guestCore = NULL;
     return ESP_ERR_INVALID_RESPONSE;
   }
+  attachDisk();
   return ESP_OK;
 }
 
@@ -344,6 +388,7 @@ void apple2MachineRun(void)
     if (apple2CoreRunCycles(guestCore, cyclesPerPeriod) != apple2CoreOk)
     {
       ESP_LOGE(tag, "6502 execution stopped");
+      releaseDisk();
       return;
     }
     TickType_t currentTime = xTaskGetTickCount();
