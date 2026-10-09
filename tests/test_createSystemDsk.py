@@ -302,8 +302,9 @@ class CreateSystemDskTests(unittest.TestCase):
         self.assertEqual(file_type, 2)
         self.assertEqual(
             payload,
-            b"\x0f\x08\x0a\x00\xb1 COMMENT\x00"
-            b"\x19\x08\x14\x00\xb9\x22HI\x22\x00\x00\x00",
+            b"\x1a\x00"
+            b"\x0f\x08\x0a\x00\xb2 COMMENT\x00"
+            b"\x19\x08\x14\x00\xba\x22HI\x22\x00\x00\x00",
         )
 
     def test_tagged_applesoft_program_tokenizes_for_dos_load(self):
@@ -312,10 +313,25 @@ class CreateSystemDskTests(unittest.TestCase):
         file_type, payload = diskImageApple2Dos33._file_payload("TEST-NONGR.BAS", source, None)
 
         self.assertEqual(file_type, 2)
-        self.assertEqual(payload[2:4], b"\x0a\x00")
+        self.assertEqual(int.from_bytes(payload[0:2], "little"), len(payload) - 2)
+        self.assertEqual(payload[4:6], b"\x0a\x00")
         self.assertTrue(payload.endswith(b"\x00\x00"))
-        self.assertIn(b"\xb9", payload)
-        self.assertIn(b"\xb1", payload)
+        self.assertIn(b"\xba", payload)
+        self.assertIn(b"\xb2", payload)
+
+    def test_applesoft_token_values_follow_the_rom_token_order(self):
+        names = (
+            "END FOR NEXT DATA INPUT DEL DIM READ GR TEXT PR# IN# CALL PLOT HLIN VLIN HGR2 HGR HCOLOR= "
+            "HPLOT DRAW XDRAW HTAB HOME ROT= SCALE= SHLOAD TRACE NOTRACE NORMAL INVERSE FLASH COLOR= POP "
+            "VTAB HIMEM: LOMEM: ONERR RESUME RECALL STORE SPEED= LET GOTO RUN IF RESTORE & GOSUB RETURN "
+            "REM STOP ON WAIT LOAD SAVE DEF POKE PRINT CONT LIST CLEAR GET NEW TAB( TO FN SPC( THEN AT "
+            "NOT STEP + - * / ^ AND OR > = < SGN INT ABS USR FRE SCRN( PDL POS SQR RND LOG EXP COS SIN "
+            "TAN ATN PEEK LEN STR$ VAL ASC CHR$ LEFT$ RIGHT$ MID$"
+        ).split()
+        table = dict(apple2Basic._TOKENS)
+        for index, name in enumerate(names):
+            self.assertEqual(table[name], 0x80 + index, name)
+        self.assertEqual(table["?"], table["PRINT"])
 
     def test_apple2_applesoft_filename_uses_extensionless_dos_catalog_name(self):
         base_image = self.root / "dos33-bas-name-base.do"
@@ -331,6 +347,33 @@ class CreateSystemDskTests(unittest.TestCase):
         catalog_offset = diskImageApple2Dos33._sector_offset(17, 15)
         entry = image[catalog_offset + 0x0B : catalog_offset + 0x0B + 35]
         self.assertEqual(entry[2], diskImageApple2Dos33.FILE_TYPES[".BAS"])
+
+    def test_apple2_remove_all_existing_removes_locked_files_and_keeps_new_ones(self):
+        base_image = self.root / "dos33-remove-all-base.do"
+        self._create_apple2_base_image(base_image)
+        image = bytearray(base_image.read_bytes())
+        vtoc_offset, vtoc, catalog_track, catalog_sector = diskImageApple2Dos33._read_vtoc(image)
+        for name, file_type in (("HELLO", 0x82), ("OLD", 0x00)):
+            diskImageApple2Dos33._write_file(image, vtoc, name, b"old", file_type, catalog_track, catalog_sector)
+        image[vtoc_offset : vtoc_offset + diskImageApple2Dos33.SECTOR_SIZE] = vtoc
+        base_image.write_bytes(bytes(image))
+        source_dir = self.root / "apple2-remove-all-source"
+        source_dir.mkdir()
+        (source_dir / "NEW.TXT").write_bytes(b"new\n")
+        output_path = self.root / "remove-all-output.dsk"
+
+        with self.assertRaisesRegex(createSystemDsk.DiskImageError, "locked"):
+            diskImageApple2Dos33.remove_files(bytes(image), ["HELLO"])
+        createSystemDsk.create_system_disk(
+            "apple2",
+            "DOS33",
+            output_path,
+            source_dir=source_dir,
+            base_image=base_image,
+            remove_all_existing=True,
+        )
+
+        self.assertEqual(diskImageApple2Dos33.inspect_image(output_path.read_bytes()), ["NEW.TXT"])
 
     def test_apple2_removes_only_requested_unlocked_file_and_reclaims_sectors(self):
         base_image = self.root / "dos33-remove-base.do"
@@ -425,8 +468,8 @@ class CreateSystemDskTests(unittest.TestCase):
     def test_applesoft_operators_use_reserved_tokens(self):
         tokenized = apple2Basic.tokenize_source("10 IF A<>1 THEN PRINT 1+2\n")
 
-        self.assertIn(b"\xadA\xd0\xce1\xc3\xb9", tokenized)
-        self.assertIn(b"1\xc72", tokenized)
+        self.assertIn(b"\xadA\xd1\xcf1\xc4\xba", tokenized)
+        self.assertIn(b"1\xc82", tokenized)
 
     def test_apple2_large_file_uses_chained_track_sector_lists(self):
         base_image = self.root / "dos33-large-base.do"

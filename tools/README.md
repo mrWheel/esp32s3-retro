@@ -82,7 +82,9 @@ Use repeatable `--remove-existing "FILENAME"` options to free space by removing
 explicitly selected, unlocked files from the copied base image before adding
 the source files. Locked files are refused and the supplied base image is never
 modified. For example, the `Apple DOS 3.3P.dsk` base can make room for the
-test program by removing `LOCKSMITH 4.1`.
+test program by removing `LOCKSMITH 4.1`. `--remove-all-existing` removes every
+file of the copied base image, locked files included, and leaves the DOS boot
+tracks in place.
 The tool does not fetch or bundle a base image; only use one you are authorized
 to use.
 
@@ -96,8 +98,10 @@ is applied to every binary in the source folder. All files must fit; collisions
 with files already on the base image are errors. For `.BAS` inputs, the suffix
 is a host-side type marker and is omitted from the DOS catalog; for example,
 `TEST-NONGR.BAS` is loaded with `LOAD TEST-NONGR`, then started with `RUN`. The
-disk builder creates a host image only; the Apple II runtime still needs Disk
-II controller/media support before it can boot or read this image.
+disk builder creates a host image only; the Apple II runtime reads it through the
+read-only Disk II controller. Tokenized `.BAS` files get the 2-byte length prefix
+that DOS 3.3 Applesoft files carry; the file type (A) comes from the `.BAS`
+suffix, so no extra name marker is needed.
 
 ## Prepare CP/M disk images on macOS
 

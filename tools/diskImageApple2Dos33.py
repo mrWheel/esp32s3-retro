@@ -218,7 +218,9 @@ def _file_payload(filename, data, binary_load_address):
             data += b"\r"
     elif file_type == FILE_TYPES[".BAS"] and apple2Basic.is_ascii_source(data):
         try:
-            data = apple2Basic.tokenize_source(data.decode("ascii"))
+            program = apple2Basic.tokenize_source(data.decode("ascii"))
+            # A DOS 3.3 Applesoft file starts with the 2-byte little-endian length of the program.
+            data = len(program).to_bytes(2, "little") + program
         except (UnicodeDecodeError, ValueError) as error:
             raise DiskImageError(f"Invalid Applesoft BASIC source in {filename}: {error}") from error
     elif not data:
@@ -349,8 +351,8 @@ def _file_sectors(image, entry, vtoc):
     return data_sectors + list_sectors
 
 
-def remove_files(image, filenames):
-    """Remove explicitly named unlocked files from a DOS 3.3 image copy."""
+def remove_files(image, filenames, allow_locked=False):
+    """Remove explicitly named files from a DOS 3.3 image copy; locked files need allow_locked."""
     image = bytearray(image)
     inspect_image(image)
     vtoc_offset, vtoc, catalog_track, catalog_sector = _read_vtoc(image)
@@ -365,7 +367,7 @@ def remove_files(image, filenames):
         if filename not in entries_by_name:
             raise DiskImageError(f"{filename} does not exist on the Apple II disk")
         entry_offset, entry = entries_by_name[filename]
-        if entry[2] & 0x80:
+        if entry[2] & 0x80 and not allow_locked:
             raise DiskImageError(f"Refusing to remove locked Apple DOS file: {filename}")
         files_to_remove.append((filename, entry_offset, entry))
 

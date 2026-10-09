@@ -677,7 +677,7 @@ static void testDosBoot(const char *imagePath, bool runProgram)
   for (int step = 0; step < 60 && !booted; ++step)
   {
     assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
-    booted = screenContains(core, "APPLE OEM VENDOR TECHNICAL SUPPORT");
+    booted = screenContains(core, "FILE NOT FOUND");
   }
   apple2DiskState state;
   apple2CoreGetDiskState(core, &state);
@@ -692,8 +692,11 @@ static void testDosBoot(const char *imagePath, bool runProgram)
 
   if (runProgram)
   {
-    //-- Let the HELLO program finish and the motor coast down before typing.
+    //-- The system disk has no HELLO file, so DOS reports FILE NOT FOUND once; clear it before the real checks.
     assert(apple2CoreRunCycles(core, 4000000) == apple2CoreOk);
+    typeText(core, "HOME\r");
+    assert(apple2CoreRunCycles(core, 200000) == apple2CoreOk);
+    assert(!screenContains(core, "NOT FOUND"));
     uint32_t readsBeforeLoad = state.sectorReads;
     typeText(core, "LOAD TEST-NONGR\r");
     assert(apple2CoreRunCycles(core, 6000000) == apple2CoreOk);
@@ -713,6 +716,7 @@ static void testDosBoot(const char *imagePath, bool runProgram)
     assert(apple2CoreRunCycles(core, 6000000) == apple2CoreOk);
     printf("screen after RUN:\n");
     dumpScreen(core);
+    assert(screenContains(core, "ALL SYSTEM TESTS OK"));
   }
   apple2CoreGetDiskState(core, &state);
   assert(state.writeAttempts == 0);
