@@ -41,6 +41,9 @@ apple2CoreResult apple2CoreReset(apple2Core *core);
 apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles);
 apple2CoreResult apple2CoreReadMemory(apple2Core *core, uint16_t address, uint8_t *value);
 apple2CoreResult apple2CoreWriteMemory(apple2Core *core, uint16_t address, uint8_t value);
+apple2CoreResult apple2CoreSetCharacterOptions(apple2Core *core, bool lowercaseCharacterRom,
+                                               bool lowercaseKeyboard);
+char apple2CoreDecodeTextCharacter(const apple2Core *core, uint8_t value);
 apple2CoreResult apple2CorePressKey(apple2Core *core, uint8_t character);
 bool apple2CoreKeyPending(const apple2Core *core);
 void apple2CoreGetVideoState(const apple2Core *core, apple2VideoState *state);

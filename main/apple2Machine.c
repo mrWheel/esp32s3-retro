@@ -42,28 +42,14 @@ static bool appendCharacter(char *buffer, size_t capacity, size_t *length, char 
   return true;
 }
 
-static char decodeCharacter(uint8_t value)
-{
-  value &= 0x3F;
-  if (value <= 0x1F)
-  {
-    return (char)(value + '@');
-  }
-  if (value == 0x20)
-  {
-    return ' ';
-  }
-  return (char)value;
-}
-
 static char decodeVidexCharacter(uint8_t value)
 {
   value &= 0x7F;
   return value >= 0x20 ? (char)value : ' ';
 }
 
-static bool appendTextCell(char *buffer, size_t capacity, size_t *length, uint8_t value, bool flashOn,
-                           bool *inverse, bool *flashing)
+static bool appendTextCell(char *buffer, size_t capacity, size_t *length, const apple2Core *core, uint8_t value,
+                           bool flashOn, bool *inverse, bool *flashing)
 {
   bool cellInverse = (value & 0x80) == 0 && (value & 0x40) == 0;
   bool cellFlashing = (value & 0xC0) == 0x40;
@@ -83,7 +69,7 @@ static bool appendTextCell(char *buffer, size_t capacity, size_t *length, uint8_
     }
     *flashing = cellFlashing;
   }
-  char character = cellFlashing && !flashOn ? ' ' : decodeCharacter(value);
+  char character = cellFlashing && !flashOn ? ' ' : apple2CoreDecodeTextCharacter(core, value);
   return appendCharacter(buffer, capacity, length, character);
 }
 
@@ -162,8 +148,8 @@ static void renderScreen(int64_t nowUs)
         bool appended = video.videxTextMode
                             ? appendVidexTextCell(rowBuffer, sizeof(rowBuffer), &length, currentCells[column],
                                                   &inverse)
-                            : appendTextCell(rowBuffer, sizeof(rowBuffer), &length, currentCells[column], flashOn,
-                                             &inverse, &flashing);
+                            : appendTextCell(rowBuffer, sizeof(rowBuffer), &length, guestCore,
+                                             currentCells[column], flashOn, &inverse, &flashing);
         if (!appended)
         {
           return;
@@ -311,7 +297,16 @@ esp_err_t apple2MachineInitialize(void)
   apple2CoreResult coreResult = apple2CoreCreate(&guestCore);
   if (coreResult != apple2CoreOk)
   {
+    free(rom);
     return coreResult == apple2CoreNoMemory ? ESP_ERR_NO_MEM : ESP_ERR_INVALID_STATE;
+  }
+  coreResult = apple2CoreSetCharacterOptions(guestCore, true, true);
+  if (coreResult != apple2CoreOk)
+  {
+    apple2CoreDestroy(guestCore);
+    guestCore = NULL;
+    free(rom);
+    return ESP_ERR_INVALID_STATE;
   }
   coreResult = apple2CoreLoadRom(guestCore, rom, apple2RomSize);
   free(rom);

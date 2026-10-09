@@ -13,7 +13,8 @@ enum
   apple2VidexRamSize = 2048,
   apple2VidexRamBankSize = 512,
   apple2VidexRegisterCount = 32,
-  apple2VidexFirmwareSize = 369
+  apple2VidexFirmwareSize = 369,
+  apple2LowercaseEchoCycleLimit = 4096
 };
 
 static const uint8_t videxSlotRom[] = {0x48, 0x20, 0x00, 0xC8, 0x68, 0x4C, 0xB3, 0xC8, 0x4C, 0x00, 0xC8};
@@ -53,7 +54,10 @@ struct apple2Core
   uint8_t *ram;
   uint8_t rom[apple2RomSize];
   uint8_t busValue;
-  uint8_t keyboardLatch;
+  uint8_t keyboardData;
+  bool keyboardStrobe;
+  bool lowercaseEchoPending;
+  uint16_t lowercaseEchoCycles;
   uint8_t videxRam[apple2VidexRamSize];
   uint8_t videxRegisters[apple2VidexRegisterCount];
   uint8_t videxWorkspace[5];
@@ -63,6 +67,8 @@ struct apple2Core
   apple2VideoState video;
   bool cpuBusAccess;
   bool videxWorkspaceActive;
+  bool lowercaseCharacterRom;
+  bool lowercaseKeyboard;
   bool romLoaded;
 };
 
@@ -154,6 +160,36 @@ static void writeVidexIo(apple2Core *core, uint16_t address, uint8_t value)
   }
 }
 
+static void clearKeyboardStrobe(apple2Core *core)
+{
+  bool keyWasReady = core->keyboardStrobe;
+  core->keyboardStrobe = false;
+  if (core->cpuBusAccess && keyWasReady && core->lowercaseKeyboard &&
+      core->keyboardData >= 'a' && core->keyboardData <= 'z')
+  {
+    core->lowercaseEchoPending = true;
+    core->lowercaseEchoCycles = apple2LowercaseEchoCycleLimit;
+  }
+}
+
+//-- Limit the case correction to the screen echo immediately following key acknowledgement.
+static uint8_t preserveLowercaseEcho(apple2Core *core, uint8_t value, bool videx)
+{
+  if (!core->cpuBusAccess || !core->lowercaseEchoPending)
+  {
+    return value;
+  }
+  uint8_t uppercase = (uint8_t)(core->keyboardData - 'a' + 'A');
+  uint8_t expected = videx ? uppercase : (uint8_t)(uppercase | 0x80);
+  if (value != expected)
+  {
+    return value;
+  }
+  core->lowercaseEchoPending = false;
+  core->lowercaseEchoCycles = 0;
+  return videx ? core->keyboardData : (uint8_t)(core->keyboardData - 'a' + 0xE1);
+}
+
 static uint8_t readAddress(apple2Core *core, uint16_t address)
 {
   uint8_t value;
@@ -168,12 +204,16 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   }
   else if (address == 0xC000)
   {
-    value = core->keyboardLatch;
+    value = core->keyboardData | (core->keyboardStrobe ? 0x80 : 0x00);
   }
   else if (address == 0xC010)
   {
-    core->keyboardLatch &= 0x7F;
-    value = core->keyboardLatch;
+    clearKeyboardStrobe(core);
+    value = core->keyboardData;
+  }
+  else if (address == 0xC063)
+  {
+    value = 0x00;
   }
   else if (address >= 0xC0B0 && address <= 0xC0BF)
   {
@@ -256,6 +296,10 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   {
     bool isOutputVectorAddress = address == 0x0036 || address == 0x0037;
     bool wasVidexSelected = isOutputVectorAddress && isVidexOutputSelected(core);
+    if (address >= 0x0400 && address <= 0x0BFF)
+    {
+      value = preserveLowercaseEcho(core, value, false);
+    }
     core->ram[address] = value;
     if (isOutputVectorAddress)
     {
@@ -268,7 +312,7 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   }
   else if (address == 0xC010)
   {
-    core->keyboardLatch &= 0x7F;
+    clearKeyboardStrobe(core);
   }
   else if (address >= 0xC0B0 && address <= 0xC0BF)
   {
@@ -280,6 +324,7 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   }
   else if (address >= 0xCC00 && address <= 0xCDFF)
   {
+    value = preserveLowercaseEcho(core, value, true);
     core->videxRam[core->videxRamBank + (address - 0xCC00)] = value;
   }
   core->busValue = value;
@@ -355,7 +400,10 @@ apple2CoreResult apple2CoreReset(apple2Core *core)
   core->videxWorkspaceActive = false;
   core->videxRamBank = 0;
   core->videxRegisterAddress = 0;
-  core->keyboardLatch = 0;
+  core->keyboardData = 0;
+  core->keyboardStrobe = false;
+  core->lowercaseEchoPending = false;
+  core->lowercaseEchoCycles = 0;
   core->busValue = 0xFF;
   core->pins = m6502_init(&core->cpu, &(m6502_desc_t){.bcd_disabled = false});
   return apple2CoreOk;
@@ -369,6 +417,11 @@ apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
   }
   for (size_t index = 0; index < cycles; ++index)
   {
+    if (core->lowercaseEchoPending && core->lowercaseEchoCycles > 0 &&
+        --core->lowercaseEchoCycles == 0)
+    {
+      core->lowercaseEchoPending = false;
+    }
     core->cpuBusAccess = true;
     core->pins = m6502_tick(&core->cpu, core->pins);
     uint16_t address = M6502_GET_ADDR(core->pins);
@@ -406,27 +459,60 @@ apple2CoreResult apple2CoreWriteMemory(apple2Core *core, uint16_t address, uint8
   return apple2CoreOk;
 }
 
+apple2CoreResult apple2CoreSetCharacterOptions(apple2Core *core, bool lowercaseCharacterRom,
+                                               bool lowercaseKeyboard)
+{
+  if (core == NULL)
+  {
+    return apple2CoreInvalidArgument;
+  }
+  core->lowercaseCharacterRom = lowercaseCharacterRom;
+  core->lowercaseKeyboard = lowercaseKeyboard;
+  return apple2CoreOk;
+}
+
+char apple2CoreDecodeTextCharacter(const apple2Core *core, uint8_t value)
+{
+  if (core != NULL && core->lowercaseCharacterRom && value >= 0xE1 && value <= 0xFA)
+  {
+    return (char)(value - 0xE1 + 'a');
+  }
+  uint8_t character = value & 0x3F;
+  if (character <= 0x1F)
+  {
+    return (char)(character + '@');
+  }
+  if (character == 0x20)
+  {
+    return ' ';
+  }
+  return (char)character;
+}
+
 apple2CoreResult apple2CorePressKey(apple2Core *core, uint8_t character)
 {
   if (core == NULL || character > 0x7F)
   {
     return apple2CoreInvalidArgument;
   }
-  if (core->keyboardLatch & 0x80)
+  if (core->keyboardStrobe)
   {
     return apple2CoreKeyBusy;
   }
-  if (character >= 'a' && character <= 'z')
+  core->lowercaseEchoPending = false;
+  core->lowercaseEchoCycles = 0;
+  if (!core->lowercaseKeyboard && character >= 'a' && character <= 'z')
   {
     character = (uint8_t)(character - 'a' + 'A');
   }
-  core->keyboardLatch = (uint8_t)(character | 0x80);
+  core->keyboardData = character;
+  core->keyboardStrobe = true;
   return apple2CoreOk;
 }
 
 bool apple2CoreKeyPending(const apple2Core *core)
 {
-  return core != NULL && (core->keyboardLatch & 0x80) != 0;
+  return core != NULL && core->keyboardStrobe;
 }
 
 void apple2CoreGetVideoState(const apple2Core *core, apple2VideoState *state)

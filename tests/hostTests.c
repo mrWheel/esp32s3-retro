@@ -21,6 +21,7 @@ static size_t countOccurrences(const char *text, const char *needle);
 static void testApple2Core(void)
 {
   apple2Core *core = NULL;
+  uint8_t value;
   assert(apple2CoreCreate(&core) == apple2CoreOk);
   FILE *romFile = fopen(APPLE2_TEST_ROM_PATH, "rb");
   assert(romFile != NULL);
@@ -28,6 +29,7 @@ static void testApple2Core(void)
   assert(fread(testRom, 1, sizeof(testRom), romFile) == sizeof(testRom));
   assert(fgetc(romFile) == EOF);
   assert(fclose(romFile) == 0);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
   assert(apple2CoreLoadRom(core, testRom, sizeof(testRom)) == apple2CoreOk);
   assert(apple2CoreRunCycles(core, 30000) == apple2CoreOk);
   const char *title = "APPLE II PHASE 1 TEST ROM";
@@ -53,9 +55,35 @@ static void testApple2Core(void)
                                                                     : prompt[index] | 0x80));
   }
   assert(apple2CorePressKey(core, 'a') == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC000, &value) == apple2CoreOk && value == 0xE1);
+  assert(apple2CoreReadMemory(core, 0xC063, &value) == apple2CoreOk && value == 0x00);
   assert(apple2CoreRunCycles(core, 100) == apple2CoreOk);
   uint8_t echoedKey;
-  assert(apple2CoreReadMemory(core, 0x0500, &echoedKey) == apple2CoreOk && echoedKey == 0xC1);
+  assert(apple2CoreReadMemory(core, 0x0500, &echoedKey) == apple2CoreOk && echoedKey == 0xE1);
+  assert(apple2CoreDecodeTextCharacter(core, 0xC1) == 'A');
+  assert(apple2CoreDecodeTextCharacter(core, 0xE1) == 'a');
+  const char *digits = "1234567890";
+  const uint8_t digitCodes[] = {0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xB0};
+  for (size_t index = 0; index < sizeof(digitCodes); ++index)
+  {
+    assert(apple2CoreDecodeTextCharacter(core, digitCodes[index]) == digits[index]);
+  }
+  for (size_t index = 0; index < 26; ++index)
+  {
+    assert(apple2CoreDecodeTextCharacter(core, (uint8_t)(0xE1 + index)) == (char)('a' + index));
+  }
+  assert(apple2CorePressKey(core, 'A') == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC000, &value) == apple2CoreOk && value == 0xC1);
+  assert(apple2CoreReadMemory(core, 0xC063, &value) == apple2CoreOk && value == 0x00);
+  assert(apple2CoreReadMemory(core, 0xC010, &value) == apple2CoreOk && value == 'A');
+  assert(!apple2CoreKeyPending(core));
+  assert(apple2CoreReadMemory(core, 0xC000, &value) == apple2CoreOk && value == 'A');
+  assert(apple2CorePressKey(core, 'z') == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC000, &value) == apple2CoreOk && value == 0xFA);
+  assert(apple2CoreReadMemory(core, 0xC063, &value) == apple2CoreOk && value == 0x00);
+  assert(apple2CoreReadMemory(core, 0xC010, &value) == apple2CoreOk && value == 'z');
+  assert(!apple2CoreKeyPending(core));
+  assert(apple2CoreReadMemory(core, 0xC000, &value) == apple2CoreOk && value == 'z');
   apple2CoreDestroy(core);
 
   assert(apple2CoreCreate(&core) == apple2CoreOk);
@@ -69,7 +97,6 @@ static void testApple2Core(void)
   assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
   assert(apple2CorePressKey(core, 'b') == apple2CoreOk);
   assert(apple2CoreKeyPending(core));
-  uint8_t value;
   assert(apple2CoreReadMemory(core, 0xC000, &value) == apple2CoreOk && value == 0xC2);
   assert(apple2CorePressKey(core, 'c') == apple2CoreKeyBusy);
   assert(apple2CoreRunCycles(core, 64) == apple2CoreOk);
@@ -78,6 +105,7 @@ static void testApple2Core(void)
   assert(!apple2CoreKeyPending(core));
   assert(apple2CoreWriteMemory(core, 0xD000, 0) == apple2CoreOk);
   assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0xA9);
+  assert(apple2CoreDecodeTextCharacter(core, 0xE1) == '!');
 
   assert(apple2CoreReadMemory(core, 0xC057, &value) == apple2CoreOk);
   assert(apple2CoreReadMemory(core, 0xC055, &value) == apple2CoreOk);
@@ -89,6 +117,21 @@ static void testApple2Core(void)
   assert(apple2CoreTextAddress(false, 8, 0, &address) && address == 0x0428);
   assert(apple2CoreTextAddress(true, 0, 39, &address) && address == 0x0827);
   assert(!apple2CoreTextAddress(false, apple2TextRows, 0, &address));
+  apple2CoreDestroy(core);
+
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, false, true) == apple2CoreOk);
+  assert(apple2CorePressKey(core, 'a') == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC000, &value) == apple2CoreOk && value == 0xE1);
+  assert(apple2CoreReadMemory(core, 0xC063, &value) == apple2CoreOk && value == 0x00);
+  assert(apple2CoreDecodeTextCharacter(core, 0xE1) == '!');
+  apple2CoreDestroy(core);
+
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  assert(apple2CorePressKey(core, 'Z') == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC000, &value) == apple2CoreOk && value == 0xDA);
+  assert(apple2CoreReadMemory(core, 0xC063, &value) == apple2CoreOk && value == 0x00);
   apple2CoreDestroy(core);
 
   assert(apple2CoreCreate(&core) == apple2CoreOk);
@@ -244,6 +287,36 @@ static bool apple2TextContainsText(apple2Core *core, const char *text)
   return false;
 }
 
+static void testApple2LowercaseKeyboardEcho(const uint8_t *rom)
+{
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, apple2RomSize) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 500000) == apple2CoreOk);
+
+  const char keys[] = {'a', 'A', 'z', 'Z'};
+  const uint8_t expected[] = {0xE1, 0xC1, 0xFA, 0xDA};
+  for (size_t index = 0; index < sizeof(keys); ++index)
+  {
+    size_t row;
+    size_t column;
+    uint8_t value;
+    assert(apple2CoreGetTextCursor(core, &row, &column));
+    assert(apple2CorePressKey(core, (uint8_t)keys[index]) == apple2CoreOk);
+    for (size_t attempt = 0; attempt < 20 && apple2CoreKeyPending(core); ++attempt)
+    {
+      assert(apple2CoreRunCycles(core, 5000) == apple2CoreOk);
+    }
+    assert(!apple2CoreKeyPending(core));
+    assert(apple2CoreRunCycles(core, 50000) == apple2CoreOk);
+    assert(apple2CoreReadTextCell(core, false, row, column, &value) == apple2CoreOk);
+    assert(value == expected[index]);
+  }
+
+  apple2CoreDestroy(core);
+}
+
 static void testApple2SystemRom(void)
 {
   FILE *romFile = fopen(APPLE2_SYSTEM_ROM_PATH, "rb");
@@ -253,16 +326,19 @@ static void testApple2SystemRom(void)
   assert(fgetc(romFile) == EOF);
   assert(fclose(romFile) == 0);
 
+  testApple2LowercaseKeyboardEcho(rom);
+
   apple2Core *core = NULL;
   assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
   assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
   assert(apple2CoreRunCycles(core, 500000) == apple2CoreOk);
 
-  apple2TypeBasicCommand(core, "10 PRINT 1\r");
+  apple2TypeBasicCommand(core, "10 print 1\r");
   apple2TypeBasicCommand(core, "LIST\r");
   assert(apple2TextContainsText(core, "10  PRINT 1"));
 
-  apple2TypeBasicCommand(core, "PR#3\r");
+  apple2TypeBasicCommand(core, "pr#3\r");
   apple2VideoState video;
   apple2CoreGetVideoState(core, &video);
   assert(video.videxTextMode);
@@ -301,6 +377,15 @@ static void testApple2SystemRom(void)
     basicResultPresent = basicResultPresent || (value & 0x7F) == '4';
   }
   assert(basicResultPresent);
+
+  size_t echoRow;
+  size_t echoColumn;
+  uint8_t echoedCharacter;
+  assert(apple2CoreGetVidexCursor(core, &echoRow, &echoColumn));
+  apple2TypeBasicCommand(core, "a");
+  assert(apple2CoreReadVidexTextCell(core, echoRow, echoColumn, &echoedCharacter) == apple2CoreOk);
+  assert((echoedCharacter & 0x7F) == 'a');
+
   apple2CoreDestroy(core);
 }
 
