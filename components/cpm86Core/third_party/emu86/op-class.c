@@ -43,8 +43,8 @@ static byte_t fetch_byte ()
 	if (op_text_enabled)
 		{
 		snprintf (op_code_str + op_code_pos, 4, "%.2X ", b);
-		op_code_pos += 3;
 		}
+	op_code_pos += 3;
 
 	return b;
 	}
@@ -1195,10 +1195,10 @@ int op_decode (op_desc_t * op_desc)
 
 	while (1)
 		{
+		op_code_pos = 0;
 		if (op_text_enabled)
 			{
 			memset (op_code_str, 0, sizeof op_code_str);
-			op_code_pos = 0;
 			}
 
 		byte_t code = fetch_code_1 (op_desc);

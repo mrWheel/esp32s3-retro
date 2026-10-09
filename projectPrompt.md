@@ -9,7 +9,7 @@ It does NOT define emulator internals. Read this file plus the complete machine-
 - CP/M-80     -> designCPM80.md
 - CP/M-86     -> designCPM86.md
 - UCSD Pascal  -> designUCSD.md
-- Apple II     -> designAppleII.md
+- Apple II     -> designApple2.md
 - SWTPC 6800   -> designSWTPC.md
 
 
@@ -42,10 +42,10 @@ This snapshot describes repository status, not a change to the machine-specific 
 | CP/M-80 | Firmware machine integration and host-side guest tests are present. The CP/M-80 design log records a user report of booting and running commands on an ESP32-S3; independent hardware, SD-drive and broader compatibility acceptance remains outstanding. |
 | CP/M-86 | Firmware machine integration, genuine guest boot tests on the host and an ESP-IDF build are present. The firmware has not been flashed; hardware boot, performance and broad compatibility remain unverified. |
 | UCSD Pascal | Placeholder; no guest machine implementation yet. |
-| Apple II | Placeholder; no guest machine implementation yet. |
+| Apple II | Phase 1 motherboard implementation uses the 12 KiB Apple ][ system ROM in `assets/apple.rom`; host tests boot Integer BASIC and execute `PRINT 2+2`. Hardware acceptance and ROM redistribution rights remain unverified. |
 | SWTPC 6800 | Placeholder; no guest machine implementation yet. |
 
-In the current menu, CP/M-80 and CP/M-86 are available when their required LittleFS resources validate; choices 3–5 remain placeholders. A successful host test or firmware build is not evidence of successful execution on the ESP32-S3.
+In the current menu, CP/M-80 and CP/M-86 are available when their required LittleFS resources validate; Apple II uses the 12 KiB system ROM copied from `assets/apple.rom`; UCSD Pascal and SWTPC 6800 remain placeholders. The Apple II host test reaches the ROM's Integer BASIC prompt and executes `PRINT 2+2`; ROM redistribution rights and ESP32-S3 hardware behavior are not yet verified. A successful host test or firmware build is not evidence of successful execution on the ESP32-S3.
 
 Mind you: idf.py command is in
 ```
@@ -595,7 +595,7 @@ HOST-M1 is done when:
 27. main menu works again without RESET.
 28. no CPU emulator has been imported merely to complete HOST-M1.
 
-HOST-M1 was the pre-emulator baseline. The current implementation supersedes item 10 for menu choices 1 and 2: CP/M-80 and CP/M-86 are available when their required boot resources validate; choices 3–5 remain placeholders. This does not imply that ESP32-S3 hardware acceptance has been completed.
+HOST-M1 was the pre-emulator baseline. The current implementation supersedes item 10 for menu choices 1, 2 and 4: CP/M-80 and CP/M-86 are available when their required boot resources validate, and Apple II uses the 12 KiB system ROM copied from `assets/apple.rom`; UCSD Pascal and SWTPC 6800 remain placeholders. The diagnostic ROM is a host-test fixture only. This does not imply that ESP32-S3 hardware acceptance has been completed.
 
 ## 26. HOST-M1 tests
 
@@ -718,7 +718,7 @@ esp32s3-retro/
   designCPM80.md
   designCPM86.md
   designUCSD.md
-  designAppleII.md
+  designApple2.md
   designSWTPC.md
   main/
     main.c

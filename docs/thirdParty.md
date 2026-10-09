@@ -3,6 +3,7 @@
 | Dependency | Exact version / upstream commit | License | Reason / local modifications |
 | --- | --- | --- | --- |
 | ESP-IDF | v6.0.2 | Primarily Apache-2.0; see upstream component licenses | Required native framework; not vendored or modified |
+| floooh/chips `m6502.h` | `ee88c35ad6427341aa6999c3b07233e1f8bd2396` | zlib/libpng | NMOS 6502 cycle core for Apple II; unmodified source and license under `components/apple2Core/third_party/chips/` |
 | michmich/esp-idf-wifi-provisioner | 0.4.0 / 2c7aaa6aa0e319a429186ee470e137b8579f632f | GPL-3.0-or-later | Mandatory connection/provisioning component; unmodified registry source bundled |
 | joltwallet/littlefs | 1.20.3 / 8274371dc5912196f66ac3e71dbb6291760cb8b0 | MIT wrapper; bundled LittleFS BSD-3-Clause | LittleFS VFS and image generation; unmodified registry source bundled |
 | littlefs-python | 0.15.0 | See its upstream distribution license | Build-only dependency pinned by LittleFS image-building-requirements.txt; downloaded during build, not bundled |
@@ -10,6 +11,7 @@
 Primary references:
 
 - https://github.com/espressif/esp-idf/tree/v6.0.2
+- https://github.com/floooh/chips/tree/ee88c35ad6427341aa6999c3b07233e1f8bd2396
 - https://docs.espressif.com/projects/esp-idf/en/v6.0.2/esp32s3/
 - https://components.espressif.com/components/michmich/esp-idf-wifi-provisioner/versions/0.4.0/readme
 - https://github.com/MichMich/esp-idf-wifi-provisioner/tree/2c7aaa6aa0e319a429186ee470e137b8579f632f

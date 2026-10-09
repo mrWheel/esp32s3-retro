@@ -12,14 +12,63 @@ implemented for CP/M-86 only; do not assume it stops another emulator.
 ## CPU timing experiment
 
 The host logs cumulative elapsed time, CPU-core time, `vTaskDelay(1)` time,
-guest instruction count and batch count every 10 seconds. To compare execution
-with and without diagnostic overhead, open ESP-IDF menuconfig and toggle
-**CP/M-86 diagnostics → Capture instruction traces and opcode text**. It is
-enabled by default. With it disabled, the core does not collect instruction
-history or format fetched opcode bytes; CPU execution, the 4096-instruction
-batch size and scheduler delay remain unchanged. Rebuild and flash each
-configuration, then run the same guest workload and compare the timing logs.
-Trace-based failure diagnostics are unavailable when the option is disabled.
+guest instruction count and batch count every 10 seconds.
+
+### What the diagnostic option controls
+
+`cpm86CoreStep` decodes each newly reached guest instruction (REP iterations
+can reuse the decoded instruction). During decoding, EMU86 formats every
+fetched opcode byte with `snprintf` when text generation is enabled. The core
+also examines each decoded instruction for trace-worthy control-flow changes;
+it stores only selected entries, not every instruction. These operations run
+even though the periodic host timing log does not display the instruction
+trace.
+
+The **CP/M-86 diagnostics → Capture instruction traces and opcode text** option
+is enabled by default. When disabled, opcode text-buffer clearing and `snprintf`
+formatting are skipped. The decoder retains its fetched byte count and
+opcode-length bounds check so malformed/overlong instruction detection is
+unchanged. Trace candidate checks, trace memory reads, history writes and
+trace-only expected-PC updates are skipped. Instruction decoding, memory and
+execute-guard checks, invalid-instruction detection, I/O fault handling and CPU
+execution remain enabled. Failure traces are unavailable until the option is
+enabled again.
+
+### BENCH86 comparison
+
+Use the following user-measured 240 MHz results as the baseline. The 160 MHz
+figures are included for context; the historical reference values printed by
+BENCH86 are theoretical models, not measurements of original hardware.
+
+| BENCH86 test | 160 MHz baseline | 240 MHz baseline | 240 MHz, trace disabled |
+| --- | ---: | ---: | ---: |
+| INTEGER | 128.001 ms | 89.604 ms | 89.604 ms (same reported time) |
+| SIEVE | 53.830 ms | 36.653 ms | 36.653 ms (same reported time) |
+
+The user reports that disabling tracing produced exactly the same displayed
+times for both tests. This experiment therefore found no measurable BENCH86
+improvement at the displayed precision. It does not prove the disabled work
+has zero cost; the individual profile of `cpm86CoreRun` is the next
+investigation.
+
+To produce the trace-disabled firmware variant:
+
+1. Keep the ESP32-S3 CPU frequency at **240 MHz**. Do not change the batch size
+   (4096 guest instructions) or the existing `vTaskDelay(1)`.
+2. Open ESP-IDF menuconfig and turn off **CP/M-86 diagnostics → Capture
+   instruction traces and opcode text**.
+3. Build the firmware. Flash it yourself; firmware is not flashed as part of
+   this procedure.
+4. Run the same BENCH86 INTEGER and SIEVE tests on the same device and disk,
+   and record each displayed time and whether it reports PASS.
+5. Compare each result independently with its 240 MHz baseline above. Keep the
+   test configuration otherwise identical. Do not infer a speedup from a
+   firmware build or from BENCH86's historical reference models.
+
+The busy instruction count and elapsed-time increase observed after `@DONE
+PASS` while CP/M waits at its prompt is a separate follow-up: console polling
+is a plausible explanation, but is not confirmed. It is not changed by this
+trace experiment.
 
 `guest/cpm86/host/HOST.A86` is project-authored 8086 source for the native
 `HOST.CMD` transfer utility. It is not a translation of `HOST.COM` machine

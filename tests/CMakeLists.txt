@@ -17,6 +17,7 @@ add_executable(
   ../components/cpm86Core/third_party/emu86/op-exec.c
   ../components/cpm86Core/third_party/emu86/op-id-name.c
   ../components/cpm86Core/third_party/emu86/op-print-intel.c
+  ../components/apple2Core/apple2Core.c
   ../components/z80/z80.c
   ../main/cpm80DriveConfig.c
   ../main/cpm86DriveConfig.c
@@ -25,16 +26,21 @@ add_executable(
   ../main/imageFile.c
 )
 target_include_directories(hostTests PRIVATE ../components/hostCore/include ../components/cpm80Core/include
-  ../components/cpm86Core/include ../components/cpm86Core/third_party/emu86 ../components/z80 ../main)
+  ../components/cpm86Core/include ../components/cpm86Core/third_party/emu86 ../components/apple2Core/include
+  ../components/apple2Core/third_party/chips ../components/z80 ../main)
 target_compile_options(hostTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
 target_compile_definitions(
   hostTests PRIVATE PROJECT_ROOT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/.."
   CPM80_SYSTEM_IMAGE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm80/system.dsk.small"
   CPM86_SYSTEM_FILE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/cpm.sys"
   CPM86_SYSTEM_DISK_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/system.dsk.small"
-  CPM86_BIOS_OVERLAY_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/retro86bios.h86")
+  CPM86_BIOS_OVERLAY_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/retro86bios.h86"
+  APPLE2_TEST_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/apple2-diagnostic.rom"
+  APPLE2_SYSTEM_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple.rom")
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(hostTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(hostTests PRIVATE -fsanitize=address,undefined)
 endif()
 add_test(NAME hostCore COMMAND hostTests)
+add_test(NAME apple2Core COMMAND hostTests --apple2-core)
+add_test(NAME apple2SystemRom COMMAND hostTests --apple2-system-rom)

@@ -8,6 +8,7 @@
 #include "cpm86BiosOverlay.h"
 #include "cpm86DriveConfig.h"
 #include "storagePath.h"
+#include "apple2Core.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +17,146 @@
 #include <sys/stat.h>
 
 static size_t countOccurrences(const char *text, const char *needle);
+
+static void testApple2Core(void)
+{
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  FILE *romFile = fopen(APPLE2_TEST_ROM_PATH, "rb");
+  assert(romFile != NULL);
+  uint8_t testRom[apple2RomSize];
+  assert(fread(testRom, 1, sizeof(testRom), romFile) == sizeof(testRom));
+  assert(fgetc(romFile) == EOF);
+  assert(fclose(romFile) == 0);
+  assert(apple2CoreLoadRom(core, testRom, sizeof(testRom)) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 30000) == apple2CoreOk);
+  const char *title = "APPLE II PHASE 1 TEST ROM";
+  for (size_t index = 0; title[index] != '\0'; ++index)
+  {
+    uint8_t value;
+    assert(apple2CoreReadMemory(core, (uint16_t)(0x0400 + index), &value) == apple2CoreOk);
+    uint8_t expected = (title[index] >= 'A' && title[index] <= 'Z')
+                           ? (uint8_t)(title[index] - 'A' + 0xC1)
+                           : (uint8_t)(title[index] | 0x80);
+    if (value != expected)
+    {
+      fprintf(stderr, "Apple II title mismatch at %zu: got %02X expected %02X\n", index, value, expected);
+    }
+    assert(value == expected);
+  }
+  const char *prompt = "TYPE ON USB KEYBOARD:";
+  for (size_t index = 0; prompt[index] != '\0'; ++index)
+  {
+    uint8_t value;
+    assert(apple2CoreReadMemory(core, (uint16_t)(0x0480 + index), &value) == apple2CoreOk);
+    assert(value == ((prompt[index] >= 'A' && prompt[index] <= 'Z') ? prompt[index] - 'A' + 0xC1
+                                                                    : prompt[index] | 0x80));
+  }
+  assert(apple2CorePressKey(core, 'a') == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 100) == apple2CoreOk);
+  uint8_t echoedKey;
+  assert(apple2CoreReadMemory(core, 0x0500, &echoedKey) == apple2CoreOk && echoedKey == 0xC1);
+  apple2CoreDestroy(core);
+
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  uint8_t rom[apple2RomSize];
+  memset(rom, 0xEA, sizeof(rom));
+  const uint8_t program[] = {0xA9, 0xC1, 0x8D, 0x00, 0x04, 0xAD, 0x00, 0xC0, 0x8D, 0x01,
+                             0x04, 0xAD, 0x10, 0xC0, 0x8D, 0x02, 0x04, 0x4C, 0x11, 0xD0};
+  memcpy(rom, program, sizeof(program));
+  rom[0x2FFC] = 0x00;
+  rom[0x2FFD] = 0xD0;
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+  assert(apple2CorePressKey(core, 'b') == apple2CoreOk);
+  assert(apple2CoreKeyPending(core));
+  uint8_t value;
+  assert(apple2CoreReadMemory(core, 0xC000, &value) == apple2CoreOk && value == 0xC2);
+  assert(apple2CorePressKey(core, 'c') == apple2CoreKeyBusy);
+  assert(apple2CoreRunCycles(core, 64) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0x0400, &value) == apple2CoreOk && value == 0xC1);
+  assert(apple2CoreReadMemory(core, 0x0401, &value) == apple2CoreOk && value == 0xC2);
+  assert(!apple2CoreKeyPending(core));
+  assert(apple2CoreWriteMemory(core, 0xD000, 0) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0xA9);
+
+  assert(apple2CoreReadMemory(core, 0xC057, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC055, &value) == apple2CoreOk);
+  apple2VideoState video;
+  apple2CoreGetVideoState(core, &video);
+  assert(video.textMode && video.page2 && video.highResolution);
+  uint16_t address;
+  assert(apple2CoreTextAddress(false, 1, 0, &address) && address == 0x0480);
+  assert(apple2CoreTextAddress(false, 8, 0, &address) && address == 0x0428);
+  assert(apple2CoreTextAddress(true, 0, 39, &address) && address == 0x0827);
+  assert(!apple2CoreTextAddress(false, apple2TextRows, 0, &address));
+  apple2CoreDestroy(core);
+
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  memset(rom, 0, sizeof(rom));
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreInvalidRom);
+  apple2CoreDestroy(core);
+}
+
+static void testApple2SystemRom(void)
+{
+  FILE *romFile = fopen(APPLE2_SYSTEM_ROM_PATH, "rb");
+  assert(romFile != NULL);
+  uint8_t rom[apple2RomSize];
+  assert(fread(rom, 1, sizeof(rom), romFile) == sizeof(rom));
+  assert(fgetc(romFile) == EOF);
+  assert(fclose(romFile) == 0);
+
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 500000) == apple2CoreOk);
+
+  const char *command = "PRINT 2+2\r";
+  for (size_t index = 0; command[index] != '\0'; ++index)
+  {
+    assert(apple2CorePressKey(core, (uint8_t)command[index]) == apple2CoreOk);
+    for (size_t attempt = 0; attempt < 20 && apple2CoreKeyPending(core); ++attempt)
+    {
+      assert(apple2CoreRunCycles(core, 5000) == apple2CoreOk);
+    }
+    assert(!apple2CoreKeyPending(core));
+  }
+  assert(apple2CoreRunCycles(core, 50000) == apple2CoreOk);
+
+  bool bannerPresent = false;
+  bool commandEchoed = false;
+  bool basicResultPresent = false;
+  bool basicPromptPresent = false;
+  for (size_t row = 0; row < apple2TextRows; ++row)
+  {
+    char line[apple2TextColumns + 1];
+    for (size_t column = 0; column < apple2TextColumns; ++column)
+    {
+      uint8_t value;
+      assert(apple2CoreReadTextCell(core, false, row, column, &value) == apple2CoreOk);
+      line[column] = (char)(value & 0x7F);
+    }
+    line[apple2TextColumns] = '\0';
+    if (row == 0)
+    {
+      bannerPresent = strstr(line, "APPLE ][") != NULL;
+    }
+    else if (row == 2)
+    {
+      commandEchoed = strstr(line, "]PRINT 2+2") != NULL;
+    }
+    else if (row == 3)
+    {
+      basicResultPresent = line[0] == '4';
+    }
+    else if (row == 5)
+    {
+      basicPromptPresent = line[0] == ']';
+    }
+  }
+  assert(bannerPresent && commandEchoed && basicResultPresent && basicPromptPresent);
+  apple2CoreDestroy(core);
+}
 
 static void testPaths(void)
 {
@@ -638,6 +779,15 @@ static void testCpm86TimerPorts(void)
   size_t traceCount = 0;
   assert(cpm86CoreGetRecentTrace(core, trace, cpm86CoreTraceDepth, &traceCount) == cpm86CoreOk);
   assert(traceCount == 0);
+
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t invalidOpcode = 0x0F;
+  assert(cpm86CoreLoad(core, 0x20, &invalidOpcode, sizeof(invalidOpcode)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0x20) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreInvalidInstruction);
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0xFFFF, 0) == cpm86CoreOk);
+  assert(cpm86CoreStep(core) == cpm86CoreMemoryFault);
 
   assert(cpm86CoreReset(core) == cpm86CoreOk);
   const uint8_t snapshotProgram[] = {
@@ -3335,14 +3485,26 @@ static void testCpm80HostAssemble(void)
   assert(system(command) == 0);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+  if (argc == 2 && strcmp(argv[1], "--apple2-system-rom") == 0)
+  {
+    testApple2SystemRom();
+    return 0;
+  }
+  if (argc == 2 && strcmp(argv[1], "--apple2-core") == 0)
+  {
+    testApple2Core();
+    puts("PASS: Apple II 6502, memory map, keyboard and video switches");
+    return 0;
+  }
   if (getenv("CPM80_HOST_ASM_OUTPUT") != NULL)
   {
     testCpm80HostAssemble();
     return 0;
   }
   testPaths();
+  testApple2Core();
   testHostExchange();
   testCpm86Core();
   testCpm86Boot();
@@ -3360,6 +3522,6 @@ int main(void)
   testCpm80HostAssemble();
   testCpm80LargeSystemBoot();
   testCpm86LargeSystemBoot();
-  puts("PASS: host utilities, Z80 and 8086 CPU fixtures, CP/M-86 boot and DIR");
+  puts("PASS: host utilities, 6502/Z80/8086 CPU fixtures, CP/M-86 boot and DIR");
   return 0;
 }

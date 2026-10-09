@@ -2,6 +2,7 @@
 #include "cpm80Guest.h"
 #include "cpm80Machine.h"
 #include "cpm86Machine.h"
+#include "apple2Machine.h"
 #include "storage.h"
 #include <stdio.h>
 #include <sys/stat.h>
@@ -54,8 +55,8 @@ static const retroMachine machines[] = {
      cpm86MachineRun},
     {"UCSD Pascal", "ucsd", "designUCSD.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
      runPlaceholder},
-    {"Apple II", "apple2", "designAppleII.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
-     runPlaceholder},
+    {"Apple II", "apple2", "designApple2.md", true, false, NULL, 0, apple2MachineProbe, apple2MachineInitialize,
+     apple2MachineRun},
     {"SWTPC 6800", "swtpc", "designSWTPC.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
      runPlaceholder}};
 

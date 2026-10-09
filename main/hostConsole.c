@@ -1,10 +1,12 @@
 #include "hostConsole.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include <stdio.h>
 #include <string.h>
 
+static const char *tag = "hostConsole";
 static int pendingCharacter = -1;
 
 esp_err_t hostConsoleInit(void)
@@ -64,7 +66,36 @@ void hostConsolePutChar(char value)
   usb_serial_jtag_write_bytes(&value, 1, pdMS_TO_TICKS(100));
 }
 
-void hostConsoleWrite(const char *text)
+bool hostConsoleWrite(const char *text)
 {
-  usb_serial_jtag_write_bytes(text, strlen(text), pdMS_TO_TICKS(100));
+  size_t totalSize = strlen(text);
+  size_t remaining = totalSize;
+  size_t writtenTotal = 0;
+  unsigned stalledWrites = 0;
+  while (remaining > 0)
+  {
+    size_t chunkSize = remaining > 128 ? 128 : remaining;
+    int written = usb_serial_jtag_write_bytes(text, chunkSize, pdMS_TO_TICKS(100));
+    if (written < 0 || (size_t)written > chunkSize)
+    {
+      ESP_LOGE(tag, "USB console write returned invalid count %d for %u requested bytes",
+               written, (unsigned)chunkSize);
+      return false;
+    }
+    if (written == 0)
+    {
+      if (++stalledWrites > 3 || usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(1000)) != ESP_OK)
+      {
+        ESP_LOGE(tag, "USB console write stalled after %u of %u bytes", (unsigned)writtenTotal,
+                 (unsigned)totalSize);
+        return false;
+      }
+      continue;
+    }
+    stalledWrites = 0;
+    text += (size_t)written;
+    remaining -= (size_t)written;
+    writtenTotal += (size_t)written;
+  }
+  return true;
 }

@@ -7,4 +7,4 @@ int hostConsoleGetChar(void);
 int hostConsolePeekChar(void);
 bool hostConsoleCharAvailable(void);
 void hostConsolePutChar(char value);
-void hostConsoleWrite(const char *text);
+bool hostConsoleWrite(const char *text);

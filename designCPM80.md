@@ -10,7 +10,7 @@ Deliver a practical software-development CP/M machine: command line, editors, as
 
 ## Project-wide contract
 
-`projectPrompt.md` is the authority for host architecture and coding rules. Its latest recovered revision was delivered as `projectPrompt_v2.md`; use the canonical name in the project. These documents specialize that contract, not replace it. Companion documents are `designCPM80.md`, `designCPM86.md`, `designUCSD.md`, `designAppleII.md`and `designSWTPC.md`.
+`projectPrompt.md` is the authority for host architecture and coding rules. Its latest recovered revision was delivered as `projectPrompt_v2.md`; use the canonical name in the project. These documents specialize that contract, not replace it. Companion documents are `designCPM80.md`, `designCPM86.md`, `designUCSD.md`, `designApple2.md`and `designSWTPC.md`.
 
 The fixed main menu is:
 

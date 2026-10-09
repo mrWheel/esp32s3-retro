@@ -11,10 +11,10 @@ The goal is to bring together the character of several classic systems in a comp
 | CP/M-80 | Integrated. Guest boot and command behavior have host-test coverage. The CP/M-80 design log records a user report of running it on an ESP32-S3; repeatable hardware and SD-drive acceptance is still outstanding. |
 | CP/M-86 | Integrated. Guest boot has host-test coverage and the ESP-IDF firmware build succeeds. It has not been flashed; hardware boot, performance and broader compatibility remain unverified. |
 | UCSD Pascal | Planned; currently a menu placeholder. |
-| Apple II | Planned; currently a menu placeholder. |
+| Apple II | Phase 1 motherboard emulator integrated with a 12 KiB Apple ][ system ROM from `assets/apple.rom`; the host test boots Integer BASIC and evaluates `PRINT 2+2`. Hardware acceptance is unverified. |
 | SWTPC 6800 | Planned; currently a menu placeholder. |
 
-The current menu can start CP/M-80 and CP/M-86 when their required LittleFS resources validate. A host test or successful firmware build does not, by itself, prove operation on the physical board. See the machine-specific design records and [verification log](docs/verification.md) for exact evidence and remaining work.
+The current menu can start CP/M-80 and CP/M-86 when their required LittleFS resources validate, and Apple II with `littlefs/apple2/apple2.rom`, sourced from `assets/apple.rom`. The system ROM boots to its `APPLE ][` prompt and the host-side CPU test executes an Integer BASIC expression; ROM redistribution rights and physical-board behavior remain unverified. Apple II phase 1 does not include a Language Card, expansion video card, disk controller or graphics rendering. A separate project-authored diagnostic ROM remains available as a host-test fixture. A host test or successful firmware build does not, by itself, prove operation on the physical board. See the machine-specific design records and [verification log](docs/verification.md) for exact evidence and remaining work.
 
 ## Shared host features
 
@@ -84,8 +84,9 @@ For complete instructions, image profiles and resource-rights guidance, see [Hos
 ## Project map
 
 - [`projectPrompt.md`](projectPrompt.md) — shared host architecture, behavior and implementation rules.
-- [`designCPM80.md`](designCPM80.md), [`designCPM86.md`](designCPM86.md) — implemented guest-system designs, constraints and verification records.
-- [`designUCSD.md`](designUCSD.md), [`designAppleII.md`](designAppleII.md), [`designSWTPC.md`](designSWTPC.md) — designs for the remaining systems.
+- [`designCPM80.md`](designCPM80.md) — implemented guest-system designs, constraints and verification records.
+- [`designCPM86.md`](designCPM86.md) — implemented guest-system designs, constraints and verification records.
+- [`designUCSD.md`](designUCSD.md), [`designApple2.md`](designApple2.md), [`designSWTPC.md`](designSWTPC.md) — designs for the remaining systems.
 - [`main/`](main/) — firmware startup, machine registry, storage, console and file-transfer host.
 - [`components/`](components/) — guest CPU/system cores and shared host components.
 - [`littlefs/`](littlefs/) — firmware-packaged boot resources.

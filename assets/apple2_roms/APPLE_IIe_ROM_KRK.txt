@@ -1,0 +1,11 @@
+Begin3
+Title: APPLE_IIe_ROM_KRK.zip          
+Author: Eric Neilson        
+Version: Rev. C      
+Entered-date: 01/27/09  
+Description: This is an updated cracked Apple IIe ROM image that will enable youto break into the Monitor at any time and examine memory. The original version of the ROM hack overwrote critical monitor routines on Apple IIe's.
+Minor change from V2 for real-world operation
+Uploader: Eric Neilson        
+Primary-site: ftp.asimov.net /pub/apple_II/emulators/rom_images  
+Platform: Apple ][e     
+End

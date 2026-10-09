@@ -336,10 +336,10 @@ cpm86CoreResult cpm86CoreStep(cpm86Core *core)
           ++core->traceCount;
         }
       }
+      core->expectedSegment = op_code_seg;
+      core->expectedOffset = op_code_off;
+      core->expectedValid = decodeResult == 0;
     }
-    core->expectedSegment = op_code_seg;
-    core->expectedOffset = op_code_off;
-    core->expectedValid = decodeResult == 0;
     if (decodeResult != 0 || op_code_null)
     {
       return mem_fault ? cpm86CoreMemoryFault : cpm86CoreInvalidInstruction;
