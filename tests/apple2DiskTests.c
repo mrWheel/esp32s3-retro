@@ -736,6 +736,13 @@ static void testDosBoot(const char *imagePath, bool runProgram)
     printf("load: programEnd=$%04X (program bytes=%u)\n", programEnd, programEnd - 0x0801U);
     assert(programEnd > 0x0801);
 
+    //-- CATALOG and LOAD only read: no write attempt may reach the Disk II (it would light the red LED).
+    typeText(core, "CATALOG\r");
+    assert(apple2CoreRunCycles(core, 3000000) == apple2CoreOk);
+    assert(screenContains(core, "TEST-NONGR"));
+    apple2CoreGetDiskState(core, &state);
+    assert(state.writeAttempts == 0);
+
     typeText(core, "RUN\r");
     for (int step = 0; step < 40 && !screenContains(core, "ALL SYSTEM TESTS OK"); ++step)
     {
