@@ -351,8 +351,8 @@ def _file_sectors(image, entry, vtoc):
     return data_sectors + list_sectors
 
 
-def remove_files(image, filenames, allow_locked=False):
-    """Remove explicitly named files from a DOS 3.3 image copy; locked files need allow_locked."""
+def remove_files(image, filenames):
+    """Remove explicitly named unlocked files from a DOS 3.3 image copy."""
     image = bytearray(image)
     inspect_image(image)
     vtoc_offset, vtoc, catalog_track, catalog_sector = _read_vtoc(image)
@@ -367,7 +367,7 @@ def remove_files(image, filenames, allow_locked=False):
         if filename not in entries_by_name:
             raise DiskImageError(f"{filename} does not exist on the Apple II disk")
         entry_offset, entry = entries_by_name[filename]
-        if entry[2] & 0x80 and not allow_locked:
+        if entry[2] & 0x80:
             raise DiskImageError(f"Refusing to remove locked Apple DOS file: {filename}")
         files_to_remove.append((filename, entry_offset, entry))
 

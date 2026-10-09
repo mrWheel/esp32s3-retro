@@ -586,20 +586,51 @@ static void typeText(apple2Core *core, const char *text)
   }
 }
 
-static bool screenContains(apple2Core *core, const char *text)
+//-- Reads one row of whichever screen is active: the 80-column card when selected, else the 40-column page.
+static size_t readActiveRow(apple2Core *core, size_t row, char *line, size_t lineSize)
 {
   apple2VideoState video;
   apple2CoreGetVideoState(core, &video);
-  for (size_t row = 0; row < apple2TextRows; ++row)
+  size_t columns = video.videxTextMode ? apple2VidexTextColumns : apple2TextColumns;
+  assert(lineSize > columns);
+  for (size_t column = 0; column < columns; ++column)
   {
-    char line[apple2TextColumns + 1];
-    for (size_t column = 0; column < apple2TextColumns; ++column)
+    uint8_t value;
+    if (video.videxTextMode)
     {
-      uint8_t value;
+      assert(apple2CoreReadVidexTextCell(core, row, column, &value) == apple2CoreOk);
+      line[column] = (char)(value & 0x7F);
+    }
+    else
+    {
       assert(apple2CoreReadTextCell(core, video.page2, row, column, &value) == apple2CoreOk);
       line[column] = apple2CoreDecodeTextCharacter(core, value);
     }
-    line[apple2TextColumns] = '\0';
+  }
+  line[columns] = '\0';
+  return columns;
+}
+
+static size_t activeRowCount(apple2Core *core)
+{
+  apple2VideoState video;
+  apple2CoreGetVideoState(core, &video);
+  return video.videxTextMode ? apple2VidexTextRows : apple2TextRows;
+}
+
+static bool isVidexActive(apple2Core *core)
+{
+  apple2VideoState video;
+  apple2CoreGetVideoState(core, &video);
+  return video.videxTextMode;
+}
+
+static bool screenContains(apple2Core *core, const char *text)
+{
+  for (size_t row = 0; row < activeRowCount(core); ++row)
+  {
+    char line[apple2VidexTextColumns + 1];
+    readActiveRow(core, row, line, sizeof(line));
     if (strstr(line, text) != NULL)
     {
       return true;
@@ -610,18 +641,10 @@ static bool screenContains(apple2Core *core, const char *text)
 
 static void dumpScreen(apple2Core *core)
 {
-  apple2VideoState video;
-  apple2CoreGetVideoState(core, &video);
-  for (size_t row = 0; row < apple2TextRows; ++row)
+  for (size_t row = 0; row < activeRowCount(core); ++row)
   {
-    char line[apple2TextColumns + 1];
-    for (size_t column = 0; column < apple2TextColumns; ++column)
-    {
-      uint8_t value;
-      assert(apple2CoreReadTextCell(core, video.page2, row, column, &value) == apple2CoreOk);
-      line[column] = apple2CoreDecodeTextCharacter(core, value);
-    }
-    line[apple2TextColumns] = '\0';
+    char line[apple2VidexTextColumns + 1];
+    readActiveRow(core, row, line, sizeof(line));
     printf("|%s|\n", line);
   }
 }
@@ -677,7 +700,7 @@ static void testDosBoot(const char *imagePath, bool runProgram)
   for (int step = 0; step < 60 && !booted; ++step)
   {
     assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
-    booted = screenContains(core, "FILE NOT FOUND");
+    booted = isVidexActive(core) && screenContains(core, "]");
   }
   apple2DiskState state;
   apple2CoreGetDiskState(core, &state);
@@ -692,11 +715,12 @@ static void testDosBoot(const char *imagePath, bool runProgram)
 
   if (runProgram)
   {
-    //-- The system disk has no HELLO file, so DOS reports FILE NOT FOUND once; clear it before the real checks.
-    assert(apple2CoreRunCycles(core, 4000000) == apple2CoreOk);
+    //-- HELLO (PR#3) switched DOS to the 80-column card at boot and no error was reported.
+    assert(isVidexActive(core));
+    assert(!screenContains(core, "NOT FOUND"));
     typeText(core, "HOME\r");
     assert(apple2CoreRunCycles(core, 200000) == apple2CoreOk);
-    assert(!screenContains(core, "NOT FOUND"));
+    assert(isVidexActive(core));
     uint32_t readsBeforeLoad = state.sectorReads;
     typeText(core, "LOAD TEST-NONGR\r");
     assert(apple2CoreRunCycles(core, 6000000) == apple2CoreOk);
@@ -713,10 +737,32 @@ static void testDosBoot(const char *imagePath, bool runProgram)
     assert(programEnd > 0x0801);
 
     typeText(core, "RUN\r");
-    assert(apple2CoreRunCycles(core, 6000000) == apple2CoreOk);
+    for (int step = 0; step < 40 && !screenContains(core, "ALL SYSTEM TESTS OK"); ++step)
+    {
+      assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    }
     printf("screen after RUN:\n");
     dumpScreen(core);
     assert(screenContains(core, "ALL SYSTEM TESTS OK"));
+    assert(isVidexActive(core));
+
+    //-- PR#0 returns to the 40-column screen and clears it; PR#3 comes back with a cleared 80-column screen.
+    typeText(core, "PR#0\r");
+    assert(apple2CoreRunCycles(core, 400000) == apple2CoreOk);
+    assert(!isVidexActive(core));
+    typeText(core, "PRINT \"BACK40\"\r");
+    assert(apple2CoreRunCycles(core, 400000) == apple2CoreOk);
+    assert(screenContains(core, "BACK40"));
+    typeText(core, "PR#3\r");
+    assert(apple2CoreRunCycles(core, 400000) == apple2CoreOk);
+    assert(isVidexActive(core));
+    typeText(core, "HOME\r");
+    assert(apple2CoreRunCycles(core, 400000) == apple2CoreOk);
+    typeText(core, "VTAB 5: HTAB 10: PRINT \"POSX\"\r");
+    assert(apple2CoreRunCycles(core, 400000) == apple2CoreOk);
+    char positionedRow[apple2VidexTextColumns + 1];
+    readActiveRow(core, 4, positionedRow, sizeof(positionedRow));
+    assert(strncmp(positionedRow + 9, "POSX", 4) == 0);
   }
   apple2CoreGetDiskState(core, &state);
   assert(state.writeAttempts == 0);

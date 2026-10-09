@@ -348,33 +348,6 @@ class CreateSystemDskTests(unittest.TestCase):
         entry = image[catalog_offset + 0x0B : catalog_offset + 0x0B + 35]
         self.assertEqual(entry[2], diskImageApple2Dos33.FILE_TYPES[".BAS"])
 
-    def test_apple2_remove_all_existing_removes_locked_files_and_keeps_new_ones(self):
-        base_image = self.root / "dos33-remove-all-base.do"
-        self._create_apple2_base_image(base_image)
-        image = bytearray(base_image.read_bytes())
-        vtoc_offset, vtoc, catalog_track, catalog_sector = diskImageApple2Dos33._read_vtoc(image)
-        for name, file_type in (("HELLO", 0x82), ("OLD", 0x00)):
-            diskImageApple2Dos33._write_file(image, vtoc, name, b"old", file_type, catalog_track, catalog_sector)
-        image[vtoc_offset : vtoc_offset + diskImageApple2Dos33.SECTOR_SIZE] = vtoc
-        base_image.write_bytes(bytes(image))
-        source_dir = self.root / "apple2-remove-all-source"
-        source_dir.mkdir()
-        (source_dir / "NEW.TXT").write_bytes(b"new\n")
-        output_path = self.root / "remove-all-output.dsk"
-
-        with self.assertRaisesRegex(createSystemDsk.DiskImageError, "locked"):
-            diskImageApple2Dos33.remove_files(bytes(image), ["HELLO"])
-        createSystemDsk.create_system_disk(
-            "apple2",
-            "DOS33",
-            output_path,
-            source_dir=source_dir,
-            base_image=base_image,
-            remove_all_existing=True,
-        )
-
-        self.assertEqual(diskImageApple2Dos33.inspect_image(output_path.read_bytes()), ["NEW.TXT"])
-
     def test_apple2_removes_only_requested_unlocked_file_and_reclaims_sectors(self):
         base_image = self.root / "dos33-remove-base.do"
         self._create_apple2_base_image(base_image)
@@ -491,14 +464,15 @@ class CreateSystemDskTests(unittest.TestCase):
         self.assertEqual(image[second_list + 5 : second_list + 7], (122).to_bytes(2, "little"))
         self.assertEqual(image[second_list + 1 : second_list + 3], b"\x00\x00")
 
-    def test_apple2_cli_requires_explicit_base_image(self):
-        with self.assertRaisesRegex(createSystemDsk.DiskImageError, "user-supplied"):
-            createSystemDsk.create_system_disk(
-                "apple2",
-                "DOS33",
-                self.root / "apple2.dsk",
-                source_dir=self.source_dir,
-            )
+    def test_apple2_default_base_is_the_empty_dos_image(self):
+        source_dir = self.root / "apple2-default-base-source"
+        source_dir.mkdir()
+        (source_dir / "NEW.TXT").write_bytes(b"new\n")
+        output_path = self.root / "default-base.dsk"
+
+        createSystemDsk.create_system_disk("apple2", "DOS33", output_path, source_dir=source_dir)
+
+        self.assertEqual(diskImageApple2Dos33.inspect_image(output_path.read_bytes()), ["NEW.TXT"])
 
     def test_apple2_cli_adds_files_to_supplied_base(self):
         source_dir = self.root / "apple2-cli-source"

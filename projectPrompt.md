@@ -305,7 +305,7 @@ Historical floppy images remain supported, but the host must also support large 
 
 The generic image layer supports open, close, size, bounded read-at-offset, write-at-offset, flush and read-only mode. Stream I/O; do not load an entire image into RAM.
 
-The shared host disk-activity indicator uses the LOLIN S3 Pro WS2812B RGB LED on GPIO 38. The current CP/M-80 and CP/M-86 disk-record paths signal green for reads and red for writes; the LED turns off 120 ms after the most recent activity. This is guest disk-record activity feedback, not an indicator for every host filesystem access.
+The shared host disk-activity indicator uses the LOLIN S3 Pro WS2812B RGB LED on GPIO 38. The current CP/M-80 and CP/M-86 disk-record paths signal green for reads and red for writes; the read-only Apple II Disk II signals green for sector reads and red only for a refused write attempt; the LED turns off 120 ms after the most recent activity. This is guest disk-record activity feedback, not an indicator for every host filesystem access.
 
 The machine design, not this file, determines guest sector size, geometry, block size, maximum capacity, filesystem limits and bootability.
 

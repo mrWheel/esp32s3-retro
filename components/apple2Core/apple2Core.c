@@ -69,6 +69,7 @@ struct apple2Core
   apple2VideoState video;
   bool cpuBusAccess;
   bool videxWorkspaceActive;
+  bool videxOutputSelected;
   bool lowercaseCharacterRom;
   bool lowercaseKeyboard;
   bool romLoaded;
@@ -102,6 +103,15 @@ static void beginVidexWorkspace(apple2Core *core)
   {
     memcpy(core->videxSavedWorkspace, &core->ram[0x0006], sizeof(core->videxSavedWorkspace));
     core->videxWorkspaceActive = true;
+    //-- HTAB/VTAB (and the monitor) move the cursor through CH/CV; the card follows them like real 80-column firmware.
+    if (core->ram[0x0024] < apple2VidexTextColumns)
+    {
+      core->videxWorkspace[0] = core->ram[0x0024];
+    }
+    if (core->ram[0x0025] < apple2VidexTextRows)
+    {
+      core->videxWorkspace[1] = core->ram[0x0025];
+    }
   }
 }
 
@@ -111,12 +121,46 @@ static void endVidexWorkspace(apple2Core *core)
   {
     memcpy(&core->ram[0x0006], core->videxSavedWorkspace, sizeof(core->videxSavedWorkspace));
     core->videxWorkspaceActive = false;
+    core->ram[0x0024] = core->videxWorkspace[0];
+    core->ram[0x0025] = core->videxWorkspace[1];
   }
 }
 
 static bool isVidexOutputSelected(const apple2Core *core)
 {
-  return core->ram[0x0036] == 0xB3 && core->ram[0x0037] == 0xC8;
+  return core->videxOutputSelected;
+}
+
+//-- True while a two-byte vector update is half done, i.e. one byte belongs to a known vector.
+static bool isTransientOutputVector(uint16_t vector)
+{
+  static const uint16_t knownVectors[] = {0xFDF0, 0xC8B3, 0x9EBD};
+  for (size_t index = 0; index < sizeof(knownVectors) / sizeof(knownVectors[0]); ++index)
+  {
+    if ((vector & 0xFF) == (knownVectors[index] & 0xFF) || (vector >> 8) == (knownVectors[index] >> 8))
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+//-- Apple DOS 3.3 (48K) swaps the output vector for its own hook ($9EBD) and keeps the real one at $AA53/$AA54.
+//-- Half-written vectors are ignored so a hook swap never looks like a switch between the two screens.
+static bool updateVidexOutputSelection(apple2Core *core)
+{
+  uint16_t vector = (uint16_t)(core->ram[0x0036] | ((uint16_t)core->ram[0x0037] << 8));
+  bool dosHoldsVidex = core->ram[0xAA53] == 0xB3 && core->ram[0xAA54] == 0xC8;
+  bool selected = core->videxOutputSelected;
+  if (vector == 0xC8B3 || (vector == 0x9EBD && dosHoldsVidex))
+  {
+    selected = true;
+  }
+  else if (vector == 0xFDF0 || vector == 0x9EBD || !isTransientOutputVector(vector))
+  {
+    selected = false;
+  }
+  return selected;
 }
 
 static void clearSelectedDisplay(apple2Core *core, bool videxSelected)
@@ -127,6 +171,12 @@ static void clearSelectedDisplay(apple2Core *core, bool videxSelected)
     memset(core->videxWorkspace, 0, sizeof(core->videxWorkspace));
     return;
   }
+
+  //-- Back on the motherboard screen the cursor starts at home with a matching base address.
+  core->ram[0x0024] = 0;
+  core->ram[0x0025] = 0;
+  core->ram[0x0028] = 0x00;
+  core->ram[0x0029] = 0x04;
 
   for (size_t row = 0; row < apple2TextRows; ++row)
   {
@@ -306,8 +356,7 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   }
   else if (address < apple2RamSize)
   {
-    bool isOutputVectorAddress = address == 0x0036 || address == 0x0037;
-    bool wasVidexSelected = isOutputVectorAddress && isVidexOutputSelected(core);
+    bool isOutputVectorAddress = address == 0x0036 || address == 0x0037 || address == 0xAA53 || address == 0xAA54;
     if (address >= 0x0400 && address <= 0x0BFF)
     {
       value = preserveLowercaseEcho(core, value, false);
@@ -315,9 +364,10 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
     core->ram[address] = value;
     if (isOutputVectorAddress)
     {
-      bool videxSelected = isVidexOutputSelected(core);
-      if (videxSelected != wasVidexSelected)
+      bool videxSelected = updateVidexOutputSelection(core);
+      if (videxSelected != core->videxOutputSelected)
       {
+        core->videxOutputSelected = videxSelected;
         clearSelectedDisplay(core, videxSelected);
       }
     }
@@ -415,6 +465,7 @@ apple2CoreResult apple2CoreReset(apple2Core *core)
   memset(core->videxWorkspace, 0, sizeof(core->videxWorkspace));
   memset(core->videxSavedWorkspace, 0, sizeof(core->videxSavedWorkspace));
   core->videxWorkspaceActive = false;
+  core->videxOutputSelected = false;
   core->videxRamBank = 0;
   core->videxRegisterAddress = 0;
   core->keyboardData = 0;
@@ -451,6 +502,13 @@ apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
     else
     {
       writeAddress(core, address, M6502_GET_DATA(core->pins));
+    }
+    //-- The monitor HOME routine only knows the 40-column page; clear the card screen when it is selected.
+    if ((core->pins & M6502_SYNC) != 0 && address == 0xFC58 && core->videxOutputSelected)
+    {
+      clearSelectedDisplay(core, true);
+      core->ram[0x0024] = 0;
+      core->ram[0x0025] = 0;
     }
     endVidexWorkspace(core);
     core->cpuBusAccess = false;
@@ -539,7 +597,7 @@ void apple2CoreGetVideoState(const apple2Core *core, apple2VideoState *state)
   if (core != NULL && state != NULL)
   {
     *state = core->video;
-    state->videxTextMode = core->video.videxTextMode && core->ram[0x0036] == 0xB3 && core->ram[0x0037] == 0xC8;
+    state->videxTextMode = core->video.videxTextMode && isVidexOutputSelected(core);
   }
 }
 
@@ -581,7 +639,7 @@ apple2CoreResult apple2CoreReadVidexTextCell(const apple2Core *core, size_t row,
 bool apple2CoreGetVidexCursor(const apple2Core *core, size_t *row, size_t *column)
 {
   if (core == NULL || row == NULL || column == NULL || !core->video.videxTextMode ||
-      core->ram[0x0036] != 0xB3 || core->ram[0x0037] != 0xC8)
+      !isVidexOutputSelected(core))
   {
     return false;
   }

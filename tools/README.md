@@ -47,8 +47,8 @@ destination. The destination image is replaced when the build succeeds:
 python3 tools/createSystemDsk.py --os cpm80 --profile SMALL
 python3 tools/createSystemDsk.py --os cpm80 --profile LARGE
 python3 tools/createSystemDsk.py --os cpm86 --profile SMALL
-python3 tools/createSystemDsk.py --os apple2 --profile DOS33 --base-image ~/licensed/Apple-DOS-3.3.do
-python3 tools/createSystemDsk.py --os apple2 --profile DOS33 --base-image ~/licensed/Apple-DOS-3.3.do --binary-load-address 0x800
+python3 tools/createSystemDsk.py --os apple2 --profile DOS33
+python3 tools/createSystemDsk.py --os apple2 --profile DOS33 --binary-load-address 0x800
 ```
 
 Executable files (`.COM` for CP/M-80 and `.CMD` for CP/M-86) are installed
@@ -70,23 +70,20 @@ image plus the source directory only (never from an older `system.dsk`), so
 The builder validates these runtime files but does not put them on A::
 firmware loads them directly from LittleFS. In particular, the duplicate
 `CPM.SYS` is never placed on the generated CP/M-86 A: image.
-For Apple II, `createSystemDsk.py` copies a user-supplied 143,360-byte
-DOS 3.3-order base image, adds files from `bootDisks/apple2/systemDsk/`, and
-writes `littlefs/apple2/system.dsk` by default. Use `--source-dir` to select
-another file folder and `--output` to choose the destination. For a bootable
-output, the base image must already contain a bootable DOS 3.3 system. The
-builder validates its geometry and catalog but cannot establish that its boot
-sectors are functional, so a valid catalog alone does not prove the output is
-bootable.
+For Apple II, `createSystemDsk.py` copies the base image
+`bootDisks/apple2/dos33Empty.dsk` (a 143,360-byte DOS 3.3-order image with the
+DOS boot tracks and an empty catalog; Applesoft itself is in the ROM), adds every
+file from `bootDisks/apple2/systemDsk/` and writes `littlefs/apple2/system.dsk`
+by default. Use `--source-dir` to select another file folder, `--output` to
+choose the destination and `--base-image` to use another bootable 143,360-byte
+DOS 3.3 base image. The builder validates the geometry and catalog of the base
+but cannot establish that its boot sectors are functional. The base image is
+never modified.
 Use repeatable `--remove-existing "FILENAME"` options to free space by removing
-explicitly selected, unlocked files from the copied base image before adding
-the source files. Locked files are refused and the supplied base image is never
-modified. For example, the `Apple DOS 3.3P.dsk` base can make room for the
-test program by removing `LOCKSMITH 4.1`. `--remove-all-existing` removes every
-file of the copied base image, locked files included, and leaves the DOS boot
-tracks in place.
-The tool does not fetch or bundle a base image; only use one you are authorized
-to use.
+explicitly selected, unlocked files from a copied (non-empty) base image before
+adding the source files; locked files are refused.
+`bootDisks/apple2/dos33Empty.dsk` was derived once from `assets/Apple DOS 3.3P.dsk`
+by deleting every catalog entry; only use a base image you are authorized to use.
 
 Apple DOS filenames support `.TXT` (DOS text; line endings become carriage
 returns and Applesoft listings can be entered with `EXEC NAME.TXT`, then

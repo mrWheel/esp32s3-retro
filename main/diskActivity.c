@@ -46,7 +46,7 @@ static esp_err_t setColor(diskActivityColor color)
   result = rmt_tx_wait_all_done(txChannel, 100);
   if (result == ESP_OK)
   {
-    esp_rom_delay_us(80);
+    esp_rom_delay_us(300);
   }
   return result;
 }
@@ -55,6 +55,7 @@ static void activityTask(void *context)
 {
   (void)context;
   diskActivityColor color = diskActivityOff;
+  diskActivityColor shownColor = diskActivityOff;
   TickType_t timeout = portMAX_DELAY;
   if (setColor(color) != ESP_OK)
   {
@@ -67,10 +68,15 @@ static void activityTask(void *context)
     if (xQueueReceive(activityQueue, &nextColor, timeout) == pdTRUE)
     {
       color = nextColor;
-      esp_err_t result = setColor(color);
-      if (result != ESP_OK)
+      //-- A continuous stream of reads must not keep re-sending the same colour; only a change is transmitted.
+      if (color != shownColor)
       {
-        ESP_LOGW(tag, "Could not update RGB LED: %s", esp_err_to_name(result));
+        esp_err_t result = setColor(color);
+        if (result != ESP_OK)
+        {
+          ESP_LOGW(tag, "Could not update RGB LED: %s", esp_err_to_name(result));
+        }
+        shownColor = color;
       }
       timeout = pdMS_TO_TICKS(DISK_ACTIVITY_HOLD_MS);
       if (timeout == 0)
@@ -86,6 +92,7 @@ static void activityTask(void *context)
       {
         ESP_LOGW(tag, "Could not turn off RGB LED: %s", esp_err_to_name(result));
       }
+      shownColor = color;
       timeout = portMAX_DELAY;
     }
   }

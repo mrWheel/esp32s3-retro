@@ -4,17 +4,15 @@ SHA-256: 378ba00c86a64cca49cedaca7de8d5d351983ebc295d9d11e0752febfc346249
 It boots the Apple ][ monitor and Integer BASIC in the host-side Apple II core
 test. The ROM image's redistribution license has not been verified.
 
-system.dsk is generated from assets/Apple DOS 3.3P.dsk with:
-  PYTHONPATH=tools python3 tools/createSystemDsk.py --os apple2 --profile DOS33 --base-image "assets/Apple DOS 3.3P.dsk" --remove-all-existing
+system.dsk is generated from the empty DOS 3.3P base bootDisks/apple2/dos33Empty.dsk
+(boot tracks only, empty catalog; Applesoft itself is in the ROM) with:
+  PYTHONPATH=tools python3 tools/createSystemDsk.py --os apple2 --profile DOS33
 
-The generated DOS 3.3 image keeps only the bootable DOS system tracks from the
-base (Applesoft itself is in the ROM) and removes every base file, locked ones
-included. The only catalog entry is TEST-NONGR, a tokenized Applesoft file (DOS
-type A). In DOS, use LOAD TEST-NONGR, then RUN. The source listing is
-bootDisks/apple2/systemDsk/TEST-NONGR.BAS; empty that directory (README.md
-excepted) for a completely empty disk. The builder does not modify the supplied
-base image. Because the disk has no HELLO file, DOS prints FILE NOT FOUND once
-at boot and then shows the ] prompt.
+Everything in bootDisks/apple2/systemDsk is written to the disk: HELLO (the
+greeting program, `PRINT CHR$(4);"PR#3"`, so DOS switches to the 80-column card
+at boot and no FILE NOT FOUND appears) and TEST-NONGR, a tokenized Applesoft
+file (DOS type A). In DOS, use LOAD TEST-NONGR, then RUN. The builder does not
+modify the base image; --base-image selects another base.
 
 The Apple II runtime has a read-only, project-authored Disk II controller
 (slot 6, drive 1, 16-sector DOS 3.3) that reads this file sector by sector. In

@@ -382,6 +382,9 @@ void apple2MachineRun(void)
                                     configTICK_RATE_HZ);
   bool skipLineFeed = hostConsolePeekChar() == '\n';
   int64_t lastRenderUs = 0;
+  apple2DiskState diskState;
+  apple2CoreGetDiskState(guestCore, &diskState);
+  uint32_t seenWriteAttempts = diskState.writeAttempts;
   while (true)
   {
     handleInput(&skipLineFeed);
@@ -390,6 +393,13 @@ void apple2MachineRun(void)
       ESP_LOGE(tag, "6502 execution stopped");
       releaseDisk();
       return;
+    }
+    //-- The disk is read-only: green burns for every read, red only for a refused write attempt.
+    apple2CoreGetDiskState(guestCore, &diskState);
+    if (diskState.writeAttempts != seenWriteAttempts)
+    {
+      seenWriteAttempts = diskState.writeAttempts;
+      diskActivityWrite();
     }
     TickType_t currentTime = xTaskGetTickCount();
     if ((TickType_t)(currentTime - wakeTime) >= period)

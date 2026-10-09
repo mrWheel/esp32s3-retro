@@ -13,6 +13,7 @@ import diskImageCpm86
 from diskImageCommon import DiskImageError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+APPLE2_EMPTY_BASE_IMAGE = Path("bootDisks") / "apple2" / "dos33Empty.dsk"
 EXECUTABLE_EXTENSIONS = {
     "cpm80": {".COM"},
     "cpm86": {".CMD", ".SYS"},
@@ -180,7 +181,6 @@ def create_system_disk(
     base_image=None,
     binary_load_address=None,
     remove_existing_files=None,
-    remove_all_existing=False,
 ):
     os_name = os_name.lower()
     profile = profile.upper()
@@ -189,34 +189,22 @@ def create_system_disk(
     if profile not in PROFILE_MAP[os_name]:
         raise DiskImageError(f"Unsupported {os_name} system disk profile: {profile}")
     if os_name != "apple2" and (
-        base_image is not None
-        or binary_load_address is not None
-        or remove_existing_files
-        or remove_all_existing
+        base_image is not None or binary_load_address is not None or remove_existing_files
     ):
         raise DiskImageError(
-            "--base-image, --binary-load-address, --remove-existing and --remove-all-existing "
-            "are Apple II-only options"
+            "--base-image, --binary-load-address and --remove-existing are Apple II-only options"
         )
 
     output_path = Path(output_path)
     source_dir = _source_directory(os_name, source_dir)
     if os_name == "apple2":
-        if base_image is None:
-            raise DiskImageError(
-                "Apple II system disks require a user-supplied, bootable DOS 3.3 16-sector base image"
-            )
-        base_image = Path(base_image)
+        base_image = Path(project_root / APPLE2_EMPTY_BASE_IMAGE if base_image is None else base_image)
         if base_image.is_symlink() or not base_image.is_file():
             raise DiskImageError(f"Apple II base image does not exist as a regular file: {base_image}")
         if base_image.resolve() == output_path.resolve():
             raise DiskImageError("Apple II output path must not replace the base image")
         source_files = _read_apple2_source_files(source_dir)
         image = base_image.read_bytes()
-        if remove_all_existing:
-            image = diskImageApple2Dos33.remove_files(
-                image, diskImageApple2Dos33.inspect_image(image), allow_locked=True
-            )
         if remove_existing_files:
             image = diskImageApple2Dos33.remove_files(image, remove_existing_files)
         image = diskImageApple2Dos33.add_files(
@@ -283,7 +271,10 @@ def main(argv=None):
     parser.add_argument(
         "--base-image",
         type=Path,
-        help="bootable DOS 3.3 16-sector-order image to copy before adding Apple II files",
+        help=(
+            "bootable DOS 3.3 16-sector-order image to copy before adding Apple II files "
+            f"(default: {APPLE2_EMPTY_BASE_IMAGE})"
+        ),
     )
     parser.add_argument(
         "--binary-load-address",
@@ -297,12 +288,6 @@ def main(argv=None):
         metavar="FILENAME",
         help="remove an unlocked file from the copied Apple II base image (repeatable)",
     )
-    parser.add_argument(
-        "--remove-all-existing",
-        action="store_true",
-        dest="remove_all_existing",
-        help="remove every file, locked ones included, from the copied Apple II base image",
-    )
     arguments = parser.parse_args(argv)
 
     output_path = arguments.output or PROJECT_ROOT / "littlefs" / arguments.os / "system.dsk"
@@ -315,7 +300,6 @@ def main(argv=None):
             base_image=arguments.base_image,
             binary_load_address=arguments.binary_load_address,
             remove_existing_files=arguments.remove_existing_files,
-            remove_all_existing=arguments.remove_all_existing,
         )
     except (DiskImageError, OSError) as error:
         parser.error(str(error))
@@ -323,8 +307,6 @@ def main(argv=None):
     print(f"Created {output_path} ({output_path.stat().st_size} bytes)")
     if arguments.os == "apple2":
         print(f"Added Apple DOS files from {arguments.source_dir or _source_directory('apple2', None)}.")
-        if arguments.remove_all_existing:
-            print("Removed all files from the copied base image.")
         if arguments.remove_existing_files:
             print(f"Removed from the copied base image: {', '.join(arguments.remove_existing_files)}.")
         print("The supplied base image was preserved; bootability depends on that image.")

@@ -42,7 +42,7 @@ The project uses the native USB Serial/JTAG connector and SPI2 for the microSD i
 
 Check the exact board schematic, module circuitry, pin availability, flash and PSRAM settings before connecting hardware or changing configuration. A 16 or 32 GB microSDHC card formatted as FAT32 is recommended; exFAT is not required.
 
-The LOLIN S3 Pro's WS2812B RGB LED is connected to GPIO 38. The firmware shows green for CP/M-80 and CP/M-86 guest disk-record reads and red for writes, then turns the LED off 120 ms after the latest disk activity. This indicates guest disk-record I/O, not every access to the SD card or LittleFS.
+The LOLIN S3 Pro's WS2812B RGB LED is connected to GPIO 38. The firmware shows green for CP/M-80, CP/M-86 and Apple II guest disk-record reads and red for writes (on the read-only Apple II disk only a refused write attempt turns it red), then turns the LED off 120 ms after the latest disk activity. This indicates guest disk-record I/O, not every access to the SD card or LittleFS.
 
 ## Build
 
