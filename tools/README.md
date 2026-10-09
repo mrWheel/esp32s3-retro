@@ -37,16 +37,18 @@ python3 tools/diskImage.py --os cpm86 -h
 
 ### Create a LittleFS system disk
 
-`createSystemDsk.py` builds `littlefs/<os>/system.dsk` from the bootable OS
-resources and files in `bootDisks/<os>/systemDisk/` (it also accepts the
-existing CP/M-80 spelling `systemDsk`). Use `--source-dir` to select another
-folder and `--output` to choose another destination. The destination image is
-replaced when the build succeeds:
+`createSystemDsk.py` builds `littlefs/<os>/system.dsk` from OS resources and
+files in `bootDisks/<os>/systemDisk/` (it also accepts the existing CP/M-80
+spelling `systemDsk`). Apple II uses a supplied DOS base image. Use
+`--source-dir` to select another folder and `--output` to choose another
+destination. The destination image is replaced when the build succeeds:
 
 ```sh
 python3 tools/createSystemDsk.py --os cpm80 --profile SMALL
 python3 tools/createSystemDsk.py --os cpm80 --profile LARGE
 python3 tools/createSystemDsk.py --os cpm86 --profile SMALL
+python3 tools/createSystemDsk.py --os apple2 --profile DOS33 --base-image ~/licensed/Apple-DOS-3.3.do
+python3 tools/createSystemDsk.py --os apple2 --profile DOS33 --base-image ~/licensed/Apple-DOS-3.3.do --binary-load-address 0x800
 ```
 
 Executable files (`.COM` for CP/M-80 and `.CMD` for CP/M-86) are installed
@@ -68,7 +70,34 @@ image plus the source directory only (never from an older `system.dsk`), so
 The builder validates these runtime files but does not put them on A::
 firmware loads them directly from LittleFS. In particular, the duplicate
 `CPM.SYS` is never placed on the generated CP/M-86 A: image.
-Other planned OSes are not supported by this builder yet.
+For Apple II, `createSystemDsk.py` copies a user-supplied 143,360-byte
+DOS 3.3-order base image, adds files from `bootDisks/apple2/systemDsk/`, and
+writes `littlefs/apple2/system.dsk` by default. Use `--source-dir` to select
+another file folder and `--output` to choose the destination. For a bootable
+output, the base image must already contain a bootable DOS 3.3 system. The
+builder validates its geometry and catalog but cannot establish that its boot
+sectors are functional, so a valid catalog alone does not prove the output is
+bootable.
+Use repeatable `--remove-existing "FILENAME"` options to free space by removing
+explicitly selected, unlocked files from the copied base image before adding
+the source files. Locked files are refused and the supplied base image is never
+modified. For example, the `Apple DOS 3.3P.dsk` base can make room for the
+test program by removing `LOCKSMITH 4.1`.
+The tool does not fetch or bundle a base image; only use one you are authorized
+to use.
+
+Apple DOS filenames support `.TXT` (DOS text; line endings become carriage
+returns and Applesoft listings can be entered with `EXEC NAME.TXT`, then
+`RUN`), `.BAS` (tokenized Applesoft; numbered ASCII source is tokenized by the
+builder and can be loaded with DOS `LOAD`, then started with `RUN`),
+`.INT` (tokenized Integer BASIC), and `.BIN` (raw binary). Raw `.BIN` files
+require `--binary-load-address` (decimal or `0x`-prefixed hexadecimal), which
+is applied to every binary in the source folder. All files must fit; collisions
+with files already on the base image are errors. For `.BAS` inputs, the suffix
+is a host-side type marker and is omitted from the DOS catalog; for example,
+`TEST-NONGR.BAS` is loaded with `LOAD TEST-NONGR`, then started with `RUN`. The
+disk builder creates a host image only; the Apple II runtime still needs Disk
+II controller/media support before it can boot or read this image.
 
 ## Prepare CP/M disk images on macOS
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a LittleFS system disk with boot resources and supplied system files."""
+"""Create CP/M system disks or add files to a supplied Apple II system disk."""
 
 import argparse
 import sys
@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 import buildDiskImageCpm80
+import diskImageApple2Dos33
 import diskImageCpm80
 import diskImageCpm86
 from diskImageCommon import DiskImageError
@@ -15,20 +16,29 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXECUTABLE_EXTENSIONS = {
     "cpm80": {".COM"},
     "cpm86": {".CMD", ".SYS"},
+    "apple2": diskImageApple2Dos33.EXECUTABLE_EXTENSIONS,
 }
 PROFILE_MAP = {
     "cpm80": {"SMALL": "SYSTEM", "LARGE": "LARGE"},
     "cpm86": {"SMALL": "CPM86", "LARGE": "LARGE"},
+    "apple2": {"DOS33": "DOS33"},
 }
 IMAGE_MODULES = {
     "cpm80": diskImageCpm80,
     "cpm86": diskImageCpm86,
+    "apple2": diskImageApple2Dos33,
 }
 
 
 def _source_directory(os_name, override):
     if override is not None:
         return Path(override)
+    if os_name == "apple2":
+        candidates = (
+            PROJECT_ROOT / "bootDisks" / os_name / "systemDsk",
+            PROJECT_ROOT / "bootDisks" / os_name / "systemDisk",
+        )
+        return next((path for path in candidates if path.is_dir()), candidates[0])
     candidates = (
         PROJECT_ROOT / "bootDisks" / os_name / "systemDisk",
         PROJECT_ROOT / "bootDisks" / os_name / "systemDsk",
@@ -56,6 +66,31 @@ def _read_source_files(source_dir):
             raise DiskImageError(f"Invalid CP/M filename in system disk source: {path.name}") from error
         if filename in files:
             raise DiskImageError(f"Duplicate CP/M filename in system disk source: {filename}")
+        files[filename] = path.read_bytes()
+
+    return files
+
+
+def _read_apple2_source_files(source_dir):
+    files = {}
+    if not source_dir.is_dir():
+        raise DiskImageError(f"System disk source directory does not exist: {source_dir}")
+
+    for path in sorted(source_dir.iterdir(), key=lambda item: item.name.upper()):
+        if path.name in (".DS_Store", "README.md"):
+            continue
+        if path.is_symlink():
+            raise DiskImageError(f"Refusing symbolic link in system disk source: {path}")
+        if path.is_dir():
+            raise DiskImageError(f"Nested directories are not supported in system disk source: {path}")
+        if not path.is_file():
+            raise DiskImageError(f"Not a regular system disk source file: {path}")
+        try:
+            filename = diskImageApple2Dos33.parse_filename(path.name)
+        except DiskImageError as error:
+            raise DiskImageError(f"Invalid Apple DOS filename in system disk source: {path.name}") from error
+        if filename in files:
+            raise DiskImageError(f"Duplicate Apple DOS filename in system disk source: {filename}")
         files[filename] = path.read_bytes()
 
     return files
@@ -136,16 +171,54 @@ def _add_files(os_name, image_path, files):
     return skipped_files
 
 
-def create_system_disk(os_name, profile, output_path, source_dir=None, project_root=PROJECT_ROOT):
+def create_system_disk(
+    os_name,
+    profile,
+    output_path,
+    source_dir=None,
+    project_root=PROJECT_ROOT,
+    base_image=None,
+    binary_load_address=None,
+    remove_existing_files=None,
+):
     os_name = os_name.lower()
     profile = profile.upper()
     if os_name not in IMAGE_MODULES:
         raise DiskImageError(f"Operating system is not implemented for system disks: {os_name}")
     if profile not in PROFILE_MAP[os_name]:
         raise DiskImageError(f"Unsupported {os_name} system disk profile: {profile}")
+    if os_name != "apple2" and (
+        base_image is not None or binary_load_address is not None or remove_existing_files
+    ):
+        raise DiskImageError(
+            "--base-image, --binary-load-address and --remove-existing are Apple II-only options"
+        )
 
     output_path = Path(output_path)
     source_dir = _source_directory(os_name, source_dir)
+    if os_name == "apple2":
+        if base_image is None:
+            raise DiskImageError(
+                "Apple II system disks require a user-supplied, bootable DOS 3.3 16-sector base image"
+            )
+        base_image = Path(base_image)
+        if base_image.is_symlink() or not base_image.is_file():
+            raise DiskImageError(f"Apple II base image does not exist as a regular file: {base_image}")
+        if base_image.resolve() == output_path.resolve():
+            raise DiskImageError("Apple II output path must not replace the base image")
+        source_files = _read_apple2_source_files(source_dir)
+        image = base_image.read_bytes()
+        if remove_existing_files:
+            image = diskImageApple2Dos33.remove_files(image, remove_existing_files)
+        image = diskImageApple2Dos33.add_files(
+            image,
+            _ordered_files(os_name, source_files),
+            binary_load_address=binary_load_address,
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        diskImageApple2Dos33.write_image(output_path, image, force=True)
+        return [], []
+
     source_files = _read_source_files(source_dir)
 
     if os_name == "cpm80":
@@ -191,14 +264,30 @@ def create_system_disk(os_name, profile, output_path, source_dir=None, project_r
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description=(
-            "Create a bootable SMALL or LARGE CP/M system disk in littlefs/<os>/. "
-            "The firmware detects the layout from the file size, so drives.cfg needs no profile choice for A:."
+            "Create a CP/M system disk or add Apple DOS 3.3 files to a supplied bootable 16-sector disk image."
         )
     )
-    parser.add_argument("--os", required=True, choices=("cpm80", "cpm86"))
-    parser.add_argument("--profile", required=True, choices=("SMALL", "LARGE"))
-    parser.add_argument("--source-dir", type=Path, help="directory containing additional CP/M 8.3 files")
+    parser.add_argument("--os", required=True, choices=("cpm80", "cpm86", "apple2"))
+    parser.add_argument("--profile", required=True, choices=("SMALL", "LARGE", "DOS33"))
+    parser.add_argument("--source-dir", type=Path, help="directory containing files to add to the system disk")
     parser.add_argument("--output", type=Path, help="output path (default: littlefs/<os>/system.dsk)")
+    parser.add_argument(
+        "--base-image",
+        type=Path,
+        help="bootable DOS 3.3 16-sector-order image to copy before adding Apple II files",
+    )
+    parser.add_argument(
+        "--binary-load-address",
+        type=lambda value: int(value, 0),
+        help="load address for all raw .BIN files (decimal or 0x-prefixed hexadecimal)",
+    )
+    parser.add_argument(
+        "--remove-existing",
+        action="append",
+        dest="remove_existing_files",
+        metavar="FILENAME",
+        help="remove an unlocked file from the copied Apple II base image (repeatable)",
+    )
     arguments = parser.parse_args(argv)
 
     output_path = arguments.output or PROJECT_ROOT / "littlefs" / arguments.os / "system.dsk"
@@ -208,12 +297,20 @@ def main(argv=None):
             arguments.profile,
             output_path,
             source_dir=arguments.source_dir,
+            base_image=arguments.base_image,
+            binary_load_address=arguments.binary_load_address,
+            remove_existing_files=arguments.remove_existing_files,
         )
     except (DiskImageError, OSError) as error:
         parser.error(str(error))
 
     print(f"Created {output_path} ({output_path.stat().st_size} bytes)")
-    if arguments.os == "cpm86":
+    if arguments.os == "apple2":
+        print(f"Added Apple DOS files from {arguments.source_dir or _source_directory('apple2', None)}.")
+        if arguments.remove_existing_files:
+            print(f"Removed from the copied base image: {', '.join(arguments.remove_existing_files)}.")
+        print("The supplied base image was preserved; bootability depends on that image.")
+    elif arguments.os == "cpm86":
         print(f"CP/M-86 kernel kept outside A: at {PROJECT_ROOT / 'littlefs' / 'cpm86' / 'cpm.sys'}.")
         print(
             "CP/M-86 BIOS overlay kept outside A: at "
