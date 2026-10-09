@@ -1,6 +1,6 @@
 # designApple2.md
 
-Revision: 2026-10-09. Status: phase 1 motherboard implementation integrated; ROM provenance, redistribution rights and hardware behavior remain unverified.
+Revision: 2026-10-09. Status: phase 1 motherboard and selected slot-3 80×24 text-card profile integrated; ROM provenance, redistribution rights and hardware behavior remain unverified.
 
 # Purpose and provenance
 
@@ -133,7 +133,7 @@ Provide configuration flags for original versus modified character ROM, original
 
 Original 40×24 Apple II text uses non-linear screen-row address mapping and text pages at $0400–$07FF and $0800–$0BFF. Reproduce normal/inverse/flashing display attributes and relevant text/mixed/page softswitches. Do not implement 80 columns by interleaving Apple IIe main/auxiliary RAM, and do not use IIe $C00C/$C00D 80COL softswitches as the baseline.
 
-80×24 is provided by a separate expansion card, provisionally in slot 3, with its own firmware and video RAM/character behavior according to the selected card specification. PR#3 may select the slot’s output routine and PR#0 may return to the normal output path only if verified for the selected card. The original TU Delft card’s exact design remains unknown. A Videx-compatible profile is a candidate, not a historical fact. Terminal output must reflect actual emulated display state, not merely intercept ROM print calls. Verify cursor, scrolling, inverse text, mode transitions and 80 distinct characters per row.
+80×24 is provided by a separate expansion card, provisionally in slot 3, with its own firmware and video RAM/character behavior according to the selected card specification. The current selected software profile is Videx-compatible; this is not a historical claim about the unidentified TU Delft card. Its slot-3 ROM implements a project-authored minimal `PR#3` output driver, while its CRTC registers, banked video RAM, and `$C800–$CDFF` memory map follow the Videx Videoterm profile. `PR#0` returns to motherboard text when the Monitor restores its normal output vector. Terminal output reflects the selected card's video RAM, not intercepted ROM print calls. The project driver supports 80 columns, carriage return, backspace and scrolling at row 24. The host terminal renders text/inverse state and positions a cursor at the next output cell; it does not emulate the card's raster/font ROM.
 
 An 80×24 USB terminal is the host display; it does not magically grant the Apple II 80-column hardware. Preserve guest/host terminal separation, escape-sequence sanitation and reasonable paste pacing.
 
@@ -210,7 +210,7 @@ Definition of Done: menu option 4 boots original Apple II firmware and qualifyin
 
 Implemented the motherboard-only subset requested for phase 1. The firmware now integrates the pinned `floooh/chips` NMOS 6502 core, 48 KiB RAM, a 12 KiB ROM window at `$D000–$FFFF`, the keyboard latch/strobe at `$C000/$C010`, motherboard text/video softswitches `$C050–$C057`, and a 40×24 text-memory renderer. The core is clock-paced near 1.023 MHz. Host tests use a synthetic test ROM and do not establish authentic ROM behavior.
 
-Terminal refresh follow-up — 2026-10-09: the Apple II terminal renderer now compares each 40-character row with its last successful output and writes only changed rows, instead of continuously redrawing all 24 lines. USB writes handle short writes and retry boundedly when the transmit queue temporarily has no space; a real stalled write is logged once per failed call, and the affected row remains eligible for redraw.
+Terminal refresh follow-up — 2026-10-09: the Apple II terminal renderer compares each 40-character row with its last successful output and writes only changed rows, instead of continuously redrawing all 24 lines. USB writes handle short writes and retry boundedly when the transmit queue temporarily has no space; a real stalled write is logged once per failed call, and the affected row remains eligible for redraw.
 
 This phase intentionally excludes the Language Card, expansion 80-column video card, disk controllers/drives and graphics rendering. It also does not implement the remembered lowercase character ROM or Shift/PB2 modification. Unmodeled `$Cxxx` I/O uses the last data-bus value; accurate floating-bus timing is not implemented.
 
@@ -219,6 +219,20 @@ The machine requires `/littlefs/apple2/apple2.rom`, exactly 12 KiB with a reset 
 The core source and its unmodified zlib license are pinned in `docs/thirdParty.md`. The implementation does not mark APPLE-M1 or the later execution/compatibility milestones as accepted.
 
 This scoped coding work was explicitly requested before the design's HOST-M1, CP/M-80 and CP/M-86 acceptance prerequisites were closed. It does not waive those gates or establish that the integrated host has completed acceptance.
+
+## Videx-compatible 80-column card — 2026-10-09
+
+Added a slot-3 Videx-compatible device profile to the Apple II core. It models the `$C0B0–$C0BF` CRTC/bank-select I/O, 2 KiB of card VRAM in four 512-byte banks, the `$C300` slot ROM entry and `$C800` expansion-ROM window. The project-authored slot ROM supports `PR#3`, installs an output vector, configures an 80×24 CRTC text mode, and writes printable characters, carriage returns and backspaces into card VRAM. The host terminal switches to 80 columns only while that card output vector is selected; the 40-column motherboard renderer remains available.
+
+PR#3 input follow-up — 2026-10-09: standard BASIC sets the output vector to the slot entry at `$C300`; it does not call the previous `$C303` initialization entry. The slot entry now initializes the card on its first output and then chains to the installed character routine while preserving that first character. The system-ROM host test types `PR#3` and then `PRINT 2+2`, verifying keyboard input, command echo and result on card VRAM.
+
+Screen follow-up — 2026-10-09: when the project COUT driver advances beyond row 23, the card screen scrolls its 24×80 character buffer up one row and clears the new bottom row. Rendering clears the host terminal on machine entry and whenever BASIC changes the active output between `PR#0` and `PR#3`, redraws the selected guest screen, and positions the terminal cursor at the next COUT cell. The Videx host test drives output through a scroll and verifies retained lines, the new bottom row and cursor position; the system-ROM host test switches `PR#3` → `PR#0` → `PR#3` and checks output selection.
+
+Applesoft output follow-up — 2026-10-09: the project COUT routine now preserves the incoming accumulator, including its high bit, around its screen write; Applesoft uses the returned value while expanding tokens for `LIST`, so masking it permanently truncated keywords to their first letter. Screen clearing now detects changes to either byte of the output vector, since `PR#0` changes the low byte before the high byte. The system-ROM regression confirms full `PRINT` output in both 40- and 80-column modes, clean screen contents after each transition, a visible prompt and an in-bounds cursor.
+
+Scheduler follow-up — 2026-10-09: when a CPU batch exceeded its 1 ms pacing interval, `vTaskDelayUntil` could remain behind schedule and return immediately on subsequent iterations. That catch-up loop could starve CPU 0's idle task and trigger the task watchdog during long-running BASIC programs. The machine loop now yields for one RTOS tick when late and resets its pacing baseline instead of trying to catch up unboundedly. Hardware timing/performance still needs verification.
+
+Host regression evidence: the synthetic 6502 test ROM executes the card's `PR#3` entry, writes 80 distinct characters, verifies carriage return output, exercises VRAM banks 2 and 3, scrolls multiple lines and checks the cursor, and switches the host-visible output state away from the card. The system-ROM test exercises full Applesoft `LIST` output in both display modes and clean mode transitions. These are not Videx-ROM or raster-accurate tests. The minimal driver uses private emulated state for Apple II zero-page bytes `$06–$0A` and does not implement character-generator fonts, CRTC cursor effects, or graphics. This is not evidence for behavior on the physical ESP32-S3 or the historical TU Delft card.
 
 ## Decision log
 
@@ -239,10 +253,16 @@ This scoped coding work was explicitly requested before the design's HOST-M1, CP
 |APPLE-DEC-013|Required                 |Virtual 5¼-inch and configurable larger/8-inch image profiles; no physical drives                                 |
 |APPLE-DEC-014|Required                 |No Z80 and no ProDOS requirement                                                                                  |
 |APPLE-DEC-015|Implemented subset       |Phase 1 is motherboard-only: 6502, 48 KiB RAM, ROM window, keyboard and 40-column text; no Language Card, expansion video or disk controller |
+|APPLE-DEC-016|Selected 2026-10-09      |Videx-compatible slot-3 profile with project-authored minimal `PR#3` firmware; not a claim about the TU Delft card |
+|APPLE-DEC-017|Implemented 2026-10-09   |Preserve the Applesoft COUT accumulator contract and clear screens on either output-vector byte changing         |
 
 New decisions must include date, alternatives, evidence, consequences and superseded IDs. Historical owner recollection is evidence for requirements, not proof of a particular controller/ROM implementation.
 
 APPLE-DEC-015 details: dated 2026-10-09; the alternatives were to keep Apple II as a placeholder until all acceptance prerequisites were closed, or implement the requested motherboard subset while retaining those acceptance gates. This implementation follows the explicit phase-1 request. Evidence is the host-side synthetic-ROM test and ESP-IDF build; neither authentic ROM execution nor hardware behavior has been observed. The generated phase-1 test ROM is a separate original diagnostic, not the historical ROM image. It supersedes no historical machine-profile decision.
+
+APPLE-DEC-016 details: dated 2026-10-09; alternatives were to require a user-provided Videx ROM dump or implement a project-authored minimal slot driver. The selected profile follows the explicit user choice. The ROM source is project-authored; no Videx firmware dump is bundled. It supports the standard Videx memory/register layout and `PR#3` terminal output. Host tests validate the CPU-executed slot ROM, scrolling and 80-column VRAM, not original card firmware, raster output, the historical TU Delft card, or ESP32-S3 hardware. This supersedes the "Videx only a candidate" portion of APPLE-DEC-011 for software-profile selection; the historical card identity remains unknown.
+
+APPLE-DEC-017 details: dated 2026-10-09; investigation reproduced two independent `PR#3` failures with the authentic system ROM: Applesoft `LIST` rendered tokenized BASIC words as their first letters, and switching output modes left stale screen contents. The first cause was that the project COUT routine stripped the high bit from the incoming accumulator and returned the altered value; Applesoft relies on that value while expanding tokens. The second cause was that transition detection watched only the high byte of the output vector, while `PR#0` changes its low byte first. The chosen fix preserves and restores the complete accumulator around the Videx write, isolates the card routine's `$06–$0A` workspace from motherboard RAM, and detects selection changes on writes to either output-vector byte. Alternatives were to special-case or post-process `LIST` output, or clear only the host terminal; these would not preserve the guest ROM's output contract or prevent stale guest memory from being redrawn. Host system-ROM regression evidence now confirms full `PRINT` text on both screens, clean contents after `PR#0`/`PR#3` switches, a visible prompt, and in-bounds cursors. This does not establish compatibility with unrelated third-party slot firmware or hardware.
 
 Resource follow-up — 2026-10-09: the missing menu resource was `/littlefs/apple2/apple2.rom` (12 KiB). Added that path as a generated project-authored phase-1 diagnostic image so the implemented CPU, text screen and keyboard path can be exercised without copyrighted firmware. Its deterministic generator is `tools/buildApple2TestRom.py`. A host integration regression boots this exact image, checks its screen text and verifies a keyboard echo. This removes the missing-resource gate for phase-1 testing; it does not satisfy APPLE-M1 ROM provenance or later guest-software milestones.
 
@@ -255,7 +275,7 @@ System ROM follow-up — 2026-10-09: replaced the bundled runtime diagnostic ima
 |APPLE-ISSUE-001|OPEN |Obtain exact original Apple II Autostart/Integer BASIC ROM images and checksums/licensing            |
 |APPLE-ISSUE-002|OPEN |Audit Language Card `$C080–$C08F` switch truth table and write-enable sequence from primary reference|
 |APPLE-ISSUE-003|OPEN |Select and verify lowercase character ROM plus keyboard code mapping and PB2 polarity                |
-|APPLE-ISSUE-004|OPEN |Select actual emulated 80-column card, slot, firmware, VRAM and output behavior; Delft card unknown  |
+|APPLE-ISSUE-004|PARTIAL|Videx-compatible slot-3 profile selected; qualify full editor/scroll/mode behavior and actual TU Delft card remains unknown|
 |APPLE-ISSUE-005|OPEN |Select and qualify Disk II controller implementation, sector ordering, 13/16-sector media and timing |
 |APPLE-ISSUE-006|OPEN |Identify DOS 3.3 System Master image that disk-loads Applesoft into Language Card; trace startup     |
 |APPLE-ISSUE-007|OPEN |Obtain bootable UCSD Pascal image and verify Language Card use                                       |
@@ -276,9 +296,13 @@ Use: Reference behaviour → Hypothesis → Experiment → Result → Conclusion
 |APPLE-VERIFY-003|DESIGN REVIEW         |2026-10-08 prior IIe/ProDOS design conflicts identified and superseded; no emulator tests performed                                                             |
 |APPLE-VERIFY-004|HOST PASS (subset)   |`cmake --build build-host --target hostTests && ./build-host/hostTests --apple2-system-rom`: ROM reset reaches `APPLE ][`; keyboard input runs `PRINT 2+2` and displays `4`. Hardware/Autostart acceptance remains open.|
 |APPLE-VERIFY-005|NOT RUN               |Language Card bank switching, keyboard Shift/PB2, lowercase glyphs                                                                                              |
-|APPLE-VERIFY-006|NOT RUN               |40×24/80×24 video and slot firmware                                                                                                                             |
+|APPLE-VERIFY-006|HOST PASS (subset)   |System-ROM host test verifies complete Applesoft `LIST` output, screen clearing across `PR#0`/`PR#3`, prompt visibility and in-bounds cursors; detailed reproducibility and environment are recorded under APPLE-VERIFY-010; hardware acceptance remains open.|
 |APPLE-VERIFY-007|NOT RUN               |DOS 3.3 boot, disk-loaded Applesoft and UCSD Pascal                                                                                                             |
 |APPLE-VERIFY-008|NOT RUN               |Virtual disks, exchange, durability, ESP32 hardware and recovery                                                                                                |
+|APPLE-VERIFY-009|HOST PASS (subset)   |2026-10-09: `cmake --build build-host --target hostTests && ./build-host/hostTests --apple2-videx-card`; synthetic 6502 ROM executes project `PR#3` firmware, verifies 80 distinct VRAM cells, CR, banked VRAM, scrolling, cursor and output-vector mode. Hardware, authentic Videx firmware/raster behavior and historical TU Delft card remain unverified.|
+|APPLE-VERIFY-010|HOST + BUILD PASS    |2026-10-09: full host suite passed 4/4 and ESP-IDF build succeeded after the Applesoft/output-vector fixes; reproducibility and scope below. No flash or physical-board test was performed.|
+
+APPLE-VERIFY-010 evidence — date: 2026-10-09. Firmware commit: none; this verification ran against the uncommitted worktree. Upstream CPU core: `floooh/chips` `ee88c35ad6427341aa6999c3b07233e1f8bd2396`. ESP-IDF: v6.0.2. Target configuration: project-configured ESP32-S3 / LOLIN S3 Pro; the firmware was built, not run on that board. Terminal: host-side test harness reading emulated 40×24 and 80×24 screen memory; no physical terminal or board was attached. Commands: `cmake --build build-host --parallel`; `ctest --test-dir build-host --output-on-failure`; ESP-IDF VS Code build command (`idf.py build`). Guest input in the ROM regression: `10 PRINT 1`, `LIST`, `PR#3`, `LIST`, `PR#0`, `PR#3`, `PRINT 2+2`. Expected: complete `PRINT` in both screen modes; a cleared destination screen and visible BASIC prompt on each mode change; cursor within the active screen; arithmetic result `4`; all host tests pass and firmware links. Actual: all expectations passed; CTest reported 4/4 passing and the ESP-IDF build completed. Evidence locations: `tests/hostTests.c` (`testApple2SystemRom`, `testApple2VidexCard`, `testApple2VidexScrolling`) and the host CTest target definitions in `tests/CMakeLists.txt`. This is host/build evidence only; hardware behavior remains unverified.
 
 Earlier 2026-10-04 Apple IIe/ProDOS source-review notes in the prior revision are not acceptance evidence for this new original-Apple-II baseline. Preserve the original document in version control for provenance.
 

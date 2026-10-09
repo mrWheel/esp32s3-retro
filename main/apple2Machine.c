@@ -14,9 +14,11 @@
 static const char *tag = "apple2Machine";
 static const char *romPath = "/littlefs/apple2/apple2.rom";
 static apple2Core *guestCore;
-static uint8_t renderedCells[apple2TextRows][apple2TextColumns];
+static uint8_t renderedCells[apple2TextRows][apple2VidexTextColumns];
 static bool screenRendered;
 static bool renderedFlashOn;
+static bool renderedVidexMode;
+static bool renderedVidexModeKnown;
 
 static bool appendText(char *buffer, size_t capacity, size_t *length, const char *text)
 {
@@ -54,6 +56,12 @@ static char decodeCharacter(uint8_t value)
   return (char)value;
 }
 
+static char decodeVidexCharacter(uint8_t value)
+{
+  value &= 0x7F;
+  return value >= 0x20 ? (char)value : ' ';
+}
+
 static bool appendTextCell(char *buffer, size_t capacity, size_t *length, uint8_t value, bool flashOn,
                            bool *inverse, bool *flashing)
 {
@@ -79,35 +87,66 @@ static bool appendTextCell(char *buffer, size_t capacity, size_t *length, uint8_
   return appendCharacter(buffer, capacity, length, character);
 }
 
+static bool appendVidexTextCell(char *buffer, size_t capacity, size_t *length, uint8_t value, bool *inverse)
+{
+  bool cellInverse = (value & 0x80) != 0;
+  if (cellInverse != *inverse)
+  {
+    if (!appendText(buffer, capacity, length, cellInverse ? "\x1b[7m" : "\x1b[27m"))
+    {
+      return false;
+    }
+    *inverse = cellInverse;
+  }
+  return appendCharacter(buffer, capacity, length, decodeVidexCharacter(value));
+}
+
 static void renderScreen(int64_t nowUs)
 {
   apple2VideoState video;
   apple2CoreGetVideoState(guestCore, &video);
+  size_t columns = video.videxTextMode ? apple2VidexTextColumns : apple2TextColumns;
+  if (renderedVidexModeKnown && video.videxTextMode != renderedVidexMode)
+  {
+    if (!hostConsoleWrite("\x1b[2J\x1b[H"))
+    {
+      return;
+    }
+    screenRendered = false;
+  }
   bool flashOn = (nowUs / 500000) % 2 == 0;
   for (size_t row = 0; row < apple2TextRows; ++row)
   {
     bool showText = video.textMode || (video.mixedMode && row >= 20);
-    uint8_t currentCells[apple2TextColumns];
+    uint8_t currentCells[apple2VidexTextColumns] = {0};
     bool hasFlashingCells = false;
-    for (size_t column = 0; column < apple2TextColumns; ++column)
+    for (size_t column = 0; column < columns; ++column)
     {
       uint8_t value = 0xA0;
-      if (showText && apple2CoreReadTextCell(guestCore, video.page2, row, column, &value) != apple2CoreOk)
+      if (video.videxTextMode)
+      {
+        if (apple2CoreReadVidexTextCell(guestCore, row, column, &value) != apple2CoreOk)
+        {
+          return;
+        }
+      }
+      else if (showText && apple2CoreReadTextCell(guestCore, video.page2, row, column, &value) != apple2CoreOk)
       {
         return;
       }
-      if (!showText && row == 0 && column < sizeof("GRAPHICS DISPLAY NOT IMPLEMENTED") - 1)
+      if (!video.videxTextMode && !showText && row == 0 &&
+          column < sizeof("GRAPHICS DISPLAY NOT IMPLEMENTED") - 1)
       {
         value = (uint8_t)("GRAPHICS DISPLAY NOT IMPLEMENTED"[column] | 0x80);
       }
       currentCells[column] = value;
-      hasFlashingCells = hasFlashingCells || (value & 0xC0) == 0x40;
+      hasFlashingCells = hasFlashingCells || (!video.videxTextMode && (value & 0xC0) == 0x40);
     }
-    bool cellsChanged = !screenRendered || memcmp(currentCells, renderedCells[row], sizeof(currentCells)) != 0;
+    bool cellsChanged = !screenRendered || memcmp(currentCells, renderedCells[row], columns) != 0;
     bool flashChanged = screenRendered && hasFlashingCells && flashOn != renderedFlashOn;
     if (cellsChanged || flashChanged)
     {
-      char rowBuffer[512];
+      char rowBuffer[1024];
       size_t length = 0;
       bool inverse = false;
       bool flashing = false;
@@ -118,10 +157,14 @@ static void renderScreen(int64_t nowUs)
       {
         return;
       }
-      for (size_t column = 0; column < apple2TextColumns; ++column)
+      for (size_t column = 0; column < columns; ++column)
       {
-        if (!appendTextCell(rowBuffer, sizeof(rowBuffer), &length, currentCells[column], flashOn, &inverse,
-                           &flashing))
+        bool appended = video.videxTextMode
+                            ? appendVidexTextCell(rowBuffer, sizeof(rowBuffer), &length, currentCells[column],
+                                                  &inverse)
+                            : appendTextCell(rowBuffer, sizeof(rowBuffer), &length, currentCells[column], flashOn,
+                                             &inverse, &flashing);
+        if (!appended)
         {
           return;
         }
@@ -138,8 +181,34 @@ static void renderScreen(int64_t nowUs)
       memcpy(renderedCells[row], currentCells, sizeof(currentCells));
     }
   }
+  size_t cursorRow;
+  size_t cursorColumn;
+  bool cursorAvailable = video.videxTextMode
+                             ? apple2CoreGetVidexCursor(guestCore, &cursorRow, &cursorColumn)
+                             : apple2CoreGetTextCursor(guestCore, &cursorRow, &cursorColumn);
+  if (cursorAvailable)
+  {
+    size_t maxRows = video.videxTextMode ? apple2VidexTextRows : apple2TextRows;
+    if (cursorRow >= maxRows)
+    {
+      cursorRow = maxRows - 1;
+    }
+    if (cursorColumn >= columns)
+    {
+      cursorColumn = columns - 1;
+    }
+    char cursor[32];
+    int cursorLength = snprintf(cursor, sizeof(cursor), "\x1b[?25h\x1b[%zu;%zuH", cursorRow + 1,
+                                cursorColumn + 1);
+    if (cursorLength < 0 || (size_t)cursorLength >= sizeof(cursor) || !hostConsoleWrite(cursor))
+    {
+      return;
+    }
+  }
   screenRendered = true;
   renderedFlashOn = flashOn;
+  renderedVidexMode = video.videxTextMode;
+  renderedVidexModeKnown = true;
 }
 
 static void handleInput(bool *skipLineFeed)
@@ -237,6 +306,8 @@ esp_err_t apple2MachineInitialize(void)
   memset(renderedCells, 0, sizeof(renderedCells));
   screenRendered = false;
   renderedFlashOn = false;
+  renderedVidexMode = false;
+  renderedVidexModeKnown = false;
   apple2CoreResult coreResult = apple2CoreCreate(&guestCore);
   if (coreResult != apple2CoreOk)
   {
@@ -260,10 +331,8 @@ void apple2MachineRun(void)
     puts("Apple II initialization is incomplete.");
     return;
   }
-  hostConsoleWrite("\x1b[2J\x1b[HApple II phase 1: motherboard, 48 KiB RAM, keyboard and 40-column text.\r\n");
-  hostConsoleWrite("Language Card, expansion video, disk controllers and graphics rendering are not implemented.\r\n");
-  hostConsoleWrite("ROM floating-bus and exact character-ROM behavior are not verified.\r\n");
-  hostConsoleWrite("Press the board RESET button to return to the host menu.\r\n");
+  screenRendered = false;
+  hostConsoleWrite("\x1b[2J\x1b[H\x1b[?25h");
   TickType_t wakeTime = xTaskGetTickCount();
   TickType_t period = pdMS_TO_TICKS(1);
   if (period == 0)
@@ -282,7 +351,16 @@ void apple2MachineRun(void)
       ESP_LOGE(tag, "6502 execution stopped");
       return;
     }
-    vTaskDelayUntil(&wakeTime, period);
+    TickType_t currentTime = xTaskGetTickCount();
+    if ((TickType_t)(currentTime - wakeTime) >= period)
+    {
+      vTaskDelay(1);
+      wakeTime = xTaskGetTickCount();
+    }
+    else
+    {
+      vTaskDelayUntil(&wakeTime, period);
+    }
     int64_t nowUs = esp_timer_get_time();
     if (nowUs - lastRenderUs >= 100000)
     {

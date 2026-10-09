@@ -9,7 +9,9 @@ enum
   apple2RamSize = 48 * 1024,
   apple2RomSize = 12 * 1024,
   apple2TextRows = 24,
-  apple2TextColumns = 40
+  apple2TextColumns = 40,
+  apple2VidexTextRows = 24,
+  apple2VidexTextColumns = 80
 };
 
 typedef struct apple2Core apple2Core;
@@ -29,6 +31,7 @@ typedef struct
   bool mixedMode;
   bool page2;
   bool highResolution;
+  bool videxTextMode;
 } apple2VideoState;
 
 apple2CoreResult apple2CoreCreate(apple2Core **core);
@@ -44,3 +47,7 @@ void apple2CoreGetVideoState(const apple2Core *core, apple2VideoState *state);
 bool apple2CoreTextAddress(bool page2, size_t row, size_t column, uint16_t *address);
 apple2CoreResult apple2CoreReadTextCell(const apple2Core *core, bool page2, size_t row, size_t column,
                                         uint8_t *value);
+apple2CoreResult apple2CoreReadVidexTextCell(const apple2Core *core, size_t row, size_t column,
+                                             uint8_t *value);
+bool apple2CoreGetVidexCursor(const apple2Core *core, size_t *row, size_t *column);
+bool apple2CoreGetTextCursor(const apple2Core *core, size_t *row, size_t *column);

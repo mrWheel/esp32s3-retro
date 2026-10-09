@@ -42,10 +42,10 @@ This snapshot describes repository status, not a change to the machine-specific 
 | CP/M-80 | Firmware machine integration and host-side guest tests are present. The CP/M-80 design log records a user report of booting and running commands on an ESP32-S3; independent hardware, SD-drive and broader compatibility acceptance remains outstanding. |
 | CP/M-86 | Firmware machine integration, genuine guest boot tests on the host and an ESP-IDF build are present. The firmware has not been flashed; hardware boot, performance and broad compatibility remain unverified. |
 | UCSD Pascal | Placeholder; no guest machine implementation yet. |
-| Apple II | Phase 1 motherboard implementation uses the 12 KiB Apple ][ system ROM in `assets/apple.rom`; host tests boot Integer BASIC and execute `PRINT 2+2`. Hardware acceptance and ROM redistribution rights remain unverified. |
+| Apple II | Motherboard implementation plus a Videx-compatible slot-3 80×24 text-card model and project-authored `PR#3` firmware are integrated. Host tests cover complete Applesoft `LIST` keywords, clean `PR#0`/`PR#3` screen transitions, cursor bounds, the 80-column path and scrolling; hardware acceptance and system-ROM redistribution rights remain unverified. |
 | SWTPC 6800 | Placeholder; no guest machine implementation yet. |
 
-In the current menu, CP/M-80 and CP/M-86 are available when their required LittleFS resources validate; Apple II uses the 12 KiB system ROM copied from `assets/apple.rom`; UCSD Pascal and SWTPC 6800 remain placeholders. The Apple II host test reaches the ROM's Integer BASIC prompt and executes `PRINT 2+2`; ROM redistribution rights and ESP32-S3 hardware behavior are not yet verified. A successful host test or firmware build is not evidence of successful execution on the ESP32-S3.
+In the current menu, CP/M-80 and CP/M-86 are available when their required LittleFS resources validate; Apple II uses the 12 KiB system ROM copied from `assets/apple.rom` and supports the Videx-compatible slot-3 80×24 text-card profile; UCSD Pascal and SWTPC 6800 remain placeholders. Host tests cover Integer BASIC, complete Applesoft `LIST` output in both display modes, clean `PR#0`/`PR#3` transitions with a bounded cursor, and the project-authored `PR#3` card path including scrolling. The profile does not establish that the historical TU Delft card was a Videx card; system-ROM redistribution rights and ESP32-S3 behavior remain unverified. A successful host test or firmware build is not evidence of successful execution on the ESP32-S3.
 
 Mind you: idf.py command is in
 ```

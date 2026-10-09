@@ -8,6 +8,44 @@
 #include "esp_heap_caps.h"
 #endif
 
+enum
+{
+  apple2VidexRamSize = 2048,
+  apple2VidexRamBankSize = 512,
+  apple2VidexRegisterCount = 32,
+  apple2VidexFirmwareSize = 369
+};
+
+static const uint8_t videxSlotRom[] = {0x48, 0x20, 0x00, 0xC8, 0x68, 0x4C, 0xB3, 0xC8, 0x4C, 0x00, 0xC8};
+
+//— Project-authored slot firmware: C303 initializes the text card and installs its COUT routine.
+static const uint8_t videxFirmware[apple2VidexFirmwareSize] = {
+    0xA9, 0x00, 0x8D, 0x06, 0x00, 0x8D, 0x07, 0x00, 0xA9, 0xB3, 0x8D, 0x36, 0x00, 0xA9, 0xC8, 0x8D,
+    0x37, 0x00, 0xA9, 0x00, 0x8D, 0xB0, 0xC0, 0xA9, 0x62, 0x8D, 0xB1, 0xC0, 0xA9, 0x01, 0x8D, 0xB0,
+    0xC0, 0xA9, 0x50, 0x8D, 0xB1, 0xC0, 0xA9, 0x02, 0x8D, 0xB0, 0xC0, 0xA9, 0x50, 0x8D, 0xB1, 0xC0,
+    0xA9, 0x03, 0x8D, 0xB0, 0xC0, 0xA9, 0x28, 0x8D, 0xB1, 0xC0, 0xA9, 0x04, 0x8D, 0xB0, 0xC0, 0xA9,
+    0x19, 0x8D, 0xB1, 0xC0, 0xA9, 0x05, 0x8D, 0xB0, 0xC0, 0xA9, 0x00, 0x8D, 0xB1, 0xC0, 0xA9, 0x06,
+    0x8D, 0xB0, 0xC0, 0xA9, 0x18, 0x8D, 0xB1, 0xC0, 0xA9, 0x07, 0x8D, 0xB0, 0xC0, 0xA9, 0x18, 0x8D,
+    0xB1, 0xC0, 0xA9, 0x08, 0x8D, 0xB0, 0xC0, 0xA9, 0x00, 0x8D, 0xB1, 0xC0, 0xA9, 0x09, 0x8D, 0xB0,
+    0xC0, 0xA9, 0x0F, 0x8D, 0xB1, 0xC0, 0xA9, 0x0A, 0x8D, 0xB0, 0xC0, 0xA9, 0x20, 0x8D, 0xB1, 0xC0,
+    0xA9, 0x0B, 0x8D, 0xB0, 0xC0, 0xA9, 0x0F, 0x8D, 0xB1, 0xC0, 0xA9, 0x0C, 0x8D, 0xB0, 0xC0, 0xA9,
+    0x00, 0x8D, 0xB1, 0xC0, 0xA9, 0x0D, 0x8D, 0xB0, 0xC0, 0xA9, 0x00, 0x8D, 0xB1, 0xC0, 0xA9, 0x0E,
+    0x8D, 0xB0, 0xC0, 0xA9, 0x00, 0x8D, 0xB1, 0xC0, 0xA9, 0x0F, 0x8D, 0xB0, 0xC0, 0xA9, 0x00, 0x8D,
+    0xB1, 0xC0, 0x60, 0x8D, 0x0A, 0x00, 0x48, 0x8A, 0x48, 0x98, 0x48, 0xA5, 0x0A, 0x29, 0x7F, 0x8D,
+    0x0A,
+    0x00, 0xC9, 0x0D, 0xD0, 0x15, 0xA9, 0x00, 0x8D, 0x06, 0x00, 0xE6, 0x07, 0xA5, 0x07, 0xC9, 0x18,
+    0x90, 0x68, 0xA9, 0x00, 0x8D, 0x07, 0x00, 0x4C, 0x3B, 0xC9, 0xA5, 0x0A, 0xC9, 0x08, 0xD0, 0x09,
+    0xA5, 0x06, 0xF0, 0x56, 0xC6, 0x06, 0x4C, 0x3B, 0xC9, 0xA5, 0x06, 0xC9, 0x50, 0x90, 0x12, 0xA9,
+    0x00, 0x8D, 0x06, 0x00, 0xE6, 0x07, 0xA5, 0x07, 0xC9, 0x18, 0x90, 0x05, 0xA9, 0x17, 0x8D, 0x07,
+    0x00, 0xA5, 0x07, 0xAA, 0xBD, 0x41, 0xC9, 0x18, 0x65, 0x06, 0x85, 0x08, 0xBD, 0x59, 0xC9, 0x69,
+    0x00, 0x85, 0x09, 0xA5, 0x09, 0x4A, 0x0A, 0x0A, 0xAA, 0xA9, 0x00, 0x9D, 0xB0, 0xC0, 0xA5, 0x09,
+    0x29, 0x01, 0xD0, 0x0A, 0xA4, 0x08, 0xA5, 0x0A, 0x99, 0x00, 0xCC, 0x4C, 0x36, 0xC9, 0xA4, 0x08,
+    0xA5, 0x0A, 0x99, 0x00, 0xCD, 0xE6, 0x06, 0x4C, 0x3B, 0xC9, 0x68, 0xA8, 0x68, 0xAA, 0x68, 0x60,
+    0x00,
+    0x50, 0xA0, 0xF0, 0x40, 0x90, 0xE0, 0x30, 0x80, 0xD0, 0x20, 0x70, 0xC0, 0x10, 0x60, 0xB0, 0x00,
+    0x50, 0xA0, 0xF0, 0x40, 0x90, 0xE0, 0x30, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x02, 0x02,
+    0x02, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x06, 0x06, 0x06, 0x07};
+
 struct apple2Core
 {
   m6502_t cpu;
@@ -16,14 +54,115 @@ struct apple2Core
   uint8_t rom[apple2RomSize];
   uint8_t busValue;
   uint8_t keyboardLatch;
+  uint8_t videxRam[apple2VidexRamSize];
+  uint8_t videxRegisters[apple2VidexRegisterCount];
+  uint8_t videxWorkspace[5];
+  uint8_t videxSavedWorkspace[5];
+  size_t videxRamBank;
+  uint8_t videxRegisterAddress;
   apple2VideoState video;
+  bool cpuBusAccess;
+  bool videxWorkspaceActive;
   bool romLoaded;
 };
+
+static void scrollVidexScreen(apple2Core *core)
+{
+  memmove(core->videxRam, &core->videxRam[apple2VidexTextColumns],
+          (apple2VidexTextRows - 1) * apple2VidexTextColumns);
+  memset(&core->videxRam[(apple2VidexTextRows - 1) * apple2VidexTextColumns], 0x20,
+         apple2VidexTextColumns);
+}
+
+static bool isVidexFirmwareAccess(const apple2Core *core)
+{
+  uint16_t programCounter = core->cpu.PC;
+  return core->cpuBusAccess && programCounter >= 0xC800 &&
+         programCounter < 0xC800 + apple2VidexFirmwareSize;
+}
+
+static bool isVidexFirmwareProgramCounter(uint16_t programCounter)
+{
+  return programCounter >= 0xC800 && programCounter < 0xC800 + apple2VidexFirmwareSize;
+}
+
+static void beginVidexWorkspace(apple2Core *core)
+{
+  if (!core->videxWorkspaceActive)
+  {
+    memcpy(core->videxSavedWorkspace, &core->ram[0x0006], sizeof(core->videxSavedWorkspace));
+    core->videxWorkspaceActive = true;
+  }
+}
+
+static void endVidexWorkspace(apple2Core *core)
+{
+  if (core->videxWorkspaceActive && !isVidexFirmwareProgramCounter(core->cpu.PC))
+  {
+    memcpy(&core->ram[0x0006], core->videxSavedWorkspace, sizeof(core->videxSavedWorkspace));
+    core->videxWorkspaceActive = false;
+  }
+}
+
+static bool isVidexOutputSelected(const apple2Core *core)
+{
+  return core->ram[0x0036] == 0xB3 && core->ram[0x0037] == 0xC8;
+}
+
+static void clearSelectedDisplay(apple2Core *core, bool videxSelected)
+{
+  if (videxSelected)
+  {
+    memset(core->videxRam, 0x20, sizeof(core->videxRam));
+    memset(core->videxWorkspace, 0, sizeof(core->videxWorkspace));
+    return;
+  }
+
+  for (size_t row = 0; row < apple2TextRows; ++row)
+  {
+    for (size_t column = 0; column < apple2TextColumns; ++column)
+    {
+      uint16_t address;
+      if (apple2CoreTextAddress(core->video.page2, row, column, &address))
+      {
+        core->ram[address] = 0xA0;
+      }
+    }
+  }
+}
+
+static uint8_t readVidexIo(apple2Core *core, uint16_t address)
+{
+  uint8_t offset = (uint8_t)(address - 0xC0B0);
+  core->videxRamBank = ((size_t)(offset >> 2) & 3U) * apple2VidexRamBankSize;
+  return offset == 1 ? core->videxRegisters[core->videxRegisterAddress] : core->busValue;
+}
+
+static void writeVidexIo(apple2Core *core, uint16_t address, uint8_t value)
+{
+  uint8_t offset = (uint8_t)(address - 0xC0B0);
+  core->videxRamBank = ((size_t)(offset >> 2) & 3U) * apple2VidexRamBankSize;
+  if (offset == 0)
+  {
+    core->videxRegisterAddress = value & 0x1F;
+  }
+  else if (offset == 1)
+  {
+    core->videxRegisters[core->videxRegisterAddress] = value;
+    core->video.videxTextMode = core->videxRegisters[1] == apple2VidexTextColumns &&
+                                core->videxRegisters[6] == apple2VidexTextRows;
+  }
+}
 
 static uint8_t readAddress(apple2Core *core, uint16_t address)
 {
   uint8_t value;
-  if (address < apple2RamSize)
+  if (address >= 0x0006 && address <= 0x000A && isVidexFirmwareAccess(core))
+  {
+    beginVidexWorkspace(core);
+    value = core->videxWorkspace[address - 0x0006];
+  }
+  else if (address < apple2RamSize)
   {
     value = core->ram[address];
   }
@@ -35,6 +174,10 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   {
     core->keyboardLatch &= 0x7F;
     value = core->keyboardLatch;
+  }
+  else if (address >= 0xC0B0 && address <= 0xC0BF)
+  {
+    value = readVidexIo(core, address);
   }
   else if (address >= 0xC050 && address <= 0xC057)
   {
@@ -69,6 +212,20 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
     }
     value = core->busValue;
   }
+  else if (address >= 0xC300 && address <= 0xC3FF)
+  {
+    size_t offset = address - 0xC300;
+    value = offset < sizeof(videxSlotRom) ? videxSlotRom[offset] : 0xFF;
+  }
+  else if (address >= 0xC800 && address <= 0xCBFF)
+  {
+    size_t offset = address - 0xC800;
+    value = offset < sizeof(videxFirmware) ? videxFirmware[offset] : 0xFF;
+  }
+  else if (address >= 0xCC00 && address <= 0xCDFF)
+  {
+    value = core->videxRam[core->videxRamBank + (address - 0xCC00)];
+  }
   else if (address >= 0xD000)
   {
     value = core->rom[address - 0xD000];
@@ -83,17 +240,47 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
 
 static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
 {
-  if (address < apple2RamSize)
+  if (address >= 0x0006 && address <= 0x000A && isVidexFirmwareAccess(core))
   {
+    beginVidexWorkspace(core);
+    if (address == 0x0007 && core->videxWorkspace[1] == apple2VidexTextRows &&
+        (value == 0 || value == apple2VidexTextRows - 1) && core->video.videxTextMode &&
+        isVidexOutputSelected(core))
+    {
+      scrollVidexScreen(core);
+      value = apple2VidexTextRows - 1;
+    }
+    core->videxWorkspace[address - 0x0006] = value;
+  }
+  else if (address < apple2RamSize)
+  {
+    bool isOutputVectorAddress = address == 0x0036 || address == 0x0037;
+    bool wasVidexSelected = isOutputVectorAddress && isVidexOutputSelected(core);
     core->ram[address] = value;
+    if (isOutputVectorAddress)
+    {
+      bool videxSelected = isVidexOutputSelected(core);
+      if (videxSelected != wasVidexSelected)
+      {
+        clearSelectedDisplay(core, videxSelected);
+      }
+    }
   }
   else if (address == 0xC010)
   {
     core->keyboardLatch &= 0x7F;
   }
+  else if (address >= 0xC0B0 && address <= 0xC0BF)
+  {
+    writeVidexIo(core, address, value);
+  }
   else if (address >= 0xC050 && address <= 0xC057)
   {
     readAddress(core, address);
+  }
+  else if (address >= 0xCC00 && address <= 0xCDFF)
+  {
+    core->videxRam[core->videxRamBank + (address - 0xCC00)] = value;
   }
   core->busValue = value;
 }
@@ -162,6 +349,12 @@ apple2CoreResult apple2CoreReset(apple2Core *core)
     return apple2CoreInvalidArgument;
   }
   core->video = (apple2VideoState){.textMode = true};
+  memset(core->videxRegisters, 0, sizeof(core->videxRegisters));
+  memset(core->videxWorkspace, 0, sizeof(core->videxWorkspace));
+  memset(core->videxSavedWorkspace, 0, sizeof(core->videxSavedWorkspace));
+  core->videxWorkspaceActive = false;
+  core->videxRamBank = 0;
+  core->videxRegisterAddress = 0;
   core->keyboardLatch = 0;
   core->busValue = 0xFF;
   core->pins = m6502_init(&core->cpu, &(m6502_desc_t){.bcd_disabled = false});
@@ -176,6 +369,7 @@ apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
   }
   for (size_t index = 0; index < cycles; ++index)
   {
+    core->cpuBusAccess = true;
     core->pins = m6502_tick(&core->cpu, core->pins);
     uint16_t address = M6502_GET_ADDR(core->pins);
     if (core->pins & M6502_RW)
@@ -186,6 +380,8 @@ apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
     {
       writeAddress(core, address, M6502_GET_DATA(core->pins));
     }
+    endVidexWorkspace(core);
+    core->cpuBusAccess = false;
   }
   return apple2CoreOk;
 }
@@ -238,6 +434,7 @@ void apple2CoreGetVideoState(const apple2Core *core, apple2VideoState *state)
   if (core != NULL && state != NULL)
   {
     *state = core->video;
+    state->videxTextMode = core->video.videxTextMode && core->ram[0x0036] == 0xB3 && core->ram[0x0037] == 0xC8;
   }
 }
 
@@ -262,4 +459,40 @@ apple2CoreResult apple2CoreReadTextCell(const apple2Core *core, bool page2, size
   }
   *value = core->ram[address];
   return apple2CoreOk;
+}
+
+apple2CoreResult apple2CoreReadVidexTextCell(const apple2Core *core, size_t row, size_t column, uint8_t *value)
+{
+  if (core == NULL || value == NULL || row >= apple2VidexTextRows || column >= apple2VidexTextColumns)
+  {
+    return apple2CoreInvalidArgument;
+  }
+  size_t startAddress = (((size_t)core->videxRegisters[12] & 0x3FU) << 8) | core->videxRegisters[13];
+  size_t address = (startAddress + row * apple2VidexTextColumns + column) & (apple2VidexRamSize - 1);
+  *value = core->videxRam[address];
+  return apple2CoreOk;
+}
+
+bool apple2CoreGetVidexCursor(const apple2Core *core, size_t *row, size_t *column)
+{
+  if (core == NULL || row == NULL || column == NULL || !core->video.videxTextMode ||
+      core->ram[0x0036] != 0xB3 || core->ram[0x0037] != 0xC8)
+  {
+    return false;
+  }
+  *column = core->videxWorkspace[0];
+  *row = core->videxWorkspace[1];
+  return true;
+}
+
+bool apple2CoreGetTextCursor(const apple2Core *core, size_t *row, size_t *column)
+{
+  if (core == NULL || row == NULL || column == NULL || core->ram[0x0024] >= apple2TextColumns ||
+      core->ram[0x0025] >= apple2TextRows)
+  {
+    return false;
+  }
+  *column = core->ram[0x0024];
+  *row = core->ram[0x0025];
+  return true;
 }

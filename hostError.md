@@ -37,10 +37,10 @@ files that use more than one FCB (directory extent) fail.
   NOT mean that a CRC mismatch was detected: a CRC mismatch is reported by the
   host as a status byte and shown as "exchange I/O or checksum error"
   (`fileError = 14`).
-- The fixture in `tests/hostTests.c` (`testCpm86Boot`) runs the INSTALLED
-  `A:HOST.CMD` from `littlefs/cpm86/system.dsk.small`, not the freshly
-  assembled one. A source change has no effect on the test until HOST.CMD has
-  been rebuilt and the images regenerated (`/tmp/rebuild86.sh`, see 5).
+- Historical note: the fixture in `tests/hostTests.c` (`testCpm86Boot`) used to
+  run the INSTALLED `A:HOST.CMD` from a separate small-image fixture, not the
+  freshly assembled one. The test now uses the existing
+  `littlefs/cpm86/system.dsk` image; no separate small image is required.
 - Desktop reproduction (2026-10-08): copy ASM86.CMD, ED.CMD, GENCMD.CMD,
   PIP.CMD to E: with `A:PIP E:=A:<name>`, then `A:HOST PUT *.CMD O`. ASM86.CMD
   failed after 4 dots exactly like on the device; ED, GENCMD, PIP and HOST.CMD
@@ -118,8 +118,9 @@ bash /tmp/runCpm86Full.sh 40
 copy HOST.A86 with CRLF, create `hosttest.dsk` (LARGE) with HOST.A86, run
 hostTests with `CPM86_HOST_COMPILE_ONLY=1`, extract HOST.CMD, copy it to
 `bootDisks/cpm86/systemDsk`, run `tools/createSystemDsk.py --os cpm86 --profile
-LARGE` and `--profile SMALL --output littlefs/cpm86/system.dsk.small`, then run
-`hostTests` with `CPM86_HOST_BUILD_DISK` and `CPM86_HOST_SYSTEM_DISK`.)
+LARGE`, then run `hostTests` with `CPM86_HOST_BUILD_DISK` and
+`CPM86_HOST_SYSTEM_DISK`. The host test uses the standard `system.dsk` image;
+do not generate a separate small-image fixture.)
 
 ## 6. Attempt register
 

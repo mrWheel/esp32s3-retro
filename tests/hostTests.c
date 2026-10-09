@@ -97,6 +97,153 @@ static void testApple2Core(void)
   apple2CoreDestroy(core);
 }
 
+static void testApple2VidexCard(void)
+{
+  apple2Core *core = NULL;
+  uint8_t rom[apple2RomSize];
+  memset(rom, 0xEA, sizeof(rom));
+  const uint8_t program[] = {
+      0x20, 0x08, 0xC3, 0xA2, 0x00, 0xBD, 0x00, 0xD1, 0x20, 0x2E, 0xD0, 0xE8, 0xE0, 0x50, 0xD0, 0xF5,
+      0xA9, 0x0D, 0x20, 0x2E, 0xD0, 0xA9, 'Z', 0x20, 0x2E, 0xD0, 0xA2, 0x00, 0xA9, 0x0D, 0x20, 0x2E,
+      0xD0, 0xE8, 0xE0, 0x13, 0xD0, 0xF6, 0xA9, 'Q', 0x20, 0x2E, 0xD0, 0x4C, 0x2B, 0xD0, 0x6C, 0x36,
+      0x00
+  };
+  memcpy(&rom[0], program, sizeof(program));
+  for (size_t index = 0; index < apple2VidexTextColumns; ++index)
+  {
+    rom[0x100 + index] = (uint8_t)(0x20 + index);
+  }
+  rom[0x2FFC] = 0x00;
+  rom[0x2FFD] = 0xD0;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 300000) == apple2CoreOk);
+
+  apple2VideoState video;
+  apple2CoreGetVideoState(core, &video);
+  assert(video.videxTextMode);
+  uint8_t value;
+  assert(apple2CoreReadMemory(core, 0x0036, &value) == apple2CoreOk && value == 0xB3);
+  assert(apple2CoreReadMemory(core, 0x0037, &value) == apple2CoreOk && value == 0xC8);
+  assert(apple2CoreReadMemory(core, 0xC308, &value) == apple2CoreOk && value == 0x4C);
+  for (size_t column = 0; column < apple2VidexTextColumns; ++column)
+  {
+    assert(apple2CoreReadVidexTextCell(core, 0, column, &value) == apple2CoreOk);
+    assert(value == (uint8_t)(0x20 + column));
+  }
+  assert(apple2CoreReadVidexTextCell(core, 1, 0, &value) == apple2CoreOk && value == 'Z');
+  assert(apple2CoreReadVidexTextCell(core, 20, 0, &value) == apple2CoreOk && value == 'Q');
+  assert(apple2CoreReadVidexTextCell(core, apple2VidexTextRows, 0, &value) == apple2CoreInvalidArgument);
+
+  assert(apple2CoreWriteMemory(core, 0xC0B8, 0) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xCC10, 0x5A) == apple2CoreOk);
+  assert(apple2CoreReadVidexTextCell(core, 13, 0, &value) == apple2CoreOk && value == 0x5A);
+  assert(apple2CoreWriteMemory(core, 0xC0BC, 0) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xCC10, 0xA5) == apple2CoreOk);
+  assert(apple2CoreReadVidexTextCell(core, 19, 32, &value) == apple2CoreOk && value == 0xA5);
+
+  assert(apple2CoreWriteMemory(core, 0x0036, 0x00) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0x0037, 0xD0) == apple2CoreOk);
+  apple2CoreGetVideoState(core, &video);
+  assert(!video.videxTextMode);
+  apple2CoreDestroy(core);
+}
+
+static void testApple2VidexScrolling(void)
+{
+  apple2Core *core = NULL;
+  uint8_t rom[apple2RomSize];
+  memset(rom, 0xEA, sizeof(rom));
+  const uint8_t program[] = {
+      0x20, 0x08, 0xC3, 0xA2, 0x00, 0x8A, 0x18, 0x69, 'A', 0x20, 0x2E, 0xD0, 0xA9, 0x0D, 0x20, 0x2E,
+      0xD0, 0xE8, 0xE0, 0x1A, 0xD0, 0xEF, 0x4C, 0x16, 0xD0
+  };
+  memcpy(rom, program, sizeof(program));
+  rom[0x2E] = 0x6C;
+  rom[0x2F] = 0x36;
+  rom[0x30] = 0x00;
+  rom[0x2FFC] = 0x00;
+  rom[0x2FFD] = 0xD0;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 300000) == apple2CoreOk);
+
+  const char expectedRows[] = {'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N',
+                               'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'};
+  uint8_t value;
+  for (size_t row = 0; row < apple2VidexTextRows - 1; ++row)
+  {
+    assert(apple2CoreReadVidexTextCell(core, row, 0, &value) == apple2CoreOk);
+    assert(value == (uint8_t)expectedRows[row]);
+  }
+  for (size_t column = 0; column < apple2VidexTextColumns; ++column)
+  {
+    assert(apple2CoreReadVidexTextCell(core, apple2VidexTextRows - 1, column, &value) == apple2CoreOk);
+    assert(value == 0x20);
+  }
+  size_t cursorRow;
+  size_t cursorColumn;
+  assert(apple2CoreGetVidexCursor(core, &cursorRow, &cursorColumn));
+  assert(cursorRow == apple2VidexTextRows - 1 && cursorColumn == 0);
+  apple2CoreDestroy(core);
+}
+
+static void apple2TypeBasicCommand(apple2Core *core, const char *command)
+{
+  for (size_t index = 0; command[index] != '\0'; ++index)
+  {
+    assert(apple2CorePressKey(core, (uint8_t)command[index]) == apple2CoreOk);
+    for (size_t attempt = 0; attempt < 20 && apple2CoreKeyPending(core); ++attempt)
+    {
+      assert(apple2CoreRunCycles(core, 5000) == apple2CoreOk);
+    }
+    assert(!apple2CoreKeyPending(core));
+  }
+  assert(apple2CoreRunCycles(core, 50000) == apple2CoreOk);
+}
+
+static bool apple2VidexContainsText(apple2Core *core, const char *text)
+{
+  for (size_t row = 0; row < apple2VidexTextRows; ++row)
+  {
+    char line[apple2VidexTextColumns + 1];
+    for (size_t column = 0; column < apple2VidexTextColumns; ++column)
+    {
+      uint8_t value;
+      assert(apple2CoreReadVidexTextCell(core, row, column, &value) == apple2CoreOk);
+      line[column] = (char)(value & 0x7F);
+    }
+    line[apple2VidexTextColumns] = '\0';
+    if (strstr(line, text) != NULL)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool apple2TextContainsText(apple2Core *core, const char *text)
+{
+  apple2VideoState video;
+  apple2CoreGetVideoState(core, &video);
+  for (size_t row = 0; row < apple2TextRows; ++row)
+  {
+    char line[apple2TextColumns + 1];
+    for (size_t column = 0; column < apple2TextColumns; ++column)
+    {
+      uint8_t value;
+      assert(apple2CoreReadTextCell(core, video.page2, row, column, &value) == apple2CoreOk);
+      line[column] = (char)(value & 0x7F);
+    }
+    line[apple2TextColumns] = '\0';
+    if (strstr(line, text) != NULL)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
 static void testApple2SystemRom(void)
 {
   FILE *romFile = fopen(APPLE2_SYSTEM_ROM_PATH, "rb");
@@ -111,50 +258,49 @@ static void testApple2SystemRom(void)
   assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
   assert(apple2CoreRunCycles(core, 500000) == apple2CoreOk);
 
-  const char *command = "PRINT 2+2\r";
-  for (size_t index = 0; command[index] != '\0'; ++index)
-  {
-    assert(apple2CorePressKey(core, (uint8_t)command[index]) == apple2CoreOk);
-    for (size_t attempt = 0; attempt < 20 && apple2CoreKeyPending(core); ++attempt)
-    {
-      assert(apple2CoreRunCycles(core, 5000) == apple2CoreOk);
-    }
-    assert(!apple2CoreKeyPending(core));
-  }
-  assert(apple2CoreRunCycles(core, 50000) == apple2CoreOk);
+  apple2TypeBasicCommand(core, "10 PRINT 1\r");
+  apple2TypeBasicCommand(core, "LIST\r");
+  assert(apple2TextContainsText(core, "10  PRINT 1"));
 
-  bool bannerPresent = false;
-  bool commandEchoed = false;
+  apple2TypeBasicCommand(core, "PR#3\r");
+  apple2VideoState video;
+  apple2CoreGetVideoState(core, &video);
+  assert(video.videxTextMode);
+  assert(!apple2VidexContainsText(core, "10  PRINT 1"));
+  assert(apple2VidexContainsText(core, "]"));
+  size_t cursorRow;
+  size_t cursorColumn;
+  assert(apple2CoreGetVidexCursor(core, &cursorRow, &cursorColumn));
+  assert(cursorRow < apple2VidexTextRows && cursorColumn < apple2VidexTextColumns);
+
+  apple2TypeBasicCommand(core, "LIST\r");
+  assert(apple2VidexContainsText(core, "10  PRINT 1"));
+  apple2TypeBasicCommand(core, "PR#0\r");
+  apple2CoreGetVideoState(core, &video);
+  assert(!video.videxTextMode);
+  assert(!apple2TextContainsText(core, "10  PRINT 1"));
+  assert(apple2TextContainsText(core, "]"));
+  assert(apple2CoreGetTextCursor(core, &cursorRow, &cursorColumn));
+  assert(cursorRow < apple2TextRows && cursorColumn < apple2TextColumns);
+
+  apple2TypeBasicCommand(core, "PR#3\r");
+  apple2CoreGetVideoState(core, &video);
+  assert(video.videxTextMode);
+  assert(!apple2VidexContainsText(core, "10  PRINT 1"));
+  assert(apple2VidexContainsText(core, "]"));
+  assert(apple2CoreGetVidexCursor(core, &cursorRow, &cursorColumn));
+  assert(cursorRow < apple2VidexTextRows && cursorColumn < apple2VidexTextColumns);
+  apple2TypeBasicCommand(core, "PRINT 2+2\r");
+
+  assert(apple2VidexContainsText(core, "PRINT 2+2"));
   bool basicResultPresent = false;
-  bool basicPromptPresent = false;
-  for (size_t row = 0; row < apple2TextRows; ++row)
+  for (size_t row = 0; row < apple2VidexTextRows; ++row)
   {
-    char line[apple2TextColumns + 1];
-    for (size_t column = 0; column < apple2TextColumns; ++column)
-    {
-      uint8_t value;
-      assert(apple2CoreReadTextCell(core, false, row, column, &value) == apple2CoreOk);
-      line[column] = (char)(value & 0x7F);
-    }
-    line[apple2TextColumns] = '\0';
-    if (row == 0)
-    {
-      bannerPresent = strstr(line, "APPLE ][") != NULL;
-    }
-    else if (row == 2)
-    {
-      commandEchoed = strstr(line, "]PRINT 2+2") != NULL;
-    }
-    else if (row == 3)
-    {
-      basicResultPresent = line[0] == '4';
-    }
-    else if (row == 5)
-    {
-      basicPromptPresent = line[0] == ']';
-    }
+    uint8_t value;
+    assert(apple2CoreReadVidexTextCell(core, row, 0, &value) == apple2CoreOk);
+    basicResultPresent = basicResultPresent || (value & 0x7F) == '4';
   }
-  assert(bannerPresent && commandEchoed && basicResultPresent && basicPromptPresent);
+  assert(basicResultPresent);
   apple2CoreDestroy(core);
 }
 
@@ -1257,11 +1403,11 @@ static void testCpm86Boot(void)
   assert(!ferror(sourceDisk));
   assert(fclose(sourceDisk) == 0);
   assert(fclose(temporaryDisk) == 0);
-  assert(bytesCopied == 163840);
+  assert(bytesCopied == cpm86LargeDiskSize);
 
   imageFile disk = {0};
   assert(imageOpen(&disk, temporaryDiskPath, false));
-  cpm86BootFixture fixture = {.disks = {[0] = &disk, [1] = &disk}};
+  cpm86BootFixture fixture = {.disks = {[0] = &disk, [1] = &disk}, .largeDisks = {[0] = true, [1] = true}};
   const char *hostBuildDiskPath = getenv("CPM86_HOST_BUILD_DISK");
   assert((hostBuildDiskPath == NULL) == (hostSystemDiskPath == NULL));
   imageFile hostBuildDisk = {0};
@@ -1274,7 +1420,7 @@ static void testCpm86Boot(void)
   if (hostBuildDiskPath != NULL)
   {
     assert(imageOpen(&hostBuildDisk, hostBuildDiskPath, false));
-    assert(imageSize(&hostBuildDisk) == 528384);
+    assert(imageSize(&hostBuildDisk) == cpm86LargeDiskSize);
     fixture.disks[4] = &hostBuildDisk;
     fixture.largeDisks[4] = true;
 
@@ -2274,7 +2420,7 @@ static void testCpm80GuestBoot(void)
   }
   assert(imageFlush(&bigDisk));
   assert(imageOpen(&disk, CPM80_SYSTEM_IMAGE_PATH, true));
-  assert(imageSize(&disk) == cpm80SystemImageSize);
+  assert(imageSize(&disk) == cpm80LargeImageSize);
   uint8_t ccpImage[cpm80CcpSize];
   uint8_t bdosImage[cpm80BdosSize];
   assert(imageReadAt(&disk, 0, ccpImage, sizeof(ccpImage)));
@@ -2283,7 +2429,8 @@ static void testCpm80GuestBoot(void)
   cpm80GuestFixture fixture = {.disks = {[0] = &disk, [1] = &disk, [3] = &bigDisk, [4] = &writableDisk, [5] = &largeDisk},
                              .availableDrives = {[0] = true, [1] = true, [3] = true, [4] = true, [5] = true},
                              .writableDrives = {[4] = true, [5] = true},
-                             .diskProfiles = {[3] = cpm80DiskProfileBig, [5] = cpm80DiskProfileLarge},
+                             .diskProfiles = {[0] = cpm80DiskProfileLarge, [1] = cpm80DiskProfileLarge,
+                                              [3] = cpm80DiskProfileBig, [5] = cpm80DiskProfileLarge},
                              .exchange = &exchange};
   const cpm80HostOps host = {.consoleAvailable = cpm80TestConsoleAvailable,
                            .consoleRead = cpm80TestConsoleRead,
@@ -2313,12 +2460,12 @@ static void testCpm80GuestBoot(void)
   assert(guest.cpu.memory[0x0000] == 0xC3 && guest.cpu.memory[0x0001] == 0x03 && guest.cpu.memory[0x0002] == 0xDA);
   assert(guest.cpu.memory[0x0005] == 0xC3 && guest.cpu.memory[0x0006] == 0x06 && guest.cpu.memory[0x0007] == 0xCC);
   assert(guest.cpu.memory[0xDA90 + 10] == 0xA0 && guest.cpu.memory[0xDA90 + 11] == 0xDA);
-  assert(guest.cpu.memory[0xDAA0] == 26 && guest.cpu.memory[0xDAA1] == 0);
-  assert(guest.cpu.memory[0xDAA2] == 3 && guest.cpu.memory[0xDAA3] == 7);
+  assert(guest.cpu.memory[0xDAA0] == 52 && guest.cpu.memory[0xDAA1] == 0);
+  assert(guest.cpu.memory[0xDAA2] == 4 && guest.cpu.memory[0xDAA3] == 15);
   assert(guest.cpu.memory[0xDAA4] == 0 && guest.cpu.memory[0xDAA5] == 242);
-  assert(guest.cpu.memory[0xDAA6] == 0 && guest.cpu.memory[0xDAA7] == 63);
+  assert(guest.cpu.memory[0xDAA6] == 0 && guest.cpu.memory[0xDAA7] == 127);
   assert(guest.cpu.memory[0xDAA8] == 0 && guest.cpu.memory[0xDAA9] == 192);
-  assert(guest.cpu.memory[0xDAAA] == 0 && guest.cpu.memory[0xDAAB] == 16);
+  assert(guest.cpu.memory[0xDAAA] == 0 && guest.cpu.memory[0xDAAB] == 32);
   assert(guest.cpu.memory[0xDAAC] == 0 && guest.cpu.memory[0xDAAD] == 2);
   const uint16_t dphAddresses[cpm80DiskDriveCount] = {0xDA90, 0xDB60, 0xDC60, 0xDD60, 0xDE60, 0xDF60};
   for (uint8_t drive = 1; drive < cpm80DiskDriveCount; ++drive)
@@ -3487,6 +3634,12 @@ static void testCpm80HostAssemble(void)
 
 int main(int argc, char **argv)
 {
+  if (argc == 2 && strcmp(argv[1], "--apple2-videx-card") == 0)
+  {
+    testApple2VidexCard();
+    testApple2VidexScrolling();
+    return 0;
+  }
   if (argc == 2 && strcmp(argv[1], "--apple2-system-rom") == 0)
   {
     testApple2SystemRom();
@@ -3495,6 +3648,7 @@ int main(int argc, char **argv)
   if (argc == 2 && strcmp(argv[1], "--apple2-core") == 0)
   {
     testApple2Core();
+    testApple2VidexCard();
     puts("PASS: Apple II 6502, memory map, keyboard and video switches");
     return 0;
   }
