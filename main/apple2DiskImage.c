@@ -2,9 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
-//-- DOS 3.3 logical sector to physical sector and ProDOS/Pascal logical sector to physical sector.
-static const uint8_t physicalOfDosLogical[apple2DiskImageSectorsPerTrack] = {0, 13, 11, 9, 7, 5, 3, 1,
-                                                                             14, 12, 10, 8, 6, 4, 2, 15};
+//-- ProDOS/Pascal logical sector to physical sector.
 static const uint8_t physicalOfProdosLogical[apple2DiskImageSectorsPerTrack] = {0, 2, 4, 6, 8, 10, 12, 14,
                                                                                 1, 3, 5, 7, 9, 11, 13, 15};
 //-- Physical sector to the sector position inside an image file, per file order.
@@ -24,7 +22,6 @@ enum
   prodosDirectoryEntriesPerBlockOffset = 0x24,
   prodosDirectoryBitmapOffset = 0x27,
   prodosDirectoryBlockCountOffset = 0x29,
-  dosVtocTrack = 17,
   dosSectorSize = 256
 };
 
@@ -108,13 +105,6 @@ static bool readFileSector(apple2DiskImage *disk, uint8_t track, uint8_t fileSec
 static uint8_t fileSectorOfPhysical(apple2DiskImageOrder order, uint8_t physical)
 {
   return order == apple2DiskImageOrderProdos ? prodosLogicalOfPhysical[physical] : dosLogicalOfPhysical[physical];
-}
-
-//-- Reads a DOS 3.3 logical sector as seen by a file stored in the given order.
-static bool readDosLogical(apple2DiskImage *disk, apple2DiskImageOrder order, uint8_t track, uint8_t logical,
-                           uint8_t *buffer)
-{
-  return readFileSector(disk, track, fileSectorOfPhysical(order, physicalOfDosLogical[logical]), buffer);
 }
 
 //-- Reads one 512-byte ProDOS/Pascal block (two ProDOS logical sectors) as seen by a file stored in the given order.
@@ -207,41 +197,6 @@ static bool probeProDos(apple2DiskImage *disk, apple2DiskImageOrder order, char 
   return true;
 }
 
-//-- DOS 3.3 VTOC at track 17 sector 0 (physical sector 0 in both file orders) and a first catalog sector that
-//-- links on to a following catalog sector when read in the given order.
-static bool probeDosVtoc(apple2DiskImage *disk, uint8_t *catalogTrack, uint8_t *catalogSector)
-{
-  uint8_t vtoc[dosSectorSize];
-  if (disk->trackCount <= dosVtocTrack || !readDosLogical(disk, apple2DiskImageOrderDos, dosVtocTrack, 0, vtoc))
-  {
-    return false;
-  }
-  if (vtoc[1] == 0 || vtoc[1] >= disk->trackCount || vtoc[2] == 0 || vtoc[2] >= apple2DiskImageSectorsPerTrack ||
-      vtoc[3] == 0 || vtoc[0x27] != 122 || vtoc[0x35] != apple2DiskImageSectorsPerTrack)
-  {
-    return false;
-  }
-  *catalogTrack = vtoc[1];
-  *catalogSector = vtoc[2];
-  return true;
-}
-
-//-- Sector 15 (the usual first catalog sector) is physical sector 15 in both orders, so it cannot tell the orders
-//-- apart. The chain is therefore followed one hop: the second catalog sector must also link on inside the catalog track.
-static bool probeDosCatalog(apple2DiskImage *disk, apple2DiskImageOrder order, uint8_t catalogTrack,
-                            uint8_t catalogSector)
-{
-  uint8_t sector[dosSectorSize];
-  if (!readDosLogical(disk, order, catalogTrack, catalogSector, sector) || sector[1] != catalogTrack ||
-      sector[2] == 0 || sector[2] >= apple2DiskImageSectorsPerTrack)
-  {
-    return false;
-  }
-  uint8_t nextSector = sector[2];
-  return readDosLogical(disk, order, catalogTrack, nextSector, sector) && sector[1] == catalogTrack &&
-         sector[2] > 0 && sector[2] < apple2DiskImageSectorsPerTrack;
-}
-
 apple2DiskImageResult apple2DiskImageProbe(apple2DiskImage *disk, apple2DiskImageProbeResult *result)
 {
   if (disk == NULL || result == NULL)
@@ -283,16 +238,6 @@ apple2DiskImageResult apple2DiskImageProbe(apple2DiskImage *disk, apple2DiskImag
     return apple2DiskImageOk;
   }
 
-  uint8_t catalogTrack;
-  uint8_t catalogSector;
-  if (probeDosVtoc(disk, &catalogTrack, &catalogSector))
-  {
-    bool catalogDos = probeDosCatalog(disk, apple2DiskImageOrderDos, catalogTrack, catalogSector);
-    bool catalogProdos = probeDosCatalog(disk, apple2DiskImageOrderProdos, catalogTrack, catalogSector);
-    result->content = apple2DiskImageContentDos33;
-    result->orderKnown = catalogDos != catalogProdos;
-    result->order = (catalogProdos && !catalogDos) ? apple2DiskImageOrderProdos : apple2DiskImageOrderDos;
-  }
   return apple2DiskImageOk;
 }
 

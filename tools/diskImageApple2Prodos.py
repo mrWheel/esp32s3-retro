@@ -352,7 +352,7 @@ def prepare_source_file(filename, data, binary_load_address=None):
     """Return (prodosName, fileType, auxType, payload) for a system-disk source file.
 
     The suffix selects the type: .BAS (Applesoft listing or already tokenized), .TXT, .BIN (needs a load address)
-    or .SYS. Characters ProDOS does not allow in names ('-' and '_') become '.'; HELLO.BAS, the DOS 3.3 greeting
+    or .SYS. Characters ProDOS does not allow in names ('-' and '_') become '.'; HELLO.BAS, the greeting
     program, becomes STARTUP, which BASIC.SYSTEM runs at boot.
     """
     suffix = Path(filename).suffix.upper()

@@ -55,8 +55,7 @@ target_include_directories(apple2DiskTests PRIVATE ../components/apple2Core/incl
 target_compile_options(apple2DiskTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
 target_compile_definitions(
   apple2DiskTests PRIVATE APPLE2_SYSTEM_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple.rom"
-  APPLE2_SYSTEM_DISK_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/apple2/system.dsk"
-  APPLE2_BASE_DISK_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/Apple DOS 3.3P.dsk")
+  APPLE2_SYSTEM_DISK_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/apple2/system.dsk")
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(apple2DiskTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(apple2DiskTests PRIVATE -fsanitize=address,undefined)
@@ -84,8 +83,7 @@ add_test(NAME apple2LanguageCard COMMAND hostTests --apple2-language-card)
 add_test(NAME apple2VidexCard COMMAND hostTests --apple2-videx-card)
 add_test(NAME apple2SystemRom COMMAND hostTests --apple2-system-rom)
 add_test(NAME apple2Disk COMMAND apple2DiskTests)
-add_test(NAME apple2DiskDosStream COMMAND apple2DiskTests --dos-stream)
-add_test(NAME apple2DiskDosBoot COMMAND apple2DiskTests --dos-boot)
+add_test(NAME apple2DiskStream COMMAND apple2DiskTests --disk-stream)
 add_test(NAME apple2MultiDisk COMMAND apple2MultiDiskTests)
 add_test(NAME apple2ProdosSystemImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/createSystemDsk.py --os apple2
   --profile PRODOS --output ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk)

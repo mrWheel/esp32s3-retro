@@ -19,14 +19,10 @@ static void setError(char *error, size_t errorCapacity, const char *message)
   }
 }
 
+//-- There is no default drive: without a drives.cfg line nothing is attached.
 static void initializeDefaults(driveTable drives)
 {
   memset(drives, 0, sizeof(apple2DriveConfig) * apple2DriveConfigSlotCount * apple2DriveConfigDrivesPerSlot);
-  apple2DriveConfig *systemDrive = &drives[6 - apple2DriveConfigFirstSlot][0];
-  snprintf(systemDrive->path, sizeof(systemDrive->path), "%s", systemImagePath);
-  systemDrive->profile = apple2DiskImageProfile140k;
-  systemDrive->readOnly = true;
-  systemDrive->configured = true;
 }
 
 static char *trim(char *text)
@@ -66,7 +62,7 @@ static bool safePath(const char *path, const char *prefix)
   return true;
 }
 
-//-- Parses "PR<slot>.<drive>" or the slot-5 SmartPort form "SP5.<unit>" into zero-based table indexes.
+//-- Parses "SD<slot>.<drive>" or the slot-5 SmartPort form "SP5.<unit>" into zero-based table indexes.
 static bool parseDriveName(const char *name, size_t *slotIndex, size_t *driveIndex, bool *smartPort)
 {
   if (strlen(name) != 5 || name[3] != '.' ||
@@ -75,7 +71,7 @@ static bool parseDriveName(const char *name, size_t *slotIndex, size_t *driveInd
   {
     return false;
   }
-  if (name[0] == 'P' && name[1] == 'R')
+  if (name[0] == 'S' && name[1] == 'D')
   {
     *smartPort = false;
   }
@@ -103,7 +99,7 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   char *equals = strchr(content, '=');
   if (equals == NULL || equals == content || strchr(equals + 1, '=') != NULL)
   {
-    setError(error, errorCapacity, "expected PR<slot>.<drive> or SP5.<unit>=<image>,<RO|RW>,<profile>");
+    setError(error, errorCapacity, "expected SD<slot>.<drive> or SP5.<unit>=<image>,<RO|RW>,<profile>");
     return false;
   }
   *equals = '\0';
@@ -114,7 +110,7 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   bool smartPort;
   if (!parseDriveName(driveName, &slotIndex, &driveIndex, &smartPort))
   {
-    setError(error, errorCapacity, "controller must be PR4.1..PR7.2 or SP5.1..SP5.2");
+    setError(error, errorCapacity, "controller must be SD4.1..SD7.2 or SP5.1..SP5.2");
     return false;
   }
   if (seen[slotIndex][driveIndex])
@@ -237,7 +233,7 @@ apple2DriveConfigResult apple2DriveConfigLoad(const char *path,
   {
     if (errno == ENOENT)
     {
-      setError(error, errorCapacity, "drives.cfg is missing; using the built-in system image on PR6.1 only");
+      setError(error, errorCapacity, "drives.cfg is missing; no Apple II drives are attached");
       return apple2DriveConfigMissing;
     }
     setError(error, errorCapacity, "drives.cfg could not be opened");

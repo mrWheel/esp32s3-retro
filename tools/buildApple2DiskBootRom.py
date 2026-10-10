@@ -3,7 +3,7 @@
 
 The program is written from the published behaviour of the Disk II interface and from the
 project's own host-side contract (see designApple2.md, APPLE-DEC-020). It is not derived from
-any existing controller ROM. It reads track 0 sectors only, which is all the DOS 3.3 boot
+any existing controller ROM. It reads track 0 sectors only, which is all a DOS boot
 chain needs; later disk access is done by the guest operating system through the softswitches.
 """
 

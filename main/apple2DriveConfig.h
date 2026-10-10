@@ -29,10 +29,10 @@ typedef enum
   apple2DriveConfigInvalid
 } apple2DriveConfigResult;
 
-//-- Loads drives.cfg lines of the form PR<slot>.<drive> or SP5.<unit> followed by image, mode and profile.
-//-- The result is indexed [slot - 4][unit - 1]. Without a line for PR6.1 that drive is the built-in system image.
-//-- Images must be below /littlefs/apple2/ or /retro/images/apple2/. The built-in system.dsk must be read-only.
-//-- On any error all drives fall back to the defaults and error describes the problem.
+//-- Loads drives.cfg lines of the form SD<slot>.<drive> or SP5.<unit> followed by image, mode and profile.
+//-- The result is indexed [slot - 4][unit - 1]. A drive without a line is empty: there is no default image, not even for SD6.1.
+//-- Images must be below /littlefs/apple2/ or /retro/images/apple2/. /littlefs/apple2/system.dsk must be read-only.
+//-- On any error all drives are left empty and error describes the problem.
 apple2DriveConfigResult apple2DriveConfigLoad(const char *path,
                                               apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot],
                                               char *error, size_t errorCapacity);

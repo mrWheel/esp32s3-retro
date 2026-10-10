@@ -38,7 +38,6 @@ typedef enum
 typedef enum
 {
   apple2DiskImageContentUnknown,
-  apple2DiskImageContentDos33,
   apple2DiskImageContentPascal,
   apple2DiskImageContentProDos
 } apple2DiskImageContent;
@@ -60,7 +59,7 @@ typedef enum
 typedef struct
 {
   apple2DiskImageContent content;
-  //-- True when exactly one sector order produced a valid DOS 3.3 or Apple Pascal layout; order is then that order.
+  //-- True when exactly one sector order produced a valid ProDOS or Apple Pascal layout; order is then that order.
   bool orderKnown;
   apple2DiskImageOrder order;
   //-- Pascal/ProDOS volume name (NUL terminated) and block count; empty/0 for other content.
@@ -90,7 +89,7 @@ apple2DiskImageResult apple2DiskImageOpenProfileMode(apple2DiskImage *disk, cons
                                                      apple2DiskImageProfile profile, apple2DiskImageOrder order,
                                                      bool readOnly);
 uint8_t apple2DiskImageProfileTracks(apple2DiskImageProfile profile);
-//-- Looks for a valid DOS 3.3 VTOC/catalog, Pascal volume header or ProDOS volume directory under both sector orders.
+//-- Looks for a valid Pascal volume header or ProDOS volume directory under both sector orders.
 apple2DiskImageResult apple2DiskImageProbe(apple2DiskImage *disk, apple2DiskImageProbeResult *result);
 //-- Sector is the position (0..15) inside the track in the image file, as passed by the Disk II model.
 apple2DiskImageResult apple2DiskImageReadSector(apple2DiskImage *disk, uint8_t track, uint8_t sector,

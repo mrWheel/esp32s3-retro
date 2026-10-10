@@ -1,19 +1,15 @@
-# Apple II DOS 3.3 system-disk files
+# Apple II ProDOS system-disk files
 
-Place files for the Apple II system disk in this directory. The builder accepts:
+Place files for the Apple II system disk in this directory. `createSystemDsk.py --os apple2 --profile PRODOS`
+(run by `idf.py build` as well) writes every file to a copy of the bootable ProDOS volume
+`bootDisks/apple2/prodosEmpty.po` and stores the result as `littlefs/apple2/system.dsk` (volume `/SYSTEM`).
 
-- `.TXT` plain DOS text files (including Applesoft listings; use `EXEC NAME.TXT`, then `RUN`)
-- `.BAS` tokenized Applesoft BASIC files or numbered ASCII source listings (the builder tokenizes source listings for DOS `LOAD`; the `.BAS` source suffix is omitted from the DOS catalog name)
-- `.INT` tokenized Integer BASIC files
-- `.BIN` raw binary files, with `--binary-load-address` supplied to the builder
+- `.BAS` numbered ASCII Applesoft source (tokenized by the builder, type BAS; `LOAD TEST.NONGR`, then `RUN`)
+- `.TXT` plain text
+- `.BIN` raw binary, with `--binary-load-address` supplied to the builder
+- `.SYS` ProDOS system files
 
-The builder writes every file in this directory to a copy of the empty bootable
-DOS 3.3 base image `bootDisks/apple2/dos33Empty.dsk` (boot tracks only, no
-files). `HELLO.BAS` is the greeting program DOS runs at boot
-(the 80-column card is selected automatically at machine start; HELLO does not need `PR#3`). For example, `TEST-NONGR.BAS` is cataloged as the
-Applesoft file `TEST-NONGR`, so load and run it with `LOAD TEST-NONGR` and
-`RUN`. This directory holds no DOS boot/system software; that is in the base image.
-
-## ProDOS 8 system disk
-
-`createSystemDsk.py --os apple2 --profile PRODOS` (or `idf.py -DAPPLE2_SYSTEM_DISK_PROFILE=PRODOS build`) writes the same files to the ProDOS volume `/SYSTEM` instead (base image `bootDisks/apple2/prodosEmpty.po`). ProDOS names allow only `A-Z`, `0-9` and `.`: `-` and `_` become `.` (`TEST-NONGR.BAS` becomes `TEST.NONGR`) and `HELLO.BAS` becomes `STARTUP`, which `BASIC.SYSTEM` runs at boot. `.BAS` files are tokenized Applesoft (type BAS, `LOAD TEST.NONGR`), `.TXT` text, `.BIN` binary (needs `--binary-load-address`) and `.SYS` system files. The emulator must be rebuilt and flashed again to use a new system.dsk.
+ProDOS names allow only `A-Z`, `0-9` and `.`: `-` and `_` become `.` (`TEST-NONGR.BAS` becomes `TEST.NONGR`) and
+`HELLO.BAS` becomes `STARTUP`, which `BASIC.SYSTEM` runs at boot (the 80-column card is selected automatically at
+machine start; no `PR#3` needed). The emulator must be rebuilt and flashed again to use a new system.dsk, and
+`SD6.1=/littlefs/apple2/system.dsk,RO,APPLE2_140K` must be listed in drives.cfg.

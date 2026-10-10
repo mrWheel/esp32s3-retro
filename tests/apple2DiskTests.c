@@ -7,7 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 
-//-- Disk II (slot 6, drive 1, DOS 3.3 16-sector) host tests, including writable media.
+//-- Disk II (slot 6, drive 1, 16-sector) host tests, including writable media.
 //-- Synthetic data is used for the low-level tests; the generated system.dsk is used for the DOS tests.
 
 enum
@@ -853,13 +853,6 @@ static size_t activeRowCount(apple2Core *core)
   return video.videxTextMode ? apple2VidexTextRows : apple2TextRows;
 }
 
-static bool isVidexActive(apple2Core *core)
-{
-  apple2VideoState video;
-  apple2CoreGetVideoState(core, &video);
-  return video.videxTextMode;
-}
-
 static bool screenContains(apple2Core *core, const char *text)
 {
   for (size_t row = 0; row < activeRowCount(core); ++row)
@@ -884,8 +877,8 @@ static void dumpScreen(apple2Core *core)
   }
 }
 
-//-- Every sector of the real DOS 3.3 image, delivered through the controller stream, equals the image bytes.
-static void testStreamMatchesDosImage(const char *imagePath)
+//-- Every sector of a real image, delivered through the controller stream, equals the image bytes.
+static void testStreamMatchesImage(const char *imagePath)
 {
   buildDecodeTable();
   apple2DiskImage image;
@@ -914,110 +907,6 @@ static void testStreamMatchesDosImage(const char *imagePath)
   }
   free(stream);
   assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
-}
-
-static void testDosBoot(const char *imagePath, bool runProgram)
-{
-  size_t beforeSize;
-  uint8_t *before = readWholeFile(imagePath, &beforeSize);
-  apple2DiskImage disk;
-  apple2DiskImageInitialize(&disk);
-  assert(apple2DiskImageOpen(&disk, imagePath) == apple2DiskImageOk);
-  uint8_t rom[apple2RomSize];
-  readRom(APPLE2_SYSTEM_ROM_PATH, rom);
-  apple2Core *core = NULL;
-  assert(apple2CoreCreate(&core) == apple2CoreOk);
-  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
-  //-- The machine starts with the 80-column card selected; nothing (HELLO included) has to run PR#3.
-  assert(apple2CoreSetBootIn80Columns(core, runProgram) == apple2CoreOk);
-  assert(apple2CoreAttachDisk(core, apple2DiskImageReadSectorCallback, &disk) == apple2CoreOk);
-  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
-
-  bool booted = false;
-  for (int step = 0; step < 60 && !booted; ++step)
-  {
-    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
-    booted = isVidexActive(core) && screenContains(core, "]");
-  }
-  apple2DiskState state;
-  apple2CoreGetDiskState(core, &state);
-  printf("boot: booted=%d halfTrack=%u sectorReads=%u failures=%u writeAttempts=%u\n", booted, state.halfTrack,
-         state.sectorReads, state.sectorReadFailures, state.writeAttempts);
-  if (!booted)
-  {
-    dumpScreen(core);
-    exit(2);
-  }
-  assert(state.writeAttempts == 0 && state.sectorReadFailures == 0);
-
-  if (runProgram)
-  {
-    //-- DOS booted with the 80-column card already selected and no error was reported.
-    assert(isVidexActive(core));
-    assert(!screenContains(core, "NOT FOUND"));
-    typeText(core, "HOME\r");
-    assert(apple2CoreRunCycles(core, 200000) == apple2CoreOk);
-    assert(isVidexActive(core));
-    uint32_t readsBeforeLoad = state.sectorReads;
-    typeText(core, "LOAD TEST-NONGR\r");
-    assert(apple2CoreRunCycles(core, 6000000) == apple2CoreOk);
-    assert(!screenContains(core, "ERROR"));
-    assert(!screenContains(core, "NOT FOUND"));
-    apple2CoreGetDiskState(core, &state);
-    assert(state.sectorReads > readsBeforeLoad && state.sectorReadFailures == 0);
-    uint8_t programEndLow;
-    uint8_t programEndHigh;
-    assert(apple2CoreReadMemory(core, 0x00AF, &programEndLow) == apple2CoreOk);
-    assert(apple2CoreReadMemory(core, 0x00B0, &programEndHigh) == apple2CoreOk);
-    uint16_t programEnd = (uint16_t)(programEndLow | (programEndHigh << 8));
-    printf("load: programEnd=$%04X (program bytes=%u)\n", programEnd, programEnd - 0x0801U);
-    assert(programEnd > 0x0801);
-
-    //-- CATALOG and LOAD only read: no write attempt may reach the Disk II (it would light the red LED).
-    typeText(core, "CATALOG\r");
-    assert(apple2CoreRunCycles(core, 3000000) == apple2CoreOk);
-    assert(screenContains(core, "TEST-NONGR"));
-    apple2CoreGetDiskState(core, &state);
-    assert(state.writeAttempts == 0);
-
-    typeText(core, "RUN\r");
-    for (int step = 0; step < 40 && !screenContains(core, "ALL SYSTEM TESTS OK"); ++step)
-    {
-      assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
-    }
-    printf("screen after RUN:\n");
-    dumpScreen(core);
-    assert(screenContains(core, "ALL SYSTEM TESTS OK"));
-    assert(isVidexActive(core));
-
-    //-- PR#0 returns to the 40-column screen and clears it; PR#3 comes back with a cleared 80-column screen.
-    typeText(core, "PR#0\r");
-    assert(apple2CoreRunCycles(core, 400000) == apple2CoreOk);
-    assert(!isVidexActive(core));
-    typeText(core, "PRINT \"BACK40\"\r");
-    assert(apple2CoreRunCycles(core, 400000) == apple2CoreOk);
-    assert(screenContains(core, "BACK40"));
-    typeText(core, "PR#3\r");
-    assert(apple2CoreRunCycles(core, 400000) == apple2CoreOk);
-    assert(isVidexActive(core));
-    typeText(core, "HOME\r");
-    assert(apple2CoreRunCycles(core, 400000) == apple2CoreOk);
-    typeText(core, "VTAB 5: HTAB 10: PRINT \"POSX\"\r");
-    assert(apple2CoreRunCycles(core, 400000) == apple2CoreOk);
-    char positionedRow[apple2VidexTextColumns + 1];
-    readActiveRow(core, 4, positionedRow, sizeof(positionedRow));
-    assert(strncmp(positionedRow + 9, "POSX", 4) == 0);
-  }
-  apple2CoreGetDiskState(core, &state);
-  assert(state.writeAttempts == 0);
-  assert(apple2CoreDetachDisk(core) == apple2CoreOk);
-  apple2CoreDestroy(core);
-  assert(apple2DiskImageClose(&disk) == apple2DiskImageOk);
-  size_t afterSize;
-  uint8_t *after = readWholeFile(imagePath, &afterSize);
-  assert(afterSize == beforeSize && memcmp(after, before, beforeSize) == 0);
-  free(after);
-  free(before);
 }
 
 //— The ProDOS tests write to their data volume, so they work on a scratch copy that is removed afterwards.
@@ -1154,7 +1043,7 @@ static void testProDosAutostartBoot(const char *bootImagePath, const char *dataI
 
   apple2Core *core = NULL;
   assert(apple2CoreCreate(&core) == apple2CoreOk);
-  //— PR6.1 holds the ProDOS boot volume as an autostart block device, PR6.2 the 800K data volume.
+  //— SD6.1 holds the ProDOS boot volume as an autostart block device, SD6.2 the 800K data volume.
   assert(apple2CoreAttachBlockDevice(core, 6, 1, bootDisk.trackCount * 8U, true, apple2DiskImageReadBlockCallback,
                                      NULL, &bootDisk) == apple2CoreOk);
   assert(apple2CoreAttachBlockDevice(core, 6, 2, dataDisk.trackCount * 8U, true, apple2DiskImageReadBlockCallback,
@@ -1196,19 +1085,13 @@ int main(int argc, char **argv)
   if (argc == 4 && strcmp(argv[1], "--prodos-autostart-boot") == 0)
   {
     testProDosAutostartBoot(argv[2], argv[3]);
-    puts("PASS: ProDOS autostart from PR6.1, catalog and BASIC SAVE to the PR6.2 800K volume");
+    puts("PASS: ProDOS autostart from SD6.1, catalog and BASIC SAVE to the SD6.2 800K volume");
     return 0;
   }
-  if (argc >= 2 && strcmp(argv[1], "--dos-boot") == 0)
+  if (argc == 2 && strcmp(argv[1], "--disk-stream") == 0)
   {
-    testDosBoot(argc >= 3 ? argv[2] : APPLE2_SYSTEM_DISK_PATH, true);
-    return 0;
-  }
-  if (argc == 2 && strcmp(argv[1], "--dos-stream") == 0)
-  {
-    testStreamMatchesDosImage(APPLE2_SYSTEM_DISK_PATH);
-    testStreamMatchesDosImage(APPLE2_BASE_DISK_PATH);
-    puts("PASS: Disk II nibble stream equals every sector of the DOS 3.3 images");
+    testStreamMatchesImage(APPLE2_SYSTEM_DISK_PATH);
+    puts("PASS: Disk II nibble stream equals every sector of the system image");
     return 0;
   }
   testImageOpenAndBounds();

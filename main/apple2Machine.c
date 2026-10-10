@@ -18,6 +18,7 @@
 static const char *tag = "apple2Machine";
 static const char *romPath = "/littlefs/apple2/apple2.rom";
 static const char *driveConfigPath = "/microSD/retro/images/apple2/drives.cfg";
+static const size_t bootSlotIndex = 6 - apple2DriveConfigFirstSlot;
 static apple2Core *guestCore;
 static apple2DiskImage guestDisks[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
 static uint8_t renderedCells[apple2TextRows][apple2VidexTextColumns];
@@ -328,8 +329,6 @@ static const char *contentText(const apple2DiskImage *image)
 {
   switch (image->probe.content)
   {
-  case apple2DiskImageContentDos33:
-    return "DOS 3.3";
   case apple2DiskImageContentPascal:
     return "Apple Pascal";
   case apple2DiskImageContentProDos:
@@ -357,7 +356,7 @@ static bool openDriveImage(size_t slotIndex, size_t driveIndex, const apple2Driv
                                                                 apple2DiskImageOrderAuto, config->readOnly);
   if (result != apple2DiskImageOk)
   {
-    ESP_LOGW(tag, "no disk media on %s%u.%u: %s: %s", config->smartPort ? "SP" : "PR", (unsigned)slot,
+    ESP_LOGW(tag, "no disk media on %s%u.%u: %s: %s", config->smartPort ? "SP" : "SD", (unsigned)slot,
              (unsigned)(driveIndex + 1), config->path, apple2DiskImageResultText(result));
     return false;
   }
@@ -370,7 +369,7 @@ static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2D
   apple2DiskImage *image = &guestDisks[slotIndex][driveIndex];
   apple2DiskSectorOrder order = image->order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
                                                                             : apple2DiskSectorOrderDos;
-  const char *prefix = mode == driveModeSmartPort ? "SP" : "PR";
+  const char *prefix = mode == driveModeSmartPort ? "SP" : "SD";
   apple2CoreResult attachResult;
   if (mode == driveModeDiskII)
   {
@@ -407,7 +406,7 @@ static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2D
     ESP_LOGI(tag, "Disk II PR%u.%u (%s): %s, %u tracks, %s sector order, %s", (unsigned)slot,
              (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write", config->path,
              (unsigned)image->trackCount,
-             image->order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS 3.3", contentText(image));
+             image->order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS", contentText(image));
   }
   if (image->probe.content == apple2DiskImageContentPascal || image->probe.content == apple2DiskImageContentProDos)
   {
@@ -419,24 +418,23 @@ static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2D
   {
     ESP_LOGW(tag, "PR%u.%u: the sector order chosen from the file extension disagrees with the content (%s expected)",
              (unsigned)slot, (unsigned)(driveIndex + 1),
-             image->probe.order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS 3.3");
+             image->probe.order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS");
   }
 }
 
 //-- A controller slot is a SmartPort interface (SP5.x), a ProDOS block device when one of its images holds a ProDOS
 //-- volume (the Disk II boot path cannot start ProDOS), or a Disk II controller for every other content.
-static void attachDisks(void)
+//-- The boot drive SD6.1 must be configured in drives.cfg and its image must open; otherwise the machine does not start.
+static esp_err_t attachDisks(void)
 {
   apple2DriveConfig config[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
   char configError[128];
   apple2DriveConfigResult configResult = apple2DriveConfigLoad(driveConfigPath, config, configError, sizeof(configError));
-  if (configResult == apple2DriveConfigInvalid)
+  bool bootDriveOpened = false;
+  if (configResult != apple2DriveConfigLoaded)
   {
-    ESP_LOGW(tag, "%s; using the built-in system image on PR6.1 only", configError);
-  }
-  else if (configResult == apple2DriveConfigMissing && storageReady())
-  {
-    ESP_LOGI(tag, "%s", configError);
+    ESP_LOGE(tag, "%s; no Apple II drives are attached", configError);
+    printf("Apple II: %s; no drives are attached.\n", configError);
   }
   for (size_t slotIndex = 0; slotIndex < apple2DriveConfigSlotCount; ++slotIndex)
   {
@@ -448,6 +446,10 @@ static void attachDisks(void)
       if (config[slotIndex][driveIndex].configured)
       {
         opened[driveIndex] = openDriveImage(slotIndex, driveIndex, &config[slotIndex][driveIndex]);
+        if (slotIndex == bootSlotIndex && driveIndex == 0)
+        {
+          bootDriveOpened = opened[driveIndex];
+        }
         smartPort = smartPort || config[slotIndex][driveIndex].smartPort;
         proDosContent = proDosContent ||
                         (opened[driveIndex] &&
@@ -463,6 +465,23 @@ static void attachDisks(void)
       }
     }
   }
+  if (bootDriveOpened)
+  {
+    return ESP_OK;
+  }
+  if (!config[bootSlotIndex][0].configured)
+  {
+    ESP_LOGE(tag, "boot drive SD6.1 is not configured in %s", driveConfigPath);
+    printf("Apple II cannot start: boot drive SD6.1 is not configured in %s.\n"
+           "Add a line such as SD6.1=/littlefs/apple2/system.dsk,RO,APPLE2_140K\n",
+           driveConfigPath);
+  }
+  else
+  {
+    ESP_LOGE(tag, "boot drive SD6.1 image %s cannot be opened", config[bootSlotIndex][0].path);
+    printf("Apple II cannot start: the SD6.1 image %s cannot be opened.\n", config[bootSlotIndex][0].path);
+  }
+  return ESP_ERR_NOT_FOUND;
 }
 
 //-- Counts sector writes and write errors over all controllers.
@@ -552,8 +571,14 @@ esp_err_t apple2MachineInitialize(void)
     guestCore = NULL;
     return ESP_ERR_INVALID_RESPONSE;
   }
-  attachDisks();
-  return ESP_OK;
+  esp_err_t attachResult = attachDisks();
+  if (attachResult != ESP_OK)
+  {
+    releaseDisk();
+    apple2CoreDestroy(guestCore);
+    guestCore = NULL;
+  }
+  return attachResult;
 }
 
 void apple2MachineRun(void)

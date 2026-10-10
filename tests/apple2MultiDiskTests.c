@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 //-- Host tests for several drives / controllers, 640K media, ProDOS/Apple Pascal sector order,
-//-- Pascal and DOS 3.3 content probing and the Apple II drives.cfg parser.
+//-- Pascal and ProDOS content probing and the Apple II drives.cfg parser.
 
 enum
 {
@@ -468,32 +468,6 @@ static void convertProdosToDosOrder(const uint8_t *prodos, uint8_t *dos, uint8_t
   }
 }
 
-//-- DOS 3.3 VTOC (track 17 sector 0) and the first two catalog sectors (track 17 sectors 15 and 14), written in
-//-- the file order of the image.
-static void buildDos33Image(uint8_t *image, apple2DiskSectorOrder order)
-{
-  uint8_t vtoc[sectorSize] = {0};
-  vtoc[1] = 17;
-  vtoc[2] = 15;
-  vtoc[3] = 3;
-  vtoc[6] = 254;
-  vtoc[0x27] = 122;
-  vtoc[0x34] = 35;
-  vtoc[0x35] = 16;
-  uint8_t catalog[sectorSize] = {0};
-  catalog[1] = 17;
-  catalog[2] = 14;
-  uint8_t secondCatalog[sectorSize] = {0};
-  secondCatalog[1] = 17;
-  secondCatalog[2] = 13;
-  uint8_t vtocFileSector = imageSectorOfPhysical(order, dosPhysicalOfLogical[0]);
-  uint8_t catalogFileSector = imageSectorOfPhysical(order, dosPhysicalOfLogical[15]);
-  memcpy(&image[(17 * 16 + (size_t)vtocFileSector) * sectorSize], vtoc, sectorSize);
-  memcpy(&image[(17 * 16 + (size_t)catalogFileSector) * sectorSize], catalog, sectorSize);
-  uint8_t secondFileSector = imageSectorOfPhysical(order, dosPhysicalOfLogical[14]);
-  memcpy(&image[(17 * 16 + (size_t)secondFileSector) * sectorSize], secondCatalog, sectorSize);
-}
-
 static void testImageProfileSizes(void)
 {
   uint8_t *small = calloc(apple2DiskImageSize, 1);
@@ -668,46 +642,10 @@ static void testPascalProbe(void)
   free(dos);
 }
 
-static void testDos33Probe(void)
+static void testProbeArguments(void)
 {
-  for (int variant = 0; variant < 2; ++variant)
-  {
-    apple2DiskSectorOrder order = variant == 0 ? apple2DiskSectorOrderDos : apple2DiskSectorOrderProdos;
-    uint8_t *data = calloc(apple2DiskImageSize, 1);
-    assert(data != NULL);
-    buildDos33Image(data, order);
-    char path[64];
-    makeTempPath(path, sizeof(path), ".img");
-    writeFile(path, data, apple2DiskImageSize);
-    apple2DiskImage image;
-    apple2DiskImageInitialize(&image);
-    assert(apple2DiskImageOpenProfile(&image, path, apple2DiskImageProfile140k, apple2DiskImageOrderAuto) ==
-           apple2DiskImageOk);
-    assert(image.probe.content == apple2DiskImageContentDos33 && image.probe.orderKnown);
-    assert(image.probe.order == (order == apple2DiskSectorOrderDos ? apple2DiskImageOrderDos : apple2DiskImageOrderProdos));
-    assert(image.order == image.probe.order && !image.orderSuspect);
-    assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
-    assert(unlink(path) == 0);
-    free(data);
-  }
-
-  //-- A VTOC with a wrong constant is not DOS 3.3.
-  uint8_t *data = calloc(apple2DiskImageSize, 1);
-  assert(data != NULL);
-  buildDos33Image(data, apple2DiskSectorOrderDos);
-  data[17 * 16 * sectorSize + 0x27] = 0;
-  char path[64];
-  makeTempPath(path, sizeof(path), ".dsk");
-  writeFile(path, data, apple2DiskImageSize);
   apple2DiskImage image;
   apple2DiskImageInitialize(&image);
-  assert(apple2DiskImageOpenProfile(&image, path, apple2DiskImageProfile140k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageOk);
-  assert(image.probe.content == apple2DiskImageContentUnknown);
-  assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
-  assert(unlink(path) == 0);
-  free(data);
-
   apple2DiskImageProbeResult result;
   assert(apple2DiskImageProbe(NULL, &result) == apple2DiskImageInvalidArgument);
   assert(apple2DiskImageProbe(&image, &result) == apple2DiskImageNotOpen);
@@ -856,13 +794,9 @@ static void expectDefaults(apple2DriveConfig drives[apple2DriveConfigSlotCount][
   {
     for (size_t drive = 0; drive < apple2DriveConfigDrivesPerSlot; ++drive)
     {
-      bool system = slot == 6 - apple2DriveConfigFirstSlot && drive == 0;
-      assert(drives[slot][drive].configured == system);
+      assert(!drives[slot][drive].configured);
     }
   }
-  assert(strcmp(drives[2][0].path, "/littlefs/apple2/system.dsk") == 0);
-  assert(drives[2][0].profile == apple2DiskImageProfile140k);
-  assert(drives[2][0].readOnly);
 }
 
 static void testDriveConfig(void)
@@ -878,12 +812,12 @@ static void testDriveConfig(void)
   makeTempPath(path, sizeof(path), ".cfg");
   writeText(path, "# Apple II drives\n"
                   "\n"
-                  "PR6.2=/retro/images/apple2/data.po,RW,APPLE2_640K\n"
-                  "PR5.1 = /retro/images/apple2/pascal.dsk , RO , APPLE2_140K\r\n"
-                  "PR7.2=/littlefs/apple2/extra.dsk,RW,APPLE2_800K\n");
+                  "SD6.2=/retro/images/apple2/data.po,RW,APPLE2_640K\n"
+                  "SD5.1 = /retro/images/apple2/pascal.dsk , RO , APPLE2_140K\r\n"
+                  "SD7.2=/littlefs/apple2/extra.dsk,RW,APPLE2_800K\n");
   assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
   assert(drives[3][1].configured && drives[3][1].profile == apple2DiskImageProfile800k);
-  assert(drives[2][0].configured && strcmp(drives[2][0].path, "/littlefs/apple2/system.dsk") == 0);
+  assert(!drives[2][0].configured);
   assert(drives[2][1].configured && drives[2][1].profile == apple2DiskImageProfile640k);
   assert(!drives[2][1].readOnly);
   assert(strcmp(drives[2][1].path, "/microSD/retro/images/apple2/data.po") == 0);
@@ -902,31 +836,35 @@ static void testDriveConfig(void)
   assert(drives[1][1].configured && drives[1][1].smartPort && !drives[1][1].readOnly);
   assert(drives[1][1].profile == apple2DiskImageProfile640k);
 
-  //-- PR6.1 may be replaced by another image.
-  writeText(path, "PR6.1=/retro/images/apple2/boot.po,RO,APPLE2_640K\n");
+  //-- SD6.1 is an ordinary drive entry; system.dsk is only used when it is listed.
+  writeText(path, "SD6.1=/retro/images/apple2/boot.po,RO,APPLE2_640K\n");
   assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
   assert(drives[2][0].configured && drives[2][0].profile == apple2DiskImageProfile640k);
   assert(strcmp(drives[2][0].path, "/microSD/retro/images/apple2/boot.po") == 0);
+  writeText(path, "SD6.1=/littlefs/apple2/system.dsk,RO,APPLE2_140K\n");
+  assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
+  assert(drives[2][0].configured && strcmp(drives[2][0].path, "/littlefs/apple2/system.dsk") == 0);
+  assert(drives[2][0].readOnly);
 
   static const char *const invalidLines[] = {
-      "PR6.1=/littlefs/apple2/system.dsk,RW,APPLE2_140K\n",
-      "PR6.2=/retro/images/apple2/data.po,WR,APPLE2_640K\n",
-      "PR3.1=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
-      "PR8.1=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
-      "PR6.3=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
-      "PR6.0=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
+      "SD6.1=/littlefs/apple2/system.dsk,RW,APPLE2_140K\n",
+      "SD6.2=/retro/images/apple2/data.po,WR,APPLE2_640K\n",
+      "SD3.1=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
+      "SD8.1=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
+      "SD6.3=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
+      "SD6.0=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
       "S6D2=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
-      "PR6.2=/retro/images/apple2/data.po,RO,APPLE2_900K\n",
-      "PR6.2=/retro/images/apple2/data.po,RO\n",
-      "PR6.2=/retro/images/apple2/data.po\n",
-      "PR6.2=/retro/images/apple2/data.po,RO,APPLE2_140K,extra\n",
-      "PR6.2=,RO,APPLE2_140K\n",
-      "PR6.2=/retro/images/cpm86/data.dsk,RO,APPLE2_140K\n",
-      "PR6.2=/retro/images/apple2/../data.dsk,RO,APPLE2_140K\n",
-      "PR6.2=/retro/images/apple2/,RO,APPLE2_140K\n",
-      "PR6.2=/littlefs/cpm86/system.dsk,RO,APPLE2_140K\n",
-      "PR6.2=/retro/images/apple2/a.dsk,RO,APPLE2_140K\nPR6.2=/retro/images/apple2/b.dsk,RO,APPLE2_140K\n",
-      "PR5.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP5.2=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
+      "SD6.2=/retro/images/apple2/data.po,RO,APPLE2_900K\n",
+      "SD6.2=/retro/images/apple2/data.po,RO\n",
+      "SD6.2=/retro/images/apple2/data.po\n",
+      "SD6.2=/retro/images/apple2/data.po,RO,APPLE2_140K,extra\n",
+      "SD6.2=,RO,APPLE2_140K\n",
+      "SD6.2=/retro/images/cpm86/data.dsk,RO,APPLE2_140K\n",
+      "SD6.2=/retro/images/apple2/../data.dsk,RO,APPLE2_140K\n",
+      "SD6.2=/retro/images/apple2/,RO,APPLE2_140K\n",
+      "SD6.2=/littlefs/cpm86/system.dsk,RO,APPLE2_140K\n",
+      "SD6.2=/retro/images/apple2/a.dsk,RO,APPLE2_140K\nSD6.2=/retro/images/apple2/b.dsk,RO,APPLE2_140K\n",
+      "SD5.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP5.2=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
       "SP4.1=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
       "just text\n",
   };
@@ -963,7 +901,7 @@ int main(void)
   testSlotsThroughCore();
   testImageProfileSizes();
   testPascalProbe();
-  testDos33Probe();
+  testProbeArguments();
   testPascal640kThroughController();
   testProDosSmartPortBlocks();
   testDriveConfig();
