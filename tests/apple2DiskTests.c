@@ -1020,6 +1020,19 @@ static void testDosBoot(const char *imagePath, bool runProgram)
   free(before);
 }
 
+//— The ProDOS tests write to their data volume, so they work on a scratch copy that is removed afterwards.
+static void makeScratchCopy(const char *source, char *scratch, size_t scratchSize)
+{
+  snprintf(scratch, scratchSize, "%s.run", source);
+  size_t size;
+  uint8_t *data = readWholeFile(source, &size);
+  FILE *file = fopen(scratch, "wb");
+  assert(file != NULL);
+  assert(fwrite(data, 1, size, file) == size);
+  assert(fclose(file) == 0);
+  free(data);
+}
+
 static bool proDosDirectoryHasFile(apple2DiskImage *image, const char *fileName)
 {
   uint8_t block[apple2SmartPortBlockSize];
@@ -1029,11 +1042,12 @@ static bool proDosDirectoryHasFile(apple2DiskImage *image, const char *fileName)
     {
       return false;
     }
-    for (uint8_t entry = 1; entry < 13; ++entry)
+    //— The first directory block starts with the volume header entry; every later block has 13 file entries.
+    for (uint8_t entry = directoryBlock == 2 ? 1 : 0; entry < 13; ++entry)
     {
       size_t offset = 4U + (size_t)entry * 0x27U;
       uint8_t nameLength = block[offset] & 0x0FU;
-      if ((block[offset] & 0xF0U) != 0 || nameLength != strlen(fileName) ||
+      if ((block[offset] & 0xF0U) == 0 || nameLength != strlen(fileName) ||
           memcmp(&block[offset + 1], fileName, nameLength) != 0)
       {
         continue;
@@ -1044,64 +1058,131 @@ static bool proDosDirectoryHasFile(apple2DiskImage *image, const char *fileName)
   return false;
 }
 
+static void proDosSelectBasicAndSave(apple2Core *core, apple2DiskImage *dataDisk)
+{
+  //— The ProDOS 2.4.2 disk starts the Bitsy Bye selector; move the cursor down to BASIC.SYSTEM and start it.
+  assert(apple2CoreRunCycles(core, 5000000) == apple2CoreOk);
+  //— A volume whose first system file is BASIC.SYSTEM already shows the BASIC prompt; otherwise use the selector.
+  if (!screenContains(core, "PRODOS BASIC") && !screenContains(core, "]"))
+  {
+    typeText(core, "\x0A\x0A\x0A");
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    typeText(core, "\r");
+    assert(apple2CoreRunCycles(core, 5000000) == apple2CoreOk);
+  }
+  assert(screenContains(core, "PRODOS BASIC") || screenContains(core, "]"));
+  typeText(core, "CATALOG /DATA800\r");
+  assert(apple2CoreRunCycles(core, 3000000) == apple2CoreOk);
+  if (!screenContains(core, "DATA800"))
+  {
+    dumpScreen(core);
+  }
+  assert(screenContains(core, "DATA800"));
+  typeText(core, "PREFIX /DATA800\r");
+  assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+  typeText(core, "10 PRINT \"SMARTPORT\"\r");
+  assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+  typeText(core, "SAVE TEST\r");
+  assert(apple2CoreRunCycles(core, 3000000) == apple2CoreOk);
+  if (!proDosDirectoryHasFile(dataDisk, "TEST"))
+  {
+    dumpScreen(core);
+  }
+  assert(proDosDirectoryHasFile(dataDisk, "TEST"));
+}
+
 static void testProDosSmartPortBoot(const char *bootImagePath, const char *dataImagePath)
 {
+  char scratchPath[512];
+  makeScratchCopy(dataImagePath, scratchPath, sizeof(scratchPath));
   apple2DiskImage bootDisk;
   apple2DiskImageInitialize(&bootDisk);
   assert(apple2DiskImageOpenProfileMode(&bootDisk, bootImagePath, apple2DiskImageProfile140k,
                                         apple2DiskImageOrderAuto, true) == apple2DiskImageOk);
   apple2DiskImage dataDisk;
   apple2DiskImageInitialize(&dataDisk);
-  assert(apple2DiskImageOpenProfileMode(&dataDisk, dataImagePath, apple2DiskImageProfile640k,
+  assert(apple2DiskImageOpenProfileMode(&dataDisk, scratchPath, apple2DiskImageProfile800k,
                                         apple2DiskImageOrderAuto, false) == apple2DiskImageOk);
   assert(dataDisk.probe.content == apple2DiskImageContentProDos);
 
   apple2Core *core = NULL;
   assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreAttachSmartPortDevice(core, 1, bootDisk.trackCount * 8U, apple2DiskImageReadBlockCallback,
+                                         NULL, &bootDisk) == apple2CoreOk);
   assert(apple2CoreAttachSmartPortDevice(core, 2, dataDisk.trackCount * 8U, apple2DiskImageReadBlockCallback,
                                          apple2DiskImageWriteBlockCallback, &dataDisk) == apple2CoreOk);
-  apple2DiskSectorOrder bootOrder = bootDisk.order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
-                                                                                  : apple2DiskSectorOrderDos;
-  assert(apple2CoreAttachDiskDrive(core, 6, 0, bootOrder, bootDisk.trackCount,
-                                   apple2DiskImageReadSectorCallback, &bootDisk) == apple2CoreOk);
   uint8_t rom[apple2RomSize];
   readRom(APPLE2_SYSTEM_ROM_PATH, rom);
   assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
 
+  //— No Disk II is attached, so the autostart ROM enters Applesoft BASIC; boot the SmartPort slot from there.
+  assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+  typeText(core, "PR#5\r");
   bool booted = false;
   for (int step = 0; step < 60 && !booted; ++step)
   {
     assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
-    booted = screenContains(core, "]");
+    booted = screenContains(core, "PRODOS");
   }
   if (!booted)
   {
-    apple2DiskState state;
-    assert(apple2CoreGetDiskStateForSlot(core, 6, &state));
-    fprintf(stderr, "ProDOS boot failed: order=%d content=%d reads=%lu failures=%lu halfTrack=%u\\n",
-            (int)bootDisk.order, (int)bootDisk.probe.content, (unsigned long)state.sectorReads,
-            (unsigned long)state.sectorReadFailures, (unsigned)state.halfTrack);
+    fprintf(stderr, "ProDOS boot failed: order=%d content=%d\n", (int)bootDisk.order,
+            (int)bootDisk.probe.content);
     dumpScreen(core);
   }
   assert(booted);
-  typeText(core, "CATALOG /DATA640\r");
-  assert(apple2CoreRunCycles(core, 3000000) == apple2CoreOk);
-  if (!screenContains(core, "DATA640"))
-  {
-    dumpScreen(core);
-  }
-  assert(screenContains(core, "DATA640"));
-  typeText(core, "PREFIX /DATA640\r");
-  assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
-  typeText(core, "10 PRINT \"SMARTPORT\"\r");
-  assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
-  typeText(core, "SAVE TEST\r");
-  assert(apple2CoreRunCycles(core, 3000000) == apple2CoreOk);
-  assert(proDosDirectoryHasFile(&dataDisk, "TEST"));
+  proDosSelectBasicAndSave(core, &dataDisk);
   assert(apple2CoreDetachDisk(core) == apple2CoreOk);
   apple2CoreDestroy(core);
   assert(apple2DiskImageClose(&dataDisk) == apple2DiskImageOk);
   assert(apple2DiskImageClose(&bootDisk) == apple2DiskImageOk);
+  assert(remove(scratchPath) == 0);
+}
+
+static void testProDosAutostartBoot(const char *bootImagePath, const char *dataImagePath)
+{
+  char scratchPath[512];
+  makeScratchCopy(dataImagePath, scratchPath, sizeof(scratchPath));
+  apple2DiskImage bootDisk;
+  apple2DiskImageInitialize(&bootDisk);
+  assert(apple2DiskImageOpenProfileMode(&bootDisk, bootImagePath, apple2DiskImageProfile140k,
+                                        apple2DiskImageOrderAuto, true) == apple2DiskImageOk);
+  apple2DiskImage dataDisk;
+  apple2DiskImageInitialize(&dataDisk);
+  assert(apple2DiskImageOpenProfileMode(&dataDisk, scratchPath, apple2DiskImageProfile800k,
+                                        apple2DiskImageOrderAuto, false) == apple2DiskImageOk);
+
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  //— PR6.1 holds the ProDOS boot volume as an autostart block device, PR6.2 the 800K data volume.
+  assert(apple2CoreAttachBlockDevice(core, 6, 1, bootDisk.trackCount * 8U, true, apple2DiskImageReadBlockCallback,
+                                     NULL, &bootDisk) == apple2CoreOk);
+  assert(apple2CoreAttachBlockDevice(core, 6, 2, dataDisk.trackCount * 8U, true, apple2DiskImageReadBlockCallback,
+                                     apple2DiskImageWriteBlockCallback, &dataDisk) == apple2CoreOk);
+  assert(apple2CoreAttachDiskDrive(core, 6, 0, apple2DiskSectorOrderDos, apple2DiskTrackCount, NULL, NULL) ==
+         apple2CoreInvalidArgument);
+  uint8_t rom[apple2RomSize];
+  readRom(APPLE2_SYSTEM_ROM_PATH, rom);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+
+  //— No keyboard input: the Autostart ROM must find the slot-6 boot signature and start ProDOS by itself.
+  bool booted = false;
+  for (int step = 0; step < 60 && !booted; ++step)
+  {
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    booted = screenContains(core, "PRODOS") || screenContains(core, "HELLO, APPLE II");
+  }
+  if (!booted)
+  {
+    dumpScreen(core);
+  }
+  assert(booted);
+  proDosSelectBasicAndSave(core, &dataDisk);
+  assert(apple2CoreDetachDisk(core) == apple2CoreOk);
+  apple2CoreDestroy(core);
+  assert(apple2DiskImageClose(&dataDisk) == apple2DiskImageOk);
+  assert(apple2DiskImageClose(&bootDisk) == apple2DiskImageOk);
+  assert(remove(scratchPath) == 0);
 }
 
 int main(int argc, char **argv)
@@ -1109,7 +1190,13 @@ int main(int argc, char **argv)
   if (argc == 4 && strcmp(argv[1], "--prodos-smartport-boot") == 0)
   {
     testProDosSmartPortBoot(argv[2], argv[3]);
-    puts("PASS: ProDOS boot, SmartPort catalog and BASIC SAVE to the 640K volume");
+    puts("PASS: ProDOS boot, SmartPort catalog and BASIC SAVE to the 800K volume");
+    return 0;
+  }
+  if (argc == 4 && strcmp(argv[1], "--prodos-autostart-boot") == 0)
+  {
+    testProDosAutostartBoot(argv[2], argv[3]);
+    puts("PASS: ProDOS autostart from PR6.1, catalog and BASIC SAVE to the PR6.2 800K volume");
     return 0;
   }
   if (argc >= 2 && strcmp(argv[1], "--dos-boot") == 0)

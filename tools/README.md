@@ -2,7 +2,7 @@
 
 ## OS-independent usage (`--os`)
 
-`diskImage.py`, `buildDiskImage.py` and `prepareSd.py` select the target system with `--os cpm80|cpm86|apple2|swtpc|ucsd`. CP/M-80 and CP/M-86 work today; the other systems are registered in `osProfiles.py` and are refused as "not implemented yet" until a backend is added. `-h` shows the general help (commands and OS overview); `-h` together with `--os <name>` adds the OS-specific profiles and rules. Images are written to `sdcard/retro/images/<os>/` (override with `--sd-root`); a path instead of a bare name is used as given. The web server/GUI can later copy these images to the physical SD card.
+`diskImage.py`, `buildDiskImage.py` and `prepareSd.py` select the target system with `--os cpm80|cpm86|apple2|swtpc|ucsd`. CP/M-80 and CP/M-86 work today (Apple II: `buildDiskImage.py` builds ProDOS volumes, see below); the other systems are registered in `osProfiles.py` and are refused as "not implemented yet" until a backend is added. `-h` shows the general help (commands and OS overview); `-h` together with `--os <name>` adds the OS-specific profiles and rules. Images are written to `sdcard/retro/images/<os>/` (override with `--sd-root`); a path instead of a bare name is used as given. The web server/GUI can later copy these images to the physical SD card.
 
 ```sh
 python3 tools/diskImage.py create --os cpm80 --profile LARGE work.dsk
@@ -10,6 +10,7 @@ python3 tools/diskImage.py add --os cpm80 work.dsk ~/cpm/*.COM 'utils/*.HLP'
 python3 tools/diskImage.py list --os cpm86 work.dsk
 python3 tools/buildDiskImage.py --os cpm80
 python3 tools/buildDiskImage.py --os cpm86 --source-dir ~/cpm86/files
+python3 tools/buildDiskImage.py --os apple2 --profile 800K --name DATA
 python3 tools/createSystemDsk.py --os cpm80 --profile SMALL
 python3 tools/createSystemDsk.py --os cpm80 --profile LARGE
 python3 tools/prepareSd.py --os cpm86
@@ -18,7 +19,7 @@ python3 tools/diskImage.py --os cpm86 -h
 
   `add` accepts wildcards (quoted or shell-expanded). Wildcard matches with an invalid 8.3 name or empty content are skipped with a warning; explicitly named files must be valid. 
 
-  `buildDiskImage.py` now writes `system.dsk` to `sdcard/retro/images/<os>/` by default; use `--output littlefs/cpm80/system.dsk` to refresh the firmware's LittleFS copy. 
+  `buildDiskImage.py` now writes `system.dsk` to `sdcard/retro/images/<os>/` by default (Apple II: `data<size>.po`) and then reminds you to upload the image to the physical SD card with "File Transfer"; use `--output littlefs/cpm80/system.dsk` to refresh the firmware's LittleFS copy. 
 
   For CP/M-86 it needs `--source-dir` with `CPM.SYS` and the `.CMD` files (no sources are checked in). 
 
@@ -35,7 +36,7 @@ python3 tools/diskImage.py --os cpm86 -h
 
   `HOST.COM` is project-authored 8080 source at `guest/cpm80/host/HOST.ASM` (CR+LF line endings), written for the standard CP/M-80 `ASM.COM` and `LOAD.COM`. It is built inside the emulated CP/M-80, not with a host assembler: copy `HOST.ASM` to a writable drive (for example E:) with `diskImage.py add`, then run `A:ASM HOST` and `A:LOAD HOST` there and extract `HOST.COM` with `diskImage.py extract`. `CPM80_HOST_ASM_OUTPUT=<path> ./build-host/hostTests` does exactly this headless and stores the result at `<path>`; the normal `hostTests` run fails when `bootDisks/cpm80/systemDsk/HOST.COM` differs from a fresh build. Copy the result to `bootDisks/cpm80/systemDsk/HOST.COM` and `guest/cpm80/host/HOST.COM`, then rebuild the system image with `python3 tools/createSystemDsk.py --os cpm80 --profile LARGE`.
 
-### Create a LittleFS system disk
+### Create a SYSTEM.DSK on LittleFS
 
 `createSystemDsk.py` builds `littlefs/<os>/system.dsk` from OS resources and
 files in `bootDisks/<os>/systemDisk/` (it also accepts the existing CP/M-80
@@ -48,6 +49,7 @@ python3 tools/createSystemDsk.py --os cpm80 --profile SMALL
 python3 tools/createSystemDsk.py --os cpm80 --profile LARGE
 python3 tools/createSystemDsk.py --os cpm86 --profile SMALL
 python3 tools/createSystemDsk.py --os apple2 --profile DOS33
+python3 tools/createSystemDsk.py --os apple2 --profile PRODOS
 python3 tools/createSystemDsk.py --os apple2 --profile DOS33 --binary-load-address 0x800
 ```
 
@@ -101,30 +103,63 @@ Disk II controller. Tokenized `.BAS` files get the 2-byte length prefix
 that DOS 3.3 Applesoft files carry; the file type (A) comes from the `.BAS`
 suffix, so no extra name marker is needed.
 
-### Optional ProDOS 8 SmartPort volumes
+### ProDOS 8 on the Apple II
 
-DOS 3.3 and Apple Pascal cannot use a 640K Disk II image as a larger filesystem.
-For ProDOS 8, use a bootable ProDOS image as `PR6.1` and configure block devices
-as `SP5.1`/`SP5.2`; slot 5 cannot be assigned to both a Disk II controller and
-SmartPort at the same time. The firmware passes 512-byte block reads and writes
-to the image backend, preserving either DOS or ProDOS sector ordering and the
-configured `RO`/`RW` access. The guest filesystem owns all ProDOS directory and
-bitmap updates.
+DOS 3.3 and Apple Pascal cannot use a 640K or 800K Disk II image as a larger
+filesystem; ProDOS 8 can (800K, `APPLE2_800K`, is the preferred size). The
+emulator therefore treats a slot as a ProDOS block device when one of its
+images holds a ProDOS volume (a `.po` file, or a `.dsk` that holds a ProDOS
+volume): the Disk II boot ROM cannot start ProDOS, so such a slot gets a
+project-authored block-device ROM. The Autostart ROM boots it at power-on
+(or type `PR#6`), and both drives of that slot are block devices, so keep DOS
+3.3 and ProDOS images in different slots. `SP5.1`/`SP5.2` select the same
+kind of device explicitly as a SmartPort interface in slot 5 (`PR#5`).
+The firmware passes 512-byte block reads and writes to the image backend,
+preserving either DOS or ProDOS sector ordering and the configured `RO`/`RW`
+access. The guest filesystem owns all ProDOS directory and bitmap updates.
 
-Create a blank, formatted ProDOS volume on the host, then copy it to the SD card:
+**ProDOS boot disk (`PR6.1`).** `system.dsk` is part of the firmware. To boot
+ProDOS from `PR6.1`:
 
 ```sh
-python3 tools/diskImageApple2Prodos.py sdcard/retro/images/apple2/prodos640.po \
-  --name DATA640 --profile 640K
+python3 tools/createSystemDsk.py --os apple2 --profile PRODOS
+idf.py -DAPPLE2_SYSTEM_DISK_PROFILE=PRODOS build
 ```
 
-Set its matching `SP5.1` or `SP5.2` entry to
-`/retro/images/apple2/prodos640.po,RW,APPLE2_640K`. Use an authorized, compatible
-ProDOS boot disk as the read-only `PR6.1` image; the DOS `system.dsk` does not
-provide a ProDOS shell or filesystem driver. The local SmartPort implementation
-is covered by host CPU and image tests, but booting ProDOS through SmartPort and
-hardware behavior remain unverified. Use disposable images until guest writes
-have been qualified on the target hardware.
+The volume is `/SYSTEM` (140K, DOS sector order like every ProDOS `.dsk`):
+`PRODOS`, `BASIC.SYSTEM`, `QUIT.SYSTEM`, `BITSY.BOOT` from
+`bootDisks/apple2/prodosEmpty.po`, plus every file in
+`bootDisks/apple2/systemDsk/`. ProDOS names allow only `A-Z`, `0-9` and `.`, so
+`-` and `_` become `.` (`TEST-NONGR.BAS` becomes `TEST.NONGR`) and `HELLO.BAS`
+becomes `STARTUP`, which `BASIC.SYSTEM` runs at boot. The default
+(`DOS33`) is unchanged. To use the new `system.dsk` the emulator must be
+rebuilt and flashed again; both programs print this reminder. Both
+`createSystemDsk.py` and `buildDiskImage.py` end with an English message when
+an image has to be rebuilt/flashed or uploaded.
+
+**ProDOS data volumes (SD card).** `buildDiskImage.py --os apple2` writes a
+ProDOS volume to `sdcard/retro/images/apple2/`:
+
+```sh
+python3 tools/buildDiskImage.py --os apple2                     # data800.po, volume /DATA
+python3 tools/buildDiskImage.py --os apple2 --profile 140K --source-dir ~/files WORK.po
+python3 tools/buildDiskImage.py --os apple2 --bootable --name SYSTEM prodosBoot.po
+```
+
+Options: `--profile 140K|640K|800K` (default 800K), `--name` (volume name),
+`--source-dir` (files get a ProDOS type from the `.BAS`, `.TXT`, `.BIN`, `.SYS`
+suffix; `.BIN` needs `--binary-load-address`), `--bootable` or `--boot-from`
+(boot blocks and system files from `prodosEmpty.po` or another ProDOS image).
+The image is **not** on the SD card yet: upload it with "File Transfer" (emulator
+menu option 6) to `/retro/images/apple2/` and add it to `drives.cfg`, for
+example `PR6.2=/retro/images/apple2/data800.po,RW,APPLE2_800K` (in ProDOS `/DATA`,
+`CATALOG,S6,D2`). `diskImageApple2Prodos.py` still creates blank volumes and
+can copy boot files with `--boot-from`.
+
+The host guest tests boot ProDOS 2.4.2 through SmartPort, boot a generated
+ProDOS `system.dsk` from `PR6.1` with autostart, catalog the 800K volume and
+`SAVE` a BASIC file to it; hardware behavior remains unverified. Use
+disposable images until guest writes have been qualified on the target hardware.
 
 ## Prepare CP/M disk images on macOS
 

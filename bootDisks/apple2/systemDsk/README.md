@@ -13,3 +13,7 @@ files). `HELLO.BAS` is the greeting program DOS runs at boot
 (the 80-column card is selected automatically at machine start; HELLO does not need `PR#3`). For example, `TEST-NONGR.BAS` is cataloged as the
 Applesoft file `TEST-NONGR`, so load and run it with `LOAD TEST-NONGR` and
 `RUN`. This directory holds no DOS boot/system software; that is in the base image.
+
+## ProDOS 8 system disk
+
+`createSystemDsk.py --os apple2 --profile PRODOS` (or `idf.py -DAPPLE2_SYSTEM_DISK_PROFILE=PRODOS build`) writes the same files to the ProDOS volume `/SYSTEM` instead (base image `bootDisks/apple2/prodosEmpty.po`). ProDOS names allow only `A-Z`, `0-9` and `.`: `-` and `_` become `.` (`TEST-NONGR.BAS` becomes `TEST.NONGR`) and `HELLO.BAS` becomes `STARTUP`, which `BASIC.SYSTEM` runs at boot. `.BAS` files are tokenized Applesoft (type BAS, `LOAD TEST.NONGR`), `.TXT` text, `.BIN` binary (needs `--binary-load-address`) and `.SYS` system files. The emulator must be rebuilt and flashed again to use a new system.dsk.

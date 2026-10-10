@@ -510,6 +510,7 @@ static void testImageProfileSizes(void)
   apple2DiskImageInitialize(&image);
   assert(apple2DiskImageProfileTracks(apple2DiskImageProfile140k) == 35);
   assert(apple2DiskImageProfileTracks(apple2DiskImageProfile640k) == 160);
+  assert(apple2DiskImageProfileTracks(apple2DiskImageProfile800k) == 200);
   assert(apple2DiskImageOpenProfile(NULL, smallPath, apple2DiskImageProfile140k, apple2DiskImageOrderAuto) ==
          apple2DiskImageInvalidArgument);
   assert(apple2DiskImageOpenProfile(&image, NULL, apple2DiskImageProfile140k, apple2DiskImageOrderAuto) ==
@@ -532,6 +533,25 @@ static void testImageProfileSizes(void)
   assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile640k, apple2DiskImageOrderAuto) ==
          apple2DiskImageAlreadyOpen);
   assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
+
+  //-- An 800K image (200 tracks, 1600 blocks) is accepted only with the 800K profile.
+  uint8_t *huge = calloc(apple2DiskImage800kSize, 1);
+  assert(huge != NULL);
+  char hugePath[64];
+  makeTempPath(hugePath, sizeof(hugePath), ".po");
+  writeFile(hugePath, huge, apple2DiskImage800kSize);
+  assert(apple2DiskImageOpenProfile(&image, hugePath, apple2DiskImageProfile640k, apple2DiskImageOrderAuto) ==
+         apple2DiskImageBadSize);
+  assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile800k, apple2DiskImageOrderAuto) ==
+         apple2DiskImageBadSize);
+  assert(apple2DiskImageOpenProfile(&image, hugePath, apple2DiskImageProfile800k, apple2DiskImageOrderAuto) ==
+         apple2DiskImageOk);
+  assert(image.trackCount == 200 && image.order == apple2DiskImageOrderProdos);
+  assert(apple2DiskImageReadSector(&image, 199, 15, buffer) == apple2DiskImageOk);
+  assert(apple2DiskImageReadSector(&image, 200, 0, buffer) == apple2DiskImageOutOfRange);
+  assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
+  remove(hugePath);
+  free(huge);
 
   //-- Unrecognised content with a neutral name defaults to DOS order; explicit orders win.
   apple2DiskImageInitialize(&image);
@@ -860,8 +880,9 @@ static void testDriveConfig(void)
                   "\n"
                   "PR6.2=/retro/images/apple2/data.po,RW,APPLE2_640K\n"
                   "PR5.1 = /retro/images/apple2/pascal.dsk , RO , APPLE2_140K\r\n"
-                  "PR7.2=/littlefs/apple2/extra.dsk,RW,APPLE2_140K\n");
+                  "PR7.2=/littlefs/apple2/extra.dsk,RW,APPLE2_800K\n");
   assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
+  assert(drives[3][1].configured && drives[3][1].profile == apple2DiskImageProfile800k);
   assert(drives[2][0].configured && strcmp(drives[2][0].path, "/littlefs/apple2/system.dsk") == 0);
   assert(drives[2][1].configured && drives[2][1].profile == apple2DiskImageProfile640k);
   assert(!drives[2][1].readOnly);
@@ -895,7 +916,7 @@ static void testDriveConfig(void)
       "PR6.3=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
       "PR6.0=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
       "S6D2=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
-      "PR6.2=/retro/images/apple2/data.po,RO,APPLE2_800K\n",
+      "PR6.2=/retro/images/apple2/data.po,RO,APPLE2_900K\n",
       "PR6.2=/retro/images/apple2/data.po,RO\n",
       "PR6.2=/retro/images/apple2/data.po\n",
       "PR6.2=/retro/images/apple2/data.po,RO,APPLE2_140K,extra\n",

@@ -16,7 +16,7 @@ enum
   apple2DiskLastSlot = 7,
   apple2DiskSlotCount = apple2DiskLastSlot - apple2DiskFirstSlot + 1,
   apple2DiskDrivesPerSlot = 2,
-  apple2DiskMaxTracks = 160,
+  apple2DiskMaxTracks = 200,
   apple2SmartPortSlot = 5,
   apple2SmartPortDevices = 2,
   apple2SmartPortBlockSize = 512
@@ -116,6 +116,14 @@ apple2CoreResult apple2CoreAttachWritableDiskDrive(apple2Core *core, uint8_t slo
 apple2CoreResult apple2CoreDetachDiskDrive(apple2Core *core, uint8_t slot, uint8_t drive);
 //-- False when the slot is outside apple2DiskFirstSlot..apple2DiskLastSlot.
 bool apple2CoreGetDiskStateForSlot(const apple2Core *core, uint8_t slot, apple2DiskState *state);
+//-- Attach a 512-byte-block device (unit 1 or 2) to slot apple2DiskFirstSlot..apple2DiskLastSlot. A slot hosts either
+//-- Disk II drives or block devices, never both. With autostart the slot also carries the boot signature, so the
+//-- Autostart ROM boots unit 1 at reset (ProDOS 8 boot volume); without it the slot is a plain SmartPort interface.
+apple2CoreResult apple2CoreAttachBlockDevice(apple2Core *core, uint8_t slot, uint8_t unit, uint32_t blockCount,
+                                             bool autostart, apple2SmartPortReadBlockFunction readBlock,
+                                             apple2SmartPortWriteBlockFunction writeBlock, void *context);
+apple2CoreResult apple2CoreDetachBlockDevice(apple2Core *core, uint8_t slot, uint8_t unit);
+//-- Slot-5 forms of the calls above (no autostart).
 apple2CoreResult apple2CoreAttachSmartPortDevice(apple2Core *core, uint8_t unit, uint32_t blockCount,
                                                  apple2SmartPortReadBlockFunction readBlock,
                                                  apple2SmartPortWriteBlockFunction writeBlock, void *context);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create CP/M system disks or add files to a supplied Apple II system disk."""
+"""Create CP/M system disks, or Apple II system disks (DOS 3.3 or ProDOS) from a bootable base image."""
 
 import argparse
 import sys
@@ -8,12 +8,16 @@ from pathlib import Path
 
 import buildDiskImageCpm80
 import diskImageApple2Dos33
+import diskImageApple2Prodos
 import diskImageCpm80
 import diskImageCpm86
 from diskImageCommon import DiskImageError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APPLE2_EMPTY_BASE_IMAGE = Path("bootDisks") / "apple2" / "dos33Empty.dsk"
+APPLE2_PRODOS_BASE_IMAGE = Path("bootDisks") / "apple2" / "prodosEmpty.po"
+PRODOS_VOLUME_NAME = "SYSTEM"
+PRODOS_ORDER_SUFFIXES = {".PO", ".HDV"}
 EXECUTABLE_EXTENSIONS = {
     "cpm80": {".COM"},
     "cpm86": {".CMD", ".SYS"},
@@ -22,7 +26,7 @@ EXECUTABLE_EXTENSIONS = {
 PROFILE_MAP = {
     "cpm80": {"SMALL": "SYSTEM", "LARGE": "LARGE"},
     "cpm86": {"SMALL": "CPM86", "LARGE": "LARGE"},
-    "apple2": {"DOS33": "DOS33"},
+    "apple2": {"DOS33": "DOS33", "PRODOS": "PRODOS"},
 }
 IMAGE_MODULES = {
     "cpm80": diskImageCpm80,
@@ -95,6 +99,49 @@ def _read_apple2_source_files(source_dir):
         files[filename] = path.read_bytes()
 
     return files
+
+
+def _read_prodos_source_files(source_dir, binary_load_address):
+    """Return [(sourceName, prodosName, fileType, auxType, payload)] for every file in the source directory."""
+    if not source_dir.is_dir():
+        raise DiskImageError(f"System disk source directory does not exist: {source_dir}")
+    files = []
+    names = set()
+    for path in sorted(source_dir.iterdir(), key=lambda item: item.name.upper()):
+        if path.name in (".DS_Store", "README.md"):
+            continue
+        if path.is_symlink() or path.is_dir() or not path.is_file():
+            raise DiskImageError(f"Only regular files are supported in the system disk source: {path}")
+        name, file_type, aux_type, payload = diskImageApple2Prodos.prepare_source_file(
+            path.name, path.read_bytes(), binary_load_address
+        )
+        if name in names:
+            raise DiskImageError(f"Duplicate ProDOS filename in system disk source: {name}")
+        names.add(name)
+        files.append((path.name, name, file_type, aux_type, payload))
+    return files
+
+
+def _create_prodos_system_disk(output_path, source_dir, project_root, base_image, binary_load_address,
+                               volume_name):
+    base_image = Path(project_root / APPLE2_PRODOS_BASE_IMAGE if base_image is None else base_image)
+    if base_image.is_symlink() or not base_image.is_file():
+        raise DiskImageError(f"Apple II base image does not exist as a regular file: {base_image}")
+    if base_image.resolve() == output_path.resolve():
+        raise DiskImageError("Apple II output path must not replace the base image")
+    image = diskImageApple2Prodos.load_volume(base_image)
+    diskImageApple2Prodos.set_volume_name(image, volume_name)
+    names = []
+    for source_name, name, file_type, aux_type, payload in _read_prodos_source_files(source_dir, binary_load_address):
+        diskImageApple2Prodos.add_file(image, name, payload, file_type, aux_type)
+        names.append((source_name, name))
+    data = bytes(image)
+    if output_path.suffix.upper() not in PRODOS_ORDER_SUFFIXES:
+        #-- A .dsk file holds the 140K volume in DOS sector order, like every other ProDOS .dsk image.
+        data = diskImageApple2Prodos.dos_order_from_prodos_order(data)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(data)
+    return names
 
 
 def _validate_cpm86_runtime_resources(project_root):
@@ -181,6 +228,7 @@ def create_system_disk(
     base_image=None,
     binary_load_address=None,
     remove_existing_files=None,
+    volume_name=PRODOS_VOLUME_NAME,
 ):
     os_name = os_name.lower()
     profile = profile.upper()
@@ -197,6 +245,11 @@ def create_system_disk(
 
     output_path = Path(output_path)
     source_dir = _source_directory(os_name, source_dir)
+    if os_name == "apple2" and profile == "PRODOS":
+        if remove_existing_files:
+            raise DiskImageError("--remove-existing is not supported for the PRODOS profile")
+        _create_prodos_system_disk(output_path, source_dir, project_root, base_image, binary_load_address, volume_name)
+        return [], []
     if os_name == "apple2":
         base_image = Path(project_root / APPLE2_EMPTY_BASE_IMAGE if base_image is None else base_image)
         if base_image.is_symlink() or not base_image.is_file():
@@ -258,6 +311,21 @@ def create_system_disk(
     return skipped_files, overridden_files
 
 
+def print_firmware_notice(os_name, profile, output_path):
+    """Tell the user that system.dsk lives in the firmware image, so a new one needs a rebuild and a flash."""
+    print()
+    print("*** IMPORTANT: system.dsk is part of the firmware (LittleFS partition). ***")
+    print("To use this new system.dsk the emulator must be rebuilt AND flashed again.")
+    if os_name == "apple2":
+        print(f"The build recreates littlefs/apple2/system.dsk with the {profile} profile; to select the ProDOS system")
+        print("disk run: idf.py -DAPPLE2_SYSTEM_DISK_PROFILE=PRODOS build   (DOS33 is the default profile),")
+        print("then flash the firmware.")
+    else:
+        print("Run: idf.py build, then flash the firmware.")
+    if output_path.resolve() != (PROJECT_ROOT / "littlefs" / os_name / "system.dsk").resolve():
+        print(f"Note: {output_path} is not littlefs/{os_name}/system.dsk, so the firmware does not use it as it is.")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description=(
@@ -265,15 +333,15 @@ def main(argv=None):
         )
     )
     parser.add_argument("--os", required=True, choices=("cpm80", "cpm86", "apple2"))
-    parser.add_argument("--profile", required=True, choices=("SMALL", "LARGE", "DOS33"))
+    parser.add_argument("--profile", required=True, choices=("SMALL", "LARGE", "DOS33", "PRODOS"))
     parser.add_argument("--source-dir", type=Path, help="directory containing files to add to the system disk")
     parser.add_argument("--output", type=Path, help="output path (default: littlefs/<os>/system.dsk)")
     parser.add_argument(
         "--base-image",
         type=Path,
         help=(
-            "bootable DOS 3.3 16-sector-order image to copy before adding Apple II files "
-            f"(default: {APPLE2_EMPTY_BASE_IMAGE})"
+            "bootable image to copy before adding Apple II files: a DOS 3.3 16-sector-order image for DOS33 "
+            f"(default: {APPLE2_EMPTY_BASE_IMAGE}), a ProDOS volume for PRODOS (default: {APPLE2_PRODOS_BASE_IMAGE})"
         ),
     )
     parser.add_argument(
@@ -288,6 +356,11 @@ def main(argv=None):
         metavar="FILENAME",
         help="remove an unlocked file from the copied Apple II base image (repeatable)",
     )
+    parser.add_argument(
+        "--volume-name",
+        default=PRODOS_VOLUME_NAME,
+        help=f"ProDOS volume name of the PRODOS profile (default: {PRODOS_VOLUME_NAME})",
+    )
     arguments = parser.parse_args(argv)
 
     output_path = arguments.output or PROJECT_ROOT / "littlefs" / arguments.os / "system.dsk"
@@ -300,12 +373,19 @@ def main(argv=None):
             base_image=arguments.base_image,
             binary_load_address=arguments.binary_load_address,
             remove_existing_files=arguments.remove_existing_files,
+            volume_name=arguments.volume_name,
         )
     except (DiskImageError, OSError) as error:
         parser.error(str(error))
 
     print(f"Created {output_path} ({output_path.stat().st_size} bytes)")
-    if arguments.os == "apple2":
+    if arguments.os == "apple2" and arguments.profile == "PRODOS":
+        source_dir = arguments.source_dir or _source_directory("apple2", None)
+        print(f"Added ProDOS files from {source_dir}:")
+        for source_name, name, _, _, _ in _read_prodos_source_files(source_dir, arguments.binary_load_address):
+            print(f"  {source_name} -> {name}")
+        print(f"Volume /{diskImageApple2Prodos.normalize_volume_name(arguments.volume_name)} boots ProDOS 8 with BASIC.SYSTEM.")
+    elif arguments.os == "apple2":
         print(f"Added Apple DOS files from {arguments.source_dir or _source_directory('apple2', None)}.")
         if arguments.remove_existing_files:
             print(f"Removed from the copied base image: {', '.join(arguments.remove_existing_files)}.")
@@ -316,6 +396,7 @@ def main(argv=None):
             "CP/M-86 BIOS overlay kept outside A: at "
             f"{PROJECT_ROOT / 'littlefs' / 'cpm86' / 'retro86bios.h86'}."
         )
+    print_firmware_notice(arguments.os, arguments.profile, output_path)
     for filename in overridden_files:
         print(f"Using the project HOST program instead of source-directory {filename}.")
     if skipped_files:

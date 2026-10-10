@@ -23,6 +23,7 @@ class OsInfo:
     build_module: str = ""
     default_system_image: str = "system.dsk"
     details: str = ""
+    build_only: bool = False
 
     def image(self):
         """The OS image module (diskImageCpm80, ...) exposing PROFILES and create/add/list."""
@@ -31,6 +32,11 @@ class OsInfo:
     def builder(self):
         """The OS build module (buildDiskImageCpm80, ...) exposing add_arguments() and build()."""
         return importlib.import_module(self.build_module)
+
+    @property
+    def buildable(self):
+        """True when buildDiskImage.py can build images for this OS (also when diskImage.py cannot yet)."""
+        return self.supported or self.build_only
 
     @property
     def profiles(self):
@@ -77,7 +83,18 @@ OS_REGISTRY = {
             "and the .CMD utilities."
         ),
     ),
-    "apple2": OsInfo("apple2", "Apple II", False),
+    "apple2": OsInfo(
+        "apple2",
+        "Apple II",
+        False,
+        build_module="buildDiskImageApple2",
+        default_system_image="data800.po",
+        build_only=True,
+        details=(
+            "buildDiskImage.py builds ProDOS 8 block volumes (.po): 800K (1600 blocks, default), 640K or 140K.\n"
+            "Add --bootable for a ProDOS boot disk. The firmware's system.dsk is made by createSystemDsk.py."
+        ),
+    ),
     "swtpc": OsInfo("swtpc", "SWTPC 6800", False),
     "ucsd": OsInfo("ucsd", "UCSD p-System", False),
 }
@@ -86,18 +103,24 @@ OS_REGISTRY = {
 def os_overview():
     lines = ["Operating systems (--os):"]
     for info in OS_REGISTRY.values():
-        state = "supported" if info.supported else "planned (not implemented yet)"
+        if info.supported:
+            state = "supported"
+        elif info.build_only:
+            state = "buildDiskImage.py only"
+        else:
+            state = "planned (not implemented yet)"
         lines.append(f"  {info.key:<8} {info.label:<14} {state}")
     return "\n".join(lines)
 
 
-def os_epilog(os_name):
+def os_epilog(os_name, for_build=False):
     """Epilog for -h: OS-specific details when --os is known, otherwise the OS overview."""
     info = OS_REGISTRY.get(os_name) if os_name else None
     if info is None:
         return os_overview() + "\n\nAdd --os <name> to -h for OS-specific help."
     text = f"{info.label} (--os {info.key})\n"
-    text += info.details if info.supported else "Planned: not implemented yet."
+    available = info.buildable if for_build else info.supported
+    text += info.details if available else "Planned: not implemented yet."
     return text
 
 
@@ -140,6 +163,15 @@ def require_supported(parser, os_name):
     if info is None:
         parser.error(f"unknown --os {os_name!r}; choose from: {', '.join(OS_REGISTRY)}")
     if not info.supported:
+        parser.error(f"--os {os_name} ({info.label}) is not implemented yet")
+    return info
+
+
+def require_buildable(parser, os_name):
+    info = OS_REGISTRY.get(os_name)
+    if info is None:
+        parser.error(f"unknown --os {os_name!r}; choose from: {', '.join(OS_REGISTRY)}")
+    if not info.buildable:
         parser.error(f"--os {os_name} ({info.label}) is not implemented yet")
     return info
 

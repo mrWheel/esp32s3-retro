@@ -12,14 +12,18 @@ enum
   apple2DiskImageSize = apple2DiskImageTracks * apple2DiskImageSectorsPerTrack * apple2DiskImageSectorSize,
   apple2DiskImage640kTracks = 160,
   apple2DiskImage640kSize = apple2DiskImage640kTracks * apple2DiskImageSectorsPerTrack * apple2DiskImageSectorSize,
+  apple2DiskImage800kTracks = 200,
+  apple2DiskImage800kSize = apple2DiskImage800kTracks * apple2DiskImageSectorsPerTrack * apple2DiskImageSectorSize,
   apple2DiskImageVolumeNameCapacity = 16
 };
 
-//-- Geometry of an image. 640K is 1280 512-byte blocks laid out as 160 tracks of 16 sectors.
+//-- Geometry of an image. 640K is 1280 512-byte blocks laid out as 160 tracks of 16 sectors; 800K is 1600
+//-- 512-byte blocks (the size of a 3.5-inch ProDOS volume) laid out as 200 tracks of 16 sectors.
 typedef enum
 {
   apple2DiskImageProfile140k,
-  apple2DiskImageProfile640k
+  apple2DiskImageProfile640k,
+  apple2DiskImageProfile800k
 } apple2DiskImageProfile;
 
 //-- Order of the 16 sectors of a track inside the image file. Auto picks it from the file extension

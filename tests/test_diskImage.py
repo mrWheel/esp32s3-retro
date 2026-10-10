@@ -102,6 +102,20 @@ class DiskImageCliTests(unittest.TestCase):
             built = Path(temporary) / "retro" / "images" / "cpm80" / "system.dsk"
             self.assertEqual(built.read_bytes(), (TOOLS.parent / "littlefs" / "cpm80" / "system.dsk").read_bytes())
 
+    def test_build_apple2_creates_prodos_volume_and_prints_upload_notice(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = run("buildDiskImage.py", "--os", "apple2", "--sd-root", temporary, "--bootable", "--name", "BOOT")
+            built = Path(temporary) / "retro" / "images" / "apple2" / "data800.po"
+            self.assertEqual(built.stat().st_size, 819200)
+            self.assertIn("File Transfer", result.stdout)
+            self.assertIn("/retro/images/apple2/", result.stdout)
+            small = run("buildDiskImage.py", "--os", "apple2", "--sd-root", temporary, "--profile", "140K")
+            self.assertEqual((Path(temporary) / "retro" / "images" / "apple2" / "data140.po").stat().st_size, 143360)
+            refused = run("buildDiskImage.py", "--os", "apple2", "--sd-root", temporary, "--profile", "800K",
+                          "x.dsk", check=False)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("File Transfer", run("buildDiskImage.py", "--os", "cpm80", "--sd-root", temporary).stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

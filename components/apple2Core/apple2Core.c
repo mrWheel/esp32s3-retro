@@ -54,10 +54,21 @@ static const uint8_t videxInitRegisters[16] = {0x62, 0x50, 0x50, 0x28, 0x19, 0x0
 
 static const uint8_t videxSlotRom[] = {0x48, 0x20, 0x00, 0xC8, 0x68, 0x4C, 0xB3, 0xC8, 0x4C, 0x00, 0xC8};
 
-//— Project-authored SmartPort signature and dispatch entry points for slot 5.
+//— Project-authored block-device signature, dispatch entry points and boot code, written for slot 5.
+//— The bytes that hold the slot number ($70, $81, $85) and the autostart flag ($07) are patched per slot
+//— in readBlockSlotRom(). PR#n enters at $Cn00, branches to $Cn6B and reads block 0 of unit 1 into $0800
+//— through the ProDOS block entry, then jumps to $0801 with X = $n0 as a ProDOS boot sector expects.
 static const uint8_t smartPortSlotRom[256] = {
     [0x00] = 0xA9, [0x01] = 0x20, [0x02] = 0xA9, [0x03] = 0x00, [0x04] = 0xC9, [0x05] = 0x03,
     [0x06] = 0xA9, [0x07] = 0x00, [0x08] = 0x38, [0x09] = 0xB0, [0x0A] = 0x60, [0x0D] = 0x60,
+    [0x6B] = 0xA9, [0x6C] = 0x01, [0x6D] = 0x85, [0x6E] = smartPortBlockCommand,
+    [0x6F] = 0xA9, [0x70] = 0x50, [0x71] = 0x85, [0x72] = smartPortBlockUnitNumber,
+    [0x73] = 0xA9, [0x74] = 0x00, [0x75] = 0x85, [0x76] = smartPortBlockBufferPointer,
+    [0x77] = 0x85, [0x78] = smartPortBlockNumber, [0x79] = 0x85, [0x7A] = smartPortBlockNumber + 1,
+    [0x7B] = 0xA9, [0x7C] = 0x08, [0x7D] = 0x85, [0x7E] = smartPortBlockBufferPointer + 1,
+    [0x7F] = 0x20, [0x80] = smartPortEntryBlockOffset, [0x81] = 0xC5, [0x82] = 0xB0, [0x83] = 0x05,
+    [0x84] = 0xA2, [0x85] = 0x50, [0x86] = 0x4C, [0x87] = 0x01, [0x88] = 0x08,
+    [0x89] = 0x4C, [0x8A] = 0x69, [0x8B] = 0xFF,
     [0xFB] = 0x00, [0xFC] = 0x00, [0xFD] = 0x00, [0xFE] = 0xD7, [0xFF] = smartPortEntryBlockOffset};
 
 //— Project-authored slot firmware: C303 initializes the text card and installs its COUT routine.
@@ -121,7 +132,8 @@ struct apple2Core
   bool setvidActive;
   uint64_t cycles;
   apple2Disk disks[apple2DiskSlotCount];
-  apple2SmartPortDevice smartPortDevices[apple2SmartPortDevices];
+  apple2SmartPortDevice smartPortDevices[apple2DiskSlotCount][apple2SmartPortDevices];
+  bool blockAutostart[apple2DiskSlotCount];
 };
 
 static void scrollVidexScreen(apple2Core *core)
@@ -360,11 +372,15 @@ static apple2Disk *diskForRom(apple2Core *core, uint16_t address)
   return apple2DiskIsAttached(disk) ? disk : NULL;
 }
 
-static bool smartPortIsAttached(const apple2Core *core)
+static bool blockSlotIsAttached(const apple2Core *core, uint8_t slot)
 {
+  if (slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot)
+  {
+    return false;
+  }
   for (size_t index = 0; index < apple2SmartPortDevices; ++index)
   {
-    if (core->smartPortDevices[index].attached)
+    if (core->smartPortDevices[slot - apple2DiskFirstSlot][index].attached)
     {
       return true;
     }
@@ -377,13 +393,71 @@ static bool validSmartPortRamRange(uint16_t address, size_t size)
   return address < apple2RamSize && size <= apple2RamSize - address;
 }
 
-static apple2SmartPortDevice *smartPortDeviceForUnit(apple2Core *core, uint8_t unit)
+static bool validSmartPortBlockBuffer(uint16_t address)
 {
-  if (unit == 0 || unit > apple2SmartPortDevices)
+  //— A 512 byte block buffer must lie in main RAM ($0000-$BFFF) or in the Language Card area ($D000-$FFFF), not in I/O space.
+  uint32_t end = (uint32_t)address + apple2SmartPortBlockSize;
+  return end <= apple2RamSize || (address >= 0xD000 && end <= 0x10000);
+}
+
+static void copySmartPortBlockToGuest(apple2Core *core, uint16_t address, const uint8_t *source)
+{
+  for (size_t index = 0; index < apple2SmartPortBlockSize; index++)
+  {
+    uint16_t target = (uint16_t)(address + index);
+    if (target < apple2RamSize)
+    {
+      core->ram[target] = source[index];
+    }
+    else if (core->languageCardWriteEnabled)
+    {
+      core->languageCardRam[languageCardOffset(core, target)] = source[index];
+    }
+  }
+}
+
+static void copySmartPortBlockFromGuest(const apple2Core *core, uint16_t address, uint8_t *target)
+{
+  for (size_t index = 0; index < apple2SmartPortBlockSize; index++)
+  {
+    uint16_t source = (uint16_t)(address + index);
+    if (source < apple2RamSize)
+    {
+      target[index] = core->ram[source];
+    }
+    else
+    {
+      target[index] = core->languageCardReadEnabled ? core->languageCardRam[languageCardOffset(core, source)]
+                                                    : core->rom[source - 0xD000];
+    }
+  }
+}
+
+static bool readSmartPortBlockToGuest(apple2Core *core, apple2SmartPortDevice *device, uint32_t block, uint16_t buffer)
+{
+  uint8_t data[apple2SmartPortBlockSize];
+  if (!device->readBlock(device->context, block, data))
+  {
+    return false;
+  }
+  copySmartPortBlockToGuest(core, buffer, data);
+  return true;
+}
+
+static bool writeSmartPortBlockFromGuest(apple2Core *core, apple2SmartPortDevice *device, uint32_t block, uint16_t buffer)
+{
+  uint8_t data[apple2SmartPortBlockSize];
+  copySmartPortBlockFromGuest(core, buffer, data);
+  return device->writeBlock(device->context, block, data);
+}
+
+static apple2SmartPortDevice *smartPortDeviceForUnit(apple2Core *core, uint8_t slot, uint8_t unit)
+{
+  if (unit == 0 || unit > apple2SmartPortDevices || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot)
   {
     return NULL;
   }
-  apple2SmartPortDevice *device = &core->smartPortDevices[unit - 1];
+  apple2SmartPortDevice *device = &core->smartPortDevices[slot - apple2DiskFirstSlot][unit - 1];
   return device->attached ? device : NULL;
 }
 
@@ -434,7 +508,34 @@ static uint8_t executeSmartPortStatus(apple2Core *core, apple2SmartPortDevice *d
   return smartPortErrorBadCommand;
 }
 
-static uint8_t executeSmartPortCommand(apple2Core *core, uint8_t command, uint16_t parameters, bool extended)
+//— SmartPort STATUS for unit 0, status code 0: eight bytes whose first byte is the number of units.
+static uint8_t executeSmartPortControllerStatus(apple2Core *core, uint8_t slot, uint16_t buffer, uint8_t statusCode)
+{
+  if (statusCode != 0)
+  {
+    return smartPortErrorBadCommand;
+  }
+  if (!validSmartPortRamRange(buffer, 8))
+  {
+    return smartPortErrorBadCount;
+  }
+  uint8_t unitCount = 0;
+  for (size_t index = 0; index < apple2SmartPortDevices; ++index)
+  {
+    if (core->smartPortDevices[slot - apple2DiskFirstSlot][index].attached)
+    {
+      unitCount = (uint8_t)(index + 1);
+    }
+  }
+  memset(&core->ram[buffer], 0, 8);
+  core->ram[buffer] = unitCount;
+  core->cpu.X = 8;
+  core->cpu.Y = 0;
+  return 0;
+}
+
+static uint8_t executeSmartPortCommand(apple2Core *core, uint8_t slot, uint8_t command, uint16_t parameters,
+                                       bool extended)
 {
   size_t parameterSize = extended ? 9 : 7;
   if (!validSmartPortRamRange(parameters, parameterSize) || core->ram[parameters] != 3)
@@ -444,15 +545,19 @@ static uint8_t executeSmartPortCommand(apple2Core *core, uint8_t command, uint16
   size_t bufferPointerSize = extended ? 3 : 2;
   size_t blockNumberOffset = parameters + (extended ? 5 : 4);
   uint8_t unit = core->ram[parameters + 1];
-  apple2SmartPortDevice *device = smartPortDeviceForUnit(core, unit);
-  if (device == NULL)
-  {
-    return smartPortErrorBadUnit;
-  }
   uint16_t buffer = (uint16_t)(core->ram[parameters + 2] | ((uint16_t)core->ram[parameters + 3] << 8));
   if (extended && core->ram[parameters + 4] != 0)
   {
     return smartPortErrorBadCount;
+  }
+  if (unit == 0 && command == 0)
+  {
+    return executeSmartPortControllerStatus(core, slot, buffer, core->ram[parameters + 1 + bufferPointerSize + 1]);
+  }
+  apple2SmartPortDevice *device = smartPortDeviceForUnit(core, slot, unit);
+  if (device == NULL)
+  {
+    return smartPortErrorBadUnit;
   }
   if (command == 0)
   {
@@ -462,7 +567,7 @@ static uint8_t executeSmartPortCommand(apple2Core *core, uint8_t command, uint16
   {
     return smartPortErrorBadCommand;
   }
-  if (!validSmartPortRamRange(buffer, apple2SmartPortBlockSize))
+  if (!validSmartPortBlockBuffer(buffer))
   {
     return smartPortErrorBadCount;
   }
@@ -479,25 +584,25 @@ static uint8_t executeSmartPortCommand(apple2Core *core, uint8_t command, uint16
   }
   if (command == 1)
   {
-    return device->readBlock(device->context, block, &core->ram[buffer]) ? 0 : smartPortErrorIo;
+    return readSmartPortBlockToGuest(core, device, block, buffer) ? 0 : smartPortErrorIo;
   }
   if (device->writeBlock == NULL)
   {
     return smartPortErrorNoWrite;
   }
-  return device->writeBlock(device->context, block, &core->ram[buffer]) ? 0 : smartPortErrorIo;
+  return writeSmartPortBlockFromGuest(core, device, block, buffer) ? 0 : smartPortErrorIo;
 }
 
-static uint8_t executeProDosBlockCommand(apple2Core *core)
+static uint8_t executeProDosBlockCommand(apple2Core *core, uint8_t slot)
 {
   uint8_t unitNumber = core->ram[smartPortBlockUnitNumber];
   uint8_t unitSlot = (unitNumber >> 4) & 0x07U;
-  if (unitSlot != apple2SmartPortSlot || (unitNumber & 0x0FU) != 0)
+  if (unitSlot != slot || (unitNumber & 0x0FU) != 0)
   {
     return smartPortErrorBadUnit;
   }
   uint8_t unit = (unitNumber & 0x80U) != 0 ? 2 : 1;
-  apple2SmartPortDevice *device = smartPortDeviceForUnit(core, unit);
+  apple2SmartPortDevice *device = smartPortDeviceForUnit(core, slot, unit);
   if (device == NULL)
   {
     return smartPortErrorBadUnit;
@@ -513,7 +618,7 @@ static uint8_t executeProDosBlockCommand(apple2Core *core)
     core->cpu.Y = (uint8_t)((device->blockCount >> 8) & 0xFFU);
     return 0;
   case 1:
-    if (!validSmartPortRamRange(buffer, apple2SmartPortBlockSize))
+    if (!validSmartPortBlockBuffer(buffer))
     {
       return smartPortErrorBadCount;
     }
@@ -521,9 +626,9 @@ static uint8_t executeProDosBlockCommand(apple2Core *core)
     {
       return smartPortErrorBadBlock;
     }
-    return device->readBlock(device->context, block, &core->ram[buffer]) ? 0 : smartPortErrorIo;
+    return readSmartPortBlockToGuest(core, device, block, buffer) ? 0 : smartPortErrorIo;
   case 2:
-    if (!validSmartPortRamRange(buffer, apple2SmartPortBlockSize))
+    if (!validSmartPortBlockBuffer(buffer))
     {
       return smartPortErrorBadCount;
     }
@@ -535,7 +640,7 @@ static uint8_t executeProDosBlockCommand(apple2Core *core)
     {
       return smartPortErrorBadBlock;
     }
-    return device->writeBlock(device->context, block, &core->ram[buffer]) ? 0 : smartPortErrorIo;
+    return writeSmartPortBlockFromGuest(core, device, block, buffer) ? 0 : smartPortErrorIo;
   default:
     return smartPortErrorBadCommand;
   }
@@ -544,8 +649,10 @@ static uint8_t executeProDosBlockCommand(apple2Core *core)
 static bool executeSmartPortTrap(apple2Core *core)
 {
   uint16_t entry = core->cpu.PC;
-  uint16_t slotBase = (uint16_t)(0xC000 + apple2SmartPortSlot * 0x100);
-  if (!smartPortIsAttached(core) ||
+  uint8_t slot = (uint8_t)((entry >> 8) & 0x0FU);
+  uint16_t slotBase = (uint16_t)(0xC000 + slot * 0x100);
+  //— Only an opcode fetch at an entry address is a call; operand fetches of the slot boot code must pass.
+  if ((core->pins & M6502_SYNC) == 0 || entry < 0xC000 || entry >= 0xC800 || !blockSlotIsAttached(core, slot) ||
       (entry != slotBase + smartPortEntryBlockOffset && entry != slotBase + smartPortEntryCallOffset))
   {
     return false;
@@ -557,7 +664,7 @@ static bool executeSmartPortTrap(apple2Core *core)
   uint8_t error;
   if (entry == slotBase + smartPortEntryBlockOffset)
   {
-    error = executeProDosBlockCommand(core);
+    error = executeProDosBlockCommand(core, slot);
   }
   else if ((uint32_t)returnAddress + 1U < apple2RamSize &&
            validSmartPortRamRange((uint16_t)(returnAddress + 1U), 1))
@@ -576,7 +683,7 @@ static bool executeSmartPortTrap(apple2Core *core)
           (uint16_t)(core->ram[pointerAddress] | ((uint16_t)core->ram[(uint16_t)(pointerAddress + 1)] << 8));
       error = extended && core->ram[(uint16_t)(pointerAddress + 2)] != 0
                   ? smartPortErrorBadCount
-                  : executeSmartPortCommand(core, (uint8_t)(command & 0x3FU), parameters, extended);
+                  : executeSmartPortCommand(core, slot, (uint8_t)(command & 0x3FU), parameters, extended);
     }
     if (error == 0 && (command & 0x3FU) == 1)
     {
@@ -598,20 +705,34 @@ static bool executeSmartPortTrap(apple2Core *core)
   return true;
 }
 
-static uint8_t readSmartPortSlotRom(const apple2Core *core, uint8_t offset)
+//— Slot ROM byte of a block-device slot. An autostart slot carries the Disk II boot signature ($07 = $3C) so
+//— the Autostart ROM boots it at reset; ProDOS then sees a generic block device (nonzero $FF, driver at $Cn0A).
+//— Otherwise $07 = 0 marks a SmartPort interface.
+static uint8_t readBlockSlotRom(const apple2Core *core, uint8_t slot, uint8_t offset)
 {
-  if (offset != 0xFE)
+  const apple2SmartPortDevice *devices = core->smartPortDevices[slot - apple2DiskFirstSlot];
+  switch (offset)
   {
+  case 0x07:
+    return core->blockAutostart[slot - apple2DiskFirstSlot] ? 0x3C : smartPortSlotRom[offset];
+  case 0x70:
+  case 0x85:
+    return (uint8_t)(slot << 4);
+  case 0x81:
+    return (uint8_t)(0xC0U | slot);
+  case 0xFE:
+    break;
+  default:
     return smartPortSlotRom[offset];
   }
   size_t deviceCount = 0;
   bool writable = false;
   for (size_t index = 0; index < apple2SmartPortDevices; ++index)
   {
-    if (core->smartPortDevices[index].attached)
+    if (devices[index].attached)
     {
       deviceCount = index + 1;
-      writable = writable || core->smartPortDevices[index].writeBlock != NULL;
+      writable = writable || devices[index].writeBlock != NULL;
     }
   }
   if (deviceCount == 0)
@@ -661,10 +782,9 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   {
     value = apple2DiskBootRoms[(address >> 8) - 0xC0 - apple2DiskFirstSlot][address & 0xFF];
   }
-  else if (smartPortIsAttached(core) && address >= 0xC000 + apple2SmartPortSlot * 0x100 &&
-           address < 0xC000 + (apple2SmartPortSlot + 1) * 0x100)
+  else if (address >= 0xC400 && address < 0xC800 && blockSlotIsAttached(core, (uint8_t)((address >> 8) & 0x0FU)))
   {
-    value = readSmartPortSlotRom(core, (uint8_t)address);
+    value = readBlockSlotRom(core, (uint8_t)((address >> 8) & 0x0FU), (uint8_t)address);
   }
   else if (address >= 0xC0B0 && address <= 0xC0BF)
   {
@@ -1119,6 +1239,7 @@ apple2CoreResult apple2CoreDetachDisk(apple2Core *core)
     apple2DiskResetSwitches(&core->disks[slot]);
   }
   memset(core->smartPortDevices, 0, sizeof(core->smartPortDevices));
+  memset(core->blockAutostart, 0, sizeof(core->blockAutostart));
   return apple2CoreOk;
 }
 
@@ -1140,7 +1261,7 @@ apple2CoreResult apple2CoreAttachWritableDiskDrive(apple2Core *core, uint8_t slo
                                                    apple2DiskWriteSectorFunction writeSector, void *context)
 {
   if (core == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot ||
-      (slot == apple2SmartPortSlot && smartPortIsAttached(core)) ||
+      blockSlotIsAttached(core, slot) ||
       !(writeSector == NULL
             ? apple2DiskAttachDrive(&core->disks[slot - apple2DiskFirstSlot], drive, order, trackCount, readSector,
                                     context)
@@ -1177,17 +1298,17 @@ bool apple2CoreGetDiskStateForSlot(const apple2Core *core, uint8_t slot, apple2D
   return true;
 }
 
-apple2CoreResult apple2CoreAttachSmartPortDevice(apple2Core *core, uint8_t unit, uint32_t blockCount,
-                                                 apple2SmartPortReadBlockFunction readBlock,
-                                                 apple2SmartPortWriteBlockFunction writeBlock, void *context)
+apple2CoreResult apple2CoreAttachBlockDevice(apple2Core *core, uint8_t slot, uint8_t unit, uint32_t blockCount,
+                                             bool autostart, apple2SmartPortReadBlockFunction readBlock,
+                                             apple2SmartPortWriteBlockFunction writeBlock, void *context)
 {
-  if (core == NULL || unit == 0 || unit > apple2SmartPortDevices || blockCount == 0 || blockCount > 0xFFFFFFU ||
-      readBlock == NULL ||
-      apple2DiskIsAttached(&core->disks[apple2SmartPortSlot - apple2DiskFirstSlot]))
+  if (core == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot || unit == 0 ||
+      unit > apple2SmartPortDevices || blockCount == 0 || blockCount > 0xFFFFFFU || readBlock == NULL ||
+      apple2DiskIsAttached(&core->disks[slot - apple2DiskFirstSlot]))
   {
     return apple2CoreInvalidArgument;
   }
-  apple2SmartPortDevice *device = &core->smartPortDevices[unit - 1];
+  apple2SmartPortDevice *device = &core->smartPortDevices[slot - apple2DiskFirstSlot][unit - 1];
   if (device->attached)
   {
     return apple2CoreInvalidArgument;
@@ -1197,15 +1318,34 @@ apple2CoreResult apple2CoreAttachSmartPortDevice(apple2Core *core, uint8_t unit,
                                     .context = context,
                                     .blockCount = blockCount,
                                     .attached = true};
+  core->blockAutostart[slot - apple2DiskFirstSlot] = autostart;
   return apple2CoreOk;
+}
+
+apple2CoreResult apple2CoreDetachBlockDevice(apple2Core *core, uint8_t slot, uint8_t unit)
+{
+  if (core == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot || unit == 0 ||
+      unit > apple2SmartPortDevices)
+  {
+    return apple2CoreInvalidArgument;
+  }
+  memset(&core->smartPortDevices[slot - apple2DiskFirstSlot][unit - 1], 0, sizeof(apple2SmartPortDevice));
+  if (!blockSlotIsAttached(core, slot))
+  {
+    core->blockAutostart[slot - apple2DiskFirstSlot] = false;
+  }
+  return apple2CoreOk;
+}
+
+apple2CoreResult apple2CoreAttachSmartPortDevice(apple2Core *core, uint8_t unit, uint32_t blockCount,
+                                                 apple2SmartPortReadBlockFunction readBlock,
+                                                 apple2SmartPortWriteBlockFunction writeBlock, void *context)
+{
+  return apple2CoreAttachBlockDevice(core, apple2SmartPortSlot, unit, blockCount, false, readBlock, writeBlock,
+                                     context);
 }
 
 apple2CoreResult apple2CoreDetachSmartPortDevice(apple2Core *core, uint8_t unit)
 {
-  if (core == NULL || unit == 0 || unit > apple2SmartPortDevices)
-  {
-    return apple2CoreInvalidArgument;
-  }
-  memset(&core->smartPortDevices[unit - 1], 0, sizeof(core->smartPortDevices[unit - 1]));
-  return apple2CoreOk;
+  return apple2CoreDetachBlockDevice(core, apple2SmartPortSlot, unit);
 }

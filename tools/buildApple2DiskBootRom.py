@@ -186,6 +186,7 @@ def build(slot):
     a.emit(0xC8)  # INY
     a.branch(0xD0, "combine")
     a.emit(0xE6, 0x27)  # INC $27
+    a.emit(0xA6, 0x2B)  # LDX $2B  X = slot*16 on entry to the boot sector (ProDOS reads it)
     a.absolute(0x4C, 0x0801)  # JMP $0801
 
     a.label("buildTable")

@@ -67,6 +67,10 @@ apple2DiskImageResult apple2DiskImageOpen(apple2DiskImage *disk, const char *pat
 
 uint8_t apple2DiskImageProfileTracks(apple2DiskImageProfile profile)
 {
+  if (profile == apple2DiskImageProfile800k)
+  {
+    return apple2DiskImage800kTracks;
+  }
   return profile == apple2DiskImageProfile640k ? apple2DiskImage640kTracks : apple2DiskImageTracks;
 }
 
@@ -302,7 +306,8 @@ apple2DiskImageResult apple2DiskImageOpenProfileMode(apple2DiskImage *disk, cons
                                                      apple2DiskImageProfile profile, apple2DiskImageOrder order,
                                                      bool readOnly)
 {
-  if (disk == NULL || path == NULL || (profile != apple2DiskImageProfile140k && profile != apple2DiskImageProfile640k) ||
+  if (disk == NULL || path == NULL || (profile != apple2DiskImageProfile140k && profile != apple2DiskImageProfile640k &&
+       profile != apple2DiskImageProfile800k) ||
       (order != apple2DiskImageOrderDos && order != apple2DiskImageOrderProdos && order != apple2DiskImageOrderAuto))
   {
     return apple2DiskImageInvalidArgument;
@@ -495,7 +500,7 @@ const char *apple2DiskImageResultText(apple2DiskImageResult result)
   case apple2DiskImageNotFound:
     return "image missing or not a regular file";
   case apple2DiskImageBadSize:
-    return "image size does not match the drive profile (140K = 143360 bytes, 640K = 655360 bytes)";
+    return "image size does not match the drive profile (140K = 143360 bytes, 640K = 655360 bytes, 800K = 819200 bytes)";
   case apple2DiskImageOpenFailed:
     return "image could not be opened";
   case apple2DiskImageOutOfRange:

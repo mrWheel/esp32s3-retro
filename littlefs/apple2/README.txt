@@ -38,3 +38,8 @@ A 640K image is 655360 bytes = 160 tracks x 16 sectors x 256 bytes = 1280 Apple
   PYTHONPATH=tools python3 tools/diskImageApple2Pascal.py --name WORK pascal640.po
 The guest sees these as Disk II drives; stock DOS 3.3 and Pascal handling of 160
 tracks has not been verified (see designApple2.md, APPLE-ISSUE-016).
+
+The default system.dsk is DOS 3.3. A ProDOS 8 boot disk can be selected instead:
+  python3 tools/createSystemDsk.py --os apple2 --profile PRODOS
+  idf.py -DAPPLE2_SYSTEM_DISK_PROFILE=PRODOS build
+The emulator must be rebuilt AND flashed again to use a new system.dsk.

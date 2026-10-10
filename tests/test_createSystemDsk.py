@@ -506,5 +506,28 @@ class CreateSystemDskTests(unittest.TestCase):
         self.assertEqual(diskImageApple2Dos33.inspect_image(output_path.read_bytes()), ["HELLO.TXT"])
 
 
+    def test_apple2_prodos_profile_boots_basic_system_and_runs_startup(self):
+        import diskImageApple2Prodos as prodos
+
+        output_path = self.root / "apple2-prodos" / "system.dsk"
+        createSystemDsk.create_system_disk("apple2", "PRODOS", output_path)
+        image = prodos.load_volume(output_path)
+        self.assertEqual(len(image), 143360)
+        self.assertEqual(prodos.volume_name(image), "SYSTEM")
+        names = [entry["name"] for entry in prodos.list_files(image)]
+        self.assertEqual(names[:4], list(prodos.BOOT_FILES))
+        self.assertIn("STARTUP", names)
+        self.assertIn("TEST.NONGR", names)
+
+    def test_apple2_prodos_cli_tells_the_user_to_rebuild_and_flash(self):
+        output_path = self.root / "apple2-prodos-cli.dsk"
+        result = subprocess.run(
+            [sys.executable, str(PROJECT_ROOT / "tools" / "createSystemDsk.py"), "--os", "apple2",
+             "--profile", "PRODOS", "--output", str(output_path)],
+            check=True, capture_output=True, text=True)
+        self.assertIn("rebuilt AND flashed", result.stdout)
+        self.assertIn("APPLE2_SYSTEM_DISK_PROFILE=PRODOS", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

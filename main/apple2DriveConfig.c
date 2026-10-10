@@ -156,9 +156,13 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   {
     profile = apple2DiskImageProfile640k;
   }
+  else if (strcmp(profileName, "APPLE2_800K") == 0)
+  {
+    profile = apple2DiskImageProfile800k;
+  }
   else
   {
-    setError(error, errorCapacity, "profile must be APPLE2_140K or APPLE2_640K");
+    setError(error, errorCapacity, "profile must be APPLE2_140K, APPLE2_640K or APPLE2_800K");
     return false;
   }
 

@@ -87,3 +87,13 @@ add_test(NAME apple2Disk COMMAND apple2DiskTests)
 add_test(NAME apple2DiskDosStream COMMAND apple2DiskTests --dos-stream)
 add_test(NAME apple2DiskDosBoot COMMAND apple2DiskTests --dos-boot)
 add_test(NAME apple2MultiDisk COMMAND apple2MultiDiskTests)
+add_test(NAME apple2ProdosSystemImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/createSystemDsk.py --os apple2
+  --profile PRODOS --output ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk)
+add_test(NAME apple2ProdosDataImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/diskImageApple2Prodos.py
+  ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po --name DATA800)
+set_tests_properties(apple2ProdosSystemImage apple2ProdosDataImage PROPERTIES FIXTURES_SETUP prodosImages)
+add_test(NAME apple2ProdosAutostart COMMAND apple2DiskTests --prodos-autostart-boot
+  ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po)
+add_test(NAME apple2ProdosSmartPort COMMAND apple2DiskTests --prodos-smartport-boot
+  "${CMAKE_CURRENT_SOURCE_DIR}/../assets/appleDisks/ProDOS 2.4.2.dsk" ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po)
+set_tests_properties(apple2ProdosAutostart apple2ProdosSmartPort PROPERTIES FIXTURES_REQUIRED prodosImages)

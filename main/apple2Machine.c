@@ -340,8 +340,15 @@ static const char *contentText(const apple2DiskImage *image)
   return "unrecognised content";
 }
 
+typedef enum
+{
+  driveModeDiskII,
+  driveModeSmartPort,
+  driveModeProDosBlock
+} driveMode;
+
 //-- A missing or invalid disk image is reported but never prevents the machine from starting.
-static bool attachDrive(size_t slotIndex, size_t driveIndex, const apple2DriveConfig *config)
+static bool openDriveImage(size_t slotIndex, size_t driveIndex, const apple2DriveConfig *config)
 {
   uint8_t slot = (uint8_t)(slotIndex + apple2DriveConfigFirstSlot);
   apple2DiskImage *image = &guestDisks[slotIndex][driveIndex];
@@ -350,37 +357,50 @@ static bool attachDrive(size_t slotIndex, size_t driveIndex, const apple2DriveCo
                                                                 apple2DiskImageOrderAuto, config->readOnly);
   if (result != apple2DiskImageOk)
   {
-    ESP_LOGW(tag, "no Disk II media on PR%u.%u: %s: %s", (unsigned)slot, (unsigned)(driveIndex + 1), config->path,
-             apple2DiskImageResultText(result));
+    ESP_LOGW(tag, "no disk media on %s%u.%u: %s: %s", config->smartPort ? "SP" : "PR", (unsigned)slot,
+             (unsigned)(driveIndex + 1), config->path, apple2DiskImageResultText(result));
     return false;
   }
+  return true;
+}
+
+static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2DriveConfig *config, driveMode mode)
+{
+  uint8_t slot = (uint8_t)(slotIndex + apple2DriveConfigFirstSlot);
+  apple2DiskImage *image = &guestDisks[slotIndex][driveIndex];
   apple2DiskSectorOrder order = image->order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
                                                                             : apple2DiskSectorOrderDos;
+  const char *prefix = mode == driveModeSmartPort ? "SP" : "PR";
   apple2CoreResult attachResult;
-  if (config->smartPort)
-  {
-    attachResult = apple2CoreAttachSmartPortDevice(
-        guestCore, (uint8_t)(driveIndex + 1), (uint32_t)image->trackCount * 8U,
-        readSmartPortBlock, config->readOnly ? NULL : writeSmartPortBlock, image);
-  }
-  else
+  if (mode == driveModeDiskII)
   {
     attachResult = apple2CoreAttachWritableDiskDrive(guestCore, slot, (uint8_t)driveIndex, order, image->trackCount,
                                                      readDiskSector, config->readOnly ? NULL : writeDiskSector, image);
   }
+  else
+  {
+    attachResult = apple2CoreAttachBlockDevice(
+        guestCore, slot, (uint8_t)(driveIndex + 1), (uint32_t)image->trackCount * 8U,
+        mode == driveModeProDosBlock, readSmartPortBlock, config->readOnly ? NULL : writeSmartPortBlock, image);
+  }
   if (attachResult != apple2CoreOk)
   {
-    ESP_LOGE(tag, "attaching %s to %s%u.%u failed", config->path, config->smartPort ? "SP" : "PR",
-             (unsigned)slot, (unsigned)(driveIndex + 1));
+    ESP_LOGE(tag, "attaching %s to %s%u.%u failed", config->path, prefix, (unsigned)slot, (unsigned)(driveIndex + 1));
     apple2DiskImageClose(image);
     apple2DiskImageInitialize(image);
-    return false;
+    return;
   }
-  if (config->smartPort)
+  if (mode == driveModeSmartPort)
   {
     ESP_LOGI(tag, "SmartPort SP%u.%u (%s): %s, %u blocks, %s", (unsigned)slot,
              (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write", config->path,
              (unsigned)image->trackCount * 8U, contentText(image));
+  }
+  else if (mode == driveModeProDosBlock)
+  {
+    ESP_LOGI(tag, "ProDOS block device PR%u.%u (%s): %s, %u blocks, boots with PR#%u", (unsigned)slot,
+             (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write", config->path,
+             (unsigned)image->trackCount * 8U, (unsigned)slot);
   }
   else
   {
@@ -391,19 +411,20 @@ static bool attachDrive(size_t slotIndex, size_t driveIndex, const apple2DriveCo
   }
   if (image->probe.content == apple2DiskImageContentPascal || image->probe.content == apple2DiskImageContentProDos)
   {
-    ESP_LOGI(tag, "%s%u.%u %s volume %s: %u blocks", config->smartPort ? "SP" : "PR", (unsigned)slot,
+    ESP_LOGI(tag, "%s%u.%u %s volume %s: %u blocks", prefix, (unsigned)slot,
              (unsigned)(driveIndex + 1), image->probe.content == apple2DiskImageContentProDos ? "ProDOS" : "Apple Pascal",
              image->probe.volumeName, (unsigned)image->probe.volumeBlocks);
   }
-  if (!config->smartPort && image->orderSuspect)
+  if (mode == driveModeDiskII && image->orderSuspect)
   {
     ESP_LOGW(tag, "PR%u.%u: the sector order chosen from the file extension disagrees with the content (%s expected)",
              (unsigned)slot, (unsigned)(driveIndex + 1),
              image->probe.order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS 3.3");
   }
-  return true;
 }
 
+//-- A controller slot is a SmartPort interface (SP5.x), a ProDOS block device when one of its images holds a ProDOS
+//-- volume (the Disk II boot path cannot start ProDOS), or a Disk II controller for every other content.
 static void attachDisks(void)
 {
   apple2DriveConfig config[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
@@ -419,11 +440,26 @@ static void attachDisks(void)
   }
   for (size_t slotIndex = 0; slotIndex < apple2DriveConfigSlotCount; ++slotIndex)
   {
+    bool opened[apple2DriveConfigDrivesPerSlot] = {false};
+    bool proDosContent = false;
+    bool smartPort = false;
     for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDrivesPerSlot; ++driveIndex)
     {
       if (config[slotIndex][driveIndex].configured)
       {
-        attachDrive(slotIndex, driveIndex, &config[slotIndex][driveIndex]);
+        opened[driveIndex] = openDriveImage(slotIndex, driveIndex, &config[slotIndex][driveIndex]);
+        smartPort = smartPort || config[slotIndex][driveIndex].smartPort;
+        proDosContent = proDosContent ||
+                        (opened[driveIndex] &&
+                         guestDisks[slotIndex][driveIndex].probe.content == apple2DiskImageContentProDos);
+      }
+    }
+    driveMode mode = smartPort ? driveModeSmartPort : (proDosContent ? driveModeProDosBlock : driveModeDiskII);
+    for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDrivesPerSlot; ++driveIndex)
+    {
+      if (opened[driveIndex])
+      {
+        attachOpenedDrive(slotIndex, driveIndex, &config[slotIndex][driveIndex], mode);
       }
     }
   }
