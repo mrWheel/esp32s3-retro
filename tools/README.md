@@ -97,9 +97,34 @@ with files already on the base image are errors. For `.BAS` inputs, the suffix
 is a host-side type marker and is omitted from the DOS catalog; for example,
 `TEST-NONGR.BAS` is loaded with `LOAD TEST-NONGR`, then started with `RUN`. The
 disk builder creates a host image only; the Apple II runtime reads it through the
-read-only Disk II controller. Tokenized `.BAS` files get the 2-byte length prefix
+Disk II controller. Tokenized `.BAS` files get the 2-byte length prefix
 that DOS 3.3 Applesoft files carry; the file type (A) comes from the `.BAS`
 suffix, so no extra name marker is needed.
+
+### Optional ProDOS 8 SmartPort volumes
+
+DOS 3.3 and Apple Pascal cannot use a 640K Disk II image as a larger filesystem.
+For ProDOS 8, use a bootable ProDOS image as `PR6.1` and configure block devices
+as `SP5.1`/`SP5.2`; slot 5 cannot be assigned to both a Disk II controller and
+SmartPort at the same time. The firmware passes 512-byte block reads and writes
+to the image backend, preserving either DOS or ProDOS sector ordering and the
+configured `RO`/`RW` access. The guest filesystem owns all ProDOS directory and
+bitmap updates.
+
+Create a blank, formatted ProDOS volume on the host, then copy it to the SD card:
+
+```sh
+python3 tools/diskImageApple2Prodos.py sdcard/retro/images/apple2/prodos640.po \
+  --name DATA640 --profile 640K
+```
+
+Set its matching `SP5.1` or `SP5.2` entry to
+`/retro/images/apple2/prodos640.po,RW,APPLE2_640K`. Use an authorized, compatible
+ProDOS boot disk as the read-only `PR6.1` image; the DOS `system.dsk` does not
+provide a ProDOS shell or filesystem driver. The local SmartPort implementation
+is covered by host CPU and image tests, but booting ProDOS through SmartPort and
+hardware behavior remain unverified. Use disposable images until guest writes
+have been qualified on the target hardware.
 
 ## Prepare CP/M disk images on macOS
 

@@ -12,10 +12,10 @@ enum
   apple2DiskImageSize = apple2DiskImageTracks * apple2DiskImageSectorsPerTrack * apple2DiskImageSectorSize,
   apple2DiskImage640kTracks = 160,
   apple2DiskImage640kSize = apple2DiskImage640kTracks * apple2DiskImageSectorsPerTrack * apple2DiskImageSectorSize,
-  apple2DiskImageVolumeNameCapacity = 8
+  apple2DiskImageVolumeNameCapacity = 16
 };
 
-//-- Geometry of an image. 640K is 1280 Apple Pascal blocks of 512 bytes laid out as 160 tracks of 16 sectors.
+//-- Geometry of an image. 640K is 1280 512-byte blocks laid out as 160 tracks of 16 sectors.
 typedef enum
 {
   apple2DiskImageProfile140k,
@@ -35,7 +35,8 @@ typedef enum
 {
   apple2DiskImageContentUnknown,
   apple2DiskImageContentDos33,
-  apple2DiskImageContentPascal
+  apple2DiskImageContentPascal,
+  apple2DiskImageContentProDos
 } apple2DiskImageContent;
 
 typedef enum
@@ -48,6 +49,7 @@ typedef enum
   apple2DiskImageOpenFailed,
   apple2DiskImageOutOfRange,
   apple2DiskImageReadFailed,
+  apple2DiskImageWriteFailed,
   apple2DiskImageNotOpen
 } apple2DiskImageResult;
 
@@ -57,7 +59,7 @@ typedef struct
   //-- True when exactly one sector order produced a valid DOS 3.3 or Apple Pascal layout; order is then that order.
   bool orderKnown;
   apple2DiskImageOrder order;
-  //-- Apple Pascal volume name (NUL terminated) and block count; empty/0 for other content.
+  //-- Pascal/ProDOS volume name (NUL terminated) and block count; empty/0 for other content.
   char volumeName[apple2DiskImageVolumeNameCapacity];
   uint16_t volumeBlocks;
 } apple2DiskImageProbeResult;
@@ -73,20 +75,30 @@ typedef struct
   bool orderSuspect;
 } apple2DiskImage;
 
-//-- Read-only 16-sector Apple II disk image. apple2DiskImageOpen is the 35-track DOS-order .dsk image; only one
-//-- sector is ever held in memory.
+//-- 16-sector Apple II disk image. apple2DiskImageOpen and apple2DiskImageOpenProfile open it read-only; the Mode
+//-- variant selects RO/RW. Only one sector is held in memory.
 void apple2DiskImageInitialize(apple2DiskImage *disk);
 apple2DiskImageResult apple2DiskImageOpen(apple2DiskImage *disk, const char *path);
 //-- Opens an image with the geometry of profile. The image size must match the profile exactly.
 apple2DiskImageResult apple2DiskImageOpenProfile(apple2DiskImage *disk, const char *path,
                                                  apple2DiskImageProfile profile, apple2DiskImageOrder order);
+apple2DiskImageResult apple2DiskImageOpenProfileMode(apple2DiskImage *disk, const char *path,
+                                                     apple2DiskImageProfile profile, apple2DiskImageOrder order,
+                                                     bool readOnly);
 uint8_t apple2DiskImageProfileTracks(apple2DiskImageProfile profile);
-//-- Looks for a valid DOS 3.3 VTOC/catalog or Apple Pascal volume header under both sector orders.
+//-- Looks for a valid DOS 3.3 VTOC/catalog, Pascal volume header or ProDOS volume directory under both sector orders.
 apple2DiskImageResult apple2DiskImageProbe(apple2DiskImage *disk, apple2DiskImageProbeResult *result);
 //-- Sector is the position (0..15) inside the track in the image file, as passed by the Disk II model.
 apple2DiskImageResult apple2DiskImageReadSector(apple2DiskImage *disk, uint8_t track, uint8_t sector,
                                                 uint8_t *buffer);
+apple2DiskImageResult apple2DiskImageWriteSector(apple2DiskImage *disk, uint8_t track, uint8_t sector,
+                                                 const uint8_t *buffer);
 bool apple2DiskImageReadSectorCallback(void *context, uint8_t track, uint8_t sector, uint8_t *buffer);
+bool apple2DiskImageWriteSectorCallback(void *context, uint8_t track, uint8_t sector, const uint8_t *buffer);
+apple2DiskImageResult apple2DiskImageReadBlock(apple2DiskImage *disk, uint32_t block, uint8_t *buffer);
+apple2DiskImageResult apple2DiskImageWriteBlock(apple2DiskImage *disk, uint32_t block, const uint8_t *buffer);
+bool apple2DiskImageReadBlockCallback(void *context, uint32_t block, uint8_t *buffer);
+bool apple2DiskImageWriteBlockCallback(void *context, uint32_t block, const uint8_t *buffer);
 apple2DiskImageResult apple2DiskImageClose(apple2DiskImage *disk);
 bool apple2DiskImageIsOpen(const apple2DiskImage *disk);
 const char *apple2DiskImageResultText(apple2DiskImageResult result);

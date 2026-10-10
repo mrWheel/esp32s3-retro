@@ -17,6 +17,8 @@ typedef struct
 {
   char path[apple2DriveConfigPathCapacity];
   apple2DiskImageProfile profile;
+  bool readOnly;
+  bool smartPort;
   bool configured;
 } apple2DriveConfig;
 
@@ -27,9 +29,9 @@ typedef enum
   apple2DriveConfigInvalid
 } apple2DriveConfigResult;
 
-//-- Loads drives.cfg lines of the form PR<slot>.<drive>=<image>,RO,<APPLE2_140K|APPLE2_640K> (slot 4..7, drive 1..2).
-//-- The result is indexed [slot - 4][drive - 1]. Without a line for PR6.1 that drive is the built-in system image.
-//-- Images must be below /littlefs/apple2/ or /retro/images/apple2/. Only read-only (RO) drives are supported.
+//-- Loads drives.cfg lines of the form PR<slot>.<drive> or SP5.<unit> followed by image, mode and profile.
+//-- The result is indexed [slot - 4][unit - 1]. Without a line for PR6.1 that drive is the built-in system image.
+//-- Images must be below /littlefs/apple2/ or /retro/images/apple2/. The built-in system.dsk must be read-only.
 //-- On any error all drives fall back to the defaults and error describes the problem.
 apple2DriveConfigResult apple2DriveConfigLoad(const char *path,
                                               apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot],

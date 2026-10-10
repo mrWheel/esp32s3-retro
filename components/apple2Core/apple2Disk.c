@@ -39,13 +39,21 @@ void apple2DiskResetSwitches(apple2Disk *disk)
   disk->drive2Selected = false;
   disk->q6 = false;
   disk->q7 = false;
+  disk->writeLatchValid = false;
   disk->phases = 0;
   disk->latch = 0;
   disk->lastDeliveredNibble = -1;
+  for (size_t index = 0; index < apple2DiskDrivesPerSlot; ++index)
+  {
+    disk->drives[index].writeDataCount = 0;
+    disk->drives[index].writePrologueState = 0;
+    disk->drives[index].writeDataActive = false;
+  }
 }
 
-bool apple2DiskAttachDrive(apple2Disk *disk, uint8_t drive, apple2DiskSectorOrder order, uint8_t trackCount,
-                           apple2DiskReadSectorFunction readSector, void *context)
+static bool attachDrive(apple2Disk *disk, uint8_t drive, apple2DiskSectorOrder order, uint8_t trackCount,
+                        apple2DiskReadSectorFunction readSector, apple2DiskWriteSectorFunction writeSector,
+                        void *context)
 {
   if (disk == NULL || readSector == NULL || drive >= apple2DiskDrivesPerSlot || trackCount == 0 ||
       trackCount > apple2DiskMaxTracks ||
@@ -55,10 +63,15 @@ bool apple2DiskAttachDrive(apple2Disk *disk, uint8_t drive, apple2DiskSectorOrde
   }
   apple2DiskDrive *target = &disk->drives[drive];
   target->readSector = readSector;
+  target->writeSector = writeSector;
   target->context = context;
   target->attached = true;
   target->order = order;
   target->trackCount = trackCount;
+  target->writeDataCount = 0;
+  target->writePrologueState = 0;
+  target->writeDataActive = false;
+  disk->writeLatchValid = false;
   if (target->halfTrack > (uint16_t)(trackCount * 2 - 1))
   {
     target->halfTrack = (uint16_t)(trackCount * 2 - 1);
@@ -66,6 +79,19 @@ bool apple2DiskAttachDrive(apple2Disk *disk, uint8_t drive, apple2DiskSectorOrde
   resetDriveCache(target);
   disk->lastDeliveredNibble = -1;
   return true;
+}
+
+bool apple2DiskAttachDrive(apple2Disk *disk, uint8_t drive, apple2DiskSectorOrder order, uint8_t trackCount,
+                           apple2DiskReadSectorFunction readSector, void *context)
+{
+  return attachDrive(disk, drive, order, trackCount, readSector, NULL, context);
+}
+
+bool apple2DiskAttachWritableDrive(apple2Disk *disk, uint8_t drive, apple2DiskSectorOrder order, uint8_t trackCount,
+                                   apple2DiskReadSectorFunction readSector,
+                                   apple2DiskWriteSectorFunction writeSector, void *context)
+{
+  return writeSector != NULL && attachDrive(disk, drive, order, trackCount, readSector, writeSector, context);
 }
 
 bool apple2DiskAttach(apple2Disk *disk, apple2DiskReadSectorFunction readSector, void *context)
@@ -81,11 +107,16 @@ void apple2DiskDetachDrive(apple2Disk *disk, uint8_t drive)
   }
   apple2DiskDrive *target = &disk->drives[drive];
   target->readSector = NULL;
+  target->writeSector = NULL;
   target->context = NULL;
   target->attached = false;
   target->order = apple2DiskSectorOrderDos;
   target->trackCount = apple2DiskTrackCount;
   resetDriveCache(target);
+  target->writeDataCount = 0;
+  target->writePrologueState = 0;
+  target->writeDataActive = false;
+  disk->writeLatchValid = false;
   disk->lastDeliveredNibble = -1;
 }
 
@@ -151,6 +182,106 @@ static void encodeSector(uint8_t *nibbles, uint8_t track, uint8_t physicalSector
   nibbles[406] = 0xDE;
   nibbles[407] = 0xAA;
   nibbles[408] = 0xEB;
+}
+
+static bool decodeWriteData(const uint8_t *nibbles, uint8_t *data)
+{
+  uint8_t values[342];
+  uint8_t previous = 0;
+  for (size_t index = 0; index < sizeof(values); ++index)
+  {
+    int encodedValue = -1;
+    for (size_t value = 0; value < sizeof(gcrWriteTable); ++value)
+    {
+      if (gcrWriteTable[value] == nibbles[index])
+      {
+        encodedValue = (int)value;
+        break;
+      }
+    }
+    if (encodedValue < 0)
+    {
+      return false;
+    }
+    values[index] = (uint8_t)(encodedValue ^ previous);
+    previous = values[index];
+  }
+
+  int checksumValue = -1;
+  for (size_t value = 0; value < sizeof(gcrWriteTable); ++value)
+  {
+    if (gcrWriteTable[value] == nibbles[sizeof(values)])
+    {
+      checksumValue = (int)value;
+      break;
+    }
+  }
+  if (checksumValue < 0 || (uint8_t)checksumValue != previous)
+  {
+    return false;
+  }
+
+  for (size_t index = 0; index < apple2DiskSectorSize; ++index)
+  {
+    uint8_t reversedLowBits = (uint8_t)((values[index % 86] >> (2 * (index / 86))) & 3U);
+    uint8_t lowBits = (uint8_t)(((reversedLowBits & 1U) << 1) | (reversedLowBits >> 1));
+    data[index] = (uint8_t)((values[86 + index] << 2) | lowBits);
+  }
+  return true;
+}
+
+static void finishWriteData(apple2Disk *disk, apple2DiskDrive *drive)
+{
+  uint8_t data[apple2DiskSectorSize];
+  if (drive->writeSector == NULL || !decodeWriteData(drive->writeDataNibbles, data) ||
+      !drive->writeSector(drive->context, drive->writeTrack,
+                          imageSectorOfPhysical[drive->order][drive->writePhysicalSector], data))
+  {
+    disk->writeFailures++;
+  }
+  else
+  {
+    resetDriveCache(drive);
+  }
+  drive->writeDataActive = false;
+  drive->writeDataCount = 0;
+  drive->writePrologueState = 0;
+}
+
+static void writeDataNibble(apple2Disk *disk, apple2DiskDrive *drive, uint8_t value, uint64_t cycles)
+{
+  if (drive->writeDataActive)
+  {
+    drive->writeDataNibbles[drive->writeDataCount++] = value;
+    if (drive->writeDataCount == sizeof(drive->writeDataNibbles))
+    {
+      finishWriteData(disk, drive);
+    }
+    return;
+  }
+
+  if ((drive->writePrologueState == 0 || drive->writePrologueState == 1) && value == 0xD5)
+  {
+    drive->writePrologueState = 1;
+    return;
+  }
+  if (drive->writePrologueState == 1 && value == 0xAA)
+  {
+    drive->writePrologueState = 2;
+    return;
+  }
+  if (drive->writePrologueState == 2 && value == 0xAD)
+  {
+    uint32_t trackPosition = (uint32_t)((cycles / apple2DiskCyclesPerNibble) % apple2DiskNibblesPerTrack);
+    drive->writeTrack = (uint8_t)(drive->halfTrack >> 1);
+    drive->writePhysicalSector = (uint8_t)(trackPosition / apple2DiskNibblesPerSector);
+    drive->writeDataCount = 0;
+    drive->writeDataActive = true;
+    drive->writePrologueState = 0;
+    disk->writeAttempts++;
+    return;
+  }
+  drive->writePrologueState = 0;
 }
 
 static apple2DiskDrive *selectedDrive(apple2Disk *disk)
@@ -273,7 +404,16 @@ uint8_t apple2DiskAccess(apple2Disk *disk, uint8_t offset, bool write, uint64_t 
   case 5:
     if (disk->drive2Selected != on)
     {
+      apple2DiskDrive *previousDrive = selectedDrive(disk);
+      previousDrive->writeDataCount = 0;
+      previousDrive->writePrologueState = 0;
+      previousDrive->writeDataActive = false;
+      disk->writeLatchValid = false;
       disk->drive2Selected = on;
+      apple2DiskDrive *nextDrive = selectedDrive(disk);
+      nextDrive->writeDataCount = 0;
+      nextDrive->writePrologueState = 0;
+      nextDrive->writeDataActive = false;
       disk->lastDeliveredNibble = -1;
     }
     break;
@@ -282,14 +422,34 @@ uint8_t apple2DiskAccess(apple2Disk *disk, uint8_t offset, bool write, uint64_t 
     break;
   default:
     disk->q7 = on;
+    if (!on)
+    {
+      apple2DiskDrive *drive = selectedDrive(disk);
+      drive->writeDataCount = 0;
+      drive->writePrologueState = 0;
+      drive->writeDataActive = false;
+      disk->writeLatchValid = false;
+    }
     break;
+  }
+  apple2DiskDrive *drive = selectedDrive(disk);
+  bool spinning = disk->motorOn || cycles < disk->spinUntilCycle;
+  if (disk->q7 && drive->attached && spinning)
+  {
+    if (disk->q6 && write)
+    {
+      disk->latch = busValue;
+      disk->writeLatchValid = true;
+    }
+    else if (!disk->q6 && offset == 0xC && disk->writeLatchValid &&
+             (drive->halfTrack & 1U) == 0 && (drive->halfTrack >> 1) < drive->trackCount)
+    {
+      writeDataNibble(disk, drive, disk->latch, cycles);
+      disk->writeLatchValid = false;
+    }
   }
   if (write)
   {
-    if (disk->q6 && disk->q7)
-    {
-      disk->writeAttempts++;
-    }
     return busValue;
   }
   if (offset < 0xC || on)
@@ -302,7 +462,8 @@ uint8_t apple2DiskAccess(apple2Disk *disk, uint8_t offset, bool write, uint64_t 
   }
   if (disk->q6)
   {
-    return selectedDrive(disk)->attached ? 0x80 : 0x00;
+    apple2DiskDrive *drive = selectedDrive(disk);
+    return drive->attached && drive->writeSector == NULL ? 0x80 : 0x00;
   }
   return readDataLatch(disk, cycles);
 }
@@ -319,4 +480,5 @@ void apple2DiskGetState(const apple2Disk *disk, apple2DiskState *state)
   state->sectorReads = disk->sectorReads;
   state->sectorReadFailures = disk->sectorReadFailures;
   state->writeAttempts = disk->writeAttempts;
+  state->writeFailures = disk->writeFailures;
 }

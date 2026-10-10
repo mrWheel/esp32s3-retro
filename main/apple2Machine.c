@@ -276,6 +276,33 @@ static bool readDiskSector(void *context, uint8_t track, uint8_t sector, uint8_t
   return apple2DiskImageReadSectorCallback(context, track, sector, buffer);
 }
 
+static bool writeDiskSector(void *context, uint8_t track, uint8_t sector, const uint8_t *buffer)
+{
+  return apple2DiskImageWriteSectorCallback(context, track, sector, buffer);
+}
+
+static bool readSmartPortBlock(void *context, uint32_t block, uint8_t *buffer)
+{
+  diskActivityRead();
+  bool read = apple2DiskImageReadBlockCallback(context, block, buffer);
+  if (!read)
+  {
+    ESP_LOGE(tag, "SmartPort block %lu read failed", (unsigned long)block);
+  }
+  return read;
+}
+
+static bool writeSmartPortBlock(void *context, uint32_t block, const uint8_t *buffer)
+{
+  diskActivityWrite();
+  bool written = apple2DiskImageWriteBlockCallback(context, block, buffer);
+  if (!written)
+  {
+    ESP_LOGE(tag, "SmartPort block %lu write failed", (unsigned long)block);
+  }
+  return written;
+}
+
 static void releaseDisk(void)
 {
   if (guestCore != NULL)
@@ -305,6 +332,8 @@ static const char *contentText(const apple2DiskImage *image)
     return "DOS 3.3";
   case apple2DiskImageContentPascal:
     return "Apple Pascal";
+  case apple2DiskImageContentProDos:
+    return "ProDOS";
   case apple2DiskImageContentUnknown:
     break;
   }
@@ -317,8 +346,8 @@ static bool attachDrive(size_t slotIndex, size_t driveIndex, const apple2DriveCo
   uint8_t slot = (uint8_t)(slotIndex + apple2DriveConfigFirstSlot);
   apple2DiskImage *image = &guestDisks[slotIndex][driveIndex];
   apple2DiskImageInitialize(image);
-  apple2DiskImageResult result =
-      apple2DiskImageOpenProfile(image, config->path, config->profile, apple2DiskImageOrderAuto);
+  apple2DiskImageResult result = apple2DiskImageOpenProfileMode(image, config->path, config->profile,
+                                                                apple2DiskImageOrderAuto, config->readOnly);
   if (result != apple2DiskImageOk)
   {
     ESP_LOGW(tag, "no Disk II media on PR%u.%u: %s: %s", (unsigned)slot, (unsigned)(driveIndex + 1), config->path,
@@ -327,23 +356,46 @@ static bool attachDrive(size_t slotIndex, size_t driveIndex, const apple2DriveCo
   }
   apple2DiskSectorOrder order = image->order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
                                                                             : apple2DiskSectorOrderDos;
-  if (apple2CoreAttachDiskDrive(guestCore, slot, (uint8_t)driveIndex, order, image->trackCount, readDiskSector,
-                                image) != apple2CoreOk)
+  apple2CoreResult attachResult;
+  if (config->smartPort)
   {
-    ESP_LOGE(tag, "attaching %s to PR%u.%u failed", config->path, (unsigned)slot, (unsigned)(driveIndex + 1));
+    attachResult = apple2CoreAttachSmartPortDevice(
+        guestCore, (uint8_t)(driveIndex + 1), (uint32_t)image->trackCount * 8U,
+        readSmartPortBlock, config->readOnly ? NULL : writeSmartPortBlock, image);
+  }
+  else
+  {
+    attachResult = apple2CoreAttachWritableDiskDrive(guestCore, slot, (uint8_t)driveIndex, order, image->trackCount,
+                                                     readDiskSector, config->readOnly ? NULL : writeDiskSector, image);
+  }
+  if (attachResult != apple2CoreOk)
+  {
+    ESP_LOGE(tag, "attaching %s to %s%u.%u failed", config->path, config->smartPort ? "SP" : "PR",
+             (unsigned)slot, (unsigned)(driveIndex + 1));
     apple2DiskImageClose(image);
     apple2DiskImageInitialize(image);
     return false;
   }
-  ESP_LOGI(tag, "Disk II PR%u.%u (read-only): %s, %u tracks, %s sector order, %s", (unsigned)slot,
-           (unsigned)(driveIndex + 1), config->path, (unsigned)image->trackCount,
-           image->order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS 3.3", contentText(image));
-  if (image->probe.content == apple2DiskImageContentPascal)
+  if (config->smartPort)
   {
-    ESP_LOGI(tag, "PR%u.%u Apple Pascal volume %s: %u blocks", (unsigned)slot, (unsigned)(driveIndex + 1),
+    ESP_LOGI(tag, "SmartPort SP%u.%u (%s): %s, %u blocks, %s", (unsigned)slot,
+             (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write", config->path,
+             (unsigned)image->trackCount * 8U, contentText(image));
+  }
+  else
+  {
+    ESP_LOGI(tag, "Disk II PR%u.%u (%s): %s, %u tracks, %s sector order, %s", (unsigned)slot,
+             (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write", config->path,
+             (unsigned)image->trackCount,
+             image->order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS 3.3", contentText(image));
+  }
+  if (image->probe.content == apple2DiskImageContentPascal || image->probe.content == apple2DiskImageContentProDos)
+  {
+    ESP_LOGI(tag, "%s%u.%u %s volume %s: %u blocks", config->smartPort ? "SP" : "PR", (unsigned)slot,
+             (unsigned)(driveIndex + 1), image->probe.content == apple2DiskImageContentProDos ? "ProDOS" : "Apple Pascal",
              image->probe.volumeName, (unsigned)image->probe.volumeBlocks);
   }
-  if (image->orderSuspect)
+  if (!config->smartPort && image->orderSuspect)
   {
     ESP_LOGW(tag, "PR%u.%u: the sector order chosen from the file extension disagrees with the content (%s expected)",
              (unsigned)slot, (unsigned)(driveIndex + 1),
@@ -377,7 +429,7 @@ static void attachDisks(void)
   }
 }
 
-//-- Write attempts (refused: the drives are read-only) over all controllers.
+//-- Counts sector writes and write errors over all controllers.
 static uint32_t totalWriteAttempts(void)
 {
   uint32_t total = 0;
@@ -387,6 +439,20 @@ static uint32_t totalWriteAttempts(void)
     if (apple2CoreGetDiskStateForSlot(guestCore, slot, &state))
     {
       total += state.writeAttempts;
+    }
+  }
+  return total;
+}
+
+static uint32_t totalWriteFailures(void)
+{
+  uint32_t total = 0;
+  for (uint8_t slot = apple2DriveConfigFirstSlot; slot <= apple2DriveConfigLastSlot; ++slot)
+  {
+    apple2DiskState state;
+    if (apple2CoreGetDiskStateForSlot(guestCore, slot, &state))
+    {
+      total += state.writeFailures;
     }
   }
   return total;
@@ -474,6 +540,7 @@ void apple2MachineRun(void)
   bool skipLineFeed = hostConsolePeekChar() == '\n';
   int64_t lastRenderUs = 0;
   uint32_t seenWriteAttempts = totalWriteAttempts();
+  uint32_t seenWriteFailures = totalWriteFailures();
   while (true)
   {
     handleInput(&skipLineFeed);
@@ -483,15 +550,21 @@ void apple2MachineRun(void)
       releaseDisk();
       return;
     }
-    //-- The disk is read-only: green burns for every read, red only for a refused write attempt.
+    //-- Green marks reads; red marks attempted writes.
     uint32_t writeAttempts = totalWriteAttempts();
     if (writeAttempts != seenWriteAttempts)
     {
       seenWriteAttempts = writeAttempts;
 #if DISK_ACTIVITY_DEBUG_LOG
-      ESP_LOGW(tag, "Disk II write attempt #%u", (unsigned)writeAttempts);
+      ESP_LOGD(tag, "Disk II sector write #%u", (unsigned)writeAttempts);
 #endif
       diskActivityWrite();
+    }
+    uint32_t writeFailures = totalWriteFailures();
+    if (writeFailures != seenWriteFailures)
+    {
+      seenWriteFailures = writeFailures;
+      ESP_LOGW(tag, "Disk II sector write failed #%u", (unsigned)writeFailures);
     }
     TickType_t currentTime = xTaskGetTickCount();
     if ((TickType_t)(currentTime - wakeTime) >= period)

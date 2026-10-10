@@ -16,7 +16,10 @@ enum
   apple2DiskLastSlot = 7,
   apple2DiskSlotCount = apple2DiskLastSlot - apple2DiskFirstSlot + 1,
   apple2DiskDrivesPerSlot = 2,
-  apple2DiskMaxTracks = 160
+  apple2DiskMaxTracks = 160,
+  apple2SmartPortSlot = 5,
+  apple2SmartPortDevices = 2,
+  apple2SmartPortBlockSize = 512
 };
 
 typedef struct apple2Core apple2Core;
@@ -41,7 +44,7 @@ typedef struct
 
 //-- Order in which the 16 sectors of a track are stored inside an image file.
 //-- Dos: DOS 3.3 logical order (.do/.dsk). Prodos: ProDOS/Apple Pascal logical order (.po), where two
-//-- consecutive sectors form one 512-byte block.
+//-- logical sectors form one 512-byte block.
 typedef enum
 {
   apple2DiskSectorOrderDos,
@@ -51,6 +54,10 @@ typedef enum
 //-- Reads one 256-byte sector (track 0..apple2DiskMaxTracks-1, image-order sector 0..15, see
 //-- apple2DiskSectorOrder) into buffer.
 typedef bool (*apple2DiskReadSectorFunction)(void *context, uint8_t track, uint8_t sector, uint8_t *buffer);
+typedef bool (*apple2DiskWriteSectorFunction)(void *context, uint8_t track, uint8_t sector,
+                                              const uint8_t *buffer);
+typedef bool (*apple2SmartPortReadBlockFunction)(void *context, uint32_t block, uint8_t *buffer);
+typedef bool (*apple2SmartPortWriteBlockFunction)(void *context, uint32_t block, const uint8_t *buffer);
 
 typedef struct
 {
@@ -64,6 +71,7 @@ typedef struct
   uint32_t sectorReads;
   uint32_t sectorReadFailures;
   uint32_t writeAttempts;
+  uint32_t writeFailures;
 } apple2DiskState;
 
 apple2CoreResult apple2CoreCreate(apple2Core **core);
@@ -100,6 +108,15 @@ void apple2CoreGetDiskState(const apple2Core *core, apple2DiskState *state);
 apple2CoreResult apple2CoreAttachDiskDrive(apple2Core *core, uint8_t slot, uint8_t drive, apple2DiskSectorOrder order,
                                            uint8_t trackCount, apple2DiskReadSectorFunction readSector,
                                            void *context);
+//-- The writable form enables writes only when a writeSector callback is provided.
+apple2CoreResult apple2CoreAttachWritableDiskDrive(apple2Core *core, uint8_t slot, uint8_t drive,
+                                                   apple2DiskSectorOrder order, uint8_t trackCount,
+                                                   apple2DiskReadSectorFunction readSector,
+                                                   apple2DiskWriteSectorFunction writeSector, void *context);
 apple2CoreResult apple2CoreDetachDiskDrive(apple2Core *core, uint8_t slot, uint8_t drive);
 //-- False when the slot is outside apple2DiskFirstSlot..apple2DiskLastSlot.
 bool apple2CoreGetDiskStateForSlot(const apple2Core *core, uint8_t slot, apple2DiskState *state);
+apple2CoreResult apple2CoreAttachSmartPortDevice(apple2Core *core, uint8_t unit, uint32_t blockCount,
+                                                 apple2SmartPortReadBlockFunction readBlock,
+                                                 apple2SmartPortWriteBlockFunction writeBlock, void *context);
+apple2CoreResult apple2CoreDetachSmartPortDevice(apple2Core *core, uint8_t unit);

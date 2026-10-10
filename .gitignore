@@ -6,3 +6,4 @@ sdkconfig.old
 __pycache__/
 .venv
 .DS_Store
+assets/appleDisks/*

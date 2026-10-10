@@ -370,11 +370,11 @@ static void testSlotsThroughCore(void)
   assert(apple2CoreReadMemory(core, 0xC0E9, &value) == apple2CoreOk);
   assert(apple2CoreGetDiskStateForSlot(core, 6, &state) && !state.motorOn);
 
-  //-- A refused write on slot 5 is counted on slot 5 only; the callback is never asked to write.
-  assert(apple2CoreReadMemory(core, 0xC0DF, &value) == apple2CoreOk);
+  //-- Read-only media reports write-protected and keeps its counters unchanged.
+  assert(apple2CoreReadMemory(core, 0xC0DB, &value) == apple2CoreOk);
   assert(apple2CoreReadMemory(core, 0xC0DD, &value) == apple2CoreOk);
-  assert(apple2CoreWriteMemory(core, 0xC0DD, 0x55) == apple2CoreOk);
-  assert(apple2CoreGetDiskStateForSlot(core, 5, &state) && state.writeAttempts == 1);
+  assert(apple2CoreReadMemory(core, 0xC0DE, &value) == apple2CoreOk && (value & 0x80) != 0);
+  assert(apple2CoreGetDiskStateForSlot(core, 5, &state) && state.writeAttempts == 0 && state.writeFailures == 0);
   assert(apple2CoreGetDiskStateForSlot(core, 6, &state) && state.writeAttempts == 0);
 
   //-- Slot 6 with a second controller present: both attach independently, the legacy calls address slot 6.
@@ -426,6 +426,31 @@ static void buildPascalProdosImage(uint8_t *image, uint16_t volumeBlocks, const 
   memcpy(&header[7], name, strlen(name));
   putWord(&header[0x0E], volumeBlocks);
   putWord(&header[0x10], 0);
+}
+
+static void buildProDosImage(uint8_t *image, uint16_t volumeBlocks, const char *name)
+{
+  for (uint16_t block = 2; block <= 5; ++block)
+  {
+    uint8_t *directory = &image[(size_t)block * pascalBlockBytes];
+    putWord(&directory[0], block == 2 ? 0 : block - 1);
+    putWord(&directory[2], block == 5 ? 0 : block + 1);
+  }
+  uint8_t *header = &image[2 * pascalBlockBytes];
+  size_t nameLength = strlen(name);
+  header[4] = (uint8_t)(0xF0U | nameLength);
+  memcpy(&header[5], name, nameLength);
+  header[0x22] = 0xC3;
+  header[0x23] = 0x27;
+  header[0x24] = 13;
+  putWord(&header[0x25], 0);
+  putWord(&header[0x27], 6);
+  putWord(&header[0x29], volumeBlocks);
+  uint8_t *bitmap = &image[6 * pascalBlockBytes];
+  for (uint16_t block = 7; block < volumeBlocks; ++block)
+  {
+    bitmap[block / 8] |= (uint8_t)(0x80U >> (block & 7U));
+  }
 }
 
 //-- Re-stores a ProDOS-order image in DOS order: the sector with ProDOS logical number L moves to the
@@ -730,6 +755,76 @@ static void testPascal640kThroughController(void)
   free(data);
 }
 
+static void testProDosSmartPortBlocks(void)
+{
+  uint8_t *prodos = calloc(apple2DiskImage640kSize, 1);
+  uint8_t *dos = calloc(apple2DiskImage640kSize, 1);
+  assert(prodos != NULL && dos != NULL);
+  buildProDosImage(prodos, blocks640k, "DATA640");
+  char prodosPath[64];
+  char dosPath[64];
+  makeTempPath(prodosPath, sizeof(prodosPath), ".po");
+  makeTempPath(dosPath, sizeof(dosPath), ".dsk");
+  writeFile(prodosPath, prodos, apple2DiskImage640kSize);
+  convertProdosToDosOrder(prodos, dos, apple2DiskImage640kTracks);
+  writeFile(dosPath, dos, apple2DiskImage640kSize);
+
+  apple2DiskImage image;
+  apple2DiskImageInitialize(&image);
+  assert(apple2DiskImageOpenProfileMode(&image, prodosPath, apple2DiskImageProfile640k,
+                                        apple2DiskImageOrderAuto, false) == apple2DiskImageOk);
+  assert(image.order == apple2DiskImageOrderProdos);
+  assert(image.probe.content == apple2DiskImageContentProDos && image.probe.orderKnown);
+  assert(strcmp(image.probe.volumeName, "DATA640") == 0 && image.probe.volumeBlocks == blocks640k);
+  uint8_t expected[apple2SmartPortBlockSize];
+  uint8_t actual[apple2SmartPortBlockSize];
+  for (size_t offset = 0; offset < sizeof(expected); ++offset)
+  {
+    expected[offset] = (uint8_t)(offset * 37U + 11U);
+  }
+  assert(apple2DiskImageWriteBlock(&image, blocks640k - 1, expected) == apple2DiskImageOk);
+  assert(apple2DiskImageReadBlockCallback(&image, blocks640k - 1, actual));
+  assert(memcmp(actual, expected, sizeof(actual)) == 0);
+  assert(apple2DiskImageReadBlock(&image, blocks640k, actual) == apple2DiskImageOutOfRange);
+  assert(apple2DiskImageWriteBlock(&image, blocks640k, expected) == apple2DiskImageOutOfRange);
+  assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
+
+  apple2DiskImageInitialize(&image);
+  assert(apple2DiskImageOpenProfile(&image, prodosPath, apple2DiskImageProfile640k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageOk);
+  assert(apple2DiskImageReadBlock(&image, blocks640k - 1, actual) == apple2DiskImageOk);
+  assert(memcmp(actual, expected, sizeof(actual)) == 0);
+  assert(apple2DiskImageWriteBlock(&image, blocks640k - 1, expected) == apple2DiskImageWriteFailed);
+  assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
+
+  apple2DiskImageInitialize(&image);
+  assert(apple2DiskImageOpenProfile(&image, dosPath, apple2DiskImageProfile640k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageOk);
+  assert(image.order == apple2DiskImageOrderDos);
+  assert(image.probe.content == apple2DiskImageContentProDos && image.probe.orderKnown);
+  assert(apple2DiskImageReadBlock(&image, blocks640k - 1, actual) == apple2DiskImageOk);
+  assert(memcmp(actual, prodos + (size_t)(blocks640k - 1) * pascalBlockBytes, sizeof(actual)) == 0);
+  assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
+
+  apple2DiskImageInitialize(&image);
+  assert(apple2DiskImageOpenProfileMode(&image, dosPath, apple2DiskImageProfile640k,
+                                        apple2DiskImageOrderAuto, false) == apple2DiskImageOk);
+  assert(apple2DiskImageWriteBlock(&image, blocks640k - 1, expected) == apple2DiskImageOk);
+  assert(apple2DiskImageReadBlock(&image, blocks640k - 1, actual) == apple2DiskImageOk);
+  assert(memcmp(actual, expected, sizeof(actual)) == 0);
+  assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
+  apple2DiskImageInitialize(&image);
+  assert(apple2DiskImageOpenProfile(&image, dosPath, apple2DiskImageProfile640k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageOk);
+  assert(apple2DiskImageReadBlock(&image, blocks640k - 1, actual) == apple2DiskImageOk);
+  assert(memcmp(actual, expected, sizeof(actual)) == 0);
+  assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
+  assert(unlink(prodosPath) == 0);
+  assert(unlink(dosPath) == 0);
+  free(dos);
+  free(prodos);
+}
+
 static void writeText(const char *path, const char *text)
 {
   writeFile(path, (const uint8_t *)text, strlen(text));
@@ -747,6 +842,7 @@ static void expectDefaults(apple2DriveConfig drives[apple2DriveConfigSlotCount][
   }
   assert(strcmp(drives[2][0].path, "/littlefs/apple2/system.dsk") == 0);
   assert(drives[2][0].profile == apple2DiskImageProfile140k);
+  assert(drives[2][0].readOnly);
 }
 
 static void testDriveConfig(void)
@@ -762,17 +858,28 @@ static void testDriveConfig(void)
   makeTempPath(path, sizeof(path), ".cfg");
   writeText(path, "# Apple II drives\n"
                   "\n"
-                  "PR6.2=/retro/images/apple2/data.po,RO,APPLE2_640K\n"
+                  "PR6.2=/retro/images/apple2/data.po,RW,APPLE2_640K\n"
                   "PR5.1 = /retro/images/apple2/pascal.dsk , RO , APPLE2_140K\r\n"
-                  "PR7.2=/littlefs/apple2/extra.dsk,RO,APPLE2_140K\n");
+                  "PR7.2=/littlefs/apple2/extra.dsk,RW,APPLE2_140K\n");
   assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
   assert(drives[2][0].configured && strcmp(drives[2][0].path, "/littlefs/apple2/system.dsk") == 0);
   assert(drives[2][1].configured && drives[2][1].profile == apple2DiskImageProfile640k);
+  assert(!drives[2][1].readOnly);
   assert(strcmp(drives[2][1].path, "/microSD/retro/images/apple2/data.po") == 0);
   assert(drives[1][0].configured && drives[1][0].profile == apple2DiskImageProfile140k);
   assert(strcmp(drives[1][0].path, "/microSD/retro/images/apple2/pascal.dsk") == 0);
   assert(drives[3][1].configured && strcmp(drives[3][1].path, "/littlefs/apple2/extra.dsk") == 0);
+  assert(!drives[3][1].readOnly);
+  assert(drives[1][0].readOnly);
+  assert(!drives[1][0].smartPort && !drives[2][1].smartPort);
   assert(!drives[0][0].configured && !drives[0][1].configured && !drives[1][1].configured && !drives[3][0].configured);
+
+  writeText(path, "SP5.1=/retro/images/apple2/prodos140.po,RO,APPLE2_140K\n"
+                  "SP5.2=/retro/images/apple2/prodos640.po,RW,APPLE2_640K\n");
+  assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
+  assert(drives[1][0].configured && drives[1][0].smartPort && drives[1][0].readOnly);
+  assert(drives[1][1].configured && drives[1][1].smartPort && !drives[1][1].readOnly);
+  assert(drives[1][1].profile == apple2DiskImageProfile640k);
 
   //-- PR6.1 may be replaced by another image.
   writeText(path, "PR6.1=/retro/images/apple2/boot.po,RO,APPLE2_640K\n");
@@ -781,7 +888,8 @@ static void testDriveConfig(void)
   assert(strcmp(drives[2][0].path, "/microSD/retro/images/apple2/boot.po") == 0);
 
   static const char *const invalidLines[] = {
-      "PR6.2=/retro/images/apple2/data.po,RW,APPLE2_640K\n",
+      "PR6.1=/littlefs/apple2/system.dsk,RW,APPLE2_140K\n",
+      "PR6.2=/retro/images/apple2/data.po,WR,APPLE2_640K\n",
       "PR3.1=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
       "PR8.1=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
       "PR6.3=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
@@ -797,6 +905,8 @@ static void testDriveConfig(void)
       "PR6.2=/retro/images/apple2/,RO,APPLE2_140K\n",
       "PR6.2=/littlefs/cpm86/system.dsk,RO,APPLE2_140K\n",
       "PR6.2=/retro/images/apple2/a.dsk,RO,APPLE2_140K\nPR6.2=/retro/images/apple2/b.dsk,RO,APPLE2_140K\n",
+      "PR5.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP5.2=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
+      "SP4.1=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
       "just text\n",
   };
   for (size_t index = 0; index < sizeof(invalidLines) / sizeof(invalidLines[0]); ++index)
@@ -834,7 +944,8 @@ int main(void)
   testPascalProbe();
   testDos33Probe();
   testPascal640kThroughController();
+  testProDosSmartPortBlocks();
   testDriveConfig();
-  puts("PASS: multi-drive Disk II, 640K media, ProDOS/Pascal order, probing and drives.cfg");
+  puts("PASS: multi-drive Disk II, ProDOS SmartPort blocks, 640K media, probing and drives.cfg");
   return 0;
 }

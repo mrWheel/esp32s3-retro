@@ -18,6 +18,12 @@ enum
   pascalBlockSize = 512,
   pascalDirectoryBlock = 2,
   pascalDirectoryEntrySize = 26,
+  prodosDirectoryNameOffset = 4,
+  prodosDirectoryTypeOffset = 0x22,
+  prodosDirectoryEntryLengthOffset = 0x23,
+  prodosDirectoryEntriesPerBlockOffset = 0x24,
+  prodosDirectoryBitmapOffset = 0x27,
+  prodosDirectoryBlockCountOffset = 0x29,
   dosVtocTrack = 17,
   dosSectorSize = 256
 };
@@ -162,6 +168,41 @@ static bool probePascal(apple2DiskImage *disk, apple2DiskImageOrder order, char 
   return true;
 }
 
+//-- ProDOS volume header entry in directory block 2; all byte offsets are relative to the start of that block.
+static bool probeProDos(apple2DiskImage *disk, apple2DiskImageOrder order, char *name, uint16_t *blocks)
+{
+  uint8_t buffer[pascalBlockSize];
+  if (!readPascalBlock(disk, order, pascalDirectoryBlock, buffer))
+  {
+    return false;
+  }
+  uint8_t nameLength = buffer[prodosDirectoryNameOffset] & 0x0FU;
+  uint16_t blockCount = littleEndian16(&buffer[prodosDirectoryBlockCountOffset]);
+  uint16_t bitmapBlock = littleEndian16(&buffer[prodosDirectoryBitmapOffset]);
+  if (littleEndian16(&buffer[0]) != 0 || littleEndian16(&buffer[2]) < 3 ||
+      littleEndian16(&buffer[2]) >= (uint16_t)disk->trackCount * 8U ||
+      (buffer[prodosDirectoryNameOffset] & 0xF0U) != 0xF0U || nameLength < 1 || nameLength > 15 ||
+      buffer[prodosDirectoryTypeOffset] != 0xC3 ||
+      buffer[prodosDirectoryEntryLengthOffset] != 0x27 ||
+      buffer[prodosDirectoryEntriesPerBlockOffset] != 13 || blockCount < 8 ||
+      blockCount > (uint16_t)disk->trackCount * 8U || bitmapBlock < 6 || bitmapBlock >= blockCount)
+  {
+    return false;
+  }
+  for (uint8_t index = 0; index < nameLength; ++index)
+  {
+    uint8_t character = buffer[prodosDirectoryNameOffset + 1 + index];
+    if (!((character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '.'))
+    {
+      return false;
+    }
+  }
+  memcpy(name, &buffer[prodosDirectoryNameOffset + 1], nameLength);
+  name[nameLength] = '\0';
+  *blocks = blockCount;
+  return true;
+}
+
 //-- DOS 3.3 VTOC at track 17 sector 0 (physical sector 0 in both file orders) and a first catalog sector that
 //-- links on to a following catalog sector when read in the given order.
 static bool probeDosVtoc(apple2DiskImage *disk, uint8_t *catalogTrack, uint8_t *catalogSector)
@@ -226,6 +267,18 @@ apple2DiskImageResult apple2DiskImageProbe(apple2DiskImage *disk, apple2DiskImag
     return apple2DiskImageOk;
   }
 
+  bool proDosDos = probeProDos(disk, apple2DiskImageOrderDos, dosName, &dosBlocks);
+  bool proDosProdos = probeProDos(disk, apple2DiskImageOrderProdos, prodosName, &prodosBlocks);
+  if (proDosDos || proDosProdos)
+  {
+    result->content = apple2DiskImageContentProDos;
+    result->orderKnown = proDosDos != proDosProdos;
+    result->order = proDosProdos ? apple2DiskImageOrderProdos : apple2DiskImageOrderDos;
+    snprintf(result->volumeName, sizeof(result->volumeName), "%s", proDosProdos ? prodosName : dosName);
+    result->volumeBlocks = proDosProdos ? prodosBlocks : dosBlocks;
+    return apple2DiskImageOk;
+  }
+
   uint8_t catalogTrack;
   uint8_t catalogSector;
   if (probeDosVtoc(disk, &catalogTrack, &catalogSector))
@@ -241,6 +294,13 @@ apple2DiskImageResult apple2DiskImageProbe(apple2DiskImage *disk, apple2DiskImag
 
 apple2DiskImageResult apple2DiskImageOpenProfile(apple2DiskImage *disk, const char *path,
                                                  apple2DiskImageProfile profile, apple2DiskImageOrder order)
+{
+  return apple2DiskImageOpenProfileMode(disk, path, profile, order, true);
+}
+
+apple2DiskImageResult apple2DiskImageOpenProfileMode(apple2DiskImage *disk, const char *path,
+                                                     apple2DiskImageProfile profile, apple2DiskImageOrder order,
+                                                     bool readOnly)
 {
   if (disk == NULL || path == NULL || (profile != apple2DiskImageProfile140k && profile != apple2DiskImageProfile640k) ||
       (order != apple2DiskImageOrderDos && order != apple2DiskImageOrderProdos && order != apple2DiskImageOrderAuto))
@@ -261,7 +321,7 @@ apple2DiskImageResult apple2DiskImageOpenProfile(apple2DiskImage *disk, const ch
   {
     return apple2DiskImageBadSize;
   }
-  if (!imageOpen(&disk->image, path, true))
+  if (!imageOpen(&disk->image, path, readOnly))
   {
     disk->image.size = 0;
     return apple2DiskImageOpenFailed;
@@ -314,9 +374,92 @@ apple2DiskImageResult apple2DiskImageReadSector(apple2DiskImage *disk, uint8_t t
                                                                                : apple2DiskImageReadFailed;
 }
 
+apple2DiskImageResult apple2DiskImageWriteSector(apple2DiskImage *disk, uint8_t track, uint8_t sector,
+                                                 const uint8_t *buffer)
+{
+  if (disk == NULL || buffer == NULL)
+  {
+    return apple2DiskImageInvalidArgument;
+  }
+  if (disk->image.file == NULL)
+  {
+    return apple2DiskImageNotOpen;
+  }
+  if (track >= disk->trackCount || sector >= apple2DiskImageSectorsPerTrack)
+  {
+    return apple2DiskImageOutOfRange;
+  }
+  uint64_t offset = ((uint64_t)track * apple2DiskImageSectorsPerTrack + sector) * apple2DiskImageSectorSize;
+  if (!imageWriteAt(&disk->image, offset, buffer, apple2DiskImageSectorSize) || !imageFlush(&disk->image))
+  {
+    return apple2DiskImageWriteFailed;
+  }
+  return apple2DiskImageOk;
+}
+
+apple2DiskImageResult apple2DiskImageReadBlock(apple2DiskImage *disk, uint32_t block, uint8_t *buffer)
+{
+  if (disk == NULL || buffer == NULL)
+  {
+    return apple2DiskImageInvalidArgument;
+  }
+  if (disk->image.file == NULL)
+  {
+    return apple2DiskImageNotOpen;
+  }
+  if (block >= (uint32_t)disk->trackCount * 8U)
+  {
+    return apple2DiskImageOutOfRange;
+  }
+  return readPascalBlock(disk, disk->order, block, buffer) ? apple2DiskImageOk : apple2DiskImageReadFailed;
+}
+
+apple2DiskImageResult apple2DiskImageWriteBlock(apple2DiskImage *disk, uint32_t block, const uint8_t *buffer)
+{
+  if (disk == NULL || buffer == NULL)
+  {
+    return apple2DiskImageInvalidArgument;
+  }
+  if (disk->image.file == NULL)
+  {
+    return apple2DiskImageNotOpen;
+  }
+  if (block >= (uint32_t)disk->trackCount * 8U)
+  {
+    return apple2DiskImageOutOfRange;
+  }
+  uint32_t track = block / 8U;
+  for (uint8_t half = 0; half < 2; ++half)
+  {
+    uint8_t logical = (uint8_t)(2U * (block % 8U) + half);
+    uint8_t fileSector = fileSectorOfPhysical(disk->order, physicalOfProdosLogical[logical]);
+    uint64_t offset = ((uint64_t)track * apple2DiskImageSectorsPerTrack + fileSector) * dosSectorSize;
+    if (!imageWriteAt(&disk->image, offset, &buffer[half * dosSectorSize], dosSectorSize))
+    {
+      return apple2DiskImageWriteFailed;
+    }
+  }
+  return imageFlush(&disk->image) ? apple2DiskImageOk : apple2DiskImageWriteFailed;
+}
+
 bool apple2DiskImageReadSectorCallback(void *context, uint8_t track, uint8_t sector, uint8_t *buffer)
 {
   return apple2DiskImageReadSector((apple2DiskImage *)context, track, sector, buffer) == apple2DiskImageOk;
+}
+
+bool apple2DiskImageWriteSectorCallback(void *context, uint8_t track, uint8_t sector, const uint8_t *buffer)
+{
+  return apple2DiskImageWriteSector((apple2DiskImage *)context, track, sector, buffer) == apple2DiskImageOk;
+}
+
+bool apple2DiskImageReadBlockCallback(void *context, uint32_t block, uint8_t *buffer)
+{
+  return apple2DiskImageReadBlock((apple2DiskImage *)context, block, buffer) == apple2DiskImageOk;
+}
+
+bool apple2DiskImageWriteBlockCallback(void *context, uint32_t block, const uint8_t *buffer)
+{
+  return apple2DiskImageWriteBlock((apple2DiskImage *)context, block, buffer) == apple2DiskImageOk;
 }
 
 apple2DiskImageResult apple2DiskImageClose(apple2DiskImage *disk)
@@ -329,7 +472,9 @@ apple2DiskImageResult apple2DiskImageClose(apple2DiskImage *disk)
   {
     return apple2DiskImageNotOpen;
   }
-  return imageClose(&disk->image) ? apple2DiskImageOk : apple2DiskImageReadFailed;
+  bool readOnly = disk->image.readOnly;
+  return imageClose(&disk->image) ? apple2DiskImageOk
+                                  : (readOnly ? apple2DiskImageReadFailed : apple2DiskImageWriteFailed);
 }
 
 bool apple2DiskImageIsOpen(const apple2DiskImage *disk)
@@ -357,6 +502,8 @@ const char *apple2DiskImageResultText(apple2DiskImageResult result)
     return "track or sector out of range";
   case apple2DiskImageReadFailed:
     return "image read failed";
+  case apple2DiskImageWriteFailed:
+    return "image write failed";
   case apple2DiskImageNotOpen:
     return "image not open";
   }

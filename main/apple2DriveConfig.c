@@ -25,6 +25,7 @@ static void initializeDefaults(driveTable drives)
   apple2DriveConfig *systemDrive = &drives[6 - apple2DriveConfigFirstSlot][0];
   snprintf(systemDrive->path, sizeof(systemDrive->path), "%s", systemImagePath);
   systemDrive->profile = apple2DiskImageProfile140k;
+  systemDrive->readOnly = true;
   systemDrive->configured = true;
 }
 
@@ -65,12 +66,24 @@ static bool safePath(const char *path, const char *prefix)
   return true;
 }
 
-//-- Parses "PR<slot>.<drive>" into zero-based table indexes.
-static bool parseDriveName(const char *name, size_t *slotIndex, size_t *driveIndex)
+//-- Parses "PR<slot>.<drive>" or the slot-5 SmartPort form "SP5.<unit>" into zero-based table indexes.
+static bool parseDriveName(const char *name, size_t *slotIndex, size_t *driveIndex, bool *smartPort)
 {
-  if (strlen(name) != 5 || name[0] != 'P' || name[1] != 'R' || name[3] != '.' ||
+  if (strlen(name) != 5 || name[3] != '.' ||
       name[2] < '0' + apple2DriveConfigFirstSlot || name[2] > '0' + apple2DriveConfigLastSlot ||
       name[4] < '1' || name[4] >= '1' + apple2DriveConfigDrivesPerSlot)
+  {
+    return false;
+  }
+  if (name[0] == 'P' && name[1] == 'R')
+  {
+    *smartPort = false;
+  }
+  else if (name[0] == 'S' && name[1] == 'P' && name[2] == '5')
+  {
+    *smartPort = true;
+  }
+  else
   {
     return false;
   }
@@ -90,7 +103,7 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   char *equals = strchr(content, '=');
   if (equals == NULL || equals == content || strchr(equals + 1, '=') != NULL)
   {
-    setError(error, errorCapacity, "expected PR<slot>.<drive>=<image>,RO,<profile>");
+    setError(error, errorCapacity, "expected PR<slot>.<drive> or SP5.<unit>=<image>,<RO|RW>,<profile>");
     return false;
   }
   *equals = '\0';
@@ -98,9 +111,10 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   char *fields = trim(equals + 1);
   size_t slotIndex;
   size_t driveIndex;
-  if (!parseDriveName(driveName, &slotIndex, &driveIndex))
+  bool smartPort;
+  if (!parseDriveName(driveName, &slotIndex, &driveIndex, &smartPort))
   {
-    setError(error, errorCapacity, "drive must be PR4.1..PR7.2");
+    setError(error, errorCapacity, "controller must be PR4.1..PR7.2 or SP5.1..SP5.2");
     return false;
   }
   if (seen[slotIndex][driveIndex])
@@ -112,7 +126,7 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   char *firstComma = strchr(fields, ',');
   if (firstComma == NULL)
   {
-    setError(error, errorCapacity, "expected <image>,RO,<profile>");
+    setError(error, errorCapacity, "expected <image>,<RO|RW>,<profile>");
     return false;
   }
   *firstComma = '\0';
@@ -120,7 +134,7 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   char *secondComma = strchr(mode, ',');
   if (secondComma == NULL)
   {
-    setError(error, errorCapacity, "expected <image>,RO,<profile>");
+    setError(error, errorCapacity, "expected <image>,<RO|RW>,<profile>");
     return false;
   }
   *secondComma = '\0';
@@ -129,7 +143,7 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   mode = trim(mode);
   if (*imagePath == '\0' || *profileName == '\0' || strchr(profileName, ',') != NULL)
   {
-    setError(error, errorCapacity, "expected <image>,RO,<profile>");
+    setError(error, errorCapacity, "expected <image>,<RO|RW>,<profile>");
     return false;
   }
 
@@ -148,15 +162,39 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
     return false;
   }
 
-  if (strcmp(mode, "RO") != 0)
+  bool readOnly;
+  if (strcmp(mode, "RO") == 0)
   {
-    setError(error, errorCapacity, strcmp(mode, "RW") == 0 ? "RW is not supported: Apple II drives are read-only"
-                                                          : "mode must be RO");
+    readOnly = true;
+  }
+  else if (strcmp(mode, "RW") == 0)
+  {
+    readOnly = false;
+  }
+  else
+  {
+    setError(error, errorCapacity, "mode must be RO or RW");
     return false;
   }
 
   apple2DriveConfig *drive = &drives[slotIndex][driveIndex];
+  if (slotIndex == 5 - apple2DriveConfigFirstSlot)
+  {
+    for (size_t index = 0; index < apple2DriveConfigDrivesPerSlot; ++index)
+    {
+      if (drives[slotIndex][index].configured && drives[slotIndex][index].smartPort != smartPort)
+      {
+        setError(error, errorCapacity, "slot 5 cannot contain both Disk II and SmartPort devices");
+        return false;
+      }
+    }
+  }
   bool system = strncmp(imagePath, systemPathPrefix, strlen(systemPathPrefix)) == 0;
+  if (!readOnly && strcmp(imagePath, systemImagePath) == 0)
+  {
+    setError(error, errorCapacity, "system.dsk must be read-only");
+    return false;
+  }
   if (!safePath(imagePath, system ? systemPathPrefix : dataPathPrefix) || strlen(imagePath) >= sizeof(drive->path))
   {
     setError(error, errorCapacity, "image path must be below /littlefs/apple2/ or /retro/images/apple2/");
@@ -172,6 +210,8 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
     return false;
   }
   drive->profile = profile;
+  drive->readOnly = readOnly;
+  drive->smartPort = smartPort;
   drive->configured = true;
   seen[slotIndex][driveIndex] = true;
   return true;

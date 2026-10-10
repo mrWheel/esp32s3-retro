@@ -9,6 +9,7 @@ enum
   apple2DiskTrackCount = 35,
   apple2DiskNibblesPerSector = 416,
   apple2DiskNibblesPerTrack = apple2DiskSectorsPerTrack * apple2DiskNibblesPerSector,
+  apple2DiskWriteDataSize = 343,
   apple2DiskCyclesPerNibble = 32,
   apple2DiskMaxHalfTrack = 69,
   apple2DiskMotorCoastCycles = 1000000,
@@ -18,6 +19,7 @@ enum
 typedef struct
 {
   apple2DiskReadSectorFunction readSector;
+  apple2DiskWriteSectorFunction writeSector;
   void *context;
   bool attached;
   apple2DiskSectorOrder order;
@@ -26,6 +28,12 @@ typedef struct
   int16_t cachedTrack;
   int16_t cachedSector;
   uint8_t sectorNibbles[apple2DiskNibblesPerSector];
+  uint8_t writeDataNibbles[apple2DiskWriteDataSize];
+  uint16_t writeDataCount;
+  uint8_t writePrologueState;
+  uint8_t writeTrack;
+  uint8_t writePhysicalSector;
+  bool writeDataActive;
 } apple2DiskDrive;
 
 typedef struct
@@ -35,12 +43,14 @@ typedef struct
   bool drive2Selected;
   bool q6;
   bool q7;
+  bool writeLatchValid;
   uint8_t phases;
   uint8_t latch;
   int32_t lastDeliveredNibble;
   uint32_t sectorReads;
   uint32_t sectorReadFailures;
   uint32_t writeAttempts;
+  uint32_t writeFailures;
   apple2DiskDrive drives[apple2DiskDrivesPerSlot];
 } apple2Disk;
 
@@ -50,6 +60,9 @@ void apple2DiskResetSwitches(apple2Disk *disk);
 bool apple2DiskAttach(apple2Disk *disk, apple2DiskReadSectorFunction readSector, void *context);
 bool apple2DiskAttachDrive(apple2Disk *disk, uint8_t drive, apple2DiskSectorOrder order, uint8_t trackCount,
                            apple2DiskReadSectorFunction readSector, void *context);
+bool apple2DiskAttachWritableDrive(apple2Disk *disk, uint8_t drive, apple2DiskSectorOrder order, uint8_t trackCount,
+                                   apple2DiskReadSectorFunction readSector,
+                                   apple2DiskWriteSectorFunction writeSector, void *context);
 void apple2DiskDetachDrive(apple2Disk *disk, uint8_t drive);
 //-- True when at least one drive of the controller has a medium.
 bool apple2DiskIsAttached(const apple2Disk *disk);

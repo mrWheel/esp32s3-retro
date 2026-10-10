@@ -7,13 +7,19 @@
 #include <string.h>
 #include <unistd.h>
 
-//-- Disk II (slot 6, drive 1, read-only, DOS 3.3 16-sector) host tests.
+//-- Disk II (slot 6, drive 1, DOS 3.3 16-sector) host tests, including writable media.
 //-- Synthetic data is used for the low-level tests; the generated system.dsk is used for the DOS tests.
 
 enum
 {
   imageBytes = apple2DiskImageSize
 };
+
+static const uint8_t testGcrWriteTable[64] = {
+    0x96, 0x97, 0x9A, 0x9B, 0x9D, 0x9E, 0x9F, 0xA6, 0xA7, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB2, 0xB3,
+    0xB4, 0xB5, 0xB6, 0xB7, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xCB, 0xCD, 0xCE, 0xCF, 0xD3,
+    0xD6, 0xD7, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF, 0xE5, 0xE6, 0xE7, 0xE9, 0xEA, 0xEB, 0xEC,
+    0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF};
 
 static uint8_t patternByte(uint8_t track, uint8_t sector, size_t offset)
 {
@@ -32,6 +38,37 @@ static void fillPatternImage(uint8_t *image)
         target[offset] = patternByte(track, sector, offset);
       }
     }
+  }
+}
+
+static void encodeWriteData(const uint8_t *data, uint8_t *nibbles)
+{
+  uint8_t values[342] = {0};
+  for (size_t index = 0; index < apple2DiskSectorSize; ++index)
+  {
+    uint8_t low = (uint8_t)(data[index] & 3U);
+    uint8_t reversed = (uint8_t)(((low & 1U) << 1) | (low >> 1));
+    values[index % 86] |= (uint8_t)(reversed << (2 * (index / 86)));
+    values[86 + index] = (uint8_t)(data[index] >> 2);
+  }
+  uint8_t previous = 0;
+  for (size_t index = 0; index < sizeof(values); ++index)
+  {
+    nibbles[index] = testGcrWriteTable[values[index] ^ previous];
+    previous = values[index];
+  }
+  nibbles[sizeof(values)] = testGcrWriteTable[previous];
+}
+
+static void writeDiskDataField(apple2Disk *controller, const uint8_t *encoded, uint64_t firstNibbleCycle)
+{
+  const uint8_t prologue[] = {0xD5, 0xAA, 0xAD};
+  for (size_t index = 0; index < sizeof(prologue) + apple2DiskWriteDataSize; ++index)
+  {
+    uint8_t value = index < sizeof(prologue) ? prologue[index] : encoded[index - sizeof(prologue)];
+    uint64_t cycles = firstNibbleCycle + index * apple2DiskCyclesPerNibble;
+    apple2DiskAccess(controller, 0xD, true, cycles - 1, value);
+    apple2DiskAccess(controller, 0xC, false, cycles, 0);
   }
 }
 
@@ -136,6 +173,204 @@ static void testImageOpenAndBounds(void)
     assert(strlen(apple2DiskImageResultText(result)) > 0);
   }
   free(image);
+  assert(unlink(path) == 0);
+}
+
+typedef struct
+{
+  uint8_t data[2][apple2SmartPortBlockSize];
+  uint32_t writes;
+} smartPortFixture;
+
+static bool smartPortRead(void *context, uint32_t block, uint8_t *buffer)
+{
+  smartPortFixture *fixture = context;
+  if (block >= 2)
+  {
+    return false;
+  }
+  memcpy(buffer, fixture->data[block], apple2SmartPortBlockSize);
+  return true;
+}
+
+static bool smartPortWrite(void *context, uint32_t block, const uint8_t *buffer)
+{
+  smartPortFixture *fixture = context;
+  if (block >= 2)
+  {
+    return false;
+  }
+  memcpy(fixture->data[block], buffer, apple2SmartPortBlockSize);
+  fixture->writes++;
+  return true;
+}
+
+static bool unusedDiskSectorRead(void *context, uint8_t track, uint8_t sector, uint8_t *buffer)
+{
+  (void)context;
+  (void)track;
+  (void)sector;
+  memset(buffer, 0, apple2DiskImageSectorSize);
+  return true;
+}
+
+static void testSmartPortBlockCall(void)
+{
+  apple2Core *core = NULL;
+  smartPortFixture fixture = {0};
+  uint8_t rom[apple2RomSize];
+  memset(rom, 0xEA, sizeof(rom));
+  rom[0] = 0x4C;
+  rom[1] = 0x00;
+  rom[2] = 0x08;
+  rom[0x2FFC] = 0x00;
+  rom[0x2FFD] = 0xD0;
+  const uint8_t program[] = {0x20, 0x0D, 0xC5, 0x01, 0x00, 0x03, 0x8D, 0x00, 0x06,
+                             0x20, 0x0D, 0xC5, 0x02, 0x00, 0x03, 0x8D, 0x01, 0x06,
+                             0x08, 0x68, 0x8D, 0x02, 0x06, 0x4C, 0x17, 0x08};
+  for (size_t offset = 0; offset < sizeof(fixture.data[1]); ++offset)
+  {
+    fixture.data[1][offset] = (uint8_t)(offset * 17U + 3U);
+  }
+
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreAttachSmartPortDevice(core, 1, 2, smartPortRead, smartPortWrite, &fixture) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+  uint8_t signature;
+  assert(apple2CoreReadMemory(core, 0xC501, &signature) == apple2CoreOk && signature == 0x20);
+  assert(apple2CoreReadMemory(core, 0xC5FE, &signature) == apple2CoreOk && signature == 0xC7);
+  assert(apple2CoreReadMemory(core, 0xC5FF, &signature) == apple2CoreOk && signature == 0x0A);
+  assert(apple2CoreReadMemory(core, 0xC503, &signature) == apple2CoreOk && signature == 0x00);
+  assert(apple2CoreReadMemory(core, 0xC505, &signature) == apple2CoreOk && signature == 0x03);
+  assert(apple2CoreReadMemory(core, 0xC507, &signature) == apple2CoreOk && signature == 0x00);
+  for (size_t index = 0; index < sizeof(program); ++index)
+  {
+    assert(apple2CoreWriteMemory(core, (uint16_t)(0x0800 + index), program[index]) == apple2CoreOk);
+  }
+
+  const uint8_t parameters[] = {3, 1, 0x00, 0x04, 1, 0, 0};
+  const uint8_t blockData[apple2SmartPortBlockSize] = {0};
+  for (size_t index = 0; index < sizeof(parameters); ++index)
+  {
+    assert(apple2CoreWriteMemory(core, (uint16_t)(0x0300 + index), parameters[index]) == apple2CoreOk);
+  }
+  for (size_t index = 0; index < sizeof(blockData); ++index)
+  {
+    assert(apple2CoreWriteMemory(core, (uint16_t)(0x0400 + index), blockData[index]) == apple2CoreOk);
+  }
+  assert(apple2CoreRunCycles(core, 1000) == apple2CoreOk);
+  uint8_t result;
+  assert(apple2CoreReadMemory(core, 0x0600, &result) == apple2CoreOk && result == 0);
+  assert(apple2CoreReadMemory(core, 0x0601, &result) == apple2CoreOk && result == 0);
+  assert(apple2CoreReadMemory(core, 0x0602, &result) == apple2CoreOk && (result & 1U) == 0);
+  assert(fixture.writes == 1);
+  for (size_t index = 0; index < apple2SmartPortBlockSize; ++index)
+  {
+    assert(apple2CoreReadMemory(core, (uint16_t)(0x0400 + index), &result) == apple2CoreOk);
+    assert(result == (uint8_t)(index * 17U + 3U));
+    assert(fixture.data[1][index] == (uint8_t)(index * 17U + 3U));
+  }
+
+  assert(apple2CoreDetachSmartPortDevice(core, 1) == apple2CoreOk);
+  assert(apple2CoreAttachSmartPortDevice(core, 1, 2, smartPortRead, NULL, &fixture) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC5FE, &signature) == apple2CoreOk && signature == 0xC3);
+  assert(apple2CoreReset(core) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 1000) == apple2CoreOk);
+  uint8_t writeResult;
+  assert(apple2CoreReadMemory(core, 0x0601, &writeResult) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0x0600, &result) == apple2CoreOk && result == 0);
+  assert(writeResult == 0x2B);
+  assert(apple2CoreReadMemory(core, 0x0602, &result) == apple2CoreOk && (result & 1U) != 0);
+  assert(fixture.writes == 1);
+
+  assert(apple2CoreWriteMemory(core, 0x0304, 2) == apple2CoreOk);
+  assert(apple2CoreReset(core) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 1000) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0x0600, &result) == apple2CoreOk && result == 0x2D);
+  assert(apple2CoreReadMemory(core, 0x0601, &writeResult) == apple2CoreOk);
+  assert(writeResult == 0x2D);
+  assert(apple2CoreReadMemory(core, 0x0602, &result) == apple2CoreOk && (result & 1U) != 0);
+  assert(fixture.writes == 1);
+
+  assert(apple2CoreAttachDiskDrive(core, apple2SmartPortSlot, 0, apple2DiskSectorOrderDos,
+                                   apple2DiskImageTracks, unusedDiskSectorRead, &fixture) == apple2CoreInvalidArgument);
+  assert(apple2CoreDetachDisk(core) == apple2CoreOk);
+  assert(apple2CoreAttachDiskDrive(core, apple2SmartPortSlot, 0, apple2DiskSectorOrderDos,
+                                   apple2DiskImageTracks, unusedDiskSectorRead, &fixture) == apple2CoreOk);
+  assert(apple2CoreAttachSmartPortDevice(core, 1, 2, smartPortRead, NULL, &fixture) ==
+         apple2CoreInvalidArgument);
+  apple2CoreDestroy(core);
+}
+
+static void testWritableDiskImage(void)
+{
+  char path[64];
+  makeTempPath(path, sizeof(path));
+  size_t imageSize = apple2DiskImage640kSize;
+  uint8_t *blank = calloc(imageSize, 1);
+  assert(blank != NULL);
+  writeFile(path, blank, imageSize);
+
+  apple2DiskImage image;
+  apple2DiskImageInitialize(&image);
+  assert(apple2DiskImageOpenProfileMode(&image, path, apple2DiskImageProfile640k,
+                                        apple2DiskImageOrderProdos, false) == apple2DiskImageOk);
+  uint8_t expected[apple2DiskImageSectorSize];
+  for (size_t offset = 0; offset < sizeof(expected); ++offset)
+  {
+    expected[offset] = (uint8_t)(offset * 29U + 7U);
+  }
+
+  apple2Disk controller;
+  apple2DiskInitialize(&controller);
+  assert(apple2DiskAttachWritableDrive(&controller, 0, apple2DiskSectorOrderProdos,
+                                       apple2DiskImage640kTracks, apple2DiskImageReadSectorCallback,
+                                       apple2DiskImageWriteSectorCallback, &image));
+  controller.drives[0].halfTrack = (uint16_t)(2 * (apple2DiskImage640kTracks - 1));
+  apple2DiskAccess(&controller, 0x9, false, 0, 0);
+  apple2DiskAccess(&controller, 0xF, true, 0, 0);
+  uint8_t encoded[apple2DiskWriteDataSize];
+  encodeWriteData(expected, encoded);
+  uint64_t firstNibbleCycle =
+      (uint64_t)(apple2DiskNibblesPerSector + 60) * apple2DiskCyclesPerNibble;
+  writeDiskDataField(&controller, encoded, firstNibbleCycle);
+  assert(controller.writeAttempts == 1 && controller.writeFailures == 0);
+
+  uint8_t malformed[apple2DiskWriteDataSize];
+  memcpy(malformed, encoded, sizeof(malformed));
+  malformed[sizeof(malformed) - 1] = 0;
+  uint64_t secondSectorFirstNibbleCycle =
+      (uint64_t)(2 * apple2DiskNibblesPerSector + 60) * apple2DiskCyclesPerNibble;
+  writeDiskDataField(&controller, malformed, secondSectorFirstNibbleCycle);
+  assert(controller.writeAttempts == 2 && controller.writeFailures == 1);
+  apple2DiskDetach(&controller);
+  assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
+
+  apple2DiskImageInitialize(&image);
+  assert(apple2DiskImageOpenProfile(&image, path, apple2DiskImageProfile640k,
+                                    apple2DiskImageOrderProdos) == apple2DiskImageOk);
+  uint8_t actual[apple2DiskImageSectorSize];
+  assert(apple2DiskImageReadSector(&image, apple2DiskImage640kTracks - 1, 8, actual) == apple2DiskImageOk);
+  assert(memcmp(actual, expected, sizeof(expected)) == 0);
+  assert(apple2DiskImageReadSector(&image, apple2DiskImage640kTracks - 1, 1, actual) == apple2DiskImageOk);
+  for (size_t offset = 0; offset < sizeof(actual); ++offset)
+  {
+    assert(actual[offset] == 0);
+  }
+  assert(apple2DiskImageWriteSector(&image, apple2DiskImage640kTracks - 1, 8, expected) ==
+         apple2DiskImageWriteFailed);
+
+  apple2DiskInitialize(&controller);
+  assert(apple2DiskAttachDrive(&controller, 0, apple2DiskSectorOrderProdos, apple2DiskImage640kTracks,
+                               apple2DiskImageReadSectorCallback, &image));
+  controller.drives[0].halfTrack = (uint16_t)(2 * (apple2DiskImage640kTracks - 1));
+  apple2DiskAccess(&controller, 0x9, false, 0, 0);
+  apple2DiskAccess(&controller, 0xF, true, 0, 0);
+  writeDiskDataField(&controller, encoded, firstNibbleCycle);
+  assert(controller.writeAttempts == 1 && controller.writeFailures == 1);
+  apple2DiskDetach(&controller);
+  assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
+  free(blank);
   assert(unlink(path) == 0);
 }
 
@@ -491,13 +726,13 @@ static void testSoftSwitchesThroughCore(void)
   apple2CoreGetDiskState(core, &state);
   assert(!state.q6 && !state.q7);
 
-  //-- Writes: attempting to enter write mode is counted and nothing reaches the media.
+  //-- Selecting write-latch mode on a read-only image does not commit any data.
   const uint32_t readsBefore = synthetic.calls;
   assert(apple2CoreWriteMemory(core, 0xC0ED, 0xFF) == apple2CoreOk);
   assert(apple2CoreWriteMemory(core, 0xC0EF, 0xFF) == apple2CoreOk);
   assert(apple2CoreWriteMemory(core, 0xC0ED, 0xAA) == apple2CoreOk);
   apple2CoreGetDiskState(core, &state);
-  assert(state.q6 && state.q7 && state.writeAttempts >= 1);
+  assert(state.q6 && state.q7 && state.writeAttempts == 0 && state.writeFailures == 0);
   assert(apple2CoreWriteMemory(core, 0xC600, 0x55) == apple2CoreOk);
   assert(apple2CoreReadMemory(core, 0xC600, &value) == apple2CoreOk && value != 0x55);
   assert(synthetic.calls == readsBefore);
@@ -785,8 +1020,98 @@ static void testDosBoot(const char *imagePath, bool runProgram)
   free(before);
 }
 
+static bool proDosDirectoryHasFile(apple2DiskImage *image, const char *fileName)
+{
+  uint8_t block[apple2SmartPortBlockSize];
+  for (uint16_t directoryBlock = 2; directoryBlock < 6; ++directoryBlock)
+  {
+    if (apple2DiskImageReadBlock(image, directoryBlock, block) != apple2DiskImageOk)
+    {
+      return false;
+    }
+    for (uint8_t entry = 1; entry < 13; ++entry)
+    {
+      size_t offset = 4U + (size_t)entry * 0x27U;
+      uint8_t nameLength = block[offset] & 0x0FU;
+      if ((block[offset] & 0xF0U) != 0 || nameLength != strlen(fileName) ||
+          memcmp(&block[offset + 1], fileName, nameLength) != 0)
+      {
+        continue;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+static void testProDosSmartPortBoot(const char *bootImagePath, const char *dataImagePath)
+{
+  apple2DiskImage bootDisk;
+  apple2DiskImageInitialize(&bootDisk);
+  assert(apple2DiskImageOpenProfileMode(&bootDisk, bootImagePath, apple2DiskImageProfile140k,
+                                        apple2DiskImageOrderAuto, true) == apple2DiskImageOk);
+  apple2DiskImage dataDisk;
+  apple2DiskImageInitialize(&dataDisk);
+  assert(apple2DiskImageOpenProfileMode(&dataDisk, dataImagePath, apple2DiskImageProfile640k,
+                                        apple2DiskImageOrderAuto, false) == apple2DiskImageOk);
+  assert(dataDisk.probe.content == apple2DiskImageContentProDos);
+
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreAttachSmartPortDevice(core, 2, dataDisk.trackCount * 8U, apple2DiskImageReadBlockCallback,
+                                         apple2DiskImageWriteBlockCallback, &dataDisk) == apple2CoreOk);
+  apple2DiskSectorOrder bootOrder = bootDisk.order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
+                                                                                  : apple2DiskSectorOrderDos;
+  assert(apple2CoreAttachDiskDrive(core, 6, 0, bootOrder, bootDisk.trackCount,
+                                   apple2DiskImageReadSectorCallback, &bootDisk) == apple2CoreOk);
+  uint8_t rom[apple2RomSize];
+  readRom(APPLE2_SYSTEM_ROM_PATH, rom);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+
+  bool booted = false;
+  for (int step = 0; step < 60 && !booted; ++step)
+  {
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    booted = screenContains(core, "]");
+  }
+  if (!booted)
+  {
+    apple2DiskState state;
+    assert(apple2CoreGetDiskStateForSlot(core, 6, &state));
+    fprintf(stderr, "ProDOS boot failed: order=%d content=%d reads=%lu failures=%lu halfTrack=%u\\n",
+            (int)bootDisk.order, (int)bootDisk.probe.content, (unsigned long)state.sectorReads,
+            (unsigned long)state.sectorReadFailures, (unsigned)state.halfTrack);
+    dumpScreen(core);
+  }
+  assert(booted);
+  typeText(core, "CATALOG /DATA640\r");
+  assert(apple2CoreRunCycles(core, 3000000) == apple2CoreOk);
+  if (!screenContains(core, "DATA640"))
+  {
+    dumpScreen(core);
+  }
+  assert(screenContains(core, "DATA640"));
+  typeText(core, "PREFIX /DATA640\r");
+  assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+  typeText(core, "10 PRINT \"SMARTPORT\"\r");
+  assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+  typeText(core, "SAVE TEST\r");
+  assert(apple2CoreRunCycles(core, 3000000) == apple2CoreOk);
+  assert(proDosDirectoryHasFile(&dataDisk, "TEST"));
+  assert(apple2CoreDetachDisk(core) == apple2CoreOk);
+  apple2CoreDestroy(core);
+  assert(apple2DiskImageClose(&dataDisk) == apple2DiskImageOk);
+  assert(apple2DiskImageClose(&bootDisk) == apple2DiskImageOk);
+}
+
 int main(int argc, char **argv)
 {
+  if (argc == 4 && strcmp(argv[1], "--prodos-smartport-boot") == 0)
+  {
+    testProDosSmartPortBoot(argv[2], argv[3]);
+    puts("PASS: ProDOS boot, SmartPort catalog and BASIC SAVE to the 640K volume");
+    return 0;
+  }
   if (argc >= 2 && strcmp(argv[1], "--dos-boot") == 0)
   {
     testDosBoot(argc >= 3 ? argv[2] : APPLE2_SYSTEM_DISK_PATH, true);
@@ -800,11 +1125,13 @@ int main(int argc, char **argv)
     return 0;
   }
   testImageOpenAndBounds();
+  testWritableDiskImage();
   testControllerStream();
   testControllerFailureAndHalfTrack();
   testMotorCoastDown();
   testSoftSwitchesThroughCore();
+  testSmartPortBlockCall();
   testGuestBootSector();
-  puts("PASS: Disk II image, controller stream, softswitches and guest boot-sector read");
+  puts("PASS: Disk II image, SmartPort block calls, controller stream, softswitches and guest boot-sector read");
   return 0;
 }
