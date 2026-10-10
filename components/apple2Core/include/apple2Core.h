@@ -11,7 +11,12 @@ enum
   apple2TextRows = 24,
   apple2TextColumns = 40,
   apple2VidexTextRows = 24,
-  apple2VidexTextColumns = 80
+  apple2VidexTextColumns = 80,
+  apple2DiskFirstSlot = 4,
+  apple2DiskLastSlot = 7,
+  apple2DiskSlotCount = apple2DiskLastSlot - apple2DiskFirstSlot + 1,
+  apple2DiskDrivesPerSlot = 2,
+  apple2DiskMaxTracks = 160
 };
 
 typedef struct apple2Core apple2Core;
@@ -34,7 +39,17 @@ typedef struct
   bool videxTextMode;
 } apple2VideoState;
 
-//-- Reads one DOS-order 256-byte sector (track 0..34, logical sector 0..15) into buffer.
+//-- Order in which the 16 sectors of a track are stored inside an image file.
+//-- Dos: DOS 3.3 logical order (.do/.dsk). Prodos: ProDOS/Apple Pascal logical order (.po), where two
+//-- consecutive sectors form one 512-byte block.
+typedef enum
+{
+  apple2DiskSectorOrderDos,
+  apple2DiskSectorOrderProdos
+} apple2DiskSectorOrder;
+
+//-- Reads one 256-byte sector (track 0..apple2DiskMaxTracks-1, image-order sector 0..15, see
+//-- apple2DiskSectorOrder) into buffer.
 typedef bool (*apple2DiskReadSectorFunction)(void *context, uint8_t track, uint8_t sector, uint8_t *buffer);
 
 typedef struct
@@ -45,7 +60,7 @@ typedef struct
   bool q6;
   bool q7;
   uint8_t phases;
-  uint8_t halfTrack;
+  uint16_t halfTrack;
   uint32_t sectorReads;
   uint32_t sectorReadFailures;
   uint32_t writeAttempts;
@@ -74,7 +89,17 @@ apple2CoreResult apple2CoreReadVidexTextCell(const apple2Core *core, size_t row,
                                              uint8_t *value);
 bool apple2CoreGetVidexCursor(const apple2Core *core, size_t *row, size_t *column);
 bool apple2CoreGetTextCursor(const apple2Core *core, size_t *row, size_t *column);
-//-- Attach a read-only drive 1 (slot 6). The callback and context must stay valid until detach.
+//-- Attach a read-only 35-track DOS-order drive 1 (slot 6). The callback and context must stay valid until detach.
 apple2CoreResult apple2CoreAttachDisk(apple2Core *core, apple2DiskReadSectorFunction readSector, void *context);
+//-- Detaches every drive of every controller.
 apple2CoreResult apple2CoreDetachDisk(apple2Core *core);
+//-- State of the slot-6 controller (the selected drive's head position).
 void apple2CoreGetDiskState(const apple2Core *core, apple2DiskState *state);
+//-- Attach a read-only drive (slot apple2DiskFirstSlot..apple2DiskLastSlot, drive 0 or 1) with trackCount tracks
+//-- (1..apple2DiskMaxTracks). A controller answers at its slot (I/O and boot ROM) as soon as one drive is attached.
+apple2CoreResult apple2CoreAttachDiskDrive(apple2Core *core, uint8_t slot, uint8_t drive, apple2DiskSectorOrder order,
+                                           uint8_t trackCount, apple2DiskReadSectorFunction readSector,
+                                           void *context);
+apple2CoreResult apple2CoreDetachDiskDrive(apple2Core *core, uint8_t slot, uint8_t drive);
+//-- False when the slot is outside apple2DiskFirstSlot..apple2DiskLastSlot.
+bool apple2CoreGetDiskStateForSlot(const apple2Core *core, uint8_t slot, apple2DiskState *state);

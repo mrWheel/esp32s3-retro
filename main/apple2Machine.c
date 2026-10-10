@@ -1,8 +1,10 @@
 #include "apple2Machine.h"
 #include "apple2Core.h"
 #include "apple2DiskImage.h"
+#include "apple2DriveConfig.h"
 #include "diskActivity.h"
 #include "hostConsole.h"
+#include "storage.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -15,9 +17,9 @@
 
 static const char *tag = "apple2Machine";
 static const char *romPath = "/littlefs/apple2/apple2.rom";
-static const char *diskPath = "/littlefs/apple2/system.dsk";
+static const char *driveConfigPath = "/microSD/retro/images/apple2/drives.cfg";
 static apple2Core *guestCore;
-static apple2DiskImage guestDisk;
+static apple2DiskImage guestDisks[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
 static uint8_t renderedCells[apple2TextRows][apple2VidexTextColumns];
 static bool screenRendered;
 static bool renderedFlashOn;
@@ -280,30 +282,114 @@ static void releaseDisk(void)
   {
     apple2CoreDetachDisk(guestCore);
   }
-  if (apple2DiskImageIsOpen(&guestDisk) && apple2DiskImageClose(&guestDisk) != apple2DiskImageOk)
+  for (size_t slotIndex = 0; slotIndex < apple2DriveConfigSlotCount; ++slotIndex)
   {
-    ESP_LOGW(tag, "closing %s failed", diskPath);
+    for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDrivesPerSlot; ++driveIndex)
+    {
+      apple2DiskImage *image = &guestDisks[slotIndex][driveIndex];
+      if (apple2DiskImageIsOpen(image) && apple2DiskImageClose(image) != apple2DiskImageOk)
+      {
+        ESP_LOGW(tag, "closing the image of PR%u.%u failed", (unsigned)(slotIndex + apple2DriveConfigFirstSlot),
+                 (unsigned)(driveIndex + 1));
+      }
+      apple2DiskImageInitialize(image);
+    }
   }
-  apple2DiskImageInitialize(&guestDisk);
+}
+
+static const char *contentText(const apple2DiskImage *image)
+{
+  switch (image->probe.content)
+  {
+  case apple2DiskImageContentDos33:
+    return "DOS 3.3";
+  case apple2DiskImageContentPascal:
+    return "Apple Pascal";
+  case apple2DiskImageContentUnknown:
+    break;
+  }
+  return "unrecognised content";
 }
 
 //-- A missing or invalid disk image is reported but never prevents the machine from starting.
-static void attachDisk(void)
+static bool attachDrive(size_t slotIndex, size_t driveIndex, const apple2DriveConfig *config)
 {
-  apple2DiskImageInitialize(&guestDisk);
-  apple2DiskImageResult result = apple2DiskImageOpen(&guestDisk, diskPath);
+  uint8_t slot = (uint8_t)(slotIndex + apple2DriveConfigFirstSlot);
+  apple2DiskImage *image = &guestDisks[slotIndex][driveIndex];
+  apple2DiskImageInitialize(image);
+  apple2DiskImageResult result =
+      apple2DiskImageOpenProfile(image, config->path, config->profile, apple2DiskImageOrderAuto);
   if (result != apple2DiskImageOk)
   {
-    ESP_LOGW(tag, "no Disk II media: %s: %s", diskPath, apple2DiskImageResultText(result));
-    return;
+    ESP_LOGW(tag, "no Disk II media on PR%u.%u: %s: %s", (unsigned)slot, (unsigned)(driveIndex + 1), config->path,
+             apple2DiskImageResultText(result));
+    return false;
   }
-  if (apple2CoreAttachDisk(guestCore, readDiskSector, &guestDisk) != apple2CoreOk)
+  apple2DiskSectorOrder order = image->order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
+                                                                            : apple2DiskSectorOrderDos;
+  if (apple2CoreAttachDiskDrive(guestCore, slot, (uint8_t)driveIndex, order, image->trackCount, readDiskSector,
+                                image) != apple2CoreOk)
   {
-    ESP_LOGE(tag, "attaching %s to the Disk II controller failed", diskPath);
-    releaseDisk();
-    return;
+    ESP_LOGE(tag, "attaching %s to PR%u.%u failed", config->path, (unsigned)slot, (unsigned)(driveIndex + 1));
+    apple2DiskImageClose(image);
+    apple2DiskImageInitialize(image);
+    return false;
   }
-  ESP_LOGI(tag, "Disk II drive 1 (read-only): %s", diskPath);
+  ESP_LOGI(tag, "Disk II PR%u.%u (read-only): %s, %u tracks, %s sector order, %s", (unsigned)slot,
+           (unsigned)(driveIndex + 1), config->path, (unsigned)image->trackCount,
+           image->order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS 3.3", contentText(image));
+  if (image->probe.content == apple2DiskImageContentPascal)
+  {
+    ESP_LOGI(tag, "PR%u.%u Apple Pascal volume %s: %u blocks", (unsigned)slot, (unsigned)(driveIndex + 1),
+             image->probe.volumeName, (unsigned)image->probe.volumeBlocks);
+  }
+  if (image->orderSuspect)
+  {
+    ESP_LOGW(tag, "PR%u.%u: the sector order chosen from the file extension disagrees with the content (%s expected)",
+             (unsigned)slot, (unsigned)(driveIndex + 1),
+             image->probe.order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS 3.3");
+  }
+  return true;
+}
+
+static void attachDisks(void)
+{
+  apple2DriveConfig config[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
+  char configError[128];
+  apple2DriveConfigResult configResult = apple2DriveConfigLoad(driveConfigPath, config, configError, sizeof(configError));
+  if (configResult == apple2DriveConfigInvalid)
+  {
+    ESP_LOGW(tag, "%s; using the built-in system image on PR6.1 only", configError);
+  }
+  else if (configResult == apple2DriveConfigMissing && storageReady())
+  {
+    ESP_LOGI(tag, "%s", configError);
+  }
+  for (size_t slotIndex = 0; slotIndex < apple2DriveConfigSlotCount; ++slotIndex)
+  {
+    for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDrivesPerSlot; ++driveIndex)
+    {
+      if (config[slotIndex][driveIndex].configured)
+      {
+        attachDrive(slotIndex, driveIndex, &config[slotIndex][driveIndex]);
+      }
+    }
+  }
+}
+
+//-- Write attempts (refused: the drives are read-only) over all controllers.
+static uint32_t totalWriteAttempts(void)
+{
+  uint32_t total = 0;
+  for (uint8_t slot = apple2DriveConfigFirstSlot; slot <= apple2DriveConfigLastSlot; ++slot)
+  {
+    apple2DiskState state;
+    if (apple2CoreGetDiskStateForSlot(guestCore, slot, &state))
+    {
+      total += state.writeAttempts;
+    }
+  }
+  return total;
 }
 
 esp_err_t apple2MachineInitialize(void)
@@ -364,7 +450,7 @@ esp_err_t apple2MachineInitialize(void)
     guestCore = NULL;
     return ESP_ERR_INVALID_RESPONSE;
   }
-  attachDisk();
+  attachDisks();
   return ESP_OK;
 }
 
@@ -387,9 +473,7 @@ void apple2MachineRun(void)
                                     configTICK_RATE_HZ);
   bool skipLineFeed = hostConsolePeekChar() == '\n';
   int64_t lastRenderUs = 0;
-  apple2DiskState diskState;
-  apple2CoreGetDiskState(guestCore, &diskState);
-  uint32_t seenWriteAttempts = diskState.writeAttempts;
+  uint32_t seenWriteAttempts = totalWriteAttempts();
   while (true)
   {
     handleInput(&skipLineFeed);
@@ -400,13 +484,12 @@ void apple2MachineRun(void)
       return;
     }
     //-- The disk is read-only: green burns for every read, red only for a refused write attempt.
-    apple2CoreGetDiskState(guestCore, &diskState);
-    if (diskState.writeAttempts != seenWriteAttempts)
+    uint32_t writeAttempts = totalWriteAttempts();
+    if (writeAttempts != seenWriteAttempts)
     {
-      seenWriteAttempts = diskState.writeAttempts;
+      seenWriteAttempts = writeAttempts;
 #if DISK_ACTIVITY_DEBUG_LOG
-      ESP_LOGW(tag, "Disk II write attempt #%u (q6=%d q7=%d motor=%d halfTrack=%u)", (unsigned)diskState.writeAttempts,
-               diskState.q6, diskState.q7, diskState.motorOn, (unsigned)diskState.halfTrack);
+      ESP_LOGW(tag, "Disk II write attempt #%u", (unsigned)writeAttempts);
 #endif
       diskActivityWrite();
     }

@@ -61,6 +61,23 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(apple2DiskTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(apple2DiskTests PRIVATE -fsanitize=address,undefined)
 endif()
+add_executable(
+  apple2MultiDiskTests
+  apple2MultiDiskTests.c
+  ../components/apple2Core/apple2Core.c
+  ../components/apple2Core/apple2Disk.c
+  ../main/apple2DiskImage.c
+  ../main/apple2DriveConfig.c
+  ../main/storagePath.c
+  ../main/imageFile.c
+)
+target_include_directories(apple2MultiDiskTests PRIVATE ../components/apple2Core/include ../components/apple2Core
+  ../components/apple2Core/third_party/chips ../main)
+target_compile_options(apple2MultiDiskTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(apple2MultiDiskTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(apple2MultiDiskTests PRIVATE -fsanitize=address,undefined)
+endif()
 add_test(NAME hostCore COMMAND hostTests)
 add_test(NAME apple2Core COMMAND hostTests --apple2-core)
 add_test(NAME apple2VidexCard COMMAND hostTests --apple2-videx-card)
@@ -68,3 +85,4 @@ add_test(NAME apple2SystemRom COMMAND hostTests --apple2-system-rom)
 add_test(NAME apple2Disk COMMAND apple2DiskTests)
 add_test(NAME apple2DiskDosStream COMMAND apple2DiskTests --dos-stream)
 add_test(NAME apple2DiskDosBoot COMMAND apple2DiskTests --dos-boot)
+add_test(NAME apple2MultiDisk COMMAND apple2MultiDiskTests)

@@ -1,5 +1,26 @@
 #include "apple2DiskImage.h"
+#include <stdio.h>
 #include <string.h>
+
+//-- DOS 3.3 logical sector to physical sector and ProDOS/Pascal logical sector to physical sector.
+static const uint8_t physicalOfDosLogical[apple2DiskImageSectorsPerTrack] = {0, 13, 11, 9, 7, 5, 3, 1,
+                                                                             14, 12, 10, 8, 6, 4, 2, 15};
+static const uint8_t physicalOfProdosLogical[apple2DiskImageSectorsPerTrack] = {0, 2, 4, 6, 8, 10, 12, 14,
+                                                                                1, 3, 5, 7, 9, 11, 13, 15};
+//-- Physical sector to the sector position inside an image file, per file order.
+static const uint8_t dosLogicalOfPhysical[apple2DiskImageSectorsPerTrack] = {0, 7, 14, 6, 13, 5, 12, 4,
+                                                                             11, 3, 10, 2, 9, 1, 8, 15};
+static const uint8_t prodosLogicalOfPhysical[apple2DiskImageSectorsPerTrack] = {0, 8, 1, 9, 2, 10, 3, 11,
+                                                                                4, 12, 5, 13, 6, 14, 7, 15};
+
+enum
+{
+  pascalBlockSize = 512,
+  pascalDirectoryBlock = 2,
+  pascalDirectoryEntrySize = 26,
+  dosVtocTrack = 17,
+  dosSectorSize = 256
+};
 
 void apple2DiskImageInitialize(apple2DiskImage *disk)
 {
@@ -33,6 +54,243 @@ apple2DiskImageResult apple2DiskImageOpen(apple2DiskImage *disk, const char *pat
     disk->image.size = 0;
     return apple2DiskImageOpenFailed;
   }
+  disk->trackCount = apple2DiskImageTracks;
+  disk->order = apple2DiskImageOrderDos;
+  return apple2DiskImageOk;
+}
+
+uint8_t apple2DiskImageProfileTracks(apple2DiskImageProfile profile)
+{
+  return profile == apple2DiskImageProfile640k ? apple2DiskImage640kTracks : apple2DiskImageTracks;
+}
+
+static bool hasExtension(const char *path, const char *extension)
+{
+  size_t pathLength = strlen(path);
+  size_t extensionLength = strlen(extension);
+  if (pathLength <= extensionLength)
+  {
+    return false;
+  }
+  for (size_t index = 0; index < extensionLength; ++index)
+  {
+    char character = path[pathLength - extensionLength + index];
+    if (character >= 'A' && character <= 'Z')
+    {
+      character = (char)(character - 'A' + 'a');
+    }
+    if (character != extension[index])
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+//-- Reads one 256-byte sector addressed by a 0..15 position inside the track of the file.
+static bool readFileSector(apple2DiskImage *disk, uint8_t track, uint8_t fileSector, uint8_t *buffer)
+{
+  return track < disk->trackCount && fileSector < apple2DiskImageSectorsPerTrack &&
+         imageReadAt(&disk->image, ((uint64_t)track * apple2DiskImageSectorsPerTrack + fileSector) * dosSectorSize,
+                     buffer, dosSectorSize);
+}
+
+static uint8_t fileSectorOfPhysical(apple2DiskImageOrder order, uint8_t physical)
+{
+  return order == apple2DiskImageOrderProdos ? prodosLogicalOfPhysical[physical] : dosLogicalOfPhysical[physical];
+}
+
+//-- Reads a DOS 3.3 logical sector as seen by a file stored in the given order.
+static bool readDosLogical(apple2DiskImage *disk, apple2DiskImageOrder order, uint8_t track, uint8_t logical,
+                           uint8_t *buffer)
+{
+  return readFileSector(disk, track, fileSectorOfPhysical(order, physicalOfDosLogical[logical]), buffer);
+}
+
+//-- Reads one 512-byte ProDOS/Pascal block (two ProDOS logical sectors) as seen by a file stored in the given order.
+static bool readPascalBlock(apple2DiskImage *disk, apple2DiskImageOrder order, uint32_t block, uint8_t *buffer)
+{
+  uint32_t track = block / 8;
+  if (track >= disk->trackCount)
+  {
+    return false;
+  }
+  for (uint8_t half = 0; half < 2; ++half)
+  {
+    uint8_t logical = (uint8_t)(2 * (block % 8) + half);
+    if (!readFileSector(disk, (uint8_t)track, fileSectorOfPhysical(order, physicalOfProdosLogical[logical]),
+                        &buffer[half * dosSectorSize]))
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+static uint16_t littleEndian16(const uint8_t *bytes)
+{
+  return (uint16_t)(bytes[0] | (bytes[1] << 8));
+}
+
+//-- Apple Pascal volume header: directory block 2 holds a 26-byte entry with first block 0, next block 6,
+//-- file kind 0, a 1..7 character volume name, the block count and the file count.
+static bool probePascal(apple2DiskImage *disk, apple2DiskImageOrder order, char *name, uint16_t *blocks)
+{
+  uint8_t buffer[pascalBlockSize];
+  if (!readPascalBlock(disk, order, pascalDirectoryBlock, buffer))
+  {
+    return false;
+  }
+  uint8_t nameLength = buffer[6];
+  uint16_t blockCount = littleEndian16(&buffer[0x0E]);
+  if (littleEndian16(&buffer[0]) != 0 || littleEndian16(&buffer[2]) != 6 || littleEndian16(&buffer[4]) != 0 ||
+      nameLength < 1 || nameLength > 7 || blockCount < 6 || blockCount > 0x7FFF ||
+      littleEndian16(&buffer[0x10]) > (pascalBlockSize * 4 / pascalDirectoryEntrySize) - 1)
+  {
+    return false;
+  }
+  for (uint8_t index = 0; index < nameLength; ++index)
+  {
+    if (buffer[7 + index] <= 0x20 || buffer[7 + index] >= 0x7F)
+    {
+      return false;
+    }
+  }
+  memcpy(name, &buffer[7], nameLength);
+  name[nameLength] = '\0';
+  *blocks = blockCount;
+  return true;
+}
+
+//-- DOS 3.3 VTOC at track 17 sector 0 (physical sector 0 in both file orders) and a first catalog sector that
+//-- links on to a following catalog sector when read in the given order.
+static bool probeDosVtoc(apple2DiskImage *disk, uint8_t *catalogTrack, uint8_t *catalogSector)
+{
+  uint8_t vtoc[dosSectorSize];
+  if (disk->trackCount <= dosVtocTrack || !readDosLogical(disk, apple2DiskImageOrderDos, dosVtocTrack, 0, vtoc))
+  {
+    return false;
+  }
+  if (vtoc[1] == 0 || vtoc[1] >= disk->trackCount || vtoc[2] == 0 || vtoc[2] >= apple2DiskImageSectorsPerTrack ||
+      vtoc[3] == 0 || vtoc[0x27] != 122 || vtoc[0x35] != apple2DiskImageSectorsPerTrack)
+  {
+    return false;
+  }
+  *catalogTrack = vtoc[1];
+  *catalogSector = vtoc[2];
+  return true;
+}
+
+//-- Sector 15 (the usual first catalog sector) is physical sector 15 in both orders, so it cannot tell the orders
+//-- apart. The chain is therefore followed one hop: the second catalog sector must also link on inside the catalog track.
+static bool probeDosCatalog(apple2DiskImage *disk, apple2DiskImageOrder order, uint8_t catalogTrack,
+                            uint8_t catalogSector)
+{
+  uint8_t sector[dosSectorSize];
+  if (!readDosLogical(disk, order, catalogTrack, catalogSector, sector) || sector[1] != catalogTrack ||
+      sector[2] == 0 || sector[2] >= apple2DiskImageSectorsPerTrack)
+  {
+    return false;
+  }
+  uint8_t nextSector = sector[2];
+  return readDosLogical(disk, order, catalogTrack, nextSector, sector) && sector[1] == catalogTrack &&
+         sector[2] > 0 && sector[2] < apple2DiskImageSectorsPerTrack;
+}
+
+apple2DiskImageResult apple2DiskImageProbe(apple2DiskImage *disk, apple2DiskImageProbeResult *result)
+{
+  if (disk == NULL || result == NULL)
+  {
+    return apple2DiskImageInvalidArgument;
+  }
+  if (disk->image.file == NULL)
+  {
+    return apple2DiskImageNotOpen;
+  }
+  memset(result, 0, sizeof(*result));
+  result->content = apple2DiskImageContentUnknown;
+
+  char dosName[apple2DiskImageVolumeNameCapacity];
+  char prodosName[apple2DiskImageVolumeNameCapacity];
+  uint16_t dosBlocks = 0;
+  uint16_t prodosBlocks = 0;
+  bool pascalDos = probePascal(disk, apple2DiskImageOrderDos, dosName, &dosBlocks);
+  bool pascalProdos = probePascal(disk, apple2DiskImageOrderProdos, prodosName, &prodosBlocks);
+  if (pascalDos || pascalProdos)
+  {
+    result->content = apple2DiskImageContentPascal;
+    result->orderKnown = pascalDos != pascalProdos;
+    result->order = pascalProdos ? apple2DiskImageOrderProdos : apple2DiskImageOrderDos;
+    snprintf(result->volumeName, sizeof(result->volumeName), "%s", pascalProdos ? prodosName : dosName);
+    result->volumeBlocks = pascalProdos ? prodosBlocks : dosBlocks;
+    return apple2DiskImageOk;
+  }
+
+  uint8_t catalogTrack;
+  uint8_t catalogSector;
+  if (probeDosVtoc(disk, &catalogTrack, &catalogSector))
+  {
+    bool catalogDos = probeDosCatalog(disk, apple2DiskImageOrderDos, catalogTrack, catalogSector);
+    bool catalogProdos = probeDosCatalog(disk, apple2DiskImageOrderProdos, catalogTrack, catalogSector);
+    result->content = apple2DiskImageContentDos33;
+    result->orderKnown = catalogDos != catalogProdos;
+    result->order = (catalogProdos && !catalogDos) ? apple2DiskImageOrderProdos : apple2DiskImageOrderDos;
+  }
+  return apple2DiskImageOk;
+}
+
+apple2DiskImageResult apple2DiskImageOpenProfile(apple2DiskImage *disk, const char *path,
+                                                 apple2DiskImageProfile profile, apple2DiskImageOrder order)
+{
+  if (disk == NULL || path == NULL || (profile != apple2DiskImageProfile140k && profile != apple2DiskImageProfile640k) ||
+      (order != apple2DiskImageOrderDos && order != apple2DiskImageOrderProdos && order != apple2DiskImageOrderAuto))
+  {
+    return apple2DiskImageInvalidArgument;
+  }
+  if (disk->image.file != NULL)
+  {
+    return apple2DiskImageAlreadyOpen;
+  }
+  uint64_t size;
+  if (!resourceSize(path, &size))
+  {
+    return apple2DiskImageNotFound;
+  }
+  uint8_t tracks = apple2DiskImageProfileTracks(profile);
+  if (size != (uint64_t)tracks * apple2DiskImageSectorsPerTrack * apple2DiskImageSectorSize)
+  {
+    return apple2DiskImageBadSize;
+  }
+  if (!imageOpen(&disk->image, path, true))
+  {
+    disk->image.size = 0;
+    return apple2DiskImageOpenFailed;
+  }
+  disk->trackCount = tracks;
+  disk->order = apple2DiskImageOrderDos;
+  disk->orderSuspect = false;
+  if (apple2DiskImageProbe(disk, &disk->probe) != apple2DiskImageOk)
+  {
+    memset(&disk->probe, 0, sizeof(disk->probe));
+  }
+
+  if (order == apple2DiskImageOrderAuto)
+  {
+    if (hasExtension(path, ".po"))
+    {
+      order = apple2DiskImageOrderProdos;
+    }
+    else if (hasExtension(path, ".do"))
+    {
+      order = apple2DiskImageOrderDos;
+    }
+    else
+    {
+      order = disk->probe.orderKnown ? disk->probe.order : apple2DiskImageOrderDos;
+    }
+  }
+  disk->order = order;
+  disk->orderSuspect = disk->probe.orderKnown && disk->probe.order != order;
   return apple2DiskImageOk;
 }
 
@@ -47,7 +305,7 @@ apple2DiskImageResult apple2DiskImageReadSector(apple2DiskImage *disk, uint8_t t
   {
     return apple2DiskImageNotOpen;
   }
-  if (track >= apple2DiskImageTracks || sector >= apple2DiskImageSectorsPerTrack)
+  if (track >= disk->trackCount || sector >= apple2DiskImageSectorsPerTrack)
   {
     return apple2DiskImageOutOfRange;
   }
@@ -92,7 +350,7 @@ const char *apple2DiskImageResultText(apple2DiskImageResult result)
   case apple2DiskImageNotFound:
     return "image missing or not a regular file";
   case apple2DiskImageBadSize:
-    return "image size is not 143360 bytes (35 tracks x 16 sectors x 256 bytes)";
+    return "image size does not match the drive profile (140K = 143360 bytes, 640K = 655360 bytes)";
   case apple2DiskImageOpenFailed:
     return "image could not be opened";
   case apple2DiskImageOutOfRange:

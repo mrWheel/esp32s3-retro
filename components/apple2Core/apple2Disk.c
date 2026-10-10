@@ -8,16 +8,28 @@ static const uint8_t gcrWriteTable[64] = {
     0xD6, 0xD7, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF, 0xE5, 0xE6, 0xE7, 0xE9, 0xEA, 0xEB, 0xEC,
     0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF};
 
-//-- Physical (on-track) sector to DOS 3.3 logical sector, i.e. the order of sectors inside a .dsk image.
-static const uint8_t logicalOfPhysical[apple2DiskSectorsPerTrack] = {0, 7, 14, 6, 13, 5, 12, 4,
-                                                                      11, 3, 10, 2, 9, 1, 8, 15};
+//-- Physical (on-track) sector to image sector, per image order.
+//-- Dos: DOS 3.3 logical sector (the order of sectors inside a .do/.dsk image).
+//-- Prodos: ProDOS/Apple Pascal logical sector (the order inside a .po image; sectors 2n and 2n+1 form block n).
+static const uint8_t imageSectorOfPhysical[2][apple2DiskSectorsPerTrack] = {
+    {0, 7, 14, 6, 13, 5, 12, 4, 11, 3, 10, 2, 9, 1, 8, 15},
+    {0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15}};
+
+static void resetDriveCache(apple2DiskDrive *drive)
+{
+  drive->cachedTrack = -1;
+  drive->cachedSector = -1;
+}
 
 void apple2DiskInitialize(apple2Disk *disk)
 {
   memset(disk, 0, sizeof(*disk));
   disk->lastDeliveredNibble = -1;
-  disk->cachedTrack = -1;
-  disk->cachedSector = -1;
+  for (size_t index = 0; index < apple2DiskDrivesPerSlot; ++index)
+  {
+    disk->drives[index].trackCount = apple2DiskTrackCount;
+    resetDriveCache(&disk->drives[index]);
+  }
 }
 
 void apple2DiskResetSwitches(apple2Disk *disk)
@@ -32,28 +44,69 @@ void apple2DiskResetSwitches(apple2Disk *disk)
   disk->lastDeliveredNibble = -1;
 }
 
-bool apple2DiskAttach(apple2Disk *disk, apple2DiskReadSectorFunction readSector, void *context)
+bool apple2DiskAttachDrive(apple2Disk *disk, uint8_t drive, apple2DiskSectorOrder order, uint8_t trackCount,
+                           apple2DiskReadSectorFunction readSector, void *context)
 {
-  if (readSector == NULL)
+  if (disk == NULL || readSector == NULL || drive >= apple2DiskDrivesPerSlot || trackCount == 0 ||
+      trackCount > apple2DiskMaxTracks ||
+      (order != apple2DiskSectorOrderDos && order != apple2DiskSectorOrderProdos))
   {
     return false;
   }
-  disk->readSector = readSector;
-  disk->context = context;
-  disk->attached = true;
-  disk->cachedTrack = -1;
-  disk->cachedSector = -1;
+  apple2DiskDrive *target = &disk->drives[drive];
+  target->readSector = readSector;
+  target->context = context;
+  target->attached = true;
+  target->order = order;
+  target->trackCount = trackCount;
+  if (target->halfTrack > (uint16_t)(trackCount * 2 - 1))
+  {
+    target->halfTrack = (uint16_t)(trackCount * 2 - 1);
+  }
+  resetDriveCache(target);
   disk->lastDeliveredNibble = -1;
   return true;
 }
 
+bool apple2DiskAttach(apple2Disk *disk, apple2DiskReadSectorFunction readSector, void *context)
+{
+  return apple2DiskAttachDrive(disk, 0, apple2DiskSectorOrderDos, apple2DiskTrackCount, readSector, context);
+}
+
+void apple2DiskDetachDrive(apple2Disk *disk, uint8_t drive)
+{
+  if (disk == NULL || drive >= apple2DiskDrivesPerSlot)
+  {
+    return;
+  }
+  apple2DiskDrive *target = &disk->drives[drive];
+  target->readSector = NULL;
+  target->context = NULL;
+  target->attached = false;
+  target->order = apple2DiskSectorOrderDos;
+  target->trackCount = apple2DiskTrackCount;
+  resetDriveCache(target);
+  disk->lastDeliveredNibble = -1;
+}
+
+bool apple2DiskIsAttached(const apple2Disk *disk)
+{
+  for (size_t index = 0; index < apple2DiskDrivesPerSlot; ++index)
+  {
+    if (disk->drives[index].attached)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
 void apple2DiskDetach(apple2Disk *disk)
 {
-  disk->readSector = NULL;
-  disk->context = NULL;
-  disk->attached = false;
-  disk->cachedTrack = -1;
-  disk->cachedSector = -1;
+  for (uint8_t index = 0; index < apple2DiskDrivesPerSlot; ++index)
+  {
+    apple2DiskDetachDrive(disk, index);
+  }
 }
 
 static void encodeFourAndFour(uint8_t *out, uint8_t value)
@@ -100,57 +153,64 @@ static void encodeSector(uint8_t *nibbles, uint8_t track, uint8_t physicalSector
   nibbles[408] = 0xEB;
 }
 
-static void loadSector(apple2Disk *disk, uint8_t track, uint8_t physicalSector)
+static apple2DiskDrive *selectedDrive(apple2Disk *disk)
+{
+  return &disk->drives[disk->drive2Selected ? 1 : 0];
+}
+
+static void loadSector(apple2Disk *disk, apple2DiskDrive *drive, uint8_t track, uint8_t physicalSector)
 {
   uint8_t data[apple2DiskSectorSize];
-  disk->cachedTrack = track;
-  disk->cachedSector = physicalSector;
-  if (disk->readSector != NULL &&
-      disk->readSector(disk->context, track, logicalOfPhysical[physicalSector], data))
+  drive->cachedTrack = track;
+  drive->cachedSector = physicalSector;
+  if (drive->readSector != NULL &&
+      drive->readSector(drive->context, track, imageSectorOfPhysical[drive->order][physicalSector], data))
   {
     disk->sectorReads++;
-    encodeSector(disk->sectorNibbles, track, physicalSector, data);
+    encodeSector(drive->sectorNibbles, track, physicalSector, data);
     return;
   }
   disk->sectorReadFailures++;
-  memset(disk->sectorNibbles, 0xFF, sizeof(disk->sectorNibbles));
+  memset(drive->sectorNibbles, 0xFF, sizeof(drive->sectorNibbles));
 }
 
-static uint8_t nibbleAt(apple2Disk *disk, uint32_t index)
+static uint8_t nibbleAt(apple2Disk *disk, apple2DiskDrive *drive, uint32_t index)
 {
-  if ((disk->halfTrack & 1U) != 0 || (disk->halfTrack >> 1) >= apple2DiskTrackCount)
+  if ((drive->halfTrack & 1U) != 0 || (drive->halfTrack >> 1) >= drive->trackCount)
   {
     return 0xFF;
   }
-  uint8_t track = (uint8_t)(disk->halfTrack >> 1);
+  uint8_t track = (uint8_t)(drive->halfTrack >> 1);
   uint8_t sector = (uint8_t)(index / apple2DiskNibblesPerSector);
-  if (disk->cachedTrack != track || disk->cachedSector != sector)
+  if (drive->cachedTrack != track || drive->cachedSector != sector)
   {
-    loadSector(disk, track, sector);
+    loadSector(disk, drive, track, sector);
   }
-  return disk->sectorNibbles[index % apple2DiskNibblesPerSector];
+  return drive->sectorNibbles[index % apple2DiskNibblesPerSector];
 }
 
-//-- Simplified stepper: each phase-on event moves one half-track toward the net pull of the energized magnets.
+//-- Simplified stepper: each phase-on event moves the selected drive one half-track toward the net pull of the
+//-- energized magnets. The head stops at the last half-track of the drive's medium (35 tracks without a medium).
 static void stepHead(apple2Disk *disk)
 {
+  apple2DiskDrive *drive = selectedDrive(disk);
   int pull = 0;
   for (int phase = 0; phase < 4; ++phase)
   {
     if ((disk->phases & (1U << phase)) != 0)
     {
-      int distance = (phase - (int)disk->halfTrack) & 3;
+      int distance = (phase - (int)drive->halfTrack) & 3;
       pull += distance == 1 ? 1 : (distance == 3 ? -1 : 0);
     }
   }
-  if (pull > 0 && disk->halfTrack < apple2DiskMaxHalfTrack)
+  if (pull > 0 && drive->halfTrack < (uint16_t)(drive->trackCount * 2 - 1))
   {
-    disk->halfTrack++;
+    drive->halfTrack++;
     disk->lastDeliveredNibble = -1;
   }
-  else if (pull < 0 && disk->halfTrack > 0)
+  else if (pull < 0 && drive->halfTrack > 0)
   {
-    disk->halfTrack--;
+    drive->halfTrack--;
     disk->lastDeliveredNibble = -1;
   }
 }
@@ -158,8 +218,9 @@ static void stepHead(apple2Disk *disk)
 //-- The medium keeps turning for a coast-down period after the motor switch is turned off.
 static uint8_t readDataLatch(apple2Disk *disk, uint64_t cycles)
 {
+  apple2DiskDrive *drive = selectedDrive(disk);
   bool spinning = disk->motorOn || cycles < disk->spinUntilCycle;
-  if (!spinning || disk->drive2Selected)
+  if (!spinning || !drive->attached)
   {
     return 0x00;
   }
@@ -167,7 +228,7 @@ static uint8_t readDataLatch(apple2Disk *disk, uint64_t cycles)
   if ((int32_t)index != disk->lastDeliveredNibble)
   {
     disk->lastDeliveredNibble = (int32_t)index;
-    disk->latch = nibbleAt(disk, index);
+    disk->latch = nibbleAt(disk, drive, index);
     return disk->latch;
   }
   return (uint8_t)(disk->latch & 0x7F);
@@ -210,7 +271,11 @@ uint8_t apple2DiskAccess(apple2Disk *disk, uint8_t offset, bool write, uint64_t 
     disk->motorOn = on;
     break;
   case 5:
-    disk->drive2Selected = on;
+    if (disk->drive2Selected != on)
+    {
+      disk->drive2Selected = on;
+      disk->lastDeliveredNibble = -1;
+    }
     break;
   case 6:
     disk->q6 = on;
@@ -237,20 +302,20 @@ uint8_t apple2DiskAccess(apple2Disk *disk, uint8_t offset, bool write, uint64_t 
   }
   if (disk->q6)
   {
-    return disk->drive2Selected ? 0x00 : 0x80;
+    return selectedDrive(disk)->attached ? 0x80 : 0x00;
   }
   return readDataLatch(disk, cycles);
 }
 
 void apple2DiskGetState(const apple2Disk *disk, apple2DiskState *state)
 {
-  state->attached = disk->attached;
+  state->attached = apple2DiskIsAttached(disk);
   state->motorOn = disk->motorOn;
   state->drive2Selected = disk->drive2Selected;
   state->q6 = disk->q6;
   state->q7 = disk->q7;
   state->phases = disk->phases;
-  state->halfTrack = disk->halfTrack;
+  state->halfTrack = disk->drives[disk->drive2Selected ? 1 : 0].halfTrack;
   state->sectorReads = disk->sectorReads;
   state->sectorReadFailures = disk->sectorReadFailures;
   state->writeAttempts = disk->writeAttempts;

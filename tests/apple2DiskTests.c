@@ -270,9 +270,9 @@ static void readTrackStream(apple2Disk *disk, uint8_t *stream)
 
 static void stepToHalfTrack(apple2Disk *disk, uint8_t halfTrack)
 {
-  while (disk->halfTrack < halfTrack)
+  while (disk->drives[0].halfTrack < halfTrack)
   {
-    uint8_t phase = (uint8_t)((disk->halfTrack + 1) & 3);
+    uint8_t phase = (uint8_t)((disk->drives[0].halfTrack + 1) & 3);
     apple2DiskAccess(disk, (uint8_t)(phase * 2 + 1), false, 0, 0);
     apple2DiskAccess(disk, (uint8_t)(phase * 2), false, 0, 0);
   }
@@ -296,7 +296,7 @@ static void testControllerStream(void)
   for (uint8_t track = 0; track < apple2DiskTrackCount; track += 17)
   {
     stepToHalfTrack(&disk, (uint8_t)(track * 2));
-    assert(disk.halfTrack == track * 2);
+    assert(disk.drives[0].halfTrack == track * 2);
     memset(sectors, 0, sizeof(sectors));
     readTrackStream(&disk, stream);
     assert(decodeTrack(stream, track, sectors, &volume) == 0xFFFFU);
@@ -315,16 +315,16 @@ static void testControllerStream(void)
 
   //-- Track 34 is the last track; the head cannot go beyond the last half-track.
   stepToHalfTrack(&disk, 68);
-  uint8_t previousHalfTrack = disk.halfTrack;
+  uint8_t previousHalfTrack = disk.drives[0].halfTrack;
   for (int count = 0; count < 12; ++count)
   {
-    uint8_t phase = (uint8_t)((disk.halfTrack + 1) & 3);
+    uint8_t phase = (uint8_t)((disk.drives[0].halfTrack + 1) & 3);
     apple2DiskAccess(&disk, (uint8_t)(phase * 2 + 1), false, 0, 0);
     apple2DiskAccess(&disk, (uint8_t)(phase * 2), false, 0, 0);
-    assert(disk.halfTrack >= previousHalfTrack);
-    assert(disk.halfTrack <= apple2DiskMaxHalfTrack);
+    assert(disk.drives[0].halfTrack >= previousHalfTrack);
+    assert(disk.drives[0].halfTrack <= apple2DiskMaxHalfTrack);
   }
-  assert(disk.halfTrack == apple2DiskMaxHalfTrack);
+  assert(disk.drives[0].halfTrack == apple2DiskMaxHalfTrack);
   free(stream);
 }
 
@@ -347,7 +347,7 @@ static void testControllerFailureAndHalfTrack(void)
   assert(apple2DiskAttach(&disk, syntheticRead, &good));
   apple2DiskAccess(&disk, 0x9, false, 0, 0);
   apple2DiskAccess(&disk, 0x3, false, 0, 0);
-  assert(disk.halfTrack == 1);
+  assert(disk.drives[0].halfTrack == 1);
   const uint32_t before = good.calls;
   for (size_t index = 0; index < 416; ++index)
   {

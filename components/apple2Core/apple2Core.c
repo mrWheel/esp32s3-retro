@@ -82,7 +82,7 @@ struct apple2Core
   bool bootIn80Columns;
   bool setvidActive;
   uint64_t cycles;
-  apple2Disk disk;
+  apple2Disk disks[apple2DiskSlotCount];
 };
 
 static void scrollVidexScreen(apple2Core *core)
@@ -266,9 +266,32 @@ static uint8_t preserveLowercaseEcho(apple2Core *core, uint8_t value, bool videx
   return videx ? core->keyboardData : (uint8_t)(core->keyboardData - 'a' + 0xE1);
 }
 
+//-- The controller that answers the I/O range $C0n0..$C0nF (slot n), or NULL when no drive is attached there.
+static apple2Disk *diskForIo(apple2Core *core, uint16_t address)
+{
+  if (address < 0xC080 + apple2DiskFirstSlot * 0x10 || address >= 0xC080 + (apple2DiskLastSlot + 1) * 0x10)
+  {
+    return NULL;
+  }
+  apple2Disk *disk = &core->disks[((address - 0xC080) >> 4) - apple2DiskFirstSlot];
+  return apple2DiskIsAttached(disk) ? disk : NULL;
+}
+
+//-- The controller whose boot ROM is mapped at $Cn00..$CnFF (slot n), or NULL when no drive is attached there.
+static apple2Disk *diskForRom(apple2Core *core, uint16_t address)
+{
+  if (address < 0xC000 + apple2DiskFirstSlot * 0x100 || address >= 0xC000 + (apple2DiskLastSlot + 1) * 0x100)
+  {
+    return NULL;
+  }
+  apple2Disk *disk = &core->disks[((address - 0xC000) >> 8) - apple2DiskFirstSlot];
+  return apple2DiskIsAttached(disk) ? disk : NULL;
+}
+
 static uint8_t readAddress(apple2Core *core, uint16_t address)
 {
   uint8_t value;
+  apple2Disk *disk;
   if (address >= 0x0006 && address <= 0x000A && isVidexFirmwareAccess(core))
   {
     beginVidexWorkspace(core);
@@ -291,13 +314,13 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   {
     value = 0x00;
   }
-  else if (address >= 0xC0E0 && address <= 0xC0EF && core->disk.attached)
+  else if ((disk = diskForIo(core, address)) != NULL)
   {
-    value = apple2DiskAccess(&core->disk, (uint8_t)(address - 0xC0E0), false, core->cycles, core->busValue);
+    value = apple2DiskAccess(disk, (uint8_t)(address & 0x0F), false, core->cycles, core->busValue);
   }
-  else if (address >= 0xC600 && address <= 0xC6FF && core->disk.attached)
+  else if ((disk = diskForRom(core, address)) != NULL)
   {
-    value = apple2DiskBootRom[address - 0xC600];
+    value = apple2DiskBootRoms[(address >> 8) - 0xC0 - apple2DiskFirstSlot][address & 0xFF];
   }
   else if (address >= 0xC0B0 && address <= 0xC0BF)
   {
@@ -364,6 +387,7 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
 
 static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
 {
+  apple2Disk *disk;
   if (address >= 0x0006 && address <= 0x000A && isVidexFirmwareAccess(core))
   {
     beginVidexWorkspace(core);
@@ -403,9 +427,9 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   {
     clearKeyboardStrobe(core);
   }
-  else if (address >= 0xC0E0 && address <= 0xC0EF && core->disk.attached)
+  else if ((disk = diskForIo(core, address)) != NULL)
   {
-    apple2DiskAccess(&core->disk, (uint8_t)(address - 0xC0E0), true, core->cycles, value);
+    apple2DiskAccess(disk, (uint8_t)(address & 0x0F), true, core->cycles, value);
   }
   else if (address >= 0xC0B0 && address <= 0xC0BF)
   {
@@ -450,7 +474,10 @@ apple2CoreResult apple2CoreCreate(apple2Core **core)
     return apple2CoreNoMemory;
   }
   created->busValue = 0xFF;
-  apple2DiskInitialize(&created->disk);
+  for (size_t slot = 0; slot < apple2DiskSlotCount; ++slot)
+  {
+    apple2DiskInitialize(&created->disks[slot]);
+  }
   *core = created;
   return apple2CoreOk;
 }
@@ -501,7 +528,10 @@ apple2CoreResult apple2CoreReset(apple2Core *core)
   core->lowercaseEchoCycles = 0;
   core->setvidActive = false;
   core->busValue = 0xFF;
-  apple2DiskResetSwitches(&core->disk);
+  for (size_t slot = 0; slot < apple2DiskSlotCount; ++slot)
+  {
+    apple2DiskResetSwitches(&core->disks[slot]);
+  }
   if (core->bootIn80Columns)
   {
     activateVidexAtBoot(core);
@@ -716,11 +746,7 @@ bool apple2CoreGetTextCursor(const apple2Core *core, size_t *row, size_t *column
 
 apple2CoreResult apple2CoreAttachDisk(apple2Core *core, apple2DiskReadSectorFunction readSector, void *context)
 {
-  if (core == NULL || !apple2DiskAttach(&core->disk, readSector, context))
-  {
-    return apple2CoreInvalidArgument;
-  }
-  return apple2CoreOk;
+  return apple2CoreAttachDiskDrive(core, 6, 0, apple2DiskSectorOrderDos, apple2DiskTrackCount, readSector, context);
 }
 
 apple2CoreResult apple2CoreDetachDisk(apple2Core *core)
@@ -729,15 +755,52 @@ apple2CoreResult apple2CoreDetachDisk(apple2Core *core)
   {
     return apple2CoreInvalidArgument;
   }
-  apple2DiskDetach(&core->disk);
-  apple2DiskResetSwitches(&core->disk);
+  for (size_t slot = 0; slot < apple2DiskSlotCount; ++slot)
+  {
+    apple2DiskDetach(&core->disks[slot]);
+    apple2DiskResetSwitches(&core->disks[slot]);
+  }
   return apple2CoreOk;
 }
 
 void apple2CoreGetDiskState(const apple2Core *core, apple2DiskState *state)
 {
-  if (core != NULL && state != NULL)
+  apple2CoreGetDiskStateForSlot(core, 6, state);
+}
+
+apple2CoreResult apple2CoreAttachDiskDrive(apple2Core *core, uint8_t slot, uint8_t drive, apple2DiskSectorOrder order,
+                                           uint8_t trackCount, apple2DiskReadSectorFunction readSector,
+                                           void *context)
+{
+  if (core == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot ||
+      !apple2DiskAttachDrive(&core->disks[slot - apple2DiskFirstSlot], drive, order, trackCount, readSector, context))
   {
-    apple2DiskGetState(&core->disk, state);
+    return apple2CoreInvalidArgument;
   }
+  return apple2CoreOk;
+}
+
+apple2CoreResult apple2CoreDetachDiskDrive(apple2Core *core, uint8_t slot, uint8_t drive)
+{
+  if (core == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot || drive >= apple2DiskDrivesPerSlot)
+  {
+    return apple2CoreInvalidArgument;
+  }
+  apple2Disk *disk = &core->disks[slot - apple2DiskFirstSlot];
+  apple2DiskDetachDrive(disk, drive);
+  if (!apple2DiskIsAttached(disk))
+  {
+    apple2DiskResetSwitches(disk);
+  }
+  return apple2CoreOk;
+}
+
+bool apple2CoreGetDiskStateForSlot(const apple2Core *core, uint8_t slot, apple2DiskState *state)
+{
+  if (core == NULL || state == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot)
+  {
+    return false;
+  }
+  apple2DiskGetState(&core->disks[slot - apple2DiskFirstSlot], state);
+  return true;
 }
