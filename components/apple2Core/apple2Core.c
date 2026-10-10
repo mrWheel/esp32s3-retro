@@ -12,6 +12,8 @@
 
 enum
 {
+  apple2LanguageCardRamSize = 16 * 1024,
+  apple2LanguageCardBankSize = 4 * 1024,
   apple2VidexRamSize = 2048,
   apple2VidexRamBankSize = 512,
   apple2VidexRegisterCount = 32,
@@ -91,6 +93,7 @@ struct apple2Core
   m6502_t cpu;
   uint64_t pins;
   uint8_t *ram;
+  uint8_t languageCardRam[apple2LanguageCardRamSize];
   uint8_t rom[apple2RomSize];
   uint8_t busValue;
   uint8_t keyboardData;
@@ -107,6 +110,10 @@ struct apple2Core
   bool cpuBusAccess;
   bool videxWorkspaceActive;
   bool videxOutputSelected;
+  bool languageCardBank2;
+  bool languageCardReadEnabled;
+  bool languageCardWriteEnabled;
+  bool languageCardPrewrite;
   bool lowercaseCharacterRom;
   bool lowercaseKeyboard;
   bool romLoaded;
@@ -265,6 +272,39 @@ static void writeVidexIo(apple2Core *core, uint16_t address, uint8_t value)
     core->videxRegisters[core->videxRegisterAddress] = value;
     core->video.videxTextMode = core->videxRegisters[1] == apple2VidexTextColumns &&
                                 core->videxRegisters[6] == apple2VidexTextRows;
+  }
+}
+
+static size_t languageCardOffset(const apple2Core *core, uint16_t address)
+{
+  if (address < 0xE000)
+  {
+    return (size_t)(address - 0xD000) + (core->languageCardBank2 ? apple2LanguageCardBankSize : 0);
+  }
+  return 2 * apple2LanguageCardBankSize + (size_t)(address - 0xE000);
+}
+
+static void accessLanguageCardSwitch(apple2Core *core, uint16_t address, bool isWrite)
+{
+  core->languageCardBank2 = (address & 0x08) == 0;
+  core->languageCardReadEnabled = (address & 0x03) == 0 || (address & 0x03) == 0x03;
+
+  if ((address & 0x01) == 0)
+  {
+    core->languageCardWriteEnabled = false;
+    core->languageCardPrewrite = false;
+  }
+  else if (isWrite)
+  {
+    core->languageCardPrewrite = false;
+  }
+  else
+  {
+    if (core->languageCardPrewrite)
+    {
+      core->languageCardWriteEnabled = true;
+    }
+    core->languageCardPrewrite = true;
   }
 }
 
@@ -608,6 +648,11 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   {
     value = 0x00;
   }
+  else if (address >= 0xC080 && address <= 0xC08F)
+  {
+    accessLanguageCardSwitch(core, address, false);
+    value = core->busValue;
+  }
   else if ((disk = diskForIo(core, address)) != NULL)
   {
     value = apple2DiskAccess(disk, (uint8_t)(address & 0x0F), false, core->cycles, core->busValue);
@@ -674,7 +719,8 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   }
   else if (address >= 0xD000)
   {
-    value = core->rom[address - 0xD000];
+    value = core->languageCardReadEnabled ? core->languageCardRam[languageCardOffset(core, address)]
+                                          : core->rom[address - 0xD000];
   }
   else
   {
@@ -726,6 +772,10 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   {
     clearKeyboardStrobe(core);
   }
+  else if (address >= 0xC080 && address <= 0xC08F)
+  {
+    accessLanguageCardSwitch(core, address, true);
+  }
   else if ((disk = diskForIo(core, address)) != NULL)
   {
     apple2DiskAccess(disk, (uint8_t)(address & 0x0F), true, core->cycles, value);
@@ -742,6 +792,10 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   {
     value = preserveLowercaseEcho(core, value, true);
     core->videxRam[core->videxRamBank + (address - 0xCC00)] = value;
+  }
+  else if (address >= 0xD000 && core->languageCardWriteEnabled)
+  {
+    core->languageCardRam[languageCardOffset(core, address)] = value;
   }
   core->busValue = value;
 }
@@ -825,6 +879,10 @@ apple2CoreResult apple2CoreReset(apple2Core *core)
   core->keyboardStrobe = false;
   core->lowercaseEchoPending = false;
   core->lowercaseEchoCycles = 0;
+  core->languageCardBank2 = true;
+  core->languageCardReadEnabled = false;
+  core->languageCardWriteEnabled = false;
+  core->languageCardPrewrite = false;
   core->setvidActive = false;
   core->busValue = 0xFF;
   for (size_t slot = 0; slot < apple2DiskSlotCount; ++slot)

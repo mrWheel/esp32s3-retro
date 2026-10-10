@@ -140,6 +140,113 @@ static void testApple2Core(void)
   apple2CoreDestroy(core);
 }
 
+static void testApple2LanguageCard(void)
+{
+  apple2Core *core = NULL;
+  uint8_t value;
+  uint8_t rom[apple2RomSize];
+  memset(rom, 0xEA, sizeof(rom));
+  rom[0x0000] = 0x12;
+  rom[0x1000] = 0x34;
+  rom[0x2FFF] = 0x56;
+  rom[0x2FFC] = 0x00;
+  rom[0x2FFD] = 0xD0;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+
+  //— Reset maps ROM at $D000-$FFFF and protects all Language Card RAM.
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x12);
+  assert(apple2CoreReadMemory(core, 0xE000, &value) == apple2CoreOk && value == 0x34);
+  assert(apple2CoreReadMemory(core, 0xFFFF, &value) == apple2CoreOk && value == 0x56);
+  assert(apple2CoreWriteMemory(core, 0xD000, 0xA0) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x12);
+
+  //— Writes to the odd switch do not count as either read in the write-enable sequence.
+  assert(apple2CoreWriteMemory(core, 0xC08B, 0) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xC08B, 0) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xD000, 0xA1) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x00);
+
+  //— One odd-address read arms the prewrite latch but does not yet permit a RAM write.
+  assert(apple2CoreReadMemory(core, 0xC08B, &value) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xD000, 0xA2) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x00);
+
+  //— A second odd-address read enables writes to bank 1 and the shared upper 8 KiB.
+  assert(apple2CoreReadMemory(core, 0xC08B, &value) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xD000, 0x11) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xDFFF, 0x1F) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xE000, 0xA1) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xFFFF, 0xAF) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x11);
+  assert(apple2CoreReadMemory(core, 0xDFFF, &value) == apple2CoreOk && value == 0x1F);
+  assert(apple2CoreReadMemory(core, 0xE000, &value) == apple2CoreOk && value == 0xA1);
+  assert(apple2CoreReadMemory(core, 0xFFFF, &value) == apple2CoreOk && value == 0xAF);
+
+  //— ROM selection changes reads, not the enabled Language Card write plane.
+  assert(apple2CoreReadMemory(core, 0xC089, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC089, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x12);
+  assert(apple2CoreWriteMemory(core, 0xD000, 0x12) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC08B, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC08B, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x12);
+
+  //— An even switch disables writes; the first later odd read only arms them again.
+  assert(apple2CoreReadMemory(core, 0xC08A, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x12);
+  assert(apple2CoreWriteMemory(core, 0xD000, 0x13) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC08B, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x12);
+  assert(apple2CoreReadMemory(core, 0xC08B, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC08B, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x12);
+
+  //— Bank 2 has distinct $D000-$DFFF storage; $E000-$FFFF remains shared.
+  assert(apple2CoreReadMemory(core, 0xC083, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC083, &value) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xD000, 0x22) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xDFFF, 0x2F) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xE000, &value) == apple2CoreOk && value == 0xA1);
+  assert(apple2CoreReadMemory(core, 0xFFFF, &value) == apple2CoreOk && value == 0xAF);
+  assert(apple2CoreReadMemory(core, 0xC08B, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC08B, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x12);
+  assert(apple2CoreReadMemory(core, 0xDFFF, &value) == apple2CoreOk && value == 0x1F);
+  assert(apple2CoreReadMemory(core, 0xE000, &value) == apple2CoreOk && value == 0xA1);
+
+  //— Reset restores ROM/read-only mapping without erasing the Language Card contents.
+  assert(apple2CoreReset(core) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x12);
+  assert(apple2CoreWriteMemory(core, 0xD000, 0x23) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC083, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC083, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x22);
+  assert(apple2CoreReadMemory(core, 0xDFFF, &value) == apple2CoreOk && value == 0x2F);
+  assert(apple2CoreReadMemory(core, 0xE000, &value) == apple2CoreOk && value == 0xA1);
+
+  apple2CoreDestroy(core);
+
+  //— Exercise the switch sequence through real 6502 bus cycles, not only the test memory API.
+  memset(rom, 0xEA, sizeof(rom));
+  rom[0] = 0x4C;
+  rom[1] = 0x00;
+  rom[2] = 0x02;
+  rom[0x2FFC] = 0x00;
+  rom[0x2FFD] = 0xD0;
+  const uint8_t program[] = {0xAD, 0x8B, 0xC0, 0xAD, 0x8B, 0xC0, 0xA9, 0x5A, 0x8D, 0x00, 0xD0, 0xAD,
+                             0x00, 0xD0, 0x8D, 0x00, 0x04, 0x4C, 0x11, 0x02};
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+  for (size_t index = 0; index < sizeof(program); ++index)
+  {
+    assert(apple2CoreWriteMemory(core, (uint16_t)(0x0200 + index), program[index]) == apple2CoreOk);
+  }
+  assert(apple2CoreRunCycles(core, 100) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0x0400, &value) == apple2CoreOk && value == 0x5A);
+  apple2CoreDestroy(core);
+}
+
 static void testApple2VidexCard(void)
 {
   apple2Core *core = NULL;
@@ -3754,6 +3861,12 @@ static void testCpm80HostAssemble(void)
 
 int main(int argc, char **argv)
 {
+  if (argc == 2 && strcmp(argv[1], "--apple2-language-card") == 0)
+  {
+    testApple2LanguageCard();
+    puts("PASS: Apple II Language Card banks, shared RAM, switching and write protection");
+    return 0;
+  }
   if (argc == 2 && strcmp(argv[1], "--apple2-videx-card") == 0)
   {
     testApple2VidexCard();
