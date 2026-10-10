@@ -24,6 +24,9 @@ enum
 
 typedef struct apple2Core apple2Core;
 
+typedef uint8_t (*apple2SlotIoReadFunction)(void *context, uint8_t registerIndex);
+typedef void (*apple2SlotIoWriteFunction)(void *context, uint8_t registerIndex, uint8_t value);
+
 typedef enum
 {
   apple2CoreOk,
@@ -128,3 +131,7 @@ apple2CoreResult apple2CoreAttachSmartPortDevice(apple2Core *core, uint8_t unit,
                                                  apple2SmartPortReadBlockFunction readBlock,
                                                  apple2SmartPortWriteBlockFunction writeBlock, void *context);
 apple2CoreResult apple2CoreDetachSmartPortDevice(apple2Core *core, uint8_t unit);
+//-- Slot I/O callbacks are supported on unoccupied slots 1 and 2.
+apple2CoreResult apple2CoreAttachSlotIoDevice(apple2Core *core, uint8_t slot, apple2SlotIoReadFunction readRegister,
+                                             apple2SlotIoWriteFunction writeRegister, void *context);
+apple2CoreResult apple2CoreDetachSlotIoDevice(apple2Core *core, uint8_t slot);

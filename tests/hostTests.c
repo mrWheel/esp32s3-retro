@@ -18,8 +18,64 @@
 
 static size_t countOccurrences(const char *text, const char *needle);
 
+typedef struct
+{
+  uint8_t input[16];
+  uint8_t output[16];
+  size_t reads;
+  size_t writes;
+} apple2SlotIoFixture;
+
+static uint8_t readApple2SlotIo(void *context, uint8_t registerIndex)
+{
+  apple2SlotIoFixture *fixture = context;
+  ++fixture->reads;
+  return fixture->input[registerIndex];
+}
+
+static void writeApple2SlotIo(void *context, uint8_t registerIndex, uint8_t value)
+{
+  apple2SlotIoFixture *fixture = context;
+  ++fixture->writes;
+  fixture->output[registerIndex] = value;
+}
+
+static void testApple2SlotIoDevice(void)
+{
+  apple2Core *core = NULL;
+  apple2SlotIoFixture fixture = {0};
+  uint8_t value;
+  uint8_t rom[apple2RomSize];
+  const uint8_t program[] = {0xA9, 0xA5, 0x8D, 0xA0, 0xC0, 0xAD, 0xA0, 0xC0,
+                             0x8D, 0x00, 0x04, 0x4C, 0x0B, 0xD0};
+  fixture.input[0] = 0x5A;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreAttachSlotIoDevice(core, 2, readApple2SlotIo, writeApple2SlotIo, &fixture) == apple2CoreOk);
+  assert(apple2CoreAttachSlotIoDevice(core, 2, readApple2SlotIo, writeApple2SlotIo, &fixture) ==
+         apple2CoreInvalidArgument);
+  assert(apple2CoreAttachSlotIoDevice(core, 3, readApple2SlotIo, writeApple2SlotIo, &fixture) ==
+         apple2CoreInvalidArgument);
+  assert(apple2CoreReadMemory(core, 0xC0A0, &value) == apple2CoreOk && value == 0x5A);
+  assert(fixture.reads == 1);
+  assert(apple2CoreWriteMemory(core, 0xC0A1, 0) == apple2CoreOk);
+  assert(fixture.writes == 1 && fixture.output[1] == 0);
+  memset(rom, 0xEA, sizeof(rom));
+  memcpy(rom, program, sizeof(program));
+  rom[0x2FFC] = 0x00;
+  rom[0x2FFD] = 0xD0;
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 40) == apple2CoreOk);
+  assert(fixture.output[0] == 0xA5);
+  assert(apple2CoreReadMemory(core, 0x0400, &value) == apple2CoreOk && value == 0x5A);
+  assert(apple2CoreDetachSlotIoDevice(core, 2) == apple2CoreOk);
+  size_t readsAfterDetach = fixture.reads;
+  assert(apple2CoreReadMemory(core, 0xC0A0, &value) == apple2CoreOk && fixture.reads == readsAfterDetach);
+  apple2CoreDestroy(core);
+}
+
 static void testApple2Core(void)
 {
+  testApple2SlotIoDevice();
   apple2Core *core = NULL;
   uint8_t value;
   assert(apple2CoreCreate(&core) == apple2CoreOk);
@@ -625,6 +681,15 @@ static void writeCpm80Filename(hostExchange *exchange, const char *name, const c
   }
 }
 
+static void writeProdosFilename(hostExchange *exchange, const char *name)
+{
+  for (size_t index = 0; name[index] != '\0'; ++index)
+  {
+    hostExchangePortOutput(exchange, hostExchangePort, (uint8_t)name[index]);
+  }
+  hostExchangePortOutput(exchange, hostExchangePort, 0);
+}
+
 typedef struct
 {
   uint8_t input;
@@ -906,6 +971,125 @@ static void testHostExchange(void)
   assert(unlink(sourcePath) == 0);
   assert(unlink(destinationPath) == 0);
   assert(unlink(emptyPath) == 0);
+  assert(rmdir(directoryPath) == 0);
+}
+
+static void testHostExchangeProdos(void)
+{
+  char directoryPath[] = "/tmp/apple2-exchange-test-XXXXXX";
+  assert(mkdtemp(directoryPath) != NULL);
+  char sourcePath[absolutePathCapacity];
+  assert(snprintf(sourcePath, sizeof(sourcePath), "%s/apple.longname", directoryPath) <
+         (int)sizeof(sourcePath));
+  const uint8_t sourceBytes[] = {0x00, 0x1A, 0x7F, 0x80, 0xFF, 0x0D, 0x0A};
+  FILE *source = fopen(sourcePath, "wb");
+  assert(source != NULL);
+  assert(fwrite(sourceBytes, 1, sizeof(sourceBytes), source) == sizeof(sourceBytes));
+  assert(fclose(source) == 0);
+
+  hostExchange exchange = {0};
+  assert(hostExchangeInitializeProdos(&exchange, directoryPath));
+  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandQuery);
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == 1);
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == 0x07);
+
+  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandDirectory);
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+  char listedName[16];
+  size_t listedLength = 0;
+  uint8_t character;
+  while ((character = hostExchangePortInput(&exchange, hostExchangePort)) != 0)
+  {
+    assert(listedLength + 1 < sizeof(listedName));
+    listedName[listedLength++] = (char)character;
+  }
+  listedName[listedLength] = '\0';
+  assert(strcmp(listedName, "APPLE.LONGNAME") == 0);
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == 0);
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+
+  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
+  writeProdosFilename(&exchange, "APPLE.LONGNAME");
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+  uint32_t sourceLength = 0;
+  for (uint8_t index = 0; index < 4; ++index)
+  {
+    sourceLength |= (uint32_t)hostExchangePortInput(&exchange, hostExchangePort) << (index * 8);
+  }
+  assert(sourceLength == sizeof(sourceBytes));
+  uint8_t received[sizeof(sourceBytes)];
+  for (size_t index = 0; index < sizeof(received); ++index)
+  {
+    received[index] = hostExchangePortInput(&exchange, hostExchangePort);
+  }
+  uint32_t receivedCrc = 0;
+  for (uint8_t index = 0; index < 4; ++index)
+  {
+    receivedCrc |= (uint32_t)hostExchangePortInput(&exchange, hostExchangePort) << (index * 8);
+  }
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+  assert(memcmp(received, sourceBytes, sizeof(received)) == 0);
+  assert(receivedCrc == testCrc32(sourceBytes, sizeof(sourceBytes)));
+
+  const uint8_t destinationBytes[] = {0xA5, 0x00, 0x1A, 0xFE, 0x55};
+  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
+  writeProdosFilename(&exchange, "NEW.PRODOS.FILE");
+  for (uint8_t index = 0; index < 4; ++index)
+  {
+    hostExchangePortOutput(&exchange, hostExchangePort, (uint8_t)(sizeof(destinationBytes) >> (index * 8)));
+  }
+  uint32_t destinationCrc = testCrc32(destinationBytes, sizeof(destinationBytes));
+  for (uint8_t index = 0; index < 4; ++index)
+  {
+    hostExchangePortOutput(&exchange, hostExchangePort, (uint8_t)(destinationCrc >> (index * 8)));
+  }
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+  for (size_t index = 0; index < sizeof(destinationBytes); ++index)
+  {
+    hostExchangePortOutput(&exchange, hostExchangePort, destinationBytes[index]);
+  }
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+
+  char destinationPath[absolutePathCapacity];
+  assert(snprintf(destinationPath, sizeof(destinationPath), "%s/NEW.PRODOS.FILE", directoryPath) <
+         (int)sizeof(destinationPath));
+  uint8_t actualBytes[sizeof(destinationBytes)];
+  FILE *destination = fopen(destinationPath, "rb");
+  assert(destination != NULL);
+  assert(fread(actualBytes, 1, sizeof(actualBytes), destination) == sizeof(actualBytes));
+  assert(fgetc(destination) == EOF);
+  assert(fclose(destination) == 0);
+  assert(memcmp(actualBytes, destinationBytes, sizeof(actualBytes)) == 0);
+
+  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
+  writeProdosFilename(&exchange, "new.prodos.file");
+  for (uint8_t index = 0; index < 8; ++index)
+  {
+    hostExchangePortOutput(&exchange, hostExchangePort, 0);
+  }
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusExists);
+
+  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPutOverwrite);
+  writeProdosFilename(&exchange, "new.prodos.file");
+  for (uint8_t index = 0; index < 8; ++index)
+  {
+    hostExchangePortOutput(&exchange, hostExchangePort, 0);
+  }
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+  destination = fopen(destinationPath, "rb");
+  assert(destination != NULL);
+  assert(fgetc(destination) == EOF);
+  assert(fclose(destination) == 0);
+
+  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
+  writeProdosFilename(&exchange, "../ESCAPE");
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusInvalid);
+
+  hostExchangeClose(&exchange);
+  assert(unlink(sourcePath) == 0);
+  assert(unlink(destinationPath) == 0);
   assert(rmdir(directoryPath) == 0);
 }
 
@@ -3893,6 +4077,7 @@ int main(int argc, char **argv)
   testPaths();
   testApple2Core();
   testHostExchange();
+  testHostExchangeProdos();
   testCpm86Core();
   testCpm86Boot();
   testLayout();

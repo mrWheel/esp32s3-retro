@@ -105,12 +105,13 @@ def _read_source_files(source_dir):
 
 
 def _read_prodos_source_files(source_dir, binary_load_address):
-    """Return [(sourceName, prodosName, fileType, auxType, payload)] for every file in the source directory."""
+    """Return the files from the system-directory."""
     if not source_dir.is_dir():
         raise DiskImageError(f"System disk source directory does not exist: {source_dir}")
     files = []
     names = set()
-    for path in sorted(source_dir.iterdir(), key=lambda item: item.name.upper()):
+    source_paths = sorted(source_dir.iterdir(), key=lambda item: item.name.upper())
+    for path in source_paths:
         if path.name in (".DS_Store", "README.md"):
             continue
         if path.is_symlink() or path.is_dir() or not path.is_file():
@@ -137,7 +138,9 @@ def _create_prodos_system_disk(output_path, source_dir, project_root, base_image
     diskImageApple2Prodos.copy_boot_files(image, boot_image)
     diskImageApple2Prodos.set_volume_name(image, volume_name)
     names = []
-    for source_name, name, file_type, aux_type, payload in _read_prodos_source_files(source_dir, binary_load_address):
+    for source_name, name, file_type, aux_type, payload in _read_prodos_source_files(
+        source_dir, binary_load_address
+    ):
         diskImageApple2Prodos.add_file(image, name, payload, file_type, aux_type)
         names.append((source_name, name))
     data = bytes(image)
@@ -373,7 +376,9 @@ def main(argv=None):
     if arguments.os == "apple2" and arguments.profile == "PRODOS":
         source_dir = arguments.source_dir or _source_directory("apple2", None)
         print(f"Added ProDOS files from {source_dir}:")
-        for source_name, name, _, _, _ in _read_prodos_source_files(source_dir, arguments.binary_load_address):
+        for source_name, name, _, _, _ in _read_prodos_source_files(
+            source_dir, arguments.binary_load_address
+        ):
             print(f"  {source_name} -> {name}")
         print(f"Volume /{diskImageApple2Prodos.normalize_volume_name(arguments.volume_name)} boots ProDOS 8 with BASIC.SYSTEM.")
     elif arguments.os == "cpm86":

@@ -79,7 +79,65 @@ static bool decodeCpm80Name(const uint8_t name[11], char filename[13])
   return true;
 }
 
-static bool encodeDirectoryName(const char *name, uint8_t encoded[13])
+static bool decodeProdosName(const uint8_t *name, size_t length, char filename[16])
+{
+  if (length == 0 || length > 15 ||
+      !((name[0] >= 'A' && name[0] <= 'Z') || (name[0] >= 'a' && name[0] <= 'z')))
+  {
+    return false;
+  }
+  for (size_t index = 0; index < length; ++index)
+  {
+    uint8_t character = name[index];
+    if (character >= 'a' && character <= 'z')
+    {
+      character = (uint8_t)(character - ('a' - 'A'));
+    }
+    if (!((character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') ||
+          character == '.'))
+    {
+      return false;
+    }
+    filename[index] = (char)character;
+  }
+  filename[length] = '\0';
+  return true;
+}
+
+static bool encodeProdosDirectoryName(const char *name, uint8_t encoded[16]);
+
+static bool findProdosFilename(hostExchange *exchange, const char *requestedName, bool *found)
+{
+  if (exchange->filenameFormat != hostExchangeFilenameProdos8)
+  {
+    *found = false;
+    return true;
+  }
+  DIR *directory = opendir(exchange->root);
+  if (directory == NULL)
+  {
+    return false;
+  }
+  *found = false;
+  struct dirent *entry;
+  while ((entry = readdir(directory)) != NULL)
+  {
+    uint8_t encodedName[16];
+    if (encodeProdosDirectoryName(entry->d_name, encodedName) && strcmp((const char *)encodedName, requestedName) == 0)
+    {
+      size_t length = strlen(entry->d_name);
+      if (length < sizeof(exchange->filename))
+      {
+        memcpy(exchange->filename, entry->d_name, length + 1);
+        *found = true;
+      }
+      break;
+    }
+  }
+  return closedir(directory) == 0;
+}
+
+static bool encodeCpm80DirectoryName(const char *name, uint8_t encoded[16])
 {
   uint8_t rawName[11];
   memset(rawName, ' ', sizeof(rawName));
@@ -130,6 +188,51 @@ static bool encodeDirectoryName(const char *name, uint8_t encoded[13])
   }
   encoded[position] = '\0';
   return true;
+}
+
+static bool encodeProdosDirectoryName(const char *name, uint8_t encoded[16])
+{
+  size_t length = strlen(name);
+  if (length == 0 || length > 15)
+  {
+    return false;
+  }
+  for (size_t index = 0; index < length; ++index)
+  {
+    unsigned char character = (unsigned char)name[index];
+    if (!((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+          (character >= '0' && character <= '9') || character == '.'))
+    {
+      return false;
+    }
+    encoded[index] = (uint8_t)(character >= 'a' && character <= 'z' ? character - ('a' - 'A') : character);
+  }
+  if (encoded[0] < 'A' || encoded[0] > 'Z')
+  {
+    return false;
+  }
+  encoded[length] = '\0';
+  return true;
+}
+
+static bool encodeDirectoryName(const hostExchange *exchange, const char *name, uint8_t encoded[16])
+{
+  return exchange->filenameFormat == hostExchangeFilenameProdos8 ? encodeProdosDirectoryName(name, encoded)
+                                                                  : encodeCpm80DirectoryName(name, encoded);
+}
+
+static size_t expectedFilenameLength(const hostExchange *exchange)
+{
+  return exchange->filenameFormat == hostExchangeFilenameProdos8 ? 0 : 11;
+}
+
+static bool decodeFilename(const hostExchange *exchange, char filename[16])
+{
+  if (exchange->filenameFormat == hostExchangeFilenameProdos8)
+  {
+    return decodeProdosName(exchange->nameBytes, strlen((const char *)exchange->nameBytes), filename);
+  }
+  return decodeCpm80Name(exchange->nameBytes, filename);
 }
 
 static void closeTransfer(hostExchange *exchange, bool removeTemporary)
@@ -184,9 +287,22 @@ static bool makePaths(hostExchange *exchange)
 
 static void openReadFile(hostExchange *exchange)
 {
-  if (!decodeCpm80Name(exchange->nameBytes, exchange->filename))
+  bool found;
+  if (!decodeFilename(exchange, exchange->filename))
   {
     exchange->status = hostExchangeStatusInvalid;
+    exchange->state = hostExchangeStatus;
+    return;
+  }
+  if (!findProdosFilename(exchange, exchange->filename, &found))
+  {
+    exchange->status = hostExchangeStatusIoError;
+    exchange->state = hostExchangeStatus;
+    return;
+  }
+  if (exchange->filenameFormat == hostExchangeFilenameProdos8 && !found)
+  {
+    exchange->status = hostExchangeStatusUnavailable;
     exchange->state = hostExchangeStatus;
     return;
   }
@@ -224,9 +340,16 @@ static void openReadFile(hostExchange *exchange)
 
 static void prepareWriteFile(hostExchange *exchange)
 {
-  if (!decodeCpm80Name(exchange->nameBytes, exchange->filename))
+  bool found;
+  if (!decodeFilename(exchange, exchange->filename))
   {
     exchange->status = hostExchangeStatusInvalid;
+    exchange->state = hostExchangePutStatus;
+    return;
+  }
+  if (!findProdosFilename(exchange, exchange->filename, &found))
+  {
+    exchange->status = hostExchangeStatusIoError;
     exchange->state = hostExchangePutStatus;
     return;
   }
@@ -394,7 +517,7 @@ static bool nextDirectoryName(hostExchange *exchange)
       }
       break;
     }
-    if (!encodeDirectoryName(entry->d_name, exchange->directoryName))
+    if (!encodeDirectoryName(exchange, entry->d_name, exchange->directoryName))
     {
       continue;
     }
@@ -454,6 +577,17 @@ bool hostExchangeInitialize(hostExchange *exchange, const char *root)
   memset(exchange, 0, sizeof(*exchange));
   memcpy(exchange->root, root, strlen(root) + 1);
   exchange->state = hostExchangeIdle;
+  exchange->filenameFormat = hostExchangeFilenameCpm80;
+  return true;
+}
+
+bool hostExchangeInitializeProdos(hostExchange *exchange, const char *root)
+{
+  if (!hostExchangeInitialize(exchange, root))
+  {
+    return false;
+  }
+  exchange->filenameFormat = hostExchangeFilenameProdos8;
   return true;
 }
 
@@ -627,10 +761,33 @@ void hostExchangePortOutput(void *context, uint8_t port, uint8_t value)
     break;
   case hostExchangeGetLength:
   case hostExchangePutFilename:
-    exchange->nameBytes[exchange->inputIndex++] = value;
-    if (exchange->inputIndex == sizeof(exchange->nameBytes))
+  {
+    size_t expectedLength = expectedFilenameLength(exchange);
+    bool filenameComplete = false;
+    if (expectedLength == 0)
     {
-      exchange->inputIndex = 0;
+      if (value == 0)
+      {
+        exchange->nameBytes[exchange->inputIndex] = 0;
+        filenameComplete = true;
+      }
+      else if (exchange->inputIndex < sizeof(exchange->nameBytes) - 1)
+      {
+        exchange->nameBytes[exchange->inputIndex++] = value;
+      }
+      else
+      {
+        exchange->status = hostExchangeStatusInvalid;
+        exchange->state = exchange->state == hostExchangeGetLength ? hostExchangeStatus : hostExchangePutStatus;
+      }
+    }
+    else
+    {
+      exchange->nameBytes[exchange->inputIndex++] = value;
+      filenameComplete = exchange->inputIndex == expectedLength;
+    }
+    if (filenameComplete)
+    {
       if (exchange->state == hostExchangeGetLength)
       {
         openReadFile(exchange);
@@ -641,10 +798,12 @@ void hostExchangePortOutput(void *context, uint8_t port, uint8_t value)
       }
       else
       {
+        exchange->inputIndex = 0;
         exchange->state = hostExchangePutLength;
       }
     }
     break;
+  }
   case hostExchangePutLength:
     exchange->remaining |= (uint32_t)value << (exchange->inputIndex * 8);
     if (++exchange->inputIndex == 4)

@@ -48,6 +48,14 @@ typedef struct
   bool attached;
 } apple2SmartPortDevice;
 
+typedef struct
+{
+  apple2SlotIoReadFunction readRegister;
+  apple2SlotIoWriteFunction writeRegister;
+  void *context;
+  bool attached;
+} apple2SlotIoDevice;
+
 //-- CRTC register values programmed by the slot-3 firmware init ($C800); the boot activation applies the same set.
 static const uint8_t videxInitRegisters[16] = {0x62, 0x50, 0x50, 0x28, 0x19, 0x00, 0x18, 0x18,
                                                0x00, 0x0F, 0x20, 0x0F, 0x00, 0x00, 0x00, 0x00};
@@ -133,6 +141,7 @@ struct apple2Core
   uint64_t cycles;
   apple2Disk disks[apple2DiskSlotCount];
   apple2SmartPortDevice smartPortDevices[apple2DiskSlotCount][apple2SmartPortDevices];
+  apple2SlotIoDevice slotIoDevices[2];
   bool blockAutostart[apple2DiskSlotCount];
 };
 
@@ -755,6 +764,17 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
 {
   uint8_t value;
   apple2Disk *disk;
+  if (address >= 0xC090 && address <= 0xC0AF)
+  {
+    uint8_t slot = (uint8_t)((address - 0xC080) / 0x10);
+    if (slot >= 1 && slot <= 2 && core->slotIoDevices[slot - 1].attached)
+    {
+      apple2SlotIoDevice *device = &core->slotIoDevices[slot - 1];
+      value = device->readRegister(device->context, (uint8_t)(address & 0x0F));
+      core->busValue = value;
+      return value;
+    }
+  }
   if (address >= 0x0006 && address <= 0x000A && isVidexFirmwareAccess(core))
   {
     beginVidexWorkspace(core);
@@ -861,7 +881,16 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
 static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
 {
   apple2Disk *disk;
-  if (address >= 0x0006 && address <= 0x000A && isVidexFirmwareAccess(core))
+  if (address >= 0xC090 && address <= 0xC0AF)
+  {
+    uint8_t slot = (uint8_t)((address - 0xC080) / 0x10);
+    if (slot >= 1 && slot <= 2 && core->slotIoDevices[slot - 1].attached)
+    {
+      apple2SlotIoDevice *device = &core->slotIoDevices[slot - 1];
+      device->writeRegister(device->context, (uint8_t)(address & 0x0F), value);
+    }
+  }
+  else if (address >= 0x0006 && address <= 0x000A && isVidexFirmwareAccess(core))
   {
     beginVidexWorkspace(core);
     if (address == 0x0007 && core->videxWorkspace[1] == apple2VidexTextRows &&
@@ -1373,4 +1402,30 @@ apple2CoreResult apple2CoreAttachSmartPortDevice(apple2Core *core, uint8_t unit,
 apple2CoreResult apple2CoreDetachSmartPortDevice(apple2Core *core, uint8_t unit)
 {
   return apple2CoreDetachBlockDevice(core, apple2SmartPortSlot, unit);
+}
+
+apple2CoreResult apple2CoreAttachSlotIoDevice(apple2Core *core, uint8_t slot,
+                                              apple2SlotIoReadFunction readRegister,
+                                              apple2SlotIoWriteFunction writeRegister, void *context)
+{
+  if (core == NULL || slot < 1 || slot > 2 || readRegister == NULL || writeRegister == NULL ||
+      core->slotIoDevices[slot - 1].attached)
+  {
+    return apple2CoreInvalidArgument;
+  }
+  core->slotIoDevices[slot - 1] = (apple2SlotIoDevice){.readRegister = readRegister,
+                                                       .writeRegister = writeRegister,
+                                                       .context = context,
+                                                       .attached = true};
+  return apple2CoreOk;
+}
+
+apple2CoreResult apple2CoreDetachSlotIoDevice(apple2Core *core, uint8_t slot)
+{
+  if (core == NULL || slot < 1 || slot > 2)
+  {
+    return apple2CoreInvalidArgument;
+  }
+  memset(&core->slotIoDevices[slot - 1], 0, sizeof(core->slotIoDevices[slot - 1]));
+  return apple2CoreOk;
 }
