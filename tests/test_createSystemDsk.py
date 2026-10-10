@@ -255,6 +255,18 @@ class CreateSystemDskTests(unittest.TestCase):
         self.assertIn("PRODOS_640K", result.stdout)
         self.assertIn("PRODOS_800K", result.stdout)
         self.assertNotIn("SMALL", result.stdout)
+        self.assertNotIn("--os", result.stdout)
+
+    def test_apple2_cli_missing_profile_lists_only_apple2_profiles(self):
+        result = subprocess.run(
+            [sys.executable, str(PROJECT_ROOT / "tools" / "createSystemDsk.py"), "--os", "apple2"],
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--profile is required", result.stderr)
+        self.assertIn("PRODOS, PRODOS_640K, PRODOS_800K", result.stderr)
+        self.assertNotIn("--os {", result.stderr)
+        self.assertNotIn("cpm80", result.stderr)
+        self.assertNotIn("cpm86", result.stderr)
 
 
 if __name__ == "__main__":

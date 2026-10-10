@@ -39,6 +39,30 @@ IMAGE_MODULES = {
 }
 
 
+class _SystemDiskArgumentParser(argparse.ArgumentParser):
+    system_os = None
+
+    def error(self, message):
+        if self.system_os and message == "the following arguments are required: --profile":
+            profiles = ", ".join(PROFILE_MAP[self.system_os])
+            message = f"--profile is required; choose one of the {self.system_os} profiles: {profiles}"
+        super().error(message)
+
+
+def _without_os_argument(argv):
+    arguments = []
+    skip_value = False
+    for argument in argv:
+        if skip_value:
+            skip_value = False
+            continue
+        if argument == "--os":
+            skip_value = True
+        elif not argument.startswith("--os="):
+            arguments.append(argument)
+    return arguments
+
+
 def _source_directory(os_name, override):
     if override is not None:
         return Path(override)
@@ -296,13 +320,21 @@ def main(argv=None):
     pre.add_argument("--os")
     known, _ = pre.parse_known_args(argv)
     os_name = (known.os or "").lower()
-    profile_choices = tuple(PROFILE_MAP.get(os_name, PROFILE_MAP["cpm80"]))
-    parser = argparse.ArgumentParser(
+    selected_os = os_name in PROFILE_MAP
+    profile_choices = tuple(PROFILE_MAP[os_name] if selected_os else PROFILE_MAP["cpm80"])
+    parser = _SystemDiskArgumentParser(
         description=(
-            "Create a CP/M system disk or a bootable Apple II ProDOS 8 system disk."
+            f"Create a {os_name} system disk."
+            if selected_os
+            else "Create a CP/M system disk or a bootable Apple II ProDOS 8 system disk."
         )
     )
-    parser.add_argument("--os", required=True, choices=("cpm80", "cpm86", "apple2"))
+    parser.system_os = os_name if selected_os else None
+    if selected_os:
+        argv = _without_os_argument(argv)
+        parser.set_defaults(os=os_name)
+    else:
+        parser.add_argument("--os", required=True, choices=("cpm80", "cpm86", "apple2"))
     parser.add_argument("--profile", required=True, choices=profile_choices)
     parser.add_argument("--source-dir", type=Path, help="directory containing files to add to the system disk")
     parser.add_argument("--output", type=Path, help="output path (default: littlefs/<os>/system.dsk)")
