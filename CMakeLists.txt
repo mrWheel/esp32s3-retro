@@ -9,6 +9,13 @@ if(NOT IDF_TARGET STREQUAL "esp32s3")
 endif()
 #-- littlefs/apple2/system.dsk is rebuilt from bootDisks/apple2/systemDsk whenever a source file, the builder or the base image changes.
 #-- The Apple II system disk is a ProDOS 8 boot volume.
+set(APPLE2_SYSTEM_DISK_PROFILE "PRODOS" CACHE STRING "Apple II LittleFS system disk profile")
+set_property(CACHE APPLE2_SYSTEM_DISK_PROFILE PROPERTY STRINGS PRODOS PRODOS_640K PRODOS_800K)
+set(apple2SystemDiskProfiles PRODOS PRODOS_640K PRODOS_800K)
+if(NOT APPLE2_SYSTEM_DISK_PROFILE IN_LIST apple2SystemDiskProfiles)
+  message(FATAL_ERROR
+    "APPLE2_SYSTEM_DISK_PROFILE must be one of: ${apple2SystemDiskProfiles}; got '${APPLE2_SYSTEM_DISK_PROFILE}'")
+endif()
 idf_build_get_property(pythonExecutable PYTHON)
 file(GLOB apple2SystemDskSources CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/bootDisks/apple2/systemDsk/*")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -24,7 +31,8 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/tools/include/buildDiskImageCpm80.py"
   "${CMAKE_SOURCE_DIR}/tools/createSystemDsk.py")
 execute_process(
-  COMMAND ${pythonExecutable} "${CMAKE_SOURCE_DIR}/tools/createSystemDsk.py" --os apple2 --profile PRODOS
+  COMMAND ${pythonExecutable} "${CMAKE_SOURCE_DIR}/tools/createSystemDsk.py"
+    --os apple2 --profile ${APPLE2_SYSTEM_DISK_PROFILE}
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   RESULT_VARIABLE apple2SystemDskResult
   OUTPUT_VARIABLE apple2SystemDskOutput

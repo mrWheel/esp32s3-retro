@@ -22,6 +22,27 @@ Without --output the image is written to <sd-root>/retro/images/<os>/system.dsk
 (Apple II: data<size>.po).
 An existing image is replaced (the build is deterministic).
 The work is done by tools/include/buildDiskImage<Os>.py (e.g. buildDiskImageCpm80.py)."""
+OS_EXAMPLES = {
+    "cpm80": """examples:
+  buildDiskImage.py --os cpm80
+  buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk""",
+    "cpm86": """examples:
+  buildDiskImage.py --os cpm86 --source-dir ~/cpm86/files
+  buildDiskImage.py --os cpm86 --source-dir ~/cpm86/files --output littlefs/cpm86/system.dsk""",
+    "apple2": """examples:
+  buildDiskImage.py --os apple2
+  buildDiskImage.py --os apple2 --profile 140K --source-dir ~/files WORK.po
+  buildDiskImage.py --os apple2 --bootable --name SYSTEM prodosBoot.po""",
+}
+
+
+class _BuildArgumentParser(argparse.ArgumentParser):
+    show_context_help = False
+
+    def error(self, message):
+        if self.show_context_help:
+            self.print_help(sys.stderr)
+        super().error(message)
 
 
 def build_parser(os_name, default_os):
@@ -29,14 +50,32 @@ def build_parser(os_name, default_os):
     epilog = osProfiles.os_epilog(os_name, for_build=True)
     if info and info.buildable:
         epilog += "\n" + info.builder().DETAILS
-    parser = argparse.ArgumentParser(
+    if os_name in OS_EXAMPLES:
+        epilog += "\n\n" + OS_EXAMPLES[os_name]
+    else:
+        epilog += "\n\n" + EXAMPLES
+    parser = _BuildArgumentParser(
         prog="buildDiskImage.py",
-        description="Build the system disk image for an operating system. "
-        "The result goes to <sd-root>/retro/images/<os>/system.dsk by default.",
-        epilog=epilog + "\n\n" + EXAMPLES,
+        description=(
+            f"Build the {info.label} disk image."
+            if info
+            else "Build a disk image for an operating system selected with --os."
+        ),
+        epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    osProfiles.add_os_argument(parser, default_os)
+    parser.show_context_help = bool(os_name)
+    if default_os:
+        parser.add_argument(
+            "--os",
+            dest="os_name",
+            type=str.lower,
+            choices=(default_os,),
+            default=default_os,
+            help=f"target operating system (fixed to {default_os})",
+        )
+    else:
+        osProfiles.add_os_argument(parser, default_os)
     osProfiles.add_sd_root_argument(parser)
     parser.add_argument("output", nargs="?", type=Path, help="output image (name or path); same as --output")
     parser.add_argument("--output", dest="output_option", type=Path, help="output image (name or path)")
@@ -61,7 +100,7 @@ def print_upload_notice(info, output_path):
 def main(argv=None, default_os=None):
     argv = sys.argv[1:] if argv is None else argv
     os_name = osProfiles.preparse_os(argv, default_os)
-    parser = build_parser(os_name, default_os)
+    parser = build_parser(os_name, os_name or default_os)
     arguments = parser.parse_args(argv)
     info = osProfiles.require_buildable(parser, arguments.os_name)
     builder = info.builder()

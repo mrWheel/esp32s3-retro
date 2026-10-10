@@ -27,7 +27,11 @@ EXECUTABLE_EXTENSIONS = {
 PROFILE_MAP = {
     "cpm80": {"SMALL": "SYSTEM", "LARGE": "LARGE"},
     "cpm86": {"SMALL": "CPM86", "LARGE": "LARGE"},
-    "apple2": {"PRODOS": "PRODOS"},
+    "apple2": {
+        "PRODOS": "140K",
+        "PRODOS_640K": "640K",
+        "PRODOS_800K": "800K",
+    },
 }
 IMAGE_MODULES = {
     "cpm80": diskImageCpm80,
@@ -98,20 +102,22 @@ def _read_prodos_source_files(source_dir, binary_load_address):
 
 
 def _create_prodos_system_disk(output_path, source_dir, project_root, base_image, binary_load_address,
-                               volume_name):
+                               volume_name, volume_profile):
     base_image = Path(project_root / APPLE2_PRODOS_BASE_IMAGE if base_image is None else base_image)
     if base_image.is_symlink() or not base_image.is_file():
         raise DiskImageError(f"Apple II base image does not exist as a regular file: {base_image}")
     if base_image.resolve() == output_path.resolve():
         raise DiskImageError("Apple II output path must not replace the base image")
-    image = diskImageApple2Prodos.load_volume(base_image)
+    boot_image = diskImageApple2Prodos.load_volume(base_image)
+    image = bytearray(diskImageApple2Prodos.build_blank_volume(volume_name, volume_profile))
+    diskImageApple2Prodos.copy_boot_files(image, boot_image)
     diskImageApple2Prodos.set_volume_name(image, volume_name)
     names = []
     for source_name, name, file_type, aux_type, payload in _read_prodos_source_files(source_dir, binary_load_address):
         diskImageApple2Prodos.add_file(image, name, payload, file_type, aux_type)
         names.append((source_name, name))
     data = bytes(image)
-    if output_path.suffix.upper() not in PRODOS_ORDER_SUFFIXES:
+    if volume_profile == "140K" and output_path.suffix.upper() not in PRODOS_ORDER_SUFFIXES:
         #-- A .dsk file holds the 140K volume in DOS sector order, like every other ProDOS .dsk image.
         data = diskImageApple2Prodos.dos_order_from_prodos_order(data)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -216,7 +222,16 @@ def create_system_disk(
     output_path = Path(output_path)
     source_dir = _source_directory(os_name, source_dir)
     if os_name == "apple2":
-        _create_prodos_system_disk(output_path, source_dir, project_root, base_image, binary_load_address, volume_name)
+        volume_profile = PROFILE_MAP[os_name][profile]
+        _create_prodos_system_disk(
+            output_path,
+            source_dir,
+            project_root,
+            base_image,
+            binary_load_address,
+            volume_name,
+            volume_profile,
+        )
         return [], []
 
     source_files = _read_source_files(source_dir)
@@ -276,13 +291,19 @@ def print_firmware_notice(os_name, profile, output_path):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--os")
+    known, _ = pre.parse_known_args(argv)
+    os_name = (known.os or "").lower()
+    profile_choices = tuple(PROFILE_MAP.get(os_name, PROFILE_MAP["cpm80"]))
     parser = argparse.ArgumentParser(
         description=(
             "Create a CP/M system disk or a bootable Apple II ProDOS 8 system disk."
         )
     )
     parser.add_argument("--os", required=True, choices=("cpm80", "cpm86", "apple2"))
-    parser.add_argument("--profile", required=True, choices=("SMALL", "LARGE", "PRODOS"))
+    parser.add_argument("--profile", required=True, choices=profile_choices)
     parser.add_argument("--source-dir", type=Path, help="directory containing files to add to the system disk")
     parser.add_argument("--output", type=Path, help="output path (default: littlefs/<os>/system.dsk)")
     parser.add_argument(

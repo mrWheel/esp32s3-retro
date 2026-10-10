@@ -15,7 +15,12 @@ DETAILS = (
 
 
 def add_arguments(parser):
-    parser.add_argument("--source-dir", type=Path, help="directory with CPM.SYS and the .CMD files (cpm86)")
+    parser.add_argument(
+        "--source-dir",
+        type=Path,
+        required=True,
+        help="directory with CPM.SYS and the .CMD files (cpm86)",
+    )
 
 
 def build(arguments, output_path, project_root):

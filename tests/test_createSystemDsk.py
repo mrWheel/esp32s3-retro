@@ -224,6 +224,20 @@ class CreateSystemDskTests(unittest.TestCase):
         self.assertIn("STARTUP", names)
         self.assertIn("TEST.NONGR", names)
 
+    def test_apple2_large_prodos_profiles_keep_boot_files_and_source_files(self):
+        import diskImageApple2Prodos as prodos
+
+        for profile, size in (("PRODOS_640K", 640 * 1024), ("PRODOS_800K", 800 * 1024)):
+            with self.subTest(profile=profile):
+                output_path = self.root / f"{profile}.po"
+                createSystemDsk.create_system_disk("apple2", profile, output_path)
+                image = prodos.load_volume(output_path)
+                self.assertEqual(len(image), size)
+                self.assertEqual(prodos.volume_name(image), "SYSTEM")
+                names = [entry["name"] for entry in prodos.list_files(image)]
+                self.assertEqual(names[:4], list(prodos.BOOT_FILES))
+                self.assertIn("STARTUP", names)
+
     def test_apple2_prodos_cli_tells_the_user_to_rebuild_and_flash(self):
         output_path = self.root / "apple2-prodos-cli.dsk"
         result = subprocess.run(
@@ -232,6 +246,15 @@ class CreateSystemDskTests(unittest.TestCase):
             check=True, capture_output=True, text=True)
         self.assertIn("rebuilt AND flashed", result.stdout)
         self.assertNotIn("APPLE2_SYSTEM_DISK_PROFILE", result.stdout)
+
+    def test_apple2_cli_help_only_offers_apple2_system_profiles(self):
+        result = subprocess.run(
+            [sys.executable, str(PROJECT_ROOT / "tools" / "createSystemDsk.py"),
+             "--os", "apple2", "--help"],
+            check=True, capture_output=True, text=True)
+        self.assertIn("PRODOS_640K", result.stdout)
+        self.assertIn("PRODOS_800K", result.stdout)
+        self.assertNotIn("SMALL", result.stdout)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,35 @@
 # Host tools
 
+## Production use versus test use
+
+All Python programs under `tools/` run on the development computer, not on the
+ESP32. They prepare images/configuration, generate a source file used by the
+firmware, or test the running device. The firmware itself is the C/C++ code in
+`main/` and `components/`.
+
+| Program/file | Purpose | Classification |
+| --- | --- | --- |
+| `tools/diskImage.py` | Create, add, list, extract and validate CP/M images (`--os cpm80` or `cpm86`). | Regular host-side media preparation |
+| `tools/buildDiskImage.py` | Build a complete OS data/system image using the selected OS builder. Apple II ProDOS data volumes are supported here too. | Regular host-side media preparation |
+| `tools/createSystemDsk.py` | Compose `littlefs/<os>/system.dsk`. CMake runs it automatically for the Apple II ProDOS system image; run it manually for CP/M system images. | Production-image preparation |
+| `tools/prepareSd.py` | Create the documented directory layout and default config on an existing SD-card mount; does not format the card or overwrite an existing config. | Regular host-side SD preparation |
+| `tools/fetchCpm80Software.py` | Optional CP/M-80 archive/resource importer. Only fetches explicitly selected content; licensing still needs to be verified by the user. | Optional host maintenance; not needed to build/run firmware |
+| `tools/buildApple2DiskBootRom.py` | Regenerate `components/apple2Core/apple2DiskBootRom.h`, which is compiled into the Apple II firmware. Normally only run when intentionally regenerating that generated header. | Production build-input generator; not a test |
+| `tools/include/diskImageApple2Pascal.py` | Create a blank Apple/UCSD Pascal disk image; not part of the normal `diskImage.py` dispatcher. | Optional host media utility |
+| `tools/buildApple2TestRom.py` | Generate the minimal diagnostic ROM fixture in `tests/fixtures/`. | Test-only |
+| `tools/transferTest.py` | Exercise the HTTP file-transfer service on a running device. It creates and deletes uniquely named test files. | Test-only; run only when deliberately testing a device |
+| `tools/include/*.py` (other files) | OS-specific builders, disk-format implementations, shared helpers and registry imported by the host entrypoints. | Internal modules; not separate production applications |
+| `tools/cpm86/diskdefs` | Optional disk geometry definitions for external CP/M image tools; not read by the firmware. | Host-side support data |
+| `tools/README.md` | Usage and behavior documentation for these tools. | Documentation |
+
+In short: use the first four programs for normal host-side preparation. The
+two explicitly test-only tools are not needed for normal firmware operation.
+`buildApple2DiskBootRom.py` is different: although it is usually run only by
+developers, its generated header is part of the production firmware.
+
 ## OS-independent usage (`--os`)
 
-`diskImage.py`, `buildDiskImage.py` and `prepareSd.py` select the target system with `--os cpm80|cpm86|apple2|swtpc|ucsd`. CP/M-80 and CP/M-86 work today (Apple II: `buildDiskImage.py` builds ProDOS volumes, see below); the other systems are registered in `osProfiles.py` and are refused as "not implemented yet" until a backend is added. `-h` shows the general help (commands and OS overview); `-h` together with `--os <name>` adds the OS-specific profiles and rules. Images are written to `sdcard/retro/images/<os>/` (override with `--sd-root`); a path instead of a bare name is used as given. The web server/GUI can later copy these images to the physical SD card.
+`diskImage.py`, `buildDiskImage.py` and `prepareSd.py` select the target system with `--os cpm80|cpm86|apple2|swtpc|ucsd`. CP/M-80 and CP/M-86 are supported by both image entrypoints; Apple II is supported by `buildDiskImage.py` for ProDOS volumes, but not by `diskImage.py`. SWTPC and UCSD are registered but not implemented. `-h` shows the general help (commands and OS overview); `-h` together with `--os <name>` adds the OS-specific profiles and rules. Images are written to `sdcard/retro/images/<os>/` (override with `--sd-root`); a path instead of a bare name is used as given. The device's File Transfer feature can copy images to the physical SD card.
 
 ```sh
 python3 tools/diskImage.py create --os cpm80 --profile LARGE work.dsk
@@ -23,7 +50,7 @@ python3 tools/diskImage.py --os cpm86 -h
 
   For CP/M-86 it needs `--source-dir` with `CPM.SYS` and the `.CMD` files (no sources are checked in). 
 
-  `tools/` contains command-line entrypoints only: `buildApple2DiskBootRom.py`, `buildApple2TestRom.py`, `buildDiskImage.py`, `createSystemDsk.py`, `diskImage.py`, `fetchCpm80Software.py`, `prepareSd.py` and `transferTest.py`. Reusable OS and format modules, including `osProfiles.py`, `diskImageCpm.py`, `diskImageCpm80.py`, `diskImageCpm86.py`, `diskImageApple2Prodos.py`, `apple2Basic.py` and the per-OS image builders, live in `tools/include/`. The `diskImage.py` and `buildDiskImage.py` entrypoints dispatch to those modules using `--os`; for example, create CP/M-80 images with `python3 tools/diskImage.py create --os cpm80 --profile LARGE work.dsk`.
+  `tools/` contains the host-side command-line entrypoints listed above. Reusable OS and format modules, including `osProfiles.py`, `diskImageCpm.py`, `diskImageCpm80.py`, `diskImageCpm86.py`, `diskImageApple2Prodos.py`, `apple2Basic.py` and the per-OS image builders, live in `tools/include/`. The `diskImage.py` and `buildDiskImage.py` entrypoints dispatch to those modules using `--os`; for example, create CP/M-80 images with `python3 tools/diskImage.py create --os cpm80 --profile LARGE work.dsk`.
   
   A new OS needs `tools/include/diskImage<Os>.py`, `tools/include/buildDiskImage<Os>.py` and one entry in `tools/include/osProfiles.py`. Main entrypoints add `tools/include/` to Python's module search path before importing these modules.
   `prepareSd.py` without a mount point prepares `sdcard/`, and without `--os` prepares all systems.
@@ -71,7 +98,7 @@ image plus the source directory only (never from an older `system.dsk`), so
 The builder validates these runtime files but does not put them on A::
 firmware loads them directly from LittleFS. In particular, the duplicate
 `CPM.SYS` is never placed on the generated CP/M-86 A: image.
-For Apple II, the firmware build (`idf.py build`/`flash`) runs `createSystemDsk.py --os apple2 --profile PRODOS` itself at CMake configure time (see `CMakeLists.txt`), so `littlefs/apple2/system.dsk` always matches `bootDisks/apple2/systemDsk/`. CP/M disks are not generated by the build; run the script for them manually.
+For Apple II, the firmware build (`idf.py build`/`flash`) runs `createSystemDsk.py` at CMake configure time (see `CMakeLists.txt`), so `littlefs/apple2/system.dsk` always matches `bootDisks/apple2/systemDsk/`. The `APPLE2_SYSTEM_DISK_PROFILE` CMake option selects `PRODOS` (140K), `PRODOS_640K`, or `PRODOS_800K`; for example, use `-DAPPLE2_SYSTEM_DISK_PROFILE=PRODOS_800K` for an 800K bootable system volume in the `bootfs` LittleFS partition. CP/M disks are not generated by the build; run the script for them manually.
 The Apple II emulator uses ProDOS disks only; DOS 3.3 is not supported. For Apple II,
 `createSystemDsk.py` copies the bootable base volume `bootDisks/apple2/prodosEmpty.po`
 (140K, volume `/SYSTEM`: `PRODOS`, `BASIC.SYSTEM`, `QUIT.SYSTEM`, `BITSY.BOOT`), adds every
@@ -108,10 +135,11 @@ emulator reports an error and returns to the system menu when `SD6.1` is missing
 
 ```sh
 python3 tools/createSystemDsk.py --os apple2 --profile PRODOS
+python3 tools/createSystemDsk.py --os apple2 --profile PRODOS_800K
 idf.py build
 ```
 
-The volume is `/SYSTEM` (140K, DOS sector order like every ProDOS `.dsk`):
+The default volume is `/SYSTEM` (140K, DOS sector order like every ProDOS `.dsk`). Larger bootable 640K and 800K volumes can be selected with `PRODOS_640K` and `PRODOS_800K`:
 `PRODOS`, `BASIC.SYSTEM`, `QUIT.SYSTEM`, `BITSY.BOOT` from
 `bootDisks/apple2/prodosEmpty.po`, plus every file in
 `bootDisks/apple2/systemDsk/`. ProDOS names allow only `A-Z`, `0-9` and `.`, so

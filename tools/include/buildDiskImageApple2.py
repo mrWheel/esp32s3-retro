@@ -14,13 +14,12 @@ DEFAULT_PROFILE = "800K"
 PRODOS_ORDER_SUFFIXES = (".PO", ".HDV", ".2MG")
 
 DETAILS = (
-    "Builds a ProDOS 8 volume (default 800K = 1600 blocks, also 640K and 140K).\n"
-    "Use it as the second drive (SDn.2) in drives.cfg, or with --bootable as a ProDOS boot disk.\n"
+    "Builds a ProDOS 8 volume (800K = 1600 blocks by default; also 640K and 140K).\n"
+    "Use --bootable to add ProDOS boot files, or --boot-from to copy them from another volume.\n"
     "Without --output the volume is written to <sd-root>/retro/images/apple2/data<size>.po.\n"
     "Files in --source-dir get a ProDOS type from the suffix (.BAS, .TXT, .BIN, .SYS); characters\n"
     "ProDOS does not allow in names become '.' and HELLO.BAS becomes STARTUP.\n"
-    "A .po file is in ProDOS block order; any other suffix (.dsk) is written in DOS sector order,\n"
-    "which is only possible for the 140K profile."
+    "A .po file is in ProDOS block order. A 140K .dsk is written in DOS sector order."
 )
 
 
