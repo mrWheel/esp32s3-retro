@@ -5,6 +5,10 @@ import argparse
 import sys
 from pathlib import Path
 
+INCLUDE_DIR = Path(__file__).resolve().parent / "include"
+if str(INCLUDE_DIR) not in sys.path:
+    sys.path.insert(0, str(INCLUDE_DIR))
+
 import osProfiles
 
 EXAMPLES = """examples:
@@ -17,7 +21,7 @@ EXAMPLES = """examples:
 Without --output the image is written to <sd-root>/retro/images/<os>/system.dsk
 (Apple II: data<size>.po).
 An existing image is replaced (the build is deterministic).
-The work is done by buildDiskImage<Os>.py (e.g. buildDiskImageCpm80.py)."""
+The work is done by tools/include/buildDiskImage<Os>.py (e.g. buildDiskImageCpm80.py)."""
 
 
 def build_parser(os_name, default_os):

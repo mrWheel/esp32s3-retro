@@ -6,6 +6,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+INCLUDE_DIR = Path(__file__).resolve().parent / "include"
+if str(INCLUDE_DIR) not in sys.path:
+    sys.path.insert(0, str(INCLUDE_DIR))
+
 import buildDiskImageCpm80
 import diskImageApple2Prodos
 import diskImageCpm80

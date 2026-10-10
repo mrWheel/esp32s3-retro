@@ -7,6 +7,11 @@ RETRO86_DATA_LARGE_V1) and BIG (8 MiB, RETRO86_DATA_BIG_V1). Add further profile
 support them. Running this file directly is the same as `diskImage.py --os cpm86`.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import diskImageCpm
 from diskImageCpm import (  # noqa: F401  (re-exported API)
     EMPTY,

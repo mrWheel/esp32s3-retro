@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Build a ProDOS 8 data (or bootable) volume for the Apple II emulator."""
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import diskImageApple2Prodos
 from diskImageCommon import DiskImageError

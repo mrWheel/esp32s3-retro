@@ -70,7 +70,7 @@ The selected Z80 source is pinned to upstream commit `d64fe10a2274e5e40019b1086b
 
 The original OEM redistribution disk was inspected but is not used as the target A: image: the 124,686-byte ImageDisk-format archive is not a compatible raw disk. The [2022 license clarification](https://web.archive.org/web/20231219054614/http://www.cpm.z80.de/license.html) reproduces Bryan Sparks' statement on behalf of DRDOS, Inc. granting nonexclusive rights to use, distribute, modify, enhance and otherwise make CP/M and its derivatives available.
 
-The integrated CCP/BDOS sources are from [`brouhaha/cpm22`](https://github.com/brouhaha/cpm22/tree/01018abbccce0bdf4874b0b2ed1a048c5fcc2987), pinned at commit `01018abbccce0bdf4874b0b2ed1a048c5fcc2987`; the license clarification is included in `components/cpm80Core/os/LICENSE.txt`. Project-authored CP/M-80 guest programs, including the HOST transfer utility source and binary, live in `guest/cpm80/`. The disk composer is `tools/buildDiskImageCpm80.py`; it builds the deterministic 256,256-byte `littlefs/cpm80/system.dsk`. The assembler itself is not bundled, so disk-image composition is reproducible from the checked-in assembled outputs; reassembling CCP/BDOS requires the upstream Macro Assembler AS / `p2bin` build tools. The host-wide resource-manifest schema is not yet defined; no machine-specific manifest format is claimed.
+The integrated CCP/BDOS sources are from [`brouhaha/cpm22`](https://github.com/brouhaha/cpm22/tree/01018abbccce0bdf4874b0b2ed1a048c5fcc2987), pinned at commit `01018abbccce0bdf4874b0b2ed1a048c5fcc2987`; the license clarification is included in `components/cpm80Core/os/LICENSE.txt`. Project-authored CP/M-80 guest programs, including the HOST transfer utility source and binary, live in `guest/cpm80/`. The disk composer is `tools/include/buildDiskImageCpm80.py`; it builds the deterministic 256,256-byte `littlefs/cpm80/system.dsk`. The assembler itself is not bundled, so disk-image composition is reproducible from the checked-in assembled outputs; reassembling CCP/BDOS requires the upstream Macro Assembler AS / `p2bin` build tools. The host-wide resource-manifest schema is not yet defined; no machine-specific manifest format is claimed.
 
 ## Current implementation status
 
@@ -161,13 +161,13 @@ A: remains read-only. The system disk's `SUBMIT.COM` build expects `$$$.SUB` on 
 
 #### Preparing E: on macOS
 
-`tools/diskImageCpm80.py` creates a blank, preformatted CP/M filesystem image; it does not partition or format the physical SD card. On a Mac, first use `tools/prepareSd.py` on an already FAT32-formatted card to create the expected `/retro/images/cpm80/` directory tree and a default `drives.cfg`. Replace `/Volumes/SDCARD` in the examples with the card's actual mounted volume name:
+`tools/diskImage.py --os cpm80` creates a blank, preformatted CP/M filesystem image; it does not partition or format the physical SD card. On a Mac, first use `tools/prepareSd.py` on an already FAT32-formatted card to create the expected `/retro/images/cpm80/` directory tree and a default `drives.cfg`. Replace `/Volumes/SDCARD` in the examples with the card's actual mounted volume name:
 
 ```sh
 python3 tools/prepareSd.py /Volumes/SDCARD
-python3 tools/diskImageCpm80.py create --profile LARGE ~/Desktop/work.dsk
-python3 tools/diskImageCpm80.py add ~/Desktop/work.dsk /path/to/MBASIC.COM
-python3 tools/diskImageCpm80.py list ~/Desktop/work.dsk
+python3 tools/diskImage.py create --os cpm80 --profile LARGE ~/Desktop/work.dsk
+python3 tools/diskImage.py add --os cpm80 ~/Desktop/work.dsk /path/to/MBASIC.COM
+python3 tools/diskImage.py list --os cpm80 ~/Desktop/work.dsk
 cp ~/Desktop/work.dsk /Volumes/SDCARD/retro/images/cpm80/work.dsk
 ```
 

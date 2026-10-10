@@ -2,6 +2,10 @@ import argparse
 import sys
 from pathlib import Path
 
+INCLUDE_DIR = Path(__file__).resolve().parent / "include"
+if str(INCLUDE_DIR) not in sys.path:
+    sys.path.insert(0, str(INCLUDE_DIR))
+
 import osProfiles
 
 

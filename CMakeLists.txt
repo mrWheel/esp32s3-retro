@@ -14,9 +14,15 @@ file(GLOB apple2SystemDskSources CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/bootDisk
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   ${apple2SystemDskSources}
   "${CMAKE_SOURCE_DIR}/bootDisks/apple2/prodosEmpty.po"
-  "${CMAKE_SOURCE_DIR}/tools/diskImageApple2Prodos.py"
-  "${CMAKE_SOURCE_DIR}/tools/createSystemDsk.py"
-  "${CMAKE_SOURCE_DIR}/tools/apple2Basic.py")
+  "${CMAKE_SOURCE_DIR}/tools/include/apple2Basic.py"
+  "${CMAKE_SOURCE_DIR}/tools/include/diskImageApple2Prodos.py"
+  "${CMAKE_SOURCE_DIR}/tools/include/diskImageCommon.py"
+  "${CMAKE_SOURCE_DIR}/tools/include/diskImageCpm.py"
+  "${CMAKE_SOURCE_DIR}/tools/include/diskImageCpm80.py"
+  "${CMAKE_SOURCE_DIR}/tools/include/diskImageCpm86.py"
+  "${CMAKE_SOURCE_DIR}/tools/include/buildDiskImageApple2.py"
+  "${CMAKE_SOURCE_DIR}/tools/include/buildDiskImageCpm80.py"
+  "${CMAKE_SOURCE_DIR}/tools/createSystemDsk.py")
 execute_process(
   COMMAND ${pythonExecutable} "${CMAKE_SOURCE_DIR}/tools/createSystemDsk.py" --os apple2 --profile PRODOS
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

@@ -23,16 +23,16 @@ python3 tools/diskImage.py --os cpm86 -h
 
   For CP/M-86 it needs `--source-dir` with `CPM.SYS` and the `.CMD` files (no sources are checked in). 
 
-  The work is split per OS: `diskImage.py` and `buildDiskImage.py` dispatch (via `osProfiles.py`) to `diskImageCpm80.py`/`diskImageCpm86.py` and `buildDiskImageCpm80.py`/`buildDiskImageCpm86.py`, which share the CP/M engine `diskImageCpm.py`; the per-OS modules also run directly (e.g. `diskImageCpm80.py create ...` implies `--os cpm80`). 
+  `tools/` contains command-line entrypoints only: `buildApple2DiskBootRom.py`, `buildApple2TestRom.py`, `buildDiskImage.py`, `createSystemDsk.py`, `diskImage.py`, `fetchCpm80Software.py`, `prepareSd.py` and `transferTest.py`. Reusable OS and format modules, including `osProfiles.py`, `diskImageCpm.py`, `diskImageCpm80.py`, `diskImageCpm86.py`, `diskImageApple2Prodos.py`, `apple2Basic.py` and the per-OS image builders, live in `tools/include/`. The `diskImage.py` and `buildDiskImage.py` entrypoints dispatch to those modules using `--os`; for example, create CP/M-80 images with `python3 tools/diskImage.py create --os cpm80 --profile LARGE work.dsk`.
   
-  A new OS needs `diskImage<Os>.py`, `buildDiskImage<Os>.py` and one entry in `osProfiles.py`. 
+  A new OS needs `tools/include/diskImage<Os>.py`, `tools/include/buildDiskImage<Os>.py` and one entry in `tools/include/osProfiles.py`. Main entrypoints add `tools/include/` to Python's module search path before importing these modules.
   `prepareSd.py` without a mount point prepares `sdcard/`, and without `--os` prepares all systems.
 
   `prepareSd.py` (Python 3.9+) adds the documented layout and a default CP/M `drives.cfg` to an already formatted/mounted FAT32 card. It does not format, delete, make disk images, overwrite an existing drive configuration or rewrite an incompatible layout marker. Run with the card mount root as its sole argument.
 
   `transferTest.py` exercises an actual running device using the session URL displayed on USB. It creates uniquely named files in exchange/common and removes only those files. Do not run it during manual transfers. Its 8 MiB payload intentionally exceeds normal ESP32-S3 internal RAM; the test PC can hold it in memory, while the device must stream.
 
-  `buildDiskImageCpm80.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance and non-commercial use scope are in `components/cpm80Core/os/utilities/README.md`. No SD work image is generated; E: requires a separately prepared matching CP/M image.
+  `tools/include/buildDiskImageCpm80.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance and non-commercial use scope are in `components/cpm80Core/os/utilities/README.md`. No SD work image is generated; E: requires a separately prepared matching CP/M image.
 
   `HOST.COM` is project-authored 8080 source at `guest/cpm80/host/HOST.ASM` (CR+LF line endings), written for the standard CP/M-80 `ASM.COM` and `LOAD.COM`. It is built inside the emulated CP/M-80, not with a host assembler: copy `HOST.ASM` to a writable drive (for example E:) with `diskImage.py add`, then run `A:ASM HOST` and `A:LOAD HOST` there and extract `HOST.COM` with `diskImage.py extract`. `CPM80_HOST_ASM_OUTPUT=<path> ./build-host/hostTests` does exactly this headless and stores the result at `<path>`; the normal `hostTests` run fails when `bootDisks/cpm80/systemDsk/HOST.COM` differs from a fresh build. Copy the result to `bootDisks/cpm80/systemDsk/HOST.COM` and `guest/cpm80/host/HOST.COM`, then rebuild the system image with `python3 tools/createSystemDsk.py --os cpm80 --profile LARGE`.
 
@@ -137,8 +137,8 @@ suffix; `.BIN` needs `--binary-load-address`), `--bootable` or `--boot-from`
 The image is **not** on the SD card yet: upload it with "File Transfer" (emulator
 menu option 6) to `/retro/images/apple2/` and add it to `drives.cfg`, for
 example `SD6.2=/retro/images/apple2/data800.po,RW,APPLE2_800K` (in ProDOS `/DATA`,
-`CATALOG,S6,D2`). `diskImageApple2Prodos.py` still creates blank volumes and
-can copy boot files with `--boot-from`.
+`CATALOG,S6,D2`). Use the `buildDiskImage.py` entrypoint's `--bootable` or
+`--boot-from` option to include boot files in a generated volume.
 
 The host guest tests boot ProDOS 2.4.2 through SmartPort, boot a generated
 ProDOS `system.dsk` from `SD6.1` with autostart, catalog the 800K volume and
@@ -210,13 +210,13 @@ overwrites images. Existing `drives.cfg` files are preserved.
 
 ### CP/M-80 drives
 
-`diskImageCpm80.py` creates empty raw CP/M-80 images for either supported profile. `SYSTEM` uses 77 tracks × 26 128-byte records, two reserved tracks, 1 KiB blocks and 64 directory entries. `LARGE` uses 77 tracks × 52 128-byte records, two reserved tracks, 2 KiB blocks and 128 directory entries. Both profiles use allocation blocks 0–242. `BIG` is the CP/M 2.2 maximum of 8 MiB: 514 tracks × 128 128-byte records (8,421,376 bytes), two reserved tracks, 16 KiB blocks (DSM 511, EXM 7, 16-bit block pointers) and 512 directory entries. Create it with `python3 tools/diskImage.py create --os cpm80 --profile BIG big.dsk` and configure the drive as `E=/retro/images/cpm80/big.dsk,RW,BIG`. The guest DPB for `BIG` drives is generated by the firmware; the stock BDOS already supports DSM > 255. It uses only the Python standard library.
+`diskImage.py --os cpm80` creates empty raw CP/M-80 images for either supported profile. `SYSTEM` uses 77 tracks × 26 128-byte records, two reserved tracks, 1 KiB blocks and 64 directory entries. `LARGE` uses 77 tracks × 52 128-byte records, two reserved tracks, 2 KiB blocks and 128 directory entries. Both profiles use allocation blocks 0–242. `BIG` is the CP/M 2.2 maximum of 8 MiB: 514 tracks × 128 128-byte records (8,421,376 bytes), two reserved tracks, 16 KiB blocks (DSM 511, EXM 7, 16-bit block pointers) and 512 directory entries. Create it with `python3 tools/diskImage.py create --os cpm80 --profile BIG big.dsk` and configure the drive as `E=/retro/images/cpm80/big.dsk,RW,BIG`. The guest DPB for `BIG` drives is generated by the firmware; the stock BDOS already supports DSM > 255. It uses only the Python standard library.
 
 ```sh
 python3 tools/prepareSd.py /Volumes/SDCARD
-python3 tools/diskImageCpm80.py create --profile LARGE ~/Desktop/work.dsk
-python3 tools/diskImageCpm80.py add ~/Desktop/work.dsk ~/Downloads/MBASIC.COM
-python3 tools/diskImageCpm80.py list ~/Desktop/work.dsk
+python3 tools/diskImage.py create --os cpm80 --profile LARGE ~/Desktop/work.dsk
+python3 tools/diskImage.py add --os cpm80 ~/Desktop/work.dsk ~/Downloads/MBASIC.COM
+python3 tools/diskImage.py list --os cpm80 ~/Desktop/work.dsk
 cp ~/Desktop/work.dsk /Volumes/SDCARD/retro/images/cpm80/work.dsk
 ```
 
@@ -234,7 +234,7 @@ python3 tools/fetchCpm80Software.py add http://cpmarchives.classiccmp.org/cpm/mi
   --rights-evidence "URL or citation for the applicable distribution terms"
 ```
 
-ZIP members must be named explicitly; files are read from the archive without extracting paths onto the host. The tool saves each original download unchanged in `--archive-dir` and records its source URLs, timestamp, byte count, SHA-256, selected archive members and supplied rights evidence in `cpm-resource-manifest.json`. The tool requires rights evidence for each network import but cannot verify that evidence or decide whether software is licensed. For MBASIC 5.21, use the separately supplied copy for which you have permission, then add it with `diskImageCpm80.py add`; this avoids downloading that archive copy. To install a complete compatible raw image, use the `disk` subcommand with a new output path under `retro/images/cpm80/`; `--force` is required to replace an existing disk.
+ZIP members must be named explicitly; files are read from the archive without extracting paths onto the host. The tool saves each original download unchanged in `--archive-dir` and records its source URLs, timestamp, byte count, SHA-256, selected archive members and supplied rights evidence in `cpm-resource-manifest.json`. The tool requires rights evidence for each network import but cannot verify that evidence or decide whether software is licensed. For MBASIC 5.21, use the separately supplied copy for which you have permission, then add it with `python3 tools/diskImage.py add --os cpm80`; this avoids downloading that archive copy. To install a complete compatible raw image, use the `disk` subcommand with a new output path under `retro/images/cpm80/`; `--force` is required to replace an existing disk.
 
 The importer blocks archive entries identified as Microsoft software, including the linked MBASIC listing. Other links still require you to check and cite the terms for that specific resource; the archive's presence alone is not permission. For raw disk images, the tool checks file size and CP/M directory/allocation structure, but cannot infer sector ordering or prove the archive's stated geometry—verify those from the image documentation before mounting it.
 

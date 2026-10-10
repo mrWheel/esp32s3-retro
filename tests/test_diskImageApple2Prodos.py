@@ -4,12 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "include"))
 
 import diskImageApple2Prodos as prodos
 from diskImageCommon import DiskImageError
 
-PROJECT_ROOT = Path(prodos.__file__).resolve().parents[1]
+PROJECT_ROOT = Path(prodos.__file__).resolve().parents[2]
 
 
 class BlankProdosVolumeTests(unittest.TestCase):

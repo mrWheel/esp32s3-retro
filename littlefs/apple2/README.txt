@@ -28,4 +28,4 @@ made with tools/buildDiskImage.py --os apple2 --name DATA1 data1.po:
   SD6.2=/retro/images/apple2/data1.po,RW,APPLE2_800K
   SD5.1=/retro/images/apple2/data2.po,RW,APPLE2_800K
 Upload the data images to /retro/images/apple2/ with "File Transfer". An Apple (UCSD)
-Pascal 640K volume (tools/diskImageApple2Pascal.py) must have a slot of its own (Disk II).
+Pascal 640K volume (created by the Pascal volume utility in tools/include/) must have a slot of its own (Disk II).

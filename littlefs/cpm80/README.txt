@@ -19,10 +19,10 @@ maps a drive letter to an image path, RO/RW access and SYSTEM/LARGE disk
 profile. SYSTEM is 256,256 bytes (77 tracks × 26 128-byte sectors); LARGE is
 512,512 bytes (77 tracks × 52 sectors, 2 KiB allocation blocks and 128
 directory entries). Each of B:–F: may use either profile. Create a standard
-256 KiB image with: python3 tools/diskImageCpm80.py create --profile SYSTEM x.dsk. The included prepareSd.py creates a sample drives.cfg
+256 KiB image with: python3 tools/diskImage.py create --os cpm80 --profile SYSTEM x.dsk. The included prepareSd.py creates a sample drives.cfg
 without replacing an existing one. Create a writable work image with
-python3 tools/diskImageCpm80.py create --profile LARGE ~/Desktop/work.dsk, add
-licensed local programs with python3 tools/diskImageCpm80.py add, copy it to the
+python3 tools/diskImage.py create --os cpm80 --profile LARGE ~/Desktop/work.dsk, add
+licensed local programs with python3 tools/diskImage.py add --os cpm80, copy it to the
 path configured for E:, then safely eject the card. A: remains available from
 LittleFS even when the SD card or drives.cfg is missing or invalid. See
 tools/README.md for configuration, image creation and software rights details.

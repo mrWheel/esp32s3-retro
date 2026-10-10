@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import sys
 import tempfile
 import urllib.error
 import urllib.parse
@@ -15,6 +16,10 @@ import urllib.request
 import zipfile
 from html.parser import HTMLParser
 from pathlib import Path
+
+INCLUDE_DIR = Path(__file__).resolve().parent / "include"
+if str(INCLUDE_DIR) not in sys.path:
+    sys.path.insert(0, str(INCLUDE_DIR))
 
 import diskImageCpm80
 

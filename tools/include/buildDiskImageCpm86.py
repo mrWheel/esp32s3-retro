@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Build the CP/M-86 system disk image (CPM86 profile) from a directory of files."""
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import diskImageCpm86
 

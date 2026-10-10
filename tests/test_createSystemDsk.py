@@ -4,13 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "tools" / "include"))
+
 import buildDiskImageCpm80
 import apple2Basic
 import createSystemDsk
 import diskImageCpm80
 import diskImageCpm86
-
-PROJECT_ROOT = Path(createSystemDsk.__file__).resolve().parents[1]
 
 
 class CreateSystemDskTests(unittest.TestCase):

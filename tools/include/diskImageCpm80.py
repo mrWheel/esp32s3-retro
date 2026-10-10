@@ -4,6 +4,11 @@
 Running this file directly is the same as `diskImage.py --os cpm80`.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import diskImageCpm
 from diskImageCpm import (  # noqa: F401  (re-exported API)
     EMPTY,

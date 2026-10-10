@@ -10,7 +10,7 @@ import importlib
 from dataclasses import dataclass
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SD_ROOT = PROJECT_ROOT / "sdcard"
 
 
