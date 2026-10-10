@@ -1,2 +1,1 @@
-10 PRINT CHR$(4);"PR#3"
-20 PRINT "HELLO, APPLE II! with 80 Columns"
+10 PRINT "HELLO, APPLE II! with 80 Columns"

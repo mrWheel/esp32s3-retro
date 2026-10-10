@@ -25,20 +25,33 @@ static rmt_channel_handle_t txChannel;
 static rmt_encoder_handle_t bytesEncoder;
 static QueueHandle_t activityQueue;
 
+#if DISK_ACTIVITY_DEBUG_LOG
+static diskActivityColor lastRequestedColor = diskActivityOff;
+
+static const char *colorName(diskActivityColor color)
+{
+  return color == diskActivityGreen ? "GREEN (read)" : (color == diskActivityRed ? "RED (write)" : "OFF");
+}
+#endif
+
 static esp_err_t setColor(diskActivityColor color)
 {
-  uint8_t grb[3] = {0, 0, 0};
+  //-- The LED on this board shows the first byte as red (RGB order, measured with the start-up self-test).
+  uint8_t rgb[3] = {0, 0, 0};
   if (color == diskActivityGreen)
   {
-    grb[0] = DISK_ACTIVITY_BRIGHTNESS;
+    rgb[1] = DISK_ACTIVITY_BRIGHTNESS;
   }
   else if (color == diskActivityRed)
   {
-    grb[1] = DISK_ACTIVITY_BRIGHTNESS;
+    rgb[0] = DISK_ACTIVITY_BRIGHTNESS;
   }
 
+#if DISK_ACTIVITY_DEBUG_LOG
+  ESP_LOGW(tag, "LED transmit %s: bytes R=%u G=%u B=%u", colorName(color), rgb[0], rgb[1], rgb[2]);
+#endif
   const rmt_transmit_config_t transmitConfig = {.loop_count = 0};
-  esp_err_t result = rmt_transmit(txChannel, bytesEncoder, grb, sizeof(grb), &transmitConfig);
+  esp_err_t result = rmt_transmit(txChannel, bytesEncoder, rgb, sizeof(rgb), &transmitConfig);
   if (result != ESP_OK)
   {
     return result;
@@ -51,12 +64,45 @@ static esp_err_t setColor(diskActivityColor color)
   return result;
 }
 
+#if DISK_ACTIVITY_DEBUG_LOG
+//-- Shows RED, GREEN and BLUE for three seconds each (with the LED off in between) at start, sent as raw RGB bytes, to prove which colour the LED really shows.
+static void ledSelfTest(void)
+{
+  static const uint8_t patterns[3][3] = {{DISK_ACTIVITY_BRIGHTNESS, 0, 0},
+                                         {0, DISK_ACTIVITY_BRIGHTNESS, 0},
+                                         {0, 0, DISK_ACTIVITY_BRIGHTNESS}};
+  static const char *names[3] = {"RED", "GREEN", "BLUE"};
+  static const uint8_t off[3] = {0, 0, 0};
+  const rmt_transmit_config_t transmitConfig = {.loop_count = 0};
+  for (int index = 0; index < 3; ++index)
+  {
+    ESP_LOGW(tag, "LED self-test %s: bytes R=%u G=%u B=%u", names[index], patterns[index][0], patterns[index][1],
+             patterns[index][2]);
+    if (rmt_transmit(txChannel, bytesEncoder, patterns[index], 3, &transmitConfig) == ESP_OK &&
+        rmt_tx_wait_all_done(txChannel, 100) == ESP_OK)
+    {
+      esp_rom_delay_us(300);
+    }
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    if (rmt_transmit(txChannel, bytesEncoder, off, 3, &transmitConfig) == ESP_OK &&
+        rmt_tx_wait_all_done(txChannel, 100) == ESP_OK)
+    {
+      esp_rom_delay_us(300);
+    }
+    vTaskDelay(pdMS_TO_TICKS(1500));
+  }
+}
+#endif
+
 static void activityTask(void *context)
 {
   (void)context;
   diskActivityColor color = diskActivityOff;
   diskActivityColor shownColor = diskActivityOff;
   TickType_t timeout = portMAX_DELAY;
+#if DISK_ACTIVITY_DEBUG_LOG
+  ledSelfTest();
+#endif
   if (setColor(color) != ESP_OK)
   {
     ESP_LOGW(tag, "Could not initialize RGB LED output");
@@ -93,6 +139,9 @@ static void activityTask(void *context)
         ESP_LOGW(tag, "Could not turn off RGB LED: %s", esp_err_to_name(result));
       }
       shownColor = color;
+#if DISK_ACTIVITY_DEBUG_LOG
+      lastRequestedColor = diskActivityOff;
+#endif
       timeout = portMAX_DELAY;
     }
   }
@@ -100,6 +149,13 @@ static void activityTask(void *context)
 
 static void signalActivity(diskActivityColor color)
 {
+#if DISK_ACTIVITY_DEBUG_LOG
+  if (color != lastRequestedColor)
+  {
+    ESP_LOGW(tag, "LED request %s (was %s)", colorName(color), colorName(lastRequestedColor));
+    lastRequestedColor = color;
+  }
+#endif
   if (activityQueue != NULL)
   {
     xQueueOverwrite(activityQueue, &color);

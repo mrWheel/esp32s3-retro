@@ -693,6 +693,8 @@ static void testDosBoot(const char *imagePath, bool runProgram)
   apple2Core *core = NULL;
   assert(apple2CoreCreate(&core) == apple2CoreOk);
   assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  //-- The machine starts with the 80-column card selected; nothing (HELLO included) has to run PR#3.
+  assert(apple2CoreSetBootIn80Columns(core, runProgram) == apple2CoreOk);
   assert(apple2CoreAttachDisk(core, apple2DiskImageReadSectorCallback, &disk) == apple2CoreOk);
   assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
 
@@ -715,7 +717,7 @@ static void testDosBoot(const char *imagePath, bool runProgram)
 
   if (runProgram)
   {
-    //-- HELLO (PR#3) switched DOS to the 80-column card at boot and no error was reported.
+    //-- DOS booted with the 80-column card already selected and no error was reported.
     assert(isVidexActive(core));
     assert(!screenContains(core, "NOT FOUND"));
     typeText(core, "HOME\r");

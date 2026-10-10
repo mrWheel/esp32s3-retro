@@ -60,6 +60,9 @@ apple2CoreResult apple2CoreReadMemory(apple2Core *core, uint16_t address, uint8_
 apple2CoreResult apple2CoreWriteMemory(apple2Core *core, uint16_t address, uint8_t value);
 apple2CoreResult apple2CoreSetCharacterOptions(apple2Core *core, bool lowercaseCharacterRom,
                                                bool lowercaseKeyboard);
+//-- When enabled, every reset starts with the slot-3 80-column card selected as output (as if PR#3 was typed);
+//-- the monitor SETVID routine then selects the card too. Call before apple2CoreLoadRom, which performs the reset.
+apple2CoreResult apple2CoreSetBootIn80Columns(apple2Core *core, bool enabled);
 char apple2CoreDecodeTextCharacter(const apple2Core *core, uint8_t value);
 apple2CoreResult apple2CorePressKey(apple2Core *core, uint8_t character);
 bool apple2CoreKeyPending(const apple2Core *core);

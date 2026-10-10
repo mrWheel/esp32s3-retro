@@ -9,8 +9,8 @@ system.dsk is generated from the empty DOS 3.3P base bootDisks/apple2/dos33Empty
   PYTHONPATH=tools python3 tools/createSystemDsk.py --os apple2 --profile DOS33
 
 Everything in bootDisks/apple2/systemDsk is written to the disk: HELLO (the
-greeting program, `PRINT CHR$(4);"PR#3"`, so DOS switches to the 80-column card
-at boot and no FILE NOT FOUND appears) and TEST-NONGR, a tokenized Applesoft
+greeting program; the 80-column card is selected automatically when the machine
+starts, so HELLO needs no PR#3) and TEST-NONGR, a tokenized Applesoft
 file (DOS type A). In DOS, use LOAD TEST-NONGR, then RUN. The builder does not
 modify the base image; --base-image selects another base.
 

@@ -10,6 +10,6 @@ Place files for the Apple II system disk in this directory. The builder accepts:
 The builder writes every file in this directory to a copy of the empty bootable
 DOS 3.3 base image `bootDisks/apple2/dos33Empty.dsk` (boot tracks only, no
 files). `HELLO.BAS` is the greeting program DOS runs at boot
-(`PRINT CHR$(4);"PR#3"` switches to the 80-column card). For example, `TEST-NONGR.BAS` is cataloged as the
+(the 80-column card is selected automatically at machine start; HELLO does not need `PR#3`). For example, `TEST-NONGR.BAS` is cataloged as the
 Applesoft file `TEST-NONGR`, so load and run it with `LOAD TEST-NONGR` and
 `RUN`. This directory holds no DOS boot/system software; that is in the base image.

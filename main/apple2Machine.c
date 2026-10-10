@@ -344,6 +344,11 @@ esp_err_t apple2MachineInitialize(void)
     return coreResult == apple2CoreNoMemory ? ESP_ERR_NO_MEM : ESP_ERR_INVALID_STATE;
   }
   coreResult = apple2CoreSetCharacterOptions(guestCore, true, true);
+  if (coreResult == apple2CoreOk)
+  {
+    //-- The 80-column card is selected automatically at every start, like the Disk II controller boots.
+    coreResult = apple2CoreSetBootIn80Columns(guestCore, true);
+  }
   if (coreResult != apple2CoreOk)
   {
     apple2CoreDestroy(guestCore);
@@ -399,6 +404,10 @@ void apple2MachineRun(void)
     if (diskState.writeAttempts != seenWriteAttempts)
     {
       seenWriteAttempts = diskState.writeAttempts;
+#if DISK_ACTIVITY_DEBUG_LOG
+      ESP_LOGW(tag, "Disk II write attempt #%u (q6=%d q7=%d motor=%d halfTrack=%u)", (unsigned)diskState.writeAttempts,
+               diskState.q6, diskState.q7, diskState.motorOn, (unsigned)diskState.halfTrack);
+#endif
       diskActivityWrite();
     }
     TickType_t currentTime = xTaskGetTickCount();

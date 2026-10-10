@@ -317,6 +317,40 @@ static void testApple2LowercaseKeyboardEcho(const uint8_t *rom)
   apple2CoreDestroy(core);
 }
 
+//-- With boot-in-80-columns enabled the machine starts on the card without PR#3; PR#0 still returns to the 40-column screen.
+static void testApple2BootIn80Columns(const uint8_t *rom)
+{
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  assert(apple2CoreSetBootIn80Columns(core, true) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, apple2RomSize) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 500000) == apple2CoreOk);
+
+  apple2VideoState video;
+  apple2CoreGetVideoState(core, &video);
+  assert(video.videxTextMode);
+  assert(apple2VidexContainsText(core, "]"));
+  apple2TypeBasicCommand(core, "PRINT 2+2\r");
+  assert(apple2VidexContainsText(core, "PRINT 2+2"));
+
+  apple2TypeBasicCommand(core, "PR#0\r");
+  apple2CoreGetVideoState(core, &video);
+  assert(!video.videxTextMode);
+  assert(apple2TextContainsText(core, "]"));
+  apple2TypeBasicCommand(core, "PR#3\r");
+  apple2CoreGetVideoState(core, &video);
+  assert(video.videxTextMode);
+
+  assert(apple2CoreReset(core) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 500000) == apple2CoreOk);
+  apple2CoreGetVideoState(core, &video);
+  assert(video.videxTextMode);
+  assert(apple2VidexContainsText(core, "]"));
+
+  apple2CoreDestroy(core);
+}
+
 static void testApple2SystemRom(void)
 {
   FILE *romFile = fopen(APPLE2_SYSTEM_ROM_PATH, "rb");
@@ -327,6 +361,7 @@ static void testApple2SystemRom(void)
   assert(fclose(romFile) == 0);
 
   testApple2LowercaseKeyboardEcho(rom);
+  testApple2BootIn80Columns(rom);
 
   apple2Core *core = NULL;
   assert(apple2CoreCreate(&core) == apple2CoreOk);

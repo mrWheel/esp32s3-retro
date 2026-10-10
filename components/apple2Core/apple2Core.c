@@ -16,8 +16,14 @@ enum
   apple2VidexRamBankSize = 512,
   apple2VidexRegisterCount = 32,
   apple2VidexFirmwareSize = 369,
-  apple2LowercaseEchoCycleLimit = 4096
+  apple2LowercaseEchoCycleLimit = 4096,
+  apple2MonitorSetvidAddress = 0xFE93,
+  apple2MonitorSetvidEnd = 0xFEB0
 };
+
+//-- CRTC register values programmed by the slot-3 firmware init ($C800); the boot activation applies the same set.
+static const uint8_t videxInitRegisters[16] = {0x62, 0x50, 0x50, 0x28, 0x19, 0x00, 0x18, 0x18,
+                                               0x00, 0x0F, 0x20, 0x0F, 0x00, 0x00, 0x00, 0x00};
 
 static const uint8_t videxSlotRom[] = {0x48, 0x20, 0x00, 0xC8, 0x68, 0x4C, 0xB3, 0xC8, 0x4C, 0x00, 0xC8};
 
@@ -73,6 +79,8 @@ struct apple2Core
   bool lowercaseCharacterRom;
   bool lowercaseKeyboard;
   bool romLoaded;
+  bool bootIn80Columns;
+  bool setvidActive;
   uint64_t cycles;
   apple2Disk disk;
 };
@@ -189,6 +197,20 @@ static void clearSelectedDisplay(apple2Core *core, bool videxSelected)
       }
     }
   }
+}
+
+//-- Equivalent of PR#3 done by the host at reset: same CRTC registers, output vector and cleared screen.
+static void activateVidexAtBoot(apple2Core *core)
+{
+  memcpy(core->videxRegisters, videxInitRegisters, sizeof(videxInitRegisters));
+  core->video.videxTextMode = core->videxRegisters[1] == apple2VidexTextColumns &&
+                              core->videxRegisters[6] == apple2VidexTextRows;
+  core->ram[0x0036] = 0xB3;
+  core->ram[0x0037] = 0xC8;
+  core->videxOutputSelected = true;
+  clearSelectedDisplay(core, true);
+  core->ram[0x0024] = 0;
+  core->ram[0x0025] = 0;
 }
 
 static uint8_t readVidexIo(apple2Core *core, uint16_t address)
@@ -356,6 +378,11 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   }
   else if (address < apple2RamSize)
   {
+    //-- While the monitor SETVID routine runs the default video output is the 80-column card, not the 40-column screen.
+    if (core->setvidActive && (address == 0x0036 || address == 0x0037))
+    {
+      value = address == 0x0036 ? 0xB3 : 0xC8;
+    }
     bool isOutputVectorAddress = address == 0x0036 || address == 0x0037 || address == 0xAA53 || address == 0xAA54;
     if (address >= 0x0400 && address <= 0x0BFF)
     {
@@ -472,8 +499,13 @@ apple2CoreResult apple2CoreReset(apple2Core *core)
   core->keyboardStrobe = false;
   core->lowercaseEchoPending = false;
   core->lowercaseEchoCycles = 0;
+  core->setvidActive = false;
   core->busValue = 0xFF;
   apple2DiskResetSwitches(&core->disk);
+  if (core->bootIn80Columns)
+  {
+    activateVidexAtBoot(core);
+  }
   core->pins = m6502_init(&core->cpu, &(m6502_desc_t){.bcd_disabled = false});
   return apple2CoreOk;
 }
@@ -502,6 +534,18 @@ apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
     else
     {
       writeAddress(core, address, M6502_GET_DATA(core->pins));
+    }
+    //-- Monitor SETVID ($FE93, also called by the DOS boot code) is told apart from PR#n, which enters at OUTPORT ($FE95).
+    if ((core->pins & M6502_SYNC) != 0 && core->bootIn80Columns)
+    {
+      if (address == apple2MonitorSetvidAddress)
+      {
+        core->setvidActive = true;
+      }
+      else if (core->setvidActive && (address < apple2MonitorSetvidAddress || address >= apple2MonitorSetvidEnd))
+      {
+        core->setvidActive = false;
+      }
     }
     //-- The monitor HOME routine only knows the 40-column page; clear the card screen when it is selected.
     if ((core->pins & M6502_SYNC) != 0 && address == 0xFC58 && core->videxOutputSelected)
@@ -533,6 +577,16 @@ apple2CoreResult apple2CoreWriteMemory(apple2Core *core, uint16_t address, uint8
     return apple2CoreInvalidArgument;
   }
   writeAddress(core, address, value);
+  return apple2CoreOk;
+}
+
+apple2CoreResult apple2CoreSetBootIn80Columns(apple2Core *core, bool enabled)
+{
+  if (core == NULL)
+  {
+    return apple2CoreInvalidArgument;
+  }
+  core->bootIn80Columns = enabled;
   return apple2CoreOk;
 }
 
