@@ -190,6 +190,11 @@ static bool isVidexOutputSelected(const apple2Core *core)
   return core->videxOutputSelected;
 }
 
+static bool isMonitorRomExecuting(const apple2Core *core)
+{
+  return core->cpu.PC >= 0xF800 && !core->languageCardReadEnabled;
+}
+
 //-- True while a two-byte vector update is half done, i.e. one byte belongs to a known vector.
 static bool isTransientOutputVector(uint16_t vector)
 {
@@ -211,7 +216,10 @@ static bool updateVidexOutputSelection(apple2Core *core)
   uint16_t vector = (uint16_t)(core->ram[0x0036] | ((uint16_t)core->ram[0x0037] << 8));
   bool dosHoldsVidex = core->ram[0xAA53] == 0xB3 && core->ram[0xAA54] == 0xC8;
   bool selected = core->videxOutputSelected;
-  if (vector == 0xC8B3 || (vector == 0x9EBD && dosHoldsVidex))
+  //-- ProDOS BASIC.SYSTEM keeps the real output vector at $BE30/$BE31 while its own hook (somewhere in $9000-$BEFF)
+  //-- is installed in CSW.
+  bool proDosHoldsVidex = vector >= 0x9000 && vector < 0xBF00 && core->ram[0xBE30] == 0xB3 && core->ram[0xBE31] == 0xC8;
+  if (vector == 0xC8B3 || (vector == 0x9EBD && dosHoldsVidex) || proDosHoldsVidex)
   {
     selected = true;
   }
@@ -872,6 +880,21 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
     {
       value = address == 0x0036 ? 0xB3 : 0xC8;
     }
+    //-- In 80-column boot mode the card is the default screen: ProDOS BASIC.SYSTEM resets CSW to COUT1 ($FDF0) itself,
+    //-- which is not a PR#0. Only the monitor (PR#0 through OUTPORT) may select the 40-column screen.
+    if (core->bootIn80Columns && !isMonitorRomExecuting(core))
+    {
+      if (address == 0x0037 && value == 0xFD && core->ram[0x0036] == 0xF0)
+      {
+        core->ram[0x0036] = 0xB3;
+        value = 0xC8;
+      }
+      else if (address == 0x0036 && value == 0xF0 && core->ram[0x0037] == 0xFD)
+      {
+        value = 0xB3;
+        core->ram[0x0037] = 0xC8;
+      }
+    }
     bool isOutputVectorAddress = address == 0x0036 || address == 0x0037 || address == 0xAA53 || address == 0xAA54;
     if (address >= 0x0400 && address <= 0x0BFF)
     {
@@ -1056,7 +1079,9 @@ apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
       }
     }
     //-- The monitor HOME routine only knows the 40-column page; clear the card screen when it is selected.
-    if ((core->pins & M6502_SYNC) != 0 && address == 0xFC58 && core->videxOutputSelected)
+    //-- With the Language Card read-enabled $FC58 is ProDOS code, not the monitor.
+    if ((core->pins & M6502_SYNC) != 0 && address == 0xFC58 && core->videxOutputSelected &&
+        !core->languageCardReadEnabled)
     {
       clearSelectedDisplay(core, true);
       core->ram[0x0024] = 0;

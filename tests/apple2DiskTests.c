@@ -1028,7 +1028,7 @@ static void testProDosSmartPortBoot(const char *bootImagePath, const char *dataI
   assert(remove(scratchPath) == 0);
 }
 
-static void testProDosAutostartBoot(const char *bootImagePath, const char *dataImagePath)
+static void testProDosAutostartBoot(const char *bootImagePath, const char *dataImagePath, bool bootIn80Columns)
 {
   char scratchPath[512];
   makeScratchCopy(dataImagePath, scratchPath, sizeof(scratchPath));
@@ -1052,6 +1052,7 @@ static void testProDosAutostartBoot(const char *bootImagePath, const char *dataI
          apple2CoreInvalidArgument);
   uint8_t rom[apple2RomSize];
   readRom(APPLE2_SYSTEM_ROM_PATH, rom);
+  assert(apple2CoreSetBootIn80Columns(core, bootIn80Columns) == apple2CoreOk);
   assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
 
   //— No keyboard input: the Autostart ROM must find the slot-6 boot signature and start ProDOS by itself.
@@ -1066,6 +1067,34 @@ static void testProDosAutostartBoot(const char *bootImagePath, const char *dataI
     dumpScreen(core);
   }
   assert(booted);
+  if (bootIn80Columns)
+  {
+    //— ProDOS BASIC.SYSTEM resets CSW to COUT1 and swaps its own hook on every key read; the card must stay selected.
+    assert(apple2CoreRunCycles(core, 3000000) == apple2CoreOk);
+    assert(activeRowCount(core) == apple2VidexTextRows);
+    assert(screenContains(core, "HELLO, APPLE II! with 80 Columns"));
+    typeText(core, "PRINT 1234\r");
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    assert(activeRowCount(core) == apple2VidexTextRows);
+    assert(screenContains(core, "]PRINT 1234"));
+    //— PR#3 under BASIC.SYSTEM re-selects the card and the echo of typed characters follows the cursor.
+    typeText(core, "PR#3\r");
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    typeText(core, "PRINT 5678\r");
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    assert(activeRowCount(core) == apple2VidexTextRows);
+    assert(screenContains(core, "]PRINT 5678"));
+    //— PR#0 is an explicit request for the 40-column screen and must be honoured.
+    typeText(core, "PR#0\r");
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    typeText(core, "PRINT 9012\r");
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    assert(activeRowCount(core) == apple2TextRows);
+    assert(screenContains(core, "]PRINT 9012"));
+    typeText(core, "PR#3\r");
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    assert(activeRowCount(core) == apple2VidexTextRows);
+  }
   proDosSelectBasicAndSave(core, &dataDisk);
   assert(apple2CoreDetachDisk(core) == apple2CoreOk);
   apple2CoreDestroy(core);
@@ -1084,8 +1113,14 @@ int main(int argc, char **argv)
   }
   if (argc == 4 && strcmp(argv[1], "--prodos-autostart-boot") == 0)
   {
-    testProDosAutostartBoot(argv[2], argv[3]);
+    testProDosAutostartBoot(argv[2], argv[3], false);
     puts("PASS: ProDOS autostart from SD6.1, catalog and BASIC SAVE to the SD6.2 800K volume");
+    return 0;
+  }
+  if (argc == 4 && strcmp(argv[1], "--prodos-80col-boot") == 0)
+  {
+    testProDosAutostartBoot(argv[2], argv[3], true);
+    puts("PASS: ProDOS autostart with the 80-column card");
     return 0;
   }
   if (argc == 2 && strcmp(argv[1], "--disk-stream") == 0)
