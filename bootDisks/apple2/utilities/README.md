@@ -27,7 +27,9 @@ HOST> PUT pattern O
 
 `O` explicitly permits replacement of existing files. `*` and `?` wildcards are supported. Files are exchanged
 with `/retro/exchange/apple2` on the host; transfers verify exact byte length and CRC-32. ProDOS metadata is
-reconstructed from the filename (`.TXT`, `.BAS`, and `.SYS` receive matching file types); other downloads use BIN.
+reconstructed from the filename extension: TXT for `.TXT .MD .C .H .S .ASM .INC .CFG .LOG .CSV .PY .SH .JSON`, BAS
+for `.BAS`, INT for `.INT`, SYS for `.SYS`, REL for `.REL`, BIN for `.BIN`; everything else (including names without an
+extension) is BIN. Line endings are not converted.
 
 All output goes through the active output vector (CSW), so it appears on the 80-column card; keys are read straight
 from `$C000`/`$C010`. `PUT` prints `PUT name: ` and one `.` per 2 KB while it reads the file and computes the CRC-32

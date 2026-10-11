@@ -471,28 +471,40 @@ static void printProgress(uint32_t *nextProgress, uint32_t transferred, uint32_t
   }
 }
 
+typedef struct
+{
+  const char *extension;
+  unsigned char fileType;
+  unsigned int auxType;
+} fileTypeRule;
+
+//-- The exchange protocol carries no ProDOS metadata, so the type follows the filename extension.
+static const fileTypeRule fileTypeRules[] = {
+    {".TXT", PRODOS_T_TXT, 0},  {".MD", PRODOS_T_TXT, 0},  {".C", PRODOS_T_TXT, 0},   {".H", PRODOS_T_TXT, 0},
+    {".S", PRODOS_T_TXT, 0},    {".ASM", PRODOS_T_TXT, 0}, {".INC", PRODOS_T_TXT, 0}, {".CFG", PRODOS_T_TXT, 0},
+    {".LOG", PRODOS_T_TXT, 0},  {".CSV", PRODOS_T_TXT, 0}, {".PY", PRODOS_T_TXT, 0},  {".SH", PRODOS_T_TXT, 0},
+    {".JSON", PRODOS_T_TXT, 0}, {".BAS", PRODOS_T_BAS, PRODOS_AUX_T_BAS_PGM_LOAD_ADDR},
+    {".INT", PRODOS_T_INT, 0},  {".SYS", PRODOS_T_SYS, 0x2000}, {".REL", PRODOS_T_REL, 0},
+    {".BIN", PRODOS_T_BIN, 0x0800}};
+
 static bool setDownloadedFileType(const char *filename)
 {
   const char *extension = strrchr(filename, '.');
+  unsigned char index;
   _filetype = PRODOS_T_BIN;
   _auxtype = 0;
   if (extension == NULL)
   {
     return true;
   }
-  if (strcmp(extension, ".TXT") == 0)
+  for (index = 0; index < sizeof(fileTypeRules) / sizeof(fileTypeRules[0]); ++index)
   {
-    _filetype = PRODOS_T_TXT;
-  }
-  else if (strcmp(extension, ".BAS") == 0)
-  {
-    _filetype = PRODOS_T_BAS;
-    _auxtype = PRODOS_AUX_T_BAS_PGM_LOAD_ADDR;
-  }
-  else if (strcmp(extension, ".SYS") == 0)
-  {
-    _filetype = PRODOS_T_SYS;
-    _auxtype = 0x2000;
+    if (strcmp(extension, fileTypeRules[index].extension) == 0)
+    {
+      _filetype = fileTypeRules[index].fileType;
+      _auxtype = fileTypeRules[index].auxType;
+      break;
+    }
   }
   return true;
 }
