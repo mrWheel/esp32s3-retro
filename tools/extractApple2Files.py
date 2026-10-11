@@ -5,12 +5,16 @@ copy them to a ProDOS or UCSD Pascal destination image.
 usage: extractApple2Files.py <orgDiskImage> <destDiskImage>
 
 commands:
-  list [dest]                 list the files on the source (or destination) image
-  copy <nameIn> [<nameOut>]   copy a file from source to destination
-  quit
+  L(ist [dest]                list the files on the source (or destination) image
+  C(opy <nameIn> [<nameOut>]  copy a file from source to destination;
+                              <nameIn> may contain wildcards (* ? [abc]),
+                              <nameOut> is not allowed together with wildcards
+  Q(uit
+Commands may be abbreviated and are case-insensitive.
 """
 
 import datetime
+import fnmatch
 import shlex
 import sys
 from dataclasses import dataclass, field
@@ -607,11 +611,37 @@ def findEntry(volume, name):
 
 
 def copyFile(source, dest, nameIn, nameOut):
-  entry = findEntry(source, nameIn)
+  if any(c in nameIn for c in "*?["):
+    if nameOut:
+      raise ToolError("<nameOut> cannot be combined with a wildcard in <nameIn>")
+    pattern = nameIn.upper()
+    matches = [e for e in source.listFiles() if fnmatch.fnmatchcase(e.path.upper(), pattern)]
+    if not matches:
+      raise ToolError(f"no files match '{nameIn}'")
+    copied = 0
+    for entry in matches:
+      try:
+        copyOne(source, dest, entry, None)
+        copied += 1
+      except ToolError as error:
+        print(f"skipped '{entry.path}': {error}")
+    print(f"{copied} of {len(matches)} files copied")
+    return
+  copyOne(source, dest, findEntry(source, nameIn), nameOut)
+
+
+def copyOne(source, dest, entry, nameOut):
   exported = source.exportFile(entry)
-  target = dest.importFile(nameOut or nameIn, exported)
+  target = dest.importFile(nameOut or entry.path, exported)
   dest.image.save()
   print(f"copied '{entry.path}' -> '{target}' ({len(exported.data)} bytes)")
+
+
+def matchCommand(word):
+  for name in ("list", "copy", "quit"):
+    if name.startswith(word.lower()):
+      return name
+  return None
 
 
 def main(argv):
@@ -647,16 +677,16 @@ def main(argv):
       continue
     if not words:
       continue
-    command = words[0].lower()
+    command = matchCommand(words[0])
     try:
-      if command in ("quit", "q", "exit"):
+      if command == "quit":
         return 0
       if command == "list":
-        printListing(dest if len(words) > 1 and words[1].lower() in ("dest", "destination") else source)
+        printListing(dest if len(words) > 1 and "destination".startswith(words[1].lower()) else source)
       elif command == "copy" and len(words) in (2, 3):
         copyFile(source, dest, words[1], words[2] if len(words) == 3 else None)
       else:
-        print("usage: list [dest] | copy <nameIn> [<nameOut>] | quit")
+        print("usage: L(ist [dest] | C(opy <nameIn> [<nameOut>] | Q(uit")
     except ToolError as error:
       print(f"error: {error}")
 

@@ -9,6 +9,7 @@
 #include "cpm86DriveConfig.h"
 #include "storagePath.h"
 #include "apple2Core.h"
+#include "apple2Keyboard.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -514,6 +515,133 @@ static void testApple2BootIn80Columns(const uint8_t *rom)
   apple2CoreDestroy(core);
 }
 
+static bool apple2TextHasRow(apple2Core *core, const char *expected)
+{
+  apple2VideoState video;
+  apple2CoreGetVideoState(core, &video);
+  for (size_t row = 0; row < apple2TextRows; ++row)
+  {
+    char line[apple2TextColumns + 1];
+    for (size_t column = 0; column < apple2TextColumns; ++column)
+    {
+      uint8_t value;
+      assert(apple2CoreReadTextCell(core, video.page2, row, column, &value) == apple2CoreOk);
+      line[column] = (char)(value & 0x7F);
+    }
+    size_t length = apple2TextColumns;
+    while (length > 0 && line[length - 1] == ' ')
+    {
+      --length;
+    }
+    line[length] = '\0';
+    if (strcmp(line, expected) == 0)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+//— Control characters and cursor-key codes must reach Applesoft GET and the ROM Ctrl-C break check
+static void testApple2ControlKeys(const uint8_t *rom)
+{
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, apple2RomSize) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 500000) == apple2CoreOk);
+
+  apple2TypeBasicCommand(core, "10 GET A$: PRINT ASC(A$): GOTO 10\r");
+  apple2TypeBasicCommand(core, "RUN\r");
+  const struct
+  {
+    char key;
+    const char *expected;
+  } cases[] = {{0x01, "1"},  {0x07, "7"},  {0x08, "8"},   {0x0A, "10"}, {0x0B, "11"},
+               {0x0D, "13"}, {0x15, "21"}, {0x1A, "26"},  {0x1B, "27"}, {0x1F, "31"},
+               {0x7F, "127"}, {'a', "97"},  {'Z', "90"}};
+  for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); ++index)
+  {
+    char key[2] = {cases[index].key, '\0'};
+    apple2TypeBasicCommand(core, key);
+    assert(apple2TextHasRow(core, cases[index].expected));
+  }
+
+  //— Ctrl-C reaches the ROM break check while a program runs
+  apple2CoreDestroy(core);
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, apple2RomSize) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 500000) == apple2CoreOk);
+  apple2TypeBasicCommand(core, "10 GOTO 10\r");
+  apple2TypeBasicCommand(core, "RUN\r");
+  assert(!apple2TextContainsText(core, "BREAK"));
+  apple2TypeBasicCommand(core, "\x03");
+  assert(apple2TextContainsText(core, "BREAK"));
+  apple2CoreDestroy(core);
+}
+
+static void testApple2Keyboard(void)
+{
+  apple2Keyboard keyboard;
+  uint8_t keys[apple2KeyboardMaxOutput];
+  apple2KeyboardInit(&keyboard, false);
+
+  const struct
+  {
+    const char *sequence;
+    uint8_t expected;
+  } arrows[] = {{"\x1b[A", apple2KeyUp},       {"\x1b[B", apple2KeyDown},    {"\x1b[C", apple2KeyRight},
+                {"\x1b[D", apple2KeyLeft},     {"\x1bOA", apple2KeyUp},      {"\x1bOB", apple2KeyDown},
+                {"\x1bOC", apple2KeyRight},    {"\x1bOD", apple2KeyLeft},    {"\x1b[1;5C", apple2KeyRight}};
+  for (size_t index = 0; index < sizeof(arrows) / sizeof(arrows[0]); ++index)
+  {
+    size_t produced = 0;
+    for (const char *byte = arrows[index].sequence; *byte != '\0'; ++byte)
+    {
+      assert(produced == 0);
+      produced = apple2KeyboardPush(&keyboard, (uint8_t)*byte, keys);
+    }
+    assert(produced == 1 && keys[0] == arrows[index].expected);
+    assert(!apple2KeyboardHasPending(&keyboard));
+  }
+
+  //— Unknown sequences (Delete, Home) are dropped
+  const char *ignored = "\x1b[3~\x1b[H";
+  for (const char *byte = ignored; *byte != '\0'; ++byte)
+  {
+    assert(apple2KeyboardPush(&keyboard, (uint8_t)*byte, keys) == 0);
+  }
+  assert(!apple2KeyboardHasPending(&keyboard));
+
+  //— Lone ESC is delivered by the timeout flush; ESC plus a letter is delivered as two keys
+  assert(apple2KeyboardPush(&keyboard, 0x1B, keys) == 0);
+  assert(apple2KeyboardHasPending(&keyboard));
+  assert(apple2KeyboardFlush(&keyboard, keys) == 1 && keys[0] == 0x1B);
+  assert(!apple2KeyboardHasPending(&keyboard));
+  assert(apple2KeyboardPush(&keyboard, 0x1B, keys) == 0);
+  assert(apple2KeyboardPush(&keyboard, 'I', keys) == 2 && keys[0] == 0x1B && keys[1] == 'I');
+  assert(apple2KeyboardPush(&keyboard, 0x1B, keys) == 0);
+  assert(apple2KeyboardPush(&keyboard, 0x1B, keys) == 1 && keys[0] == 0x1B);
+  assert(apple2KeyboardPush(&keyboard, 'K', keys) == 2 && keys[0] == 0x1B && keys[1] == 'K');
+
+  //— Control characters pass unchanged; CR LF yields one CR; DEL becomes backspace
+  for (uint8_t control = 0x01; control < 0x20; ++control)
+  {
+    if (control == '\r' || control == '\n' || control == 0x1B || control == 0x08)
+    {
+      continue;
+    }
+    assert(apple2KeyboardPush(&keyboard, control, keys) == 1 && keys[0] == control);
+  }
+  assert(apple2KeyboardPush(&keyboard, '\r', keys) == 1 && keys[0] == '\r');
+  assert(apple2KeyboardPush(&keyboard, '\n', keys) == 0);
+  assert(apple2KeyboardPush(&keyboard, '\n', keys) == 1 && keys[0] == '\r');
+  assert(apple2KeyboardPush(&keyboard, 127, keys) == 1 && keys[0] == 8);
+  assert(apple2KeyboardPush(&keyboard, 8, keys) == 1 && keys[0] == 8);
+  assert(apple2KeyboardPush(&keyboard, 0xC3, keys) == 0);
+}
+
 static void testApple2SystemRom(void)
 {
   FILE *romFile = fopen(APPLE2_SYSTEM_ROM_PATH, "rb");
@@ -524,6 +652,7 @@ static void testApple2SystemRom(void)
   assert(fclose(romFile) == 0);
 
   testApple2LowercaseKeyboardEcho(rom);
+  testApple2ControlKeys(rom);
   testApple2BootIn80Columns(rom);
 
   apple2Core *core = NULL;
@@ -4065,6 +4194,7 @@ int main(int argc, char **argv)
   if (argc == 2 && strcmp(argv[1], "--apple2-core") == 0)
   {
     testApple2Core();
+    testApple2Keyboard();
     testApple2VidexCard();
     puts("PASS: Apple II 6502, memory map, keyboard and video switches");
     return 0;
@@ -4076,6 +4206,7 @@ int main(int argc, char **argv)
   }
   testPaths();
   testApple2Core();
+  testApple2Keyboard();
   testHostExchange();
   testHostExchangeProdos();
   testCpm86Core();

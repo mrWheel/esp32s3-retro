@@ -2,6 +2,7 @@
 #include "apple2Core.h"
 #include "apple2DiskImage.h"
 #include "apple2DriveConfig.h"
+#include "apple2Keyboard.h"
 #include "diskActivity.h"
 #include "hostExchange.h"
 #include "hostConsole.h"
@@ -28,6 +29,12 @@ static apple2DiskImage guestDisks[apple2DriveConfigSlotCount][apple2DriveConfigD
 static uint8_t renderedCells[apple2TextRows][apple2VidexTextColumns];
 static bool screenRendered;
 static bool renderedFlashOn;
+static apple2Keyboard keyboard;
+static uint8_t queuedKeys[apple2KeyboardMaxOutput];
+static size_t queuedKeyIndex;
+static size_t queuedKeyCount;
+static int64_t lastTerminalByteUs;
+static const int64_t escapeTimeoutUs = 50000;
 static bool renderedVidexMode;
 static bool renderedVidexModeKnown;
 
@@ -229,10 +236,35 @@ static void renderScreen(int64_t nowUs)
   renderedVidexModeKnown = true;
 }
 
-static void handleInput(bool *skipLineFeed)
+static void pressNextQueuedKey(void)
 {
-  if (apple2CoreKeyPending(guestCore) || !hostConsoleCharAvailable())
+  if (queuedKeyIndex < queuedKeyCount)
   {
+    apple2CorePressKey(guestCore, queuedKeys[queuedKeyIndex++]);
+  }
+}
+
+static void handleInput(void)
+{
+  if (apple2CoreKeyPending(guestCore))
+  {
+    return;
+  }
+  if (queuedKeyIndex < queuedKeyCount)
+  {
+    pressNextQueuedKey();
+    return;
+  }
+  queuedKeyIndex = 0;
+  queuedKeyCount = 0;
+  if (!hostConsoleCharAvailable())
+  {
+    //— A lone ESC (no sequence byte following) is a real ESC key press
+    if (apple2KeyboardHasPending(&keyboard) && esp_timer_get_time() - lastTerminalByteUs > escapeTimeoutUs)
+    {
+      queuedKeyCount = apple2KeyboardFlush(&keyboard, queuedKeys);
+      pressNextQueuedKey();
+    }
     return;
   }
   int character = hostConsoleGetChar();
@@ -240,29 +272,9 @@ static void handleInput(bool *skipLineFeed)
   {
     return;
   }
-  if (character == '\n' && *skipLineFeed)
-  {
-    *skipLineFeed = false;
-    return;
-  }
-  *skipLineFeed = false;
-  if (character == '\r')
-  {
-    *skipLineFeed = true;
-    character = '\r';
-  }
-  else if (character == '\n')
-  {
-    character = '\r';
-  }
-  else if (character == 8 || character == 127)
-  {
-    character = 8;
-  }
-  if (character >= 0 && character <= 0x7F)
-  {
-    apple2CorePressKey(guestCore, (uint8_t)character);
-  }
+  lastTerminalByteUs = esp_timer_get_time();
+  queuedKeyCount = apple2KeyboardPush(&keyboard, (uint8_t)character, queuedKeys);
+  pressNextQueuedKey();
 }
 
 machineState apple2MachineProbe(const retroMachine *machine)
@@ -647,13 +659,15 @@ void apple2MachineRun(void)
   }
   size_t cyclesPerPeriod = (size_t)(((uint64_t)1023000 * period + configTICK_RATE_HZ - 1) /
                                     configTICK_RATE_HZ);
-  bool skipLineFeed = hostConsolePeekChar() == '\n';
+  apple2KeyboardInit(&keyboard, hostConsolePeekChar() == '\n');
+  queuedKeyIndex = 0;
+  queuedKeyCount = 0;
   int64_t lastRenderUs = 0;
   uint32_t seenWriteAttempts = totalWriteAttempts();
   uint32_t seenWriteFailures = totalWriteFailures();
   while (true)
   {
-    handleInput(&skipLineFeed);
+    handleInput();
     if (apple2CoreRunCycles(guestCore, cyclesPerPeriod) != apple2CoreOk)
     {
       ESP_LOGE(tag, "6502 execution stopped");

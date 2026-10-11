@@ -25,6 +25,7 @@ add_executable(
   ../main/cpm86BiosOverlay.c
   ../main/storagePath.c
   ../main/imageFile.c
+  ../main/apple2Keyboard.c
 )
 target_include_directories(hostTests PRIVATE ../components/hostCore/include ../components/cpm80Core/include
   ../components/cpm86Core/include ../components/cpm86Core/third_party/emu86 ../components/apple2Core/include
@@ -37,7 +38,7 @@ target_compile_definitions(
   CPM86_SYSTEM_DISK_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/system.dsk"
   CPM86_BIOS_OVERLAY_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/retro86bios.h86"
   APPLE2_TEST_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/apple2-diagnostic.rom"
-  APPLE2_SYSTEM_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple.rom")
+  APPLE2_SYSTEM_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2_roms/apple.rom")
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(hostTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(hostTests PRIVATE -fsanitize=address,undefined)
@@ -54,7 +55,7 @@ target_include_directories(apple2DiskTests PRIVATE ../components/apple2Core/incl
   ../components/apple2Core/third_party/chips ../main)
 target_compile_options(apple2DiskTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
 target_compile_definitions(
-  apple2DiskTests PRIVATE APPLE2_SYSTEM_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple.rom"
+  apple2DiskTests PRIVATE APPLE2_SYSTEM_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2_roms/apple.rom"
   APPLE2_SYSTEM_DISK_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/apple2/system.dsk")
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(apple2DiskTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
@@ -95,5 +96,5 @@ add_test(NAME apple2ProdosAutostart COMMAND apple2DiskTests --prodos-autostart-b
 add_test(NAME apple2ProdosAutostart80Columns COMMAND apple2DiskTests --prodos-80col-boot
   ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po)
 add_test(NAME apple2ProdosSmartPort COMMAND apple2DiskTests --prodos-smartport-boot
-  "${CMAKE_CURRENT_SOURCE_DIR}/../assets/appleDisks/ProDOS 2.4.2.dsk" ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po)
+  "${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2Downloads/appleDisks/ProDOS 2.4.2.dsk" ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po)
 set_tests_properties(apple2ProdosAutostart apple2ProdosAutostart80Columns apple2ProdosSmartPort PROPERTIES FIXTURES_REQUIRED prodosImages)
