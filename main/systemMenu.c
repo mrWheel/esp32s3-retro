@@ -28,13 +28,14 @@ static void showMenu(void)
   for (size_t index = 0; index < machineCount(); ++index)
   {
     const retroMachine *machine = machineGet(index);
-    if (index == 0)
+    machineState state = machine->probe(machine);
+    if (state == machineAvailable)
     {
       printf("%u. %s\n", (unsigned)index + 1, machine->name);
     }
     else
     {
-      printf("%u. %s [%s]\n", (unsigned)index + 1, machine->name, machineStateText(machine->probe(machine)));
+      printf("%u. %s [%s]\n", (unsigned)index + 1, machine->name, machineStateText(state));
     }
   }
   printf("6. File Transfer%s\n\n", storageReady() ? "" : " [SD unavailable]");
