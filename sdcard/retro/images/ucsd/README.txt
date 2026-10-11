@@ -1,13 +1,19 @@
 Menu option 3 uses this profile and the same Apple II 6502 emulator as option 4.
 
-The current profile boots `/littlefs/ucsd/ApplePascal2-680-0005-00.dsk`
+The profile configures `/littlefs/ucsd/ApplePascal1-680-0004-01.dsk`
 read-only as SD6.1 and mounts `/retro/images/ucsd/pascal640.po` read/write as
 SD6.2. The latter is the second Disk II drive in the same slot, available to
-the guest as its work volume. In File Transfer, select UCSD Pascal and Disk
+the guest as its work volume. The Pascal 1 image contains SYSTEM.APPLE and
+boots in the LinApple desktop reference, but the project emulator has not yet
+booted it successfully.
+
+Copy this directory's `drives.cfg` to `/retro/images/ucsd/drives.cfg` on the
+SD card when updating the UCSD profile. Menu option 3 requires that file as
+well as the LittleFS boot image. In File Transfer, select UCSD Pascal and Disk
 image; uploads go directly into this machine's image directory.
 
-The Pascal guest boot and write/reopen workflow have not yet been qualified.
-Verify this system disk's release requirements, geometry, sector order and
+The Pascal editor and write/reopen workflow have not yet been qualified.
+Verify the system disk's release requirements, geometry, sector order and
 work-volume compatibility before relying on guest filesystem writes.
 
 Disk-image paths in drives.cfg must remain below /retro/images/ucsd/. Menu

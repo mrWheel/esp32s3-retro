@@ -3,8 +3,8 @@
 
 The program is written from the published behaviour of the Disk II interface and from the
 project's own host-side contract (see designApple2.md, APPLE-DEC-020). It is not derived from
-any existing controller ROM. It reads track 0 sectors only, which is all a DOS boot
-chain needs; later disk access is done by the guest operating system through the softswitches.
+any existing controller ROM. The boot ROM reads track 0 sectors; later disk access is done
+by the guest operating system through the softswitches.
 """
 
 import argparse
@@ -186,6 +186,7 @@ def build(slot):
     a.emit(0xC8)  # INY
     a.branch(0xD0, "combine")
     a.emit(0xE6, 0x27)  # INC $27
+    a.emit(0xE6, 0x3D)  # INC $3D: advance the sector for the next boot-ROM read
     a.emit(0xA6, 0x2B)  # LDX $2B  X = slot*16 on entry to the boot sector (ProDOS reads it)
     a.absolute(0x4C, 0x0801)  # JMP $0801
 

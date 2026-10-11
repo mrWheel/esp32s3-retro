@@ -758,14 +758,23 @@ static void readRom(const char *path, uint8_t *rom)
   assert(fclose(file) == 0);
 }
 
-//-- The guest (Autostart ROM + project-authored slot-6 boot ROM) must itself read the boot sector.
+//-- The guest boot ROM must read the boot sector and advance the next-sector request after each read.
 static void testGuestBootSector(void)
 {
   uint8_t *image = malloc(imageBytes);
   assert(image != NULL);
   fillPatternImage(image);
-  static const uint8_t bootCode[] = {0x01, 0xA9, 0x42, 0x8D, 0x00, 0x03, 0xA9, 0x77, 0x8D, 0x01, 0x03,
-                                     0x4C, 0x0B, 0x08};
+  static const uint8_t bootCode[] = {
+      0x01,                   //-- Boot signature.
+      0xAD, 0x00, 0x03,       //-- LDA $0300
+      0xD0, 0x18,             //-- BNE done
+      0xA9, 0x42, 0x8D, 0x00, 0x03, //-- STA $0300
+      0xA9, 0x77, 0x8D, 0x01, 0x03, //-- Preserve the original boot-sector assertions.
+      0xA9, 0x02, 0x85, 0x3D, //-- Request physical sector 2.
+      0xA9, 0x00, 0x85, 0x26, //-- Buffer pointer = $0900.
+      0xA9, 0x09, 0x85, 0x27,
+      0x20, 0x5C, 0xC6,       //-- JSR slot-6 read entry.
+      0x4C, 0x1F, 0x08};      //-- done: JMP $081F
   memcpy(image, bootCode, sizeof(bootCode));
   char path[64];
   makeTempPath(path, sizeof(path));
@@ -774,6 +783,8 @@ static void testGuestBootSector(void)
   apple2DiskImage disk;
   apple2DiskImageInitialize(&disk);
   assert(apple2DiskImageOpen(&disk, path) == apple2DiskImageOk);
+  uint8_t expectedSecondSector[apple2DiskImageSectorSize];
+  assert(apple2DiskImageReadSector(&disk, 0, 14, expectedSecondSector) == apple2DiskImageOk);
   uint8_t rom[apple2RomSize];
   readRom(APPLE2_SYSTEM_ROM_PATH, rom);
   apple2Core *core = NULL;
@@ -781,11 +792,18 @@ static void testGuestBootSector(void)
   assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
   assert(apple2CoreAttachDisk(core, apple2DiskImageReadSectorCallback, &disk) == apple2CoreOk);
   assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
-  assert(apple2CoreRunCycles(core, 2000000) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 4000000) == apple2CoreOk);
 
   uint8_t value;
   assert(apple2CoreReadMemory(core, 0x0300, &value) == apple2CoreOk && value == 0x42);
   assert(apple2CoreReadMemory(core, 0x0301, &value) == apple2CoreOk && value == 0x77);
+  assert(apple2CoreReadMemory(core, 0x3D, &value) == apple2CoreOk && value == 0x03);
+  assert(apple2CoreReadMemory(core, 0x27, &value) == apple2CoreOk && value == 0x0A);
+  for (size_t offset = 0; offset < sizeof(expectedSecondSector); ++offset)
+  {
+    assert(apple2CoreReadMemory(core, (uint16_t)(0x0900 + offset), &value) == apple2CoreOk);
+    assert(value == expectedSecondSector[offset]);
+  }
   for (size_t offset = 0; offset < 256; ++offset)
   {
     assert(apple2CoreReadMemory(core, (uint16_t)(0x0800 + offset), &value) == apple2CoreOk);

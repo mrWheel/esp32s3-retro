@@ -177,14 +177,14 @@ SD<slot>.<drive>=<image>,<RO-or-RW>,<profile>
 
 Accepted baseline: slots 4–7, drives 1–2; optional `SP5.1`/`SP5.2` retain their existing meaning. Slot 0 is Language Card, slot 2 is the exchange bridge, slot 3 is video. `PR6.1`, lettered CP/M mappings and drives 3–99 are not supported configuration extensions. Guest `PR#n` is a separate command, unchanged.
 
-The active UCSD `drives.cfg` maps the provided media as follows:
+The active UCSD `drives.cfg` maps the selected system and work media as follows:
 
 ```text
-SD6.1=/littlefs/ucsd/ApplePascal2-680-0005-00.dsk,RO,APPLE2_140K
+SD6.1=/littlefs/ucsd/ApplePascal1-680-0004-01.dsk,RO,APPLE2_140K
 SD6.2=/retro/images/ucsd/pascal640.po,RW,APPLE2_640K
 ```
 
-The actual filenames, order and access policy must be qualified for the chosen release. A RO boot disk is only usable if the guest accepts it; otherwise deploy an explicit writable SD copy, never mutate a flash master. The preserved ProDOS `drives.cfg` baseline, normally associated with option 4, explicitly lists:
+The Pascal 1 image contains `SYSTEM.APPLE`; the Pascal 2 `680-0005-00` image is a compiler/tools disk and is not bootable by itself. LinApple reference testing reaches the Pascal startup/version screen with the Pascal 1 disk. The project emulator has not yet booted it successfully, so native compatibility remains open. The source Pascal 2 image remains under `assets/apple2Downloads/appleDisks/`; it is not selected as SD6.1. A RO boot disk is only usable if the guest accepts it; otherwise deploy an explicit writable SD copy, never mutate a flash master. The preserved ProDOS `drives.cfg` baseline, normally associated with option 4, explicitly lists:
 
 ```text
 SD6.1=/littlefs/apple2/system.dsk,RO,APPLE2_140K
@@ -296,7 +296,7 @@ The shared menu/profile routing, config.cfg resolution and current drives.cfg po
 
 Menu option 3 selects `/littlefs/ucsd/config.cfg`; option 4 selects `/littlefs/apple2/config.cfg`. Both invoke the same Apple II machine initialization, run loop and Apple II core. A profile `config.cfg` accepts one `drives=/retro/images/<machine>/.../drives.cfg` line for Apple II or UCSD; comments and blank lines are allowed. The resolver rejects duplicate/unknown keys, paths outside those two image roots and paths that do not end in `drives.cfg`. Each referenced `drives.cfg` uses the existing SD4..SD7/SP5 grammar and validates image paths against the selected machine's roots.
 
-The profile selectors are bundled in LittleFS, so deploying them does not require changing an existing SD card. The option-4 profile references the existing SD `drives.cfg` without changing its drive entries. The Pascal profile selects `/littlefs/ucsd/ApplePascal2-680-0005-00.dsk` read-only as SD6.1 and `/retro/images/ucsd/pascal640.po` read/write as SD6.2. The drive-config parser permits safe read-only images below `/littlefs/ucsd/`, without changing the existing `/littlefs/apple2/system.dsk` restriction or Apple II SD image rules. The boot image is 140K and the work volume 640K. File Transfer already maps its UCSD selector to `/retro/images/ucsd/`, so no GUI/server routing change is required. Guest boot, release requirements, disk order and Pascal filesystem writes have not been qualified. This change does not alter CP/M machine code, its resource paths, or the Apple II CPU/video/keyboard path.
+The profile selectors are bundled in LittleFS, so deploying them does not require changing an existing SD card. The option-4 profile references the existing SD `drives.cfg` without changing its drive entries. The Pascal profile selects `/littlefs/ucsd/ApplePascal1-680-0004-01.dsk` read-only as SD6.1 and `/retro/images/ucsd/pascal640.po` read/write as SD6.2. The SD card must contain the matching `/retro/images/ucsd/drives.cfg`; a missing boot image or drive-config file makes menu option 3 report a missing resource. The drive-config parser permits safe read-only images below `/littlefs/ucsd/`, without changing the existing `/littlefs/apple2/system.dsk` restriction or Apple II SD image rules. The boot image is 140K and the work volume 640K. File Transfer already maps its UCSD selector to `/retro/images/ucsd/`, so no GUI/server routing change is required. The Pascal 1 system disk boots in the LinApple reference, but the project emulator has not yet booted it; the editor, release requirements, native disk-order behavior and Pascal filesystem writes remain unqualified. This change does not alter CP/M machine code, its resource paths, or the Apple II CPU/video/keyboard path.
 
 The ESP-IDF build succeeds. Eleven selected Apple II and ProDOS host regressions passed, including assertions for both Pascal drive mappings, LittleFS write-protection and path traversal rejection. Native Pascal boot, editor, write/reopen and physical-board gates remain NOT RUN.
 
@@ -349,7 +349,7 @@ Each issue uses the engineering-memory chain. At this rewrite, Pascal experiment
 | UCSD-ISSUE-004 | RETARGETED OPEN: Apple Pascal block limits, native text and file metadata; no guessed capacity/encoding |
 | UCSD-ISSUE-005 | OLD Z80 BINDING SUPERSEDED: optional Pascal/6502 exchange work deferred under ISSUE-012 |
 | UCSD-ISSUE-006 | OPEN: inspect common launch lifecycle and implement config.cfg selection and common drives.cfg resolution without rewriting either configuration; test missing SD6.1 and failed-open cleanup |
-| UCSD-ISSUE-007 | OPEN: original Pascal loader vs project-authored slot-ROM entry points and post-DEC-033 controller dispatch; capture first divergent fetch/read; do not infer Pascal failure from prior ProDOS failure |
+| UCSD-ISSUE-007 | OPEN: Pascal 1 boots to its startup/version screen in LinApple. The project-authored slot-ROM now advances the sector request after each read, and a host regression verifies the second-sector read; the Pascal image probe gets past the Apple II monitor but still stops at `NO FILE SYSTEM.APPLE` (320 sector fetches, no read failures, head at track 0). Continue tracing the guest disk read that rejects the directory/file; do not claim Pascal boot or hardware acceptance. |
 | UCSD-ISSUE-008 | OPEN: original-machine ROM identity/checksums/rights and primary Language Card reference; trace authentic Pascal bank use (APPLE-ISSUE-001/002/007) |
 | UCSD-ISSUE-009 | OPEN: Pascal video driver, active-card selection and bank-aware ROM hooks; do not run monitor traps on Pascal RAM code |
 | UCSD-ISSUE-010 | OPEN: guest write persistence, RO behavior, volume swaps and interrupted-write recovery; host GCR write tests are insufficient |
