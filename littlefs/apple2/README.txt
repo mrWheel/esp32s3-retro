@@ -15,9 +15,10 @@ use a new system.dsk.
 
 Menu option 4 selects /littlefs/apple2/config.cfg, which points to drives.cfg on the SD
 card. There is no default drive: that drives.cfg must explicitly list SD6.1. The shipped
-profile boots the ProDOS system volume. Native Apple Pascal media can be selected through
-menu option 3 and its separate /littlefs/ucsd/config.cfg, but it must use a matching
-original Pascal system disk in its own drives.cfg; no such system disk is bundled.
+profile boots the ProDOS system volume. Native Apple Pascal media can be selected through menu option 3 and its separate
+/littlefs/ucsd/config.cfg. Its drives.cfg uses the read-only system
+disk from /littlefs/ucsd/ and a separate writable SD work volume under
+/retro/images/ucsd/.
 When SD6.1 is not configured or its image cannot be opened, the emulator returns an error
 instead of substituting another disk.
 

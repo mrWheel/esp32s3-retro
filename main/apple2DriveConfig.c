@@ -7,7 +7,9 @@
 
 static const char *systemImagePath = "/littlefs/apple2/system.dsk";
 static const char *systemPathPrefix = "/littlefs/apple2/";
+static const char *pascalSystemPathPrefix = "/littlefs/ucsd/";
 static const char *dataPathPrefix = "/retro/images/apple2/";
+static const char *pascalDataPathPrefix = "/retro/images/ucsd/";
 
 typedef apple2DriveConfig driveTable[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
 
@@ -105,7 +107,7 @@ apple2DriveConfigResult apple2DriveConfigResolve(const char *configPath, char *d
         char *equals = strchr(content, '=');
         if (equals == NULL || equals == content || strchr(equals + 1, '=') != NULL)
         {
-          snprintf(reason, sizeof(reason), "expected drives=/retro/images/apple2/<file>.cfg");
+          snprintf(reason, sizeof(reason), "expected drives=/retro/images/<apple2|ucsd>/<file>.cfg");
         }
         else
         {
@@ -116,9 +118,10 @@ apple2DriveConfigResult apple2DriveConfigResolve(const char *configPath, char *d
           size_t drivesFileNameLength = strlen("drives.cfg");
           if (strcmp(key, "drives") != 0 || valueLength < drivesFileNameLength ||
               strcmp(value + valueLength - drivesFileNameLength, "drives.cfg") != 0 ||
-              !safePath(value, dataPathPrefix))
+              (!safePath(value, dataPathPrefix) && !safePath(value, pascalDataPathPrefix)))
           {
-            snprintf(reason, sizeof(reason), "drives must name an Apple II drives.cfg below /retro/images/apple2/");
+            snprintf(reason, sizeof(reason),
+                     "drives must name a drives.cfg below /retro/images/apple2/ or /retro/images/ucsd/");
           }
           else if (foundDrivesPath)
           {
@@ -291,18 +294,34 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
       }
     }
   }
-  bool system = strncmp(imagePath, systemPathPrefix, strlen(systemPathPrefix)) == 0;
+  bool apple2System = strncmp(imagePath, systemPathPrefix, strlen(systemPathPrefix)) == 0;
+  bool pascalSystem = strncmp(imagePath, pascalSystemPathPrefix, strlen(pascalSystemPathPrefix)) == 0;
+  bool littlefsImage = apple2System || pascalSystem;
+  bool pascalData = strncmp(imagePath, pascalDataPathPrefix, strlen(pascalDataPathPrefix)) == 0;
+  if (pascalSystem && !readOnly)
+  {
+    setError(error, errorCapacity, "UCSD LittleFS images must be read-only");
+    return false;
+  }
   if (!readOnly && strcmp(imagePath, systemImagePath) == 0)
   {
     setError(error, errorCapacity, "system.dsk must be read-only");
     return false;
   }
-  if (!safePath(imagePath, system ? systemPathPrefix : dataPathPrefix) || strlen(imagePath) >= sizeof(drive->path))
+  if (pascalSystem && !safePath(imagePath, pascalSystemPathPrefix))
   {
-    setError(error, errorCapacity, "image path must be below /littlefs/apple2/ or /retro/images/apple2/");
+    setError(error, errorCapacity, "unsafe UCSD LittleFS image path");
     return false;
   }
-  if (system)
+  const char *allowedPrefix =
+      littlefsImage ? (pascalSystem ? pascalSystemPathPrefix : systemPathPrefix) : (pascalData ? pascalDataPathPrefix : dataPathPrefix);
+  if (!safePath(imagePath, allowedPrefix) || strlen(imagePath) >= sizeof(drive->path))
+  {
+    setError(error, errorCapacity,
+             "image path must be /littlefs/apple2/system.dsk, below /littlefs/ucsd/, or below /retro/images/apple2/ or /retro/images/ucsd/");
+    return false;
+  }
+  if (littlefsImage)
   {
     snprintf(drive->path, sizeof(drive->path), "%s", imagePath);
   }

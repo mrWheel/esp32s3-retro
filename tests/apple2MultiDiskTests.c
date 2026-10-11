@@ -813,7 +813,7 @@ static void testDriveConfig(void)
   writeText(path, "# Apple II drives\n"
                   "\n"
                   "SD6.2=/retro/images/apple2/data.po,RW,APPLE2_640K\n"
-                  "SD5.1 = /retro/images/apple2/pascal.dsk , RO , APPLE2_140K\r\n"
+                  "SD5.1 = /retro/images/apple2/data.dsk , RO , APPLE2_140K\r\n"
                   "SD7.2=/littlefs/apple2/extra.dsk,RW,APPLE2_800K\n");
   assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
   assert(drives[3][1].configured && drives[3][1].profile == apple2DiskImageProfile800k);
@@ -822,7 +822,7 @@ static void testDriveConfig(void)
   assert(!drives[2][1].readOnly);
   assert(strcmp(drives[2][1].path, "/microSD/retro/images/apple2/data.po") == 0);
   assert(drives[1][0].configured && drives[1][0].profile == apple2DiskImageProfile140k);
-  assert(strcmp(drives[1][0].path, "/microSD/retro/images/apple2/pascal.dsk") == 0);
+  assert(strcmp(drives[1][0].path, "/microSD/retro/images/apple2/data.dsk") == 0);
   assert(drives[3][1].configured && strcmp(drives[3][1].path, "/littlefs/apple2/extra.dsk") == 0);
   assert(!drives[3][1].readOnly);
   assert(drives[1][0].readOnly);
@@ -845,9 +845,18 @@ static void testDriveConfig(void)
   assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
   assert(drives[2][0].configured && strcmp(drives[2][0].path, "/littlefs/apple2/system.dsk") == 0);
   assert(drives[2][0].readOnly);
+  writeText(path, "SD6.1=/littlefs/ucsd/ApplePascal.dsk,RO,APPLE2_140K\n"
+                  "SD6.2=/retro/images/ucsd/pascal640.po,RW,APPLE2_640K\n");
+  assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
+  assert(drives[2][0].configured && drives[2][0].readOnly);
+  assert(strcmp(drives[2][0].path, "/littlefs/ucsd/ApplePascal.dsk") == 0);
+  assert(drives[2][1].configured && !drives[2][1].readOnly);
+  assert(strcmp(drives[2][1].path, "/microSD/retro/images/ucsd/pascal640.po") == 0);
 
   static const char *const invalidLines[] = {
       "SD6.1=/littlefs/apple2/system.dsk,RW,APPLE2_140K\n",
+      "SD6.1=/littlefs/ucsd/ApplePascal.dsk,RW,APPLE2_140K\n",
+      "SD6.1=/littlefs/ucsd/../apple2/system.dsk,RO,APPLE2_140K\n",
       "SD6.2=/retro/images/apple2/data.po,WR,APPLE2_640K\n",
       "SD3.1=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
       "SD8.1=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
@@ -908,10 +917,10 @@ static void testProfileConfig(void)
          apple2DriveConfigLoaded);
   assert(strcmp(drivesPath, "/microSD/retro/images/apple2/drives.cfg") == 0);
 
-  writeText(configPath, "drives=/retro/images/apple2/pascal/drives.cfg\n");
+  writeText(configPath, "drives=/retro/images/ucsd/drives.cfg\n");
   assert(apple2DriveConfigResolve(configPath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
          apple2DriveConfigLoaded);
-  assert(strcmp(drivesPath, "/microSD/retro/images/apple2/pascal/drives.cfg") == 0);
+  assert(strcmp(drivesPath, "/microSD/retro/images/ucsd/drives.cfg") == 0);
 
   snprintf(sourcePath, sizeof(sourcePath), "%s/littlefs/apple2/config.cfg", PROJECT_ROOT_PATH);
   assert(apple2DriveConfigResolve(sourcePath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
@@ -920,18 +929,26 @@ static void testProfileConfig(void)
   snprintf(sourcePath, sizeof(sourcePath), "%s/littlefs/ucsd/config.cfg", PROJECT_ROOT_PATH);
   assert(apple2DriveConfigResolve(sourcePath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
          apple2DriveConfigLoaded);
-  assert(strcmp(drivesPath, "/microSD/retro/images/apple2/pascal/drives.cfg") == 0);
+  assert(strcmp(drivesPath, "/microSD/retro/images/ucsd/drives.cfg") == 0);
 
-  snprintf(sourcePath, sizeof(sourcePath), "%s/sdcard/retro/images/apple2/pascal/drives.cfg", PROJECT_ROOT_PATH);
+  snprintf(sourcePath, sizeof(sourcePath), "%s/sdcard/retro/images/ucsd/drives.cfg", PROJECT_ROOT_PATH);
   assert(apple2DriveConfigLoad(sourcePath, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
-  assert(!drives[6 - apple2DriveConfigFirstSlot][0].configured);
+  assert(drives[6 - apple2DriveConfigFirstSlot][0].configured);
+  assert(drives[6 - apple2DriveConfigFirstSlot][0].readOnly);
+  assert(strcmp(drives[6 - apple2DriveConfigFirstSlot][0].path,
+                "/littlefs/ucsd/ApplePascal2-680-0005-00.dsk") == 0);
+  assert(drives[6 - apple2DriveConfigFirstSlot][1].configured);
+  assert(!drives[6 - apple2DriveConfigFirstSlot][1].readOnly);
+  assert(drives[6 - apple2DriveConfigFirstSlot][1].profile == apple2DiskImageProfile640k);
+  assert(strcmp(drives[6 - apple2DriveConfigFirstSlot][1].path,
+                "/microSD/retro/images/ucsd/pascal640.po") == 0);
 
   static const char *const invalidConfigs[] = {
       "# No selected drives file\n",
       "drives=/retro/images/apple2/../drives.cfg\n",
       "drives=/retro/images/cpm80/drives.cfg\n",
       "drives=/retro/images/apple2/drives.txt\n",
-      "drives=/retro/images/apple2/drives.cfg\ndrives=/retro/images/apple2/pascal/drives.cfg\n",
+      "drives=/retro/images/apple2/drives.cfg\ndrives=/retro/images/ucsd/drives.cfg\n",
       "unknown=/retro/images/apple2/drives.cfg\n",
       "not a config line\n",
   };

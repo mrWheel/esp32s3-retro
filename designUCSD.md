@@ -1,6 +1,6 @@
 # designUCSD.md — Native Apple II Pascal engineering memory
 
-Revision: 2026-10-11. Status: shared Apple II launch/configuration integration is implemented; native Apple Pascal boot, editor, filesystem workflow and end-to-end acceptance remain unverified. Existing Apple II implementation evidence is inherited with its original scope.
+Revision: 2026-10-11. Status: shared Apple II launch/configuration integration and Pascal boot/work-disk selection are implemented; native Apple Pascal boot, editor, filesystem workflow and end-to-end acceptance remain unverified. Existing Apple II implementation evidence is inherited with its original scope.
 
 ## Provenance and purpose
 
@@ -8,7 +8,7 @@ This design replaces the independent Z80 p-System proposal with **native Apple P
 
 The guest's Apple II 6502 p-code interpreter executes its matching Pascal system and compiled p-code. The ESP32 does not implement a replacement p-code VM or simulate the Pascal command environment. Boot original, matching Apple Pascal system images through the existing Apple II slot-controller interface and their own on-disk loaders. Add only the disk-format, boot and terminal support that reproducible evidence shows is missing.
 
-The original design rebaseline did not inspect the repository or run tests. The subsequent implementation inspected the current project contract and Apple II launch, drive-config and registry code; it built the ESP-IDF firmware and ran Apple II host regressions. No original Pascal system disk, desktop reference run or ESP32 execution was available, so native Pascal compatibility remains unverified. The owner's report that Apple II and large ProDOS disks work is a user report; it does not independently prove native Pascal compatibility.
+The original design rebaseline did not inspect the repository or run tests. The subsequent implementation inspected the current project contract and Apple II launch, drive-config and registry code; it built the ESP-IDF firmware and ran Apple II host regressions. The provided Pascal system disk is now configured, but no desktop reference run or ESP32 execution was performed, so native Pascal compatibility remains unverified. The owner's report that Apple II and large ProDOS disks work is a user report; it does not independently prove native Pascal compatibility.
 
 ### Authority and conflict resolution
 
@@ -68,7 +68,7 @@ Paths under `/retro/` denote the SD volume independently of its VFS mount prefix
 
 Only option 6 starts WiFi and browser File Transfer, using the existing `michmich/esp-idf-wifi-provisioner` dependency (`^0.4.0` requirement in the supplied contracts; resolve against the project's actual lock). Its scope remains `/retro/exchange/` and `/retro/images/` on SD, with bounded streaming, temporary uploads, traversal protection, deliberate overwrite, byte-identical binary transfer and progress display. The documented host transfer limit remains 4 GiB minus 2 bytes; it is a host-contract statement, not a Pascal file-size limit. Enter exits File Transfer. Emulator execution and browser transfer remain mutually exclusive.
 
-The prior UCSD namespace intentions `/retro/images/ucsd/` and `/retro/exchange/ucsd/` are retained as a future deployment option, **not claimed supported by the Apple parser or slot-2 adapter**. Initially stage Pascal images in the already allowed Apple II image roots and select the Apple II transfer category. Any UCSD-category alias or root extension needs one explicit shared-host change and a regression; never silently route an upload to an inaccessible path.
+The UCSD image root `/retro/images/ucsd/` is supported by the Apple drive-config parser and File Transfer's machine selector. The LittleFS boot image and profile are in `/littlefs/ucsd/`. The `/retro/exchange/ucsd/` directory remains available for host exchange files; a native Pascal file utility is not yet implemented.
 
 Physical ESP32 reset returns to the host menu; guest reset is separate. Clean exit flushes/closes media, releases devices and restores the terminal. Ordinary guest Enter is never the host exit command. Sudden power loss cannot guarantee guest filesystem consistency; qualify recovery on disposable media.
 
@@ -177,11 +177,11 @@ SD<slot>.<drive>=<image>,<RO-or-RW>,<profile>
 
 Accepted baseline: slots 4–7, drives 1–2; optional `SP5.1`/`SP5.2` retain their existing meaning. Slot 0 is Language Card, slot 2 is the exchange bridge, slot 3 is video. `PR6.1`, lettered CP/M mappings and drives 3–99 are not supported configuration extensions. Guest `PR#n` is a separate command, unchanged.
 
-Illustrative **Pascal `drives.cfg` contents**, normally associated with the `config.cfg` selected by option 3; not installed configuration or supplied media:
+The active UCSD `drives.cfg` maps the provided media as follows:
 
 ```text
-SD6.1=/retro/images/apple2/pascal-system.dsk,RO,APPLE2_140K
-SD6.2=/retro/images/apple2/pascal-work.po,RW,APPLE2_140K
+SD6.1=/littlefs/ucsd/ApplePascal2-680-0005-00.dsk,RO,APPLE2_140K
+SD6.2=/retro/images/ucsd/pascal640.po,RW,APPLE2_640K
 ```
 
 The actual filenames, order and access policy must be qualified for the chosen release. A RO boot disk is only usable if the guest accepts it; otherwise deploy an explicit writable SD copy, never mutate a flash master. The preserved ProDOS `drives.cfg` baseline, normally associated with option 4, explicitly lists:
@@ -194,10 +194,12 @@ Each effective `drives.cfg` has one explicit SD6.1 mapping; do not combine these
 
 | Location | Intended use / current constraint |
 |---|---|
-| `/littlefs/apple2/` | Existing ROM and ProDOS master; optional separate immutable Pascal resource only after sizing/deployment qualification |
-| `/retro/images/apple2/` | Initially supported location for Pascal system copies and writable work images |
+| `/littlefs/apple2/` | Existing ROM and ProDOS master |
+| `/littlefs/ucsd/` | UCSD profile and read-only Pascal system disk |
+| `/retro/images/apple2/` | Apple II media root |
 | `/retro/exchange/apple2/` | Existing slot-2 adapter root and browser staging; no Pascal file utility yet |
-| `/retro/images/ucsd/`, `/retro/exchange/ucsd/` | Retained namespace proposal; needs explicit parser/host routing work before use |
+| `/retro/images/ucsd/` | UCSD writable images; selected directly by File Transfer |
+| `/retro/exchange/ucsd/` | UCSD exchange files; no native Pascal utility yet |
 
 ### Disk controllers, image ordering and native units
 
@@ -292,9 +294,11 @@ The shared menu/profile routing, config.cfg resolution and current drives.cfg po
 
 ## Implementation record — shared profile routing, 2026-10-11
 
-Menu option 3 now selects `/littlefs/ucsd/config.cfg`; option 4 selects `/littlefs/apple2/config.cfg`. Both invoke the same Apple II machine initialization, run loop and Apple II core. A profile `config.cfg` accepts one `drives=/retro/images/apple2/.../drives.cfg` line; comments and blank lines are allowed. The resolver rejects duplicate/unknown keys, paths outside the Apple II image root and paths that do not end in `drives.cfg`. Each referenced `drives.cfg` still uses the existing SD4..SD7/SP5 grammar and image-path policy.
+Menu option 3 selects `/littlefs/ucsd/config.cfg`; option 4 selects `/littlefs/apple2/config.cfg`. Both invoke the same Apple II machine initialization, run loop and Apple II core. A profile `config.cfg` accepts one `drives=/retro/images/<machine>/.../drives.cfg` line for Apple II or UCSD; comments and blank lines are allowed. The resolver rejects duplicate/unknown keys, paths outside those two image roots and paths that do not end in `drives.cfg`. Each referenced `drives.cfg` uses the existing SD4..SD7/SP5 grammar and validates image paths against the selected machine's roots.
 
-The profile selectors are bundled in LittleFS, so deploying them does not require changing an existing SD card. The option-4 profile references the existing SD `drives.cfg` without changing its drive entries. The option-3 `pascal/drives.cfg` on SD is setup scaffolding only and deliberately has no active boot-drive entry because no Apple Pascal release or boot disk was selected. No original system image was fabricated or bundled; option 3 therefore reports a missing resource until a qualified explicit SD6.1 image is installed. The blank Pascal volume is not a system disk. This change does not alter CP/M machine code, image roots, transfer routing or the Apple II CPU/video/keyboard path.
+The profile selectors are bundled in LittleFS, so deploying them does not require changing an existing SD card. The option-4 profile references the existing SD `drives.cfg` without changing its drive entries. The Pascal profile selects `/littlefs/ucsd/ApplePascal2-680-0005-00.dsk` read-only as SD6.1 and `/retro/images/ucsd/pascal640.po` read/write as SD6.2. The drive-config parser permits safe read-only images below `/littlefs/ucsd/`, without changing the existing `/littlefs/apple2/system.dsk` restriction or Apple II SD image rules. The boot image is 140K and the work volume 640K. File Transfer already maps its UCSD selector to `/retro/images/ucsd/`, so no GUI/server routing change is required. Guest boot, release requirements, disk order and Pascal filesystem writes have not been qualified. This change does not alter CP/M machine code, its resource paths, or the Apple II CPU/video/keyboard path.
+
+The ESP-IDF build succeeds. Eleven selected Apple II and ProDOS host regressions passed, including assertions for both Pascal drive mappings, LittleFS write-protection and path traversal rejection. Native Pascal boot, editor, write/reopen and physical-board gates remain NOT RUN.
 
 The ESP-IDF build succeeded. The `apple2MultiDisk` test passed, including the new profile-config parser cases. In the 12-test Apple II host subset, 11 passed; `apple2DiskStream` repeated the known image asset-open failure recorded under APPLE-VERIFY-033. The Pascal boot, editor, write/reopen and physical-board gates remain NOT RUN; the failure does not establish a regression from the profile-routing changes.
 
