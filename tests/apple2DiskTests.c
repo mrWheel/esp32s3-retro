@@ -1139,6 +1139,7 @@ static void testPascalBoot(const char *bootImagePath)
   apple2Core *core = NULL;
   assert(apple2CoreCreate(&core) == apple2CoreOk);
   assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  assert(apple2CoreSetBootIn80Columns(core, true) == apple2CoreOk);
   apple2DiskSectorOrder order = bootDisk.order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
                                                                              : apple2DiskSectorOrderDos;
   assert(apple2CoreAttachDiskDrive(core, 6, 0, order, bootDisk.trackCount, apple2DiskImageReadSectorCallback,
@@ -1151,15 +1152,39 @@ static void testPascalBoot(const char *bootImagePath)
   for (int step = 0; step < 60 && !booted; ++step)
   {
     assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
-    booted = screenContains(core, "COMMAND: E(DIT, R(UN, F(ILE");
+    booted = screenContains(core, "Command: E(dit, R(un, F(ile, C(omp, L(ink, X(ecute, A(ssem, D(ebug,? [1.1]");
   }
   if (!booted)
   {
     dumpScreen(core);
   }
   assert(booted);
-  assert(screenContains(core, "WELCOME APPLE1, TO APPLE II PASCAL"));
-  assert(!screenContains(core, "NO FILE SYSTEM.APPLE"));
+  //-- Pascal found the slot-3 card through the Pascal 1.1 firmware protocol and uses it as its 80x24 console.
+  apple2VideoState video;
+  apple2CoreGetVideoState(core, &video);
+  assert(video.videxTextMode);
+  assert(screenContains(core, "Welcome APPLE1, to Apple II Pascal 1.1"));
+  assert(!screenContains(core, "No file SYSTEM.APPLE"));
+  uint8_t slotByte;
+  assert(apple2CoreReadMemory(core, 0xC305, &slotByte) == apple2CoreOk && slotByte == 0x38);
+  assert(apple2CoreReadMemory(core, 0xC307, &slotByte) == apple2CoreOk && slotByte == 0x18);
+  assert(apple2CoreReadMemory(core, 0xC30B, &slotByte) == apple2CoreOk && slotByte == 0x01);
+  assert(apple2CoreReadMemory(core, 0xBF2A, &slotByte) == apple2CoreOk && slotByte == 0x06);
+  char line[apple2VidexTextColumns + 1];
+  readActiveRow(core, 0, line, sizeof(line));
+  assert(strlen(line) == apple2VidexTextColumns && strncmp(line, "Command:", 8) == 0);
+
+  //-- A key goes through the card: '?' asks Pascal for the next command line, drawn with GOTOXY and clear-to-end-of-line.
+  typeText(core, "?");
+  assert(apple2CoreRunCycles(core, 500000) == apple2CoreOk);
+  if (!screenContains(core, "Command: U(ser restart, I(nitialize, H(alt, S(wap, M(ake exec"))
+  {
+    dumpScreen(core);
+  }
+  assert(screenContains(core, "Command: U(ser restart, I(nitialize, H(alt, S(wap, M(ake exec"));
+  assert(!screenContains(core, "E(dit, R(un"));
+  readActiveRow(core, 0, line, sizeof(line));
+  assert(line[70] == ' ' && line[79] == ' ');
   apple2DiskState state;
   apple2CoreGetDiskState(core, &state);
   assert(state.sectorReadFailures == 0 && state.writeAttempts == 0);

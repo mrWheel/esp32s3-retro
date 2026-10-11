@@ -4,6 +4,7 @@
 #include "apple2Core.h"
 #include "apple2Disk.h"
 #include "apple2DiskBootRom.h"
+#include "apple2PascalCardRom.h"
 #include <stdlib.h>
 #include <string.h>
 #ifdef ESP_PLATFORM
@@ -18,6 +19,8 @@ enum
   apple2VidexRamBankSize = 512,
   apple2VidexRegisterCount = 32,
   apple2VidexFirmwareSize = 369,
+  apple2VidexWorkspaceSize = 8,
+  apple2VidexWorkspaceLast = 0x000D,
   apple2LowercaseEchoCycleLimit = 4096,
   apple2MonitorSetvidAddress = 0xFE93,
   apple2MonitorSetvidEnd = 0xFEB0
@@ -59,8 +62,6 @@ typedef struct
 //-- CRTC register values programmed by the slot-3 firmware init ($C800); the boot activation applies the same set.
 static const uint8_t videxInitRegisters[16] = {0x62, 0x50, 0x50, 0x28, 0x19, 0x00, 0x18, 0x18,
                                                0x00, 0x0F, 0x20, 0x0F, 0x00, 0x00, 0x00, 0x00};
-
-static const uint8_t videxSlotRom[] = {0x48, 0x20, 0x00, 0xC8, 0x68, 0x4C, 0xB3, 0xC8, 0x4C, 0x00, 0xC8};
 
 //— Project-authored block-device signature, dispatch entry points and boot code, written for slot 5.
 //— The bytes that hold the slot number ($70, $81, $85) and the autostart flag ($07) are patched per slot
@@ -121,14 +122,15 @@ struct apple2Core
   uint16_t lowercaseEchoCycles;
   uint8_t videxRam[apple2VidexRamSize];
   uint8_t videxRegisters[apple2VidexRegisterCount];
-  uint8_t videxWorkspace[5];
-  uint8_t videxSavedWorkspace[5];
+  uint8_t videxWorkspace[apple2VidexWorkspaceSize];
+  uint8_t videxSavedWorkspace[apple2VidexWorkspaceSize];
   size_t videxRamBank;
   uint8_t videxRegisterAddress;
   apple2VideoState video;
   bool cpuBusAccess;
   bool videxWorkspaceActive;
   bool videxOutputSelected;
+  bool pascalCardActive;
   bool languageCardBank2;
   bool languageCardReadEnabled;
   bool languageCardWriteEnabled;
@@ -153,16 +155,16 @@ static void scrollVidexScreen(apple2Core *core)
          apple2VidexTextColumns);
 }
 
-static bool isVidexFirmwareAccess(const apple2Core *core)
-{
-  uint16_t programCounter = core->cpu.PC;
-  return core->cpuBusAccess && programCounter >= 0xC800 &&
-         programCounter < 0xC800 + apple2VidexFirmwareSize;
-}
-
 static bool isVidexFirmwareProgramCounter(uint16_t programCounter)
 {
-  return programCounter >= 0xC800 && programCounter < 0xC800 + apple2VidexFirmwareSize;
+  return (programCounter >= 0xC800 && programCounter < 0xC800 + apple2VidexFirmwareSize) ||
+         (programCounter >= apple2PascalFirmwareBase &&
+          programCounter < apple2PascalFirmwareBase + apple2PascalFirmwareSize);
+}
+
+static bool isVidexFirmwareAccess(const apple2Core *core)
+{
+  return core->cpuBusAccess && isVidexFirmwareProgramCounter(core->cpu.PC);
 }
 
 static void beginVidexWorkspace(apple2Core *core)
@@ -172,13 +174,17 @@ static void beginVidexWorkspace(apple2Core *core)
     memcpy(core->videxSavedWorkspace, &core->ram[0x0006], sizeof(core->videxSavedWorkspace));
     core->videxWorkspaceActive = true;
     //-- HTAB/VTAB (and the monitor) move the cursor through CH/CV; the card follows them like real 80-column firmware.
-    if (core->ram[0x0024] < apple2VidexTextColumns)
+    //-- Under Apple Pascal $24/$25 are ordinary Pascal data and the card keeps its own cursor.
+    if (!core->pascalCardActive)
     {
-      core->videxWorkspace[0] = core->ram[0x0024];
-    }
-    if (core->ram[0x0025] < apple2VidexTextRows)
-    {
-      core->videxWorkspace[1] = core->ram[0x0025];
+      if (core->ram[0x0024] < apple2VidexTextColumns)
+      {
+        core->videxWorkspace[0] = core->ram[0x0024];
+      }
+      if (core->ram[0x0025] < apple2VidexTextRows)
+      {
+        core->videxWorkspace[1] = core->ram[0x0025];
+      }
     }
   }
 }
@@ -189,8 +195,11 @@ static void endVidexWorkspace(apple2Core *core)
   {
     memcpy(&core->ram[0x0006], core->videxSavedWorkspace, sizeof(core->videxSavedWorkspace));
     core->videxWorkspaceActive = false;
-    core->ram[0x0024] = core->videxWorkspace[0];
-    core->ram[0x0025] = core->videxWorkspace[1];
+    if (!core->pascalCardActive)
+    {
+      core->ram[0x0024] = core->videxWorkspace[0];
+      core->ram[0x0025] = core->videxWorkspace[1];
+    }
   }
 }
 
@@ -775,7 +784,7 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
       return value;
     }
   }
-  if (address >= 0x0006 && address <= 0x000A && isVidexFirmwareAccess(core))
+  if (address >= 0x0006 && address <= apple2VidexWorkspaceLast && isVidexFirmwareAccess(core))
   {
     beginVidexWorkspace(core);
     value = core->videxWorkspace[address - 0x0006];
@@ -854,12 +863,23 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   else if (address >= 0xC300 && address <= 0xC3FF)
   {
     size_t offset = address - 0xC300;
-    value = offset < sizeof(videxSlotRom) ? videxSlotRom[offset] : 0xFF;
+    value = apple2PascalSlotRom[offset];
   }
   else if (address >= 0xC800 && address <= 0xCBFF)
   {
     size_t offset = address - 0xC800;
-    value = offset < sizeof(videxFirmware) ? videxFirmware[offset] : 0xFF;
+    if (offset < sizeof(videxFirmware))
+    {
+      value = videxFirmware[offset];
+    }
+    else if (address >= apple2PascalFirmwareBase && address < apple2PascalFirmwareBase + apple2PascalFirmwareSize)
+    {
+      value = apple2PascalFirmware[address - apple2PascalFirmwareBase];
+    }
+    else
+    {
+      value = 0xFF;
+    }
   }
   else if (address >= 0xCC00 && address <= 0xCDFF)
   {
@@ -890,7 +910,7 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
       device->writeRegister(device->context, (uint8_t)(address & 0x0F), value);
     }
   }
-  else if (address >= 0x0006 && address <= 0x000A && isVidexFirmwareAccess(core))
+  else if (address >= 0x0006 && address <= apple2VidexWorkspaceLast && isVidexFirmwareAccess(core))
   {
     beginVidexWorkspace(core);
     if (address == 0x0007 && core->videxWorkspace[1] == apple2VidexTextRows &&
@@ -905,13 +925,13 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   else if (address < apple2RamSize)
   {
     //-- While the monitor SETVID routine runs the default video output is the 80-column card, not the 40-column screen.
-    if (core->setvidActive && (address == 0x0036 || address == 0x0037))
+    if (!core->pascalCardActive && core->setvidActive && (address == 0x0036 || address == 0x0037))
     {
       value = address == 0x0036 ? 0xB3 : 0xC8;
     }
     //-- In 80-column boot mode the card is the default screen: ProDOS BASIC.SYSTEM resets CSW to COUT1 ($FDF0) itself,
     //-- which is not a PR#0. Only the monitor (PR#0 through OUTPORT) may select the 40-column screen.
-    if (core->bootIn80Columns && !isMonitorRomExecuting(core))
+    if (core->bootIn80Columns && !core->pascalCardActive && !isMonitorRomExecuting(core))
     {
       if (address == 0x0037 && value == 0xFD && core->ram[0x0036] == 0xF0)
       {
@@ -925,12 +945,12 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
       }
     }
     bool isOutputVectorAddress = address == 0x0036 || address == 0x0037 || address == 0xAA53 || address == 0xAA54;
-    if (address >= 0x0400 && address <= 0x0BFF)
+    if (address >= 0x0400 && address <= 0x0BFF && !core->pascalCardActive)
     {
       value = preserveLowercaseEcho(core, value, false);
     }
     core->ram[address] = value;
-    if (isOutputVectorAddress)
+    if (isOutputVectorAddress && !core->pascalCardActive)
     {
       bool videxSelected = updateVidexOutputSelection(core);
       if (videxSelected != core->videxOutputSelected)
@@ -962,7 +982,10 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   }
   else if (address >= 0xCC00 && address <= 0xCDFF)
   {
-    value = preserveLowercaseEcho(core, value, true);
+    if (!core->pascalCardActive)
+    {
+      value = preserveLowercaseEcho(core, value, true);
+    }
     core->videxRam[core->videxRamBank + (address - 0xCC00)] = value;
   }
   else if (address >= 0xD000 && core->languageCardWriteEnabled)
@@ -1045,6 +1068,7 @@ apple2CoreResult apple2CoreReset(apple2Core *core)
   memset(core->videxSavedWorkspace, 0, sizeof(core->videxSavedWorkspace));
   core->videxWorkspaceActive = false;
   core->videxOutputSelected = false;
+  core->pascalCardActive = false;
   core->videxRamBank = 0;
   core->videxRegisterAddress = 0;
   core->keyboardData = 0;
@@ -1107,10 +1131,18 @@ apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
         core->setvidActive = false;
       }
     }
+    //-- Apple Pascal 1.1 found the card through its firmware protocol and initialises it at $C320: from here on the
+    //-- card is the console and Pascal's zero page and screen memory are not touched by the 80-column emulation.
+    if ((core->pins & M6502_SYNC) != 0 && address == apple2PascalInitEntry && !core->pascalCardActive)
+    {
+      core->pascalCardActive = true;
+      core->setvidActive = false;
+      core->videxOutputSelected = true;
+    }
     //-- The monitor HOME routine only knows the 40-column page; clear the card screen when it is selected.
     //-- With the Language Card read-enabled $FC58 is ProDOS code, not the monitor.
     if ((core->pins & M6502_SYNC) != 0 && address == 0xFC58 && core->videxOutputSelected &&
-        !core->languageCardReadEnabled)
+        !core->pascalCardActive && !core->languageCardReadEnabled)
     {
       clearSelectedDisplay(core, true);
       core->ram[0x0024] = 0;
