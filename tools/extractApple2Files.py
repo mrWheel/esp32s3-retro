@@ -2,23 +2,42 @@
 """List files on an Apple II disk image (DOS 3.3, ProDOS or UCSD Pascal) and
 copy them to a ProDOS or UCSD Pascal destination image.
 
-usage: extractApple2Files.py <orgDiskImage> <destDiskImage>
+usage: extractApple2Files.py        (no options; everything is done with commands)
 
 commands:
-  L(ist [dest]                list the files on the source (or destination) image
+  S(ource [<image>]           select the source image (asked for when omitted, no default)
+  D(estination [<image>]      select the destination image (ProDOS or UCSD Pascal);
+                              when omitted it is asked for; a name that does not start
+                              with / or ~ is looked up in /sdcard/retro/images/apple2/
+  SL(ist                      list the files on the source image
+  DL(ist                      list the files on the destination image
   C(opy <nameIn> [<nameOut>]  copy a file from source to destination;
                               <nameIn> may contain wildcards (* ? [abc]),
                               <nameOut> is not allowed together with wildcards
+  R(emove <name>              remove a file from the destination; <name> may contain
+                              wildcards; every file is confirmed with "Remove <name>? (y/N)"
   Q(uit
 Commands may be abbreviated and are case-insensitive.
+[Tab] completes a path like the shell does.
+An <image> path starting with "/" is looked up as an absolute path first and
+then relative to the repository root (e.g. /assets/apple2Downloads/appleDisks/x.po).
 """
 
 import datetime
 import fnmatch
+import os
+import re
 import shlex
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+try:
+  import readline
+except ImportError:
+  readline = None
+
+DEFAULT_DEST_DIR = "/sdcard/retro/images/apple2/"
 
 BLOCK_SIZE = 512
 DOS_IMAGE_SIZE = 143360
@@ -289,7 +308,7 @@ class ProDosVolume:
       first = False
       block = u16(buf, 2)
 
-  def parseEntry(self, buf, off, prefix):
+  def parseEntry(self, buf, off, prefix, block=None):
     storage = buf[off] >> 4
     name = buf[off + 1:off + 1 + (buf[off] & 0x0F)].decode("ascii", "replace")
     fileType = buf[off + 16]
@@ -297,12 +316,13 @@ class ProDosVolume:
     typeText = PRODOS_TYPE_NAMES.get(fileType, f"${fileType:02X}")
     modified = prodosDateText(u16(buf, off + 33), buf[off + 35], buf[off + 36])
     return Entry(prefix + name, typeText, u16(buf, off + 19), eof, modified, storage == 0xD,
-                 {"storage": storage, "key": u16(buf, off + 17), "fileType": fileType, "aux": u16(buf, off + 31)})
+                 {"storage": storage, "key": u16(buf, off + 17), "fileType": fileType, "aux": u16(buf, off + 31),
+                  "slotBlock": block, "slotOff": off})
 
   def listFiles(self, keyBlock=2, prefix=""):
     entries = []
-    for _block, off, buf in self.iterDirectory(keyBlock):
-      entry = self.parseEntry(buf, off, prefix)
+    for block, off, buf in self.iterDirectory(keyBlock):
+      entry = self.parseEntry(buf, off, prefix, block)
       entries.append(entry)
       if entry.isDir:
         entries.extend(self.listFiles(entry.meta["key"], entry.path + "/"))
@@ -448,6 +468,48 @@ class ProDosVolume:
     self.image.writeBlock(dirKey, bytes(header))
     return fileName
 
+  def blocksOf(self, entry):
+    storage, key = entry.meta["storage"], entry.meta["key"]
+    blocks = [key]
+    if storage == 2:
+      blocks.extend(p for p in self.indexPointers(key) if p)
+    elif storage == 3:
+      master = self.image.readBlock(key)
+      for i in range(128):
+        indexBlock = master[i] | (master[256 + i] << 8)
+        if indexBlock:
+          blocks.append(indexBlock)
+          blocks.extend(p for p in self.indexPointers(indexBlock) if p)
+    elif storage != 1:
+      raise ToolError(f"{entry.path}: unsupported storage type {storage}")
+    if any(b >= self.totalBlocks for b in blocks):
+      raise ToolError(f"{entry.path}: block pointer outside the volume (damaged file)")
+    return blocks
+
+  def removeFile(self, entry):
+    if entry.isDir:
+      raise ToolError(f"{entry.path} is a directory; directories cannot be removed")
+    blocks = self.blocksOf(entry)
+
+    #-- give the blocks back to the volume bitmap
+    bitmap = self.readBitmap()
+    for b in blocks:
+      bitmap[b >> 3] |= 0x80 >> (b & 7)
+    for i in range(self.bitmapBlockCount()):
+      self.image.writeBlock(self.bitmapStart + i, bytes(bitmap[i * BLOCK_SIZE:(i + 1) * BLOCK_SIZE]))
+
+    #-- free the directory slot (storage type 0) and lower the file count of its directory
+    slotBlock, slotOff = entry.meta["slotBlock"], entry.meta["slotOff"]
+    buf = bytearray(self.image.readBlock(slotBlock))
+    headerKey = u16(buf, slotOff + 37)
+    buf[slotOff] = 0
+    self.image.writeBlock(slotBlock, bytes(buf))
+
+    header = bytearray(self.image.readBlock(headerKey))
+    count = max(0, u16(header, 4 + 33) - 1)
+    header[4 + 33], header[4 + 34] = count & 0xFF, count >> 8
+    self.image.writeBlock(headerKey, bytes(header))
+
 
 #-- ---------------------------------------------------------------- UCSD Pascal
 
@@ -552,6 +614,11 @@ class PascalVolume:
     })
     ordered.sort(key=lambda e: e["first"])
 
+    self.writeDirectory(raw, ordered)
+    return fileName
+
+  def writeDirectory(self, raw, ordered):
+    capacity = len(raw) // 26 - 1
     out = bytearray(raw)
     out[16], out[17] = len(ordered) & 0xFF, len(ordered) >> 8
     for i in range(capacity):
@@ -568,7 +635,15 @@ class PascalVolume:
       out[off + 24], out[off + 25] = e["date"] & 0xFF, e["date"] >> 8
     for i, b in enumerate(range(2, self.dirEnd)):
       self.image.writeBlock(b, bytes(out[i * BLOCK_SIZE:(i + 1) * BLOCK_SIZE]))
-    return fileName
+
+  def removeFile(self, entry):
+    raw, entries = self.readDirectory()
+    remaining = [e for e in entries
+                 if not (e["first"] == entry.meta["first"] and sameName(e["name"], entry.meta["name"]))]
+    if len(remaining) == len(entries):
+      raise ToolError(f"'{entry.path}' not found on the destination")
+    remaining.sort(key=lambda e: e["first"])
+    self.writeDirectory(raw, remaining)
 
 
 #-- ---------------------------------------------------------------- program
@@ -637,58 +712,238 @@ def copyOne(source, dest, entry, nameOut):
   print(f"copied '{entry.path}' -> '{target}' ({len(exported.data)} bytes)")
 
 
+def askYesNo(question):
+  try:
+    answer = input(question)
+  except EOFError:
+    print()
+    return False
+  return answer.strip().lower() in ("y", "yes")
+
+
+def removeFiles(dest, name):
+  entries = dest.listFiles()
+  diskName = dest.image.path.name
+  if not entries:
+    raise ToolError(f"the destination ({diskName}) has no files; R(emove only works on the destination")
+  if any(c in name for c in "*?["):
+    pattern = name.upper()
+    matches = [e for e in entries if fnmatch.fnmatchcase(e.path.upper(), pattern)]
+    if not matches:
+      raise ToolError(f"no files match '{name}' on the destination ({diskName})")
+  else:
+    matches = [e for e in entries if sameName(e.path, name)]
+    if not matches:
+      raise ToolError(f"'{name}' not found on the destination ({diskName})")
+  removed = 0
+  for entry in matches:
+    if entry.isDir:
+      print(f"skipped '{entry.path}': directory")
+      continue
+    if not askYesNo(f"Remove {entry.path}? (y/N) "):
+      continue
+    try:
+      dest.removeFile(entry)
+      dest.image.save()
+      removed += 1
+    except ToolError as error:
+      print(f"skipped '{entry.path}': {error}")
+  print(f"{removed} of {len(matches)} files removed")
+
+
+COMMAND_NAMES = ("source", "destination", "slist", "dlist", "copy", "remove", "quit")
+PROMPT = "S(ource, D(estination, SL(ist, DL(ist, C(opy, R(emove, Q(uit: "
+
+
 def matchCommand(word):
-  for name in ("list", "copy", "quit"):
+  for name in COMMAND_NAMES:
     if name.startswith(word.lower()):
       return name
   return None
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+pathPromptActive = False
+pathBaseDir = ""
+
+
+def searchBases(text):
+  given = os.path.expanduser(text)
+  return [given, str(REPO_ROOT) + "/" + text.lstrip("/")] if text.startswith("/") else [given, str(REPO_ROOT) + "/" + text]
+
+
+def resolveImagePath(text):
+  bases = searchBases(text)
+  for candidate in bases:
+    if os.path.isfile(candidate):
+      return Path(candidate)
+  for candidate in bases:
+    if os.path.isdir(candidate):
+      raise ToolError(f"{text} is a directory; add the name of the image")
+  raise ToolError(f"image not found: {text}")
+
+
+def pathMatches(partial):
+  found = set()
+  for base in searchBases(partial):
+    folder, prefix = os.path.split(base)
+    typedFolder = partial[:len(partial) - len(prefix)]
+    try:
+      names = os.listdir(folder or ".")
+    except OSError:
+      continue
+    for name in names:
+      if name.startswith(prefix):
+        found.add(typedFolder + name + ("/" if os.path.isdir(os.path.join(folder, name)) else ""))
+  return sorted(found)
+
+
+def pathCompleter(text, state):
+  head = ""
+  partial = text
+  if not pathPromptActive:
+    match = re.match(r"^(\s*(\S+)\s+)(.*)$", text)
+    if not match or matchCommand(match.group(2)) not in ("source", "destination"):
+      return None
+    head, partial = match.group(1), match.group(3)
+  if pathBaseDir and not partial.startswith(("/", "~")):
+    matches = [m[len(pathBaseDir):] for m in pathMatches(pathBaseDir + partial)]
+  else:
+    matches = pathMatches(partial)
+  return head + matches[state] if state < len(matches) else None
+
+
+def setupLineEditing():
+  if readline is None:
+    return
+  if "libedit" in (readline.__doc__ or ""):
+    readline.parse_and_bind("bind ^I rl_complete")
+  else:
+    readline.parse_and_bind("tab: complete")
+  readline.set_completer_delims("\n")
+  readline.set_completer(pathCompleter)
+
+
+def promptPath(label, baseDir=""):
+  global pathPromptActive, pathBaseDir
+  pathPromptActive = True
+  pathBaseDir = baseDir
+  try:
+    text = input(label).strip()
+  finally:
+    pathPromptActive = False
+    pathBaseDir = ""
+  if text and baseDir and not text.startswith(("/", "~")):
+    text = baseDir + text
+  return text
+
+
+def imageArgument(rest):
+  try:
+    words = shlex.split(rest)
+    if len(words) == 1:
+      return words[0]
+  except ValueError:
+    pass
+  return rest.strip().strip("\"'")
+
+
+def loadVolume(text, otherImage):
+  path = resolveImagePath(text)
+  if otherImage is not None and otherImage.path.samefile(path):
+    image = otherImage
+  else:
+    image = DiskImage(path)
+  return image, openVolume(image)
+
+
+class Session:
+  def __init__(self):
+    self.sourceImage = None
+    self.source = None
+    self.destImage = None
+    self.dest = None
+
+  def showSource(self):
+    print(f"Source: {self.sourceImage.path.name if self.sourceImage else '(not set)'}")
+
+  def showDestination(self):
+    print(f"Destination: {self.destImage.path.name if self.destImage else '(not set)'}")
+
+  def setSource(self, text):
+    image, volume = loadVolume(text, self.destImage)
+    self.sourceImage, self.source = image, volume
+
+  def setDestination(self, text):
+    image, volume = loadVolume(text, self.sourceImage)
+    if not volume.writable:
+      raise ToolError("destination must be a ProDOS or UCSD Pascal image")
+    self.destImage, self.dest = image, volume
+
+  def requireSource(self):
+    if self.source is None:
+      raise ToolError("no source set (use S)")
+    return self.source
+
+  def requireDestination(self):
+    if self.dest is None:
+      raise ToolError("no destination set (use D)")
+    return self.dest
+
+
 def main(argv):
-  if len(argv) != 3:
+  if len(argv) != 1:
     print(__doc__)
     return 1
-  try:
-    sourceImage = DiskImage(argv[1])
-    destPath = Path(argv[2]).expanduser()
-    destImage = sourceImage if destPath.exists() and destPath.samefile(sourceImage.path) else DiskImage(destPath)
-    source = openVolume(sourceImage)
-    dest = source if destImage is sourceImage else openVolume(destImage)
-    if destImage is sourceImage:
-      dest = type(source)(destImage)
-    if not dest.writable:
-      raise ToolError("destination must be a ProDOS or UCSD Pascal image")
-  except ToolError as error:
-    print(f"error: {error}")
-    return 1
-
-  print(f"source:      {source.description()}")
-  print(f"destination: {dest.description()}")
+  setupLineEditing()
+  session = Session()
+  session.showSource()
+  session.showDestination()
   while True:
     try:
-      line = input("command (list, copy, quit): ")
+      line = input(PROMPT)
     except EOFError:
       print()
       return 0
-    try:
-      words = shlex.split(line)
-    except ValueError as error:
-      print(f"error: {error}")
+    parts = line.strip().split(None, 1)
+    if not parts:
       continue
-    if not words:
-      continue
-    command = matchCommand(words[0])
+    rest = parts[1] if len(parts) == 2 else ""
+    command = matchCommand(parts[0])
     try:
-      if command == "quit":
+      if command in ("source", "destination"):
+        if rest.strip():
+          text = imageArgument(rest)
+        elif command == "source":
+          text = promptPath("Source image: ")
+        else:
+          text = promptPath(f"Destination image [{DEFAULT_DEST_DIR}]: ", DEFAULT_DEST_DIR)
+          text = text or DEFAULT_DEST_DIR
+        if text and command == "source":
+          session.setSource(text)
+        elif text:
+          session.setDestination(text)
+      elif command == "quit":
         return 0
-      if command == "list":
-        printListing(dest if len(words) > 1 and "destination".startswith(words[1].lower()) else source)
-      elif command == "copy" and len(words) in (2, 3):
-        copyFile(source, dest, words[1], words[2] if len(words) == 3 else None)
+      elif command in ("slist", "dlist"):
+        if rest.strip():
+          raise ToolError("SL(ist and DL(ist take no arguments")
+        printListing(session.requireSource() if command == "slist" else session.requireDestination())
+      elif command == "copy" and len(shlex.split(rest)) in (1, 2):
+        words = shlex.split(rest)
+        copyFile(session.requireSource(), session.requireDestination(), words[0], words[1] if len(words) == 2 else None)
+      elif command == "remove" and len(shlex.split(rest)) == 1:
+        removeFiles(session.requireDestination(), shlex.split(rest)[0])
       else:
-        print("usage: L(ist [dest] | C(opy <nameIn> [<nameOut>] | Q(uit")
-    except ToolError as error:
+        print("usage: S(ource [<image>] | D(estination [<image>] | SL(ist | DL(ist | C(opy <nameIn> [<nameOut>] | R(emove <name> | Q(uit")
+    except (ToolError, ValueError) as error:
       print(f"error: {error}")
+    except EOFError:
+      print()
+      return 0
+    print()
+    session.showSource()
+    session.showDestination()
 
 
 if __name__ == "__main__":
