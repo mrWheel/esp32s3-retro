@@ -809,6 +809,13 @@ static void testGuestBootSector(void)
     assert(apple2CoreReadMemory(core, (uint16_t)(0x0800 + offset), &value) == apple2CoreOk);
     assert(value == image[offset]);
   }
+  //-- Guest boot code decodes sectors with the translate table the slot ROM leaves behind: table[$02D6 + diskByte]
+  //-- holds the six-bit value of every valid disk byte (Apple Pascal 1 boot reads directory blocks that way).
+  for (size_t sixBit = 0; sixBit < sizeof(testGcrWriteTable); ++sixBit)
+  {
+    assert(apple2CoreReadMemory(core, (uint16_t)(0x02D6 + testGcrWriteTable[sixBit]), &value) == apple2CoreOk);
+    assert(value == sixBit);
+  }
   apple2DiskState state;
   apple2CoreGetDiskState(core, &state);
   assert(state.attached && state.motorOn && !state.drive2Selected);
@@ -1121,8 +1128,55 @@ static void testProDosAutostartBoot(const char *bootImagePath, const char *dataI
   assert(remove(scratchPath) == 0);
 }
 
+//-- Apple Pascal 1 boots from slot 6, drive 1 through the project slot ROM and reaches its command line.
+static void testPascalBoot(const char *bootImagePath)
+{
+  apple2DiskImage bootDisk;
+  apple2DiskImageInitialize(&bootDisk);
+  assert(apple2DiskImageOpenProfileMode(&bootDisk, bootImagePath, apple2DiskImageProfile140k,
+                                        apple2DiskImageOrderAuto, true) == apple2DiskImageOk);
+  assert(bootDisk.probe.content == apple2DiskImageContentPascal);
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  apple2DiskSectorOrder order = bootDisk.order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
+                                                                             : apple2DiskSectorOrderDos;
+  assert(apple2CoreAttachDiskDrive(core, 6, 0, order, bootDisk.trackCount, apple2DiskImageReadSectorCallback,
+                                   &bootDisk) == apple2CoreOk);
+  uint8_t rom[apple2RomSize];
+  readRom(APPLE2_SYSTEM_ROM_PATH, rom);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+
+  bool booted = false;
+  for (int step = 0; step < 60 && !booted; ++step)
+  {
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    booted = screenContains(core, "COMMAND: E(DIT, R(UN, F(ILE");
+  }
+  if (!booted)
+  {
+    dumpScreen(core);
+  }
+  assert(booted);
+  assert(screenContains(core, "WELCOME APPLE1, TO APPLE II PASCAL"));
+  assert(!screenContains(core, "NO FILE SYSTEM.APPLE"));
+  apple2DiskState state;
+  apple2CoreGetDiskState(core, &state);
+  assert(state.sectorReadFailures == 0 && state.writeAttempts == 0);
+
+  assert(apple2CoreDetachDisk(core) == apple2CoreOk);
+  apple2CoreDestroy(core);
+  assert(apple2DiskImageClose(&bootDisk) == apple2DiskImageOk);
+}
+
 int main(int argc, char **argv)
 {
+  if (argc == 3 && strcmp(argv[1], "--pascal-boot") == 0)
+  {
+    testPascalBoot(argv[2]);
+    puts("PASS: Apple Pascal 1 boots to its command line from SD6.1");
+    return 0;
+  }
   if (argc == 4 && strcmp(argv[1], "--prodos-smartport-boot") == 0)
   {
     testProDosSmartPortBoot(argv[2], argv[3]);

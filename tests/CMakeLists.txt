@@ -87,6 +87,8 @@ add_test(NAME apple2SystemRom COMMAND hostTests --apple2-system-rom)
 add_test(NAME apple2Disk COMMAND apple2DiskTests)
 add_test(NAME apple2DiskStream COMMAND apple2DiskTests --disk-stream)
 add_test(NAME apple2MultiDisk COMMAND apple2MultiDiskTests)
+add_test(NAME ucsdPascalBoot COMMAND apple2DiskTests --pascal-boot
+  "${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/ucsd/ApplePascal1-680-0004-01.dsk")
 add_test(NAME apple2ProdosSystemImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/createSystemDsk.py --os apple2
   --profile PRODOS --output ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk)
 add_test(NAME apple2ProdosDataImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/buildDiskImage.py

@@ -4,8 +4,9 @@ The profile configures `/littlefs/ucsd/ApplePascal1-680-0004-01.dsk`
 read-only as SD6.1 and mounts `/retro/images/ucsd/pascal640.po` read/write as
 SD6.2. The latter is the second Disk II drive in the same slot, available to
 the guest as its work volume. The Pascal 1 image contains SYSTEM.APPLE and
-boots in the LinApple desktop reference, but the project emulator has not yet
-booted it successfully.
+boots in the LinApple desktop reference and, in the host test harness, in the
+project emulator up to the Pascal command line. ESP32-S3 behaviour is not yet
+verified.
 
 Copy this directory's `drives.cfg` to `/retro/images/ucsd/drives.cfg` on the
 SD card when updating the UCSD profile. Menu option 3 requires that file as
