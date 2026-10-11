@@ -62,6 +62,108 @@ static bool safePath(const char *path, const char *prefix)
   return true;
 }
 
+apple2DriveConfigResult apple2DriveConfigResolve(const char *configPath, char *drivesPath,
+                                                 size_t drivesPathCapacity, char *error, size_t errorCapacity)
+{
+  if (configPath == NULL || drivesPath == NULL || drivesPathCapacity == 0)
+  {
+    setError(error, errorCapacity, "Invalid config.cfg arguments");
+    return apple2DriveConfigInvalid;
+  }
+
+  drivesPath[0] = '\0';
+  FILE *file = fopen(configPath, "rb");
+  if (file == NULL)
+  {
+    if (errno == ENOENT)
+    {
+      setError(error, errorCapacity, "config.cfg is missing");
+      return apple2DriveConfigMissing;
+    }
+    setError(error, errorCapacity, "config.cfg could not be opened");
+    return apple2DriveConfigInvalid;
+  }
+
+  bool foundDrivesPath = false;
+  char line[256];
+  char reason[96];
+  size_t lineNumber = 0;
+  while (fgets(line, sizeof(line), file) != NULL)
+  {
+    ++lineNumber;
+    size_t length = strlen(line);
+    reason[0] = '\0';
+    if (length == sizeof(line) - 1 && line[length - 1] != '\n' && !feof(file))
+    {
+      snprintf(reason, sizeof(reason), "line is too long");
+    }
+    else
+    {
+      char *content = trim(line);
+      if (*content != '\0' && *content != '#')
+      {
+        char *equals = strchr(content, '=');
+        if (equals == NULL || equals == content || strchr(equals + 1, '=') != NULL)
+        {
+          snprintf(reason, sizeof(reason), "expected drives=/retro/images/apple2/<file>.cfg");
+        }
+        else
+        {
+          *equals = '\0';
+          char *key = trim(content);
+          char *value = trim(equals + 1);
+          size_t valueLength = strlen(value);
+          size_t drivesFileNameLength = strlen("drives.cfg");
+          if (strcmp(key, "drives") != 0 || valueLength < drivesFileNameLength ||
+              strcmp(value + valueLength - drivesFileNameLength, "drives.cfg") != 0 ||
+              !safePath(value, dataPathPrefix))
+          {
+            snprintf(reason, sizeof(reason), "drives must name an Apple II drives.cfg below /retro/images/apple2/");
+          }
+          else if (foundDrivesPath)
+          {
+            snprintf(reason, sizeof(reason), "drives is configured more than once");
+          }
+          else if (!storageResolveRetroPath(value, drivesPath, drivesPathCapacity))
+          {
+            snprintf(reason, sizeof(reason), "drives path could not be resolved");
+          }
+          else
+          {
+            foundDrivesPath = true;
+          }
+        }
+      }
+    }
+    if (reason[0] != '\0')
+    {
+      fclose(file);
+      drivesPath[0] = '\0';
+      if (error != NULL && errorCapacity > 0)
+      {
+        snprintf(error, errorCapacity, "config.cfg line %u: %s", (unsigned)lineNumber, reason);
+      }
+      return apple2DriveConfigInvalid;
+    }
+  }
+
+  bool readError = ferror(file) != 0;
+  fclose(file);
+  if (readError)
+  {
+    drivesPath[0] = '\0';
+    setError(error, errorCapacity, "config.cfg could not be read completely");
+    return apple2DriveConfigInvalid;
+  }
+  if (!foundDrivesPath)
+  {
+    setError(error, errorCapacity, "config.cfg does not select a drives.cfg");
+    return apple2DriveConfigInvalid;
+  }
+  setError(error, errorCapacity, "");
+  return apple2DriveConfigLoaded;
+}
+
 //-- Parses "SD<slot>.<drive>" or the slot-5 SmartPort form "SP5.<unit>" into zero-based table indexes.
 static bool parseDriveName(const char *name, size_t *slotIndex, size_t *driveIndex, bool *smartPort)
 {

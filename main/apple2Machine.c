@@ -19,7 +19,7 @@
 
 static const char *tag = "apple2Machine";
 static const char *romPath = "/littlefs/apple2/apple2.rom";
-static const char *driveConfigPath = "/microSD/retro/images/apple2/drives.cfg";
+static char driveConfigPath[apple2DriveConfigPathCapacity];
 static const size_t bootSlotIndex = 6 - apple2DriveConfigFirstSlot;
 static const uint8_t exchangeSlot = 2;
 static apple2Core *guestCore;
@@ -277,7 +277,7 @@ static void handleInput(void)
   pressNextQueuedKey();
 }
 
-machineState apple2MachineProbe(const retroMachine *machine)
+machineState apple2MachineProbeWithConfig(const retroMachine *machine, const char *configPath)
 {
   (void)machine;
   struct stat info;
@@ -305,7 +305,46 @@ machineState apple2MachineProbe(const retroMachine *machine)
     return machineResourceInvalid;
   }
   uint16_t resetAddress = valid ? (uint16_t)(resetVector[0] | ((uint16_t)resetVector[1] << 8)) : 0;
-  return valid && resetAddress >= 0xD000 ? machineAvailable : machineResourceInvalid;
+  if (!valid || resetAddress < 0xD000)
+  {
+    return machineResourceInvalid;
+  }
+
+  char selectedDrivesPath[apple2DriveConfigPathCapacity];
+  char configError[128];
+  apple2DriveConfigResult configResult =
+      apple2DriveConfigResolve(configPath, selectedDrivesPath, sizeof(selectedDrivesPath), configError,
+                               sizeof(configError));
+  if (configResult != apple2DriveConfigLoaded)
+  {
+    return configResult == apple2DriveConfigMissing ? machineMissingResource : machineResourceInvalid;
+  }
+
+  apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
+  configResult = apple2DriveConfigLoad(selectedDrivesPath, drives, configError, sizeof(configError));
+  if (configResult != apple2DriveConfigLoaded)
+  {
+    return configResult == apple2DriveConfigMissing ? machineMissingResource : machineResourceInvalid;
+  }
+
+  const apple2DriveConfig *bootDrive =
+      &drives[6 - apple2DriveConfigFirstSlot][0];
+  if (!bootDrive->configured || stat(bootDrive->path, &info) != 0)
+  {
+    return machineMissingResource;
+  }
+  if (!S_ISREG(info.st_mode) || info.st_size < 0)
+  {
+    return machineResourceInvalid;
+  }
+  uint64_t expectedImageSize =
+      (uint64_t)apple2DiskImageProfileTracks(bootDrive->profile) * apple2DiskImageSectorsPerTrack *
+      apple2DiskImageSectorSize;
+  if ((uint64_t)info.st_size != expectedImageSize)
+  {
+    return machineResourceInvalid;
+  }
+  return machineAvailable;
 }
 
 static bool readDiskSector(void *context, uint8_t track, uint8_t sector, uint8_t *buffer)
@@ -556,8 +595,18 @@ static uint32_t totalWriteFailures(void)
   return total;
 }
 
-esp_err_t apple2MachineInitialize(void)
+esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
 {
+  char configError[128];
+  apple2DriveConfigResult configResult =
+      apple2DriveConfigResolve(configPath, driveConfigPath, sizeof(driveConfigPath), configError, sizeof(configError));
+  if (configResult != apple2DriveConfigLoaded)
+  {
+    ESP_LOGE(tag, "%s", configError);
+    printf("Apple II cannot start: %s.\n", configError);
+    return configResult == apple2DriveConfigMissing ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_ARG;
+  }
+
   FILE *romFile = fopen(romPath, "rb");
   if (romFile == NULL)
   {

@@ -1,6 +1,6 @@
 # designUCSD.md — Native Apple II Pascal engineering memory
 
-Revision: 2026-10-11. Status: approved architectural direction from the current request; Pascal implementation and end-to-end acceptance remain unverified. Existing Apple II implementation evidence is inherited with its original scope.
+Revision: 2026-10-11. Status: shared Apple II launch/configuration integration is implemented; native Apple Pascal boot, editor, filesystem workflow and end-to-end acceptance remain unverified. Existing Apple II implementation evidence is inherited with its original scope.
 
 ## Provenance and purpose
 
@@ -8,12 +8,12 @@ This design replaces the independent Z80 p-System proposal with **native Apple P
 
 The guest's Apple II 6502 p-code interpreter executes its matching Pascal system and compiled p-code. The ESP32 does not implement a replacement p-code VM or simulate the Pascal command environment. Boot original, matching Apple Pascal system images through the existing Apple II slot-controller interface and their own on-disk loaders. Add only the disk-format, boot and terminal support that reproducible evidence shows is missing.
 
-Both supplied files were read in full: `designUCSD.md` (revision 2026-10-11) and `designApple2.md` (revision 2026-10-10, containing follow-ups dated 2026-10-11). No repository checkout was audited and no emulator, firmware or hardware test was run for this rewrite. The owner's report that Apple II and large ProDOS disks work is a user report; it does not independently prove native Pascal compatibility.
+The original design rebaseline did not inspect the repository or run tests. The subsequent implementation inspected the current project contract and Apple II launch, drive-config and registry code; it built the ESP-IDF firmware and ran Apple II host regressions. No original Pascal system disk, desktop reference run or ESP32 execution was available, so native Pascal compatibility remains unverified. The owner's report that Apple II and large ProDOS disks work is a user report; it does not independently prove native Pascal compatibility.
 
 ### Authority and conflict resolution
 
 1. The current user request defines the native Apple II Pascal direction.
-2. `projectPrompt.md` remains the project-wide authority; its contents were not supplied or revalidated here.
+2. `projectPrompt.md` remains the project-wide authority and was inspected during implementation.
 3. Later, explicit implementation decisions in the supplied `designApple2.md` take precedence over its earlier design prose. Preserve their evidence limits.
 4. This document specifies the smallest Pascal extension. Historical records in the appendices are immutable evidence, not current implementation instructions.
 
@@ -286,9 +286,17 @@ Definition of Done for the core extension: a config.cfg/drives.cfg combination b
 
 ## Implementation record — documentation rebaseline, 2026-10-11
 
-This revision changes the design only. It reuses the Apple record's motherboard, Language Card, Videx, multi-drive, writable-sector, ProDOS block-device, keyboard and exchange work. It does not claim code changes, media deployment, successful Pascal boot, a selected release, new test execution or newly verified ROM rights.
+The 2026-10-11 design-only rebaseline reused the Apple record's motherboard, Language Card, Videx, multi-drive, writable-sector, ProDOS block-device, keyboard and exchange work. That record did not claim code changes, media deployment, successful Pascal boot, a selected release, new test execution or newly verified ROM rights.
 
-The shared machine needs source inspection before implementation: common config.cfg selection and drives.cfg resolution, path validation, post-DEC-033 Pascal-controller dispatch, boot-ROM entry compatibility and Pascal use of existing terminal hooks. The old “implement Apple II afterwards” sequence is retired. The inherited implementation and failed experiments are reproduced in Appendix B.
+The shared menu/profile routing, config.cfg resolution and current drives.cfg policy have now been inspected and integrated. Remaining work begins with selecting and hashing a complete original Apple Pascal release and desktop reference, then tracing its authentic boot and adding only demonstrated controller, ROM, Language Card or terminal compatibility fixes. The old “implement Apple II afterwards” sequence is retired. The inherited implementation and failed experiments are reproduced in Appendix B.
+
+## Implementation record — shared profile routing, 2026-10-11
+
+Menu option 3 now selects `/littlefs/ucsd/config.cfg`; option 4 selects `/littlefs/apple2/config.cfg`. Both invoke the same Apple II machine initialization, run loop and Apple II core. A profile `config.cfg` accepts one `drives=/retro/images/apple2/.../drives.cfg` line; comments and blank lines are allowed. The resolver rejects duplicate/unknown keys, paths outside the Apple II image root and paths that do not end in `drives.cfg`. Each referenced `drives.cfg` still uses the existing SD4..SD7/SP5 grammar and image-path policy.
+
+The profile selectors are bundled in LittleFS, so deploying them does not require changing an existing SD card. The option-4 profile references the existing SD `drives.cfg` without changing its drive entries. The option-3 `pascal/drives.cfg` on SD is setup scaffolding only and deliberately has no active boot-drive entry because no Apple Pascal release or boot disk was selected. No original system image was fabricated or bundled; option 3 therefore reports a missing resource until a qualified explicit SD6.1 image is installed. The blank Pascal volume is not a system disk. This change does not alter CP/M machine code, image roots, transfer routing or the Apple II CPU/video/keyboard path.
+
+The ESP-IDF build succeeded. The `apple2MultiDisk` test passed, including the new profile-config parser cases. In the 12-test Apple II host subset, 11 passed; `apple2DiskStream` repeated the known image asset-open failure recorded under APPLE-VERIFY-033. The Pascal boot, editor, write/reopen and physical-board gates remain NOT RUN; the failure does not establish a regression from the profile-routing changes.
 
 ## Decision log
 

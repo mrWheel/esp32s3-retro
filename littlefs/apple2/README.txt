@@ -13,9 +13,13 @@ automatically when the machine starts) and TEST-NONGR.BAS becomes TEST.NONGR (to
 Applesoft; LOAD TEST.NONGR, then RUN). The emulator must be rebuilt AND flashed again to
 use a new system.dsk.
 
-The Apple II uses ProDOS disks only. There is no default drive: drives.cfg on the SD card
-must list /littlefs/apple2/system.dsk as SD6.1. When SD6.1 is not configured or its image
-cannot be opened, the emulator prints an error at start-up and returns to the system menu.
+Menu option 4 selects /littlefs/apple2/config.cfg, which points to drives.cfg on the SD
+card. There is no default drive: that drives.cfg must explicitly list SD6.1. The shipped
+profile boots the ProDOS system volume. Native Apple Pascal media can be selected through
+menu option 3 and its separate /littlefs/ucsd/config.cfg, but it must use a matching
+original Pascal system disk in its own drives.cfg; no such system disk is bundled.
+When SD6.1 is not configured or its image cannot be opened, the emulator returns an error
+instead of substituting another disk.
 
 The separate project-authored diagnostic test fixture is at
 tests/fixtures/apple2-diagnostic.rom and can be regenerated with:

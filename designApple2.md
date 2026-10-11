@@ -6,7 +6,7 @@ Revision: 2026-10-10. Status: phase 1 motherboard, ProDOS block storage, and sel
 
 This document follows the engineering-memory structure of designCPM80.md and designCPM86.md and the latest recovered projectPrompt decisions. 
 
-Apple II is menu option 4, started by 3 + [Enter]. Complete common HOST-M1, CP/M-80 and CP/M-86 acceptance before implementing this machine. The target is an expanded original Apple II workstation for Integer BASIC, disk-loaded Applesoft, editors and assemblers using an 80×24 ANSI/VT100 USB terminal.
+Apple II is menu option 4. Menu option 3 (UCSD Pascal) selects its own disk configuration but uses this same Apple II machine implementation, as detailed in `designUCSD.md`. Option 4 retains the shipped ProDOS profile; explicit Apple Pascal media are a narrowly scoped extension and do not change that baseline. The target is an expanded original Apple II workstation for Integer BASIC, disk-loaded Applesoft, editors and assemblers using an 80×24 ANSI/VT100 USB terminal.
 
 The selected machine is an original Apple II (not IIe) with NMOS 6502, 48 KiB motherboard RAM, a 16 KiB Language Card, Integer BASIC ROM, an Autostart Monitor upgrade, a lowercase character-ROM modification, a separate 80×24 expansion card, and disk controllers. This is a target reconstruction based on owner recollections, not a verified historical bill of materials. No physical Shift wire is connected to the game port in this project setup. Do not substitute IIe auxiliary-memory or 80-column softswitch semantics.
 

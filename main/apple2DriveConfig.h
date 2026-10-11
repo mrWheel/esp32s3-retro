@@ -29,6 +29,11 @@ typedef enum
   apple2DriveConfigInvalid
 } apple2DriveConfigResult;
 
+//— Resolves the drives=/retro/images/apple2/... directive in a profile config.cfg.
+//— The returned path uses the mounted VFS path and is suitable for apple2DriveConfigLoad.
+apple2DriveConfigResult apple2DriveConfigResolve(const char *configPath, char *drivesPath, size_t drivesPathCapacity,
+                                                 char *error, size_t errorCapacity);
+
 //-- Loads drives.cfg lines of the form SD<slot>.<drive> or SP5.<unit> followed by image, mode and profile.
 //-- The result is indexed [slot - 4][unit - 1]. A drive without a line is empty: there is no default image, not even for SD6.1.
 //-- Images must be below /littlefs/apple2/ or /retro/images/apple2/. /littlefs/apple2/system.dsk must be read-only.

@@ -74,6 +74,7 @@ add_executable(
 target_include_directories(apple2MultiDiskTests PRIVATE ../components/apple2Core/include ../components/apple2Core
   ../components/apple2Core/third_party/chips ../main)
 target_compile_options(apple2MultiDiskTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
+target_compile_definitions(apple2MultiDiskTests PRIVATE PROJECT_ROOT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/..")
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(apple2MultiDiskTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(apple2MultiDiskTests PRIVATE -fsanitize=address,undefined)

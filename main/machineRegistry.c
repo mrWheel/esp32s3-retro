@@ -11,6 +11,8 @@ static const machineResource cpm80Resources[] = {{"/littlefs/cpm80/system.dsk", 
 static const machineResource cpm86Resources[] = {{"/littlefs/cpm86/cpm.sys", cpm86SystemFileSize},
                                                  {"/littlefs/cpm86/retro86bios.h86", 1},
                                                  {"/littlefs/cpm86/system.dsk", cpm86SystemDiskSize}};
+static const char *apple2ConfigPath = "/littlefs/apple2/config.cfg";
+static const char *ucsdConfigPath = "/littlefs/ucsd/config.cfg";
 
 static machineState probeMachine(const retroMachine *machine)
 {
@@ -48,14 +50,33 @@ static void runPlaceholder(void)
   puts("Not implemented yet.");
 }
 
+static machineState probeApple2(const retroMachine *machine)
+{
+  return apple2MachineProbeWithConfig(machine, apple2ConfigPath);
+}
+
+static esp_err_t initializeApple2(void)
+{
+  return apple2MachineInitializeWithConfig(apple2ConfigPath);
+}
+
+static machineState probeUcsd(const retroMachine *machine)
+{
+  return apple2MachineProbeWithConfig(machine, ucsdConfigPath);
+}
+
+static esp_err_t initializeUcsd(void)
+{
+  return apple2MachineInitializeWithConfig(ucsdConfigPath);
+}
+
 static const retroMachine machines[] = {
     {"CP/M-80", "cpm80", "designCPM80.md", true, false, cpm80Resources, 1, cpm80MachineProbe, cpm80MachineInitialize,
      cpm80MachineRun},
     {"CP/M-86", "cpm86", "designCPM86.md", true, false, cpm86Resources, 3, cpm86MachineProbe, cpm86MachineInitialize,
      cpm86MachineRun},
-    {"UCSD Pascal", "ucsd", "designUCSD.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
-     runPlaceholder},
-    {"Apple II", "apple2", "designApple2.md", true, false, NULL, 0, apple2MachineProbe, apple2MachineInitialize,
+    {"UCSD Pascal", "ucsd", "designUCSD.md", true, false, NULL, 0, probeUcsd, initializeUcsd, apple2MachineRun},
+    {"Apple II", "apple2", "designApple2.md", true, false, NULL, 0, probeApple2, initializeApple2,
      apple2MachineRun},
     {"SWTPC 6800", "swtpc", "designSWTPC.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
      runPlaceholder}};

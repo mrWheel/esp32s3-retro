@@ -888,6 +888,66 @@ static void testDriveConfig(void)
   assert(unlink(path) == 0);
 }
 
+static void testProfileConfig(void)
+{
+  char configPath[64];
+  char sourcePath[256];
+  char drivesPath[apple2DriveConfigPathCapacity];
+  char error[128];
+  apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
+  makeTempPath(configPath, sizeof(configPath), ".cfg");
+
+  assert(apple2DriveConfigResolve(NULL, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
+         apple2DriveConfigInvalid);
+  assert(apple2DriveConfigResolve("/tmp/apple2MultiDisk-no-such-config.cfg", drivesPath, sizeof(drivesPath), error,
+                                  sizeof(error)) == apple2DriveConfigMissing);
+
+  writeText(configPath, "# ProDOS profile\n"
+                        "drives = /retro/images/apple2/drives.cfg \n");
+  assert(apple2DriveConfigResolve(configPath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
+         apple2DriveConfigLoaded);
+  assert(strcmp(drivesPath, "/microSD/retro/images/apple2/drives.cfg") == 0);
+
+  writeText(configPath, "drives=/retro/images/apple2/pascal/drives.cfg\n");
+  assert(apple2DriveConfigResolve(configPath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
+         apple2DriveConfigLoaded);
+  assert(strcmp(drivesPath, "/microSD/retro/images/apple2/pascal/drives.cfg") == 0);
+
+  snprintf(sourcePath, sizeof(sourcePath), "%s/littlefs/apple2/config.cfg", PROJECT_ROOT_PATH);
+  assert(apple2DriveConfigResolve(sourcePath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
+         apple2DriveConfigLoaded);
+  assert(strcmp(drivesPath, "/microSD/retro/images/apple2/drives.cfg") == 0);
+  snprintf(sourcePath, sizeof(sourcePath), "%s/littlefs/ucsd/config.cfg", PROJECT_ROOT_PATH);
+  assert(apple2DriveConfigResolve(sourcePath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
+         apple2DriveConfigLoaded);
+  assert(strcmp(drivesPath, "/microSD/retro/images/apple2/pascal/drives.cfg") == 0);
+
+  snprintf(sourcePath, sizeof(sourcePath), "%s/sdcard/retro/images/apple2/pascal/drives.cfg", PROJECT_ROOT_PATH);
+  assert(apple2DriveConfigLoad(sourcePath, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
+  assert(!drives[6 - apple2DriveConfigFirstSlot][0].configured);
+
+  static const char *const invalidConfigs[] = {
+      "# No selected drives file\n",
+      "drives=/retro/images/apple2/../drives.cfg\n",
+      "drives=/retro/images/cpm80/drives.cfg\n",
+      "drives=/retro/images/apple2/drives.txt\n",
+      "drives=/retro/images/apple2/drives.cfg\ndrives=/retro/images/apple2/pascal/drives.cfg\n",
+      "unknown=/retro/images/apple2/drives.cfg\n",
+      "not a config line\n",
+  };
+  for (size_t index = 0; index < sizeof(invalidConfigs) / sizeof(invalidConfigs[0]); ++index)
+  {
+    writeText(configPath, invalidConfigs[index]);
+    assert(apple2DriveConfigResolve(configPath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
+           apple2DriveConfigInvalid);
+    assert(drivesPath[0] == '\0');
+  }
+
+  writeText(configPath, "drives=/retro/images/apple2/drives.cfg\n");
+  assert(apple2DriveConfigResolve(configPath, drivesPath, 8, error, sizeof(error)) == apple2DriveConfigInvalid);
+  assert(unlink(configPath) == 0);
+}
+
 int main(void)
 {
   buildOrderTables();
@@ -905,6 +965,7 @@ int main(void)
   testPascal640kThroughController();
   testProDosSmartPortBlocks();
   testDriveConfig();
-  puts("PASS: multi-drive Disk II, ProDOS SmartPort blocks, 640K media, probing and drives.cfg");
+  testProfileConfig();
+  puts("PASS: multi-drive Disk II, ProDOS SmartPort blocks, 640K media, probing, and profile configuration");
   return 0;
 }
