@@ -1,0 +1,38 @@
+type F
+run 3
+type P
+wait 5 Prefix filenames
+type WORK1:\r
+run 3
+type Q
+wait 10 Command:
+type X
+wait 10 Execute what file
+type HOSTX\r
+wait 30 HOST>
+type PUT HELLO.TXT\r
+wait 300 PUT HELLO.TXT ... Done
+type PUT EMPTY.TXT\r
+wait 300 PUT EMPTY.TXT ... Done
+type PUT BIN.DAT\r
+wait 300 PUT BIN.DAT ... Done
+type PUT B512.DAT\r
+wait 300 PUT B512.DAT ... Done
+type PUT B513.DAT\r
+wait 300 PUT B513.DAT ... Done
+type PUT B1000.DAT\r
+wait 300 PUT B1000.DAT ... Done
+type PUT EIGHTK.DAT\r
+wait 300 PUT EIGHTK.DAT ... Done
+type PUT HOSTX.CODE\r
+wait 300 PUT HOSTX.CODE ... Done
+type PUT HELLO.TXT\r
+wait 30 Destination already exists
+type PUT HELLO.TXT O\r
+wait 60 PUT HELLO.TXT ... Done
+type PUT NOPE.DAT\r
+wait 30 cannot read
+type DIR\r
+wait 30 HOSTX.CODE
+type QUIT\r
+run 10

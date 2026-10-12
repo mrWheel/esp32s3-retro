@@ -1,6 +1,7 @@
 #include "apple2Core.h"
 #include "apple2Disk.h"
 #include "apple2DiskImage.h"
+#include "hostExchange.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1242,6 +1243,501 @@ static void testPascalIIeBoot(const char *bootImagePath, const char *iieRomPath)
   assert(apple2DiskImageClose(&bootDisk) == apple2DiskImageOk);
 }
 
+static bool pascalVolumeHasFile(apple2DiskImage *image, const char *fileName)
+{
+  uint8_t header[apple2SmartPortBlockSize];
+  if (apple2DiskImageReadBlock(image, 2, header) != apple2DiskImageOk)
+  {
+    return false;
+  }
+
+  uint16_t directoryEnd = (uint16_t)(header[2] | ((uint16_t)header[3] << 8));
+  if (directoryEnd < 3 || directoryEnd > 32)
+  {
+    return false;
+  }
+  size_t directorySize = (size_t)(directoryEnd - 2) * apple2SmartPortBlockSize;
+  uint8_t *directory = malloc(directorySize);
+  if (directory == NULL)
+  {
+    return false;
+  }
+  for (uint16_t block = 2; block < directoryEnd; ++block)
+  {
+    if (apple2DiskImageReadBlock(image, block,
+                                 &directory[(size_t)(block - 2) * apple2SmartPortBlockSize]) != apple2DiskImageOk)
+    {
+      free(directory);
+      return false;
+    }
+  }
+
+  uint16_t entryCount = (uint16_t)(directory[16] | ((uint16_t)directory[17] << 8));
+  size_t fileNameLength = strlen(fileName);
+  bool found = false;
+  for (uint16_t index = 0; index < entryCount; ++index)
+  {
+    size_t entryOffset = 26U * ((size_t)index + 1U);
+    if (entryOffset + 26U > directorySize)
+    {
+      break;
+    }
+    const uint8_t *entry = &directory[entryOffset];
+    if (entry[6] == fileNameLength && memcmp(&entry[7], fileName, fileNameLength) == 0)
+    {
+      found = true;
+      break;
+    }
+  }
+  free(directory);
+  return found;
+}
+
+static void stagePascalTextFile(apple2DiskImage *image, const char *fileName, const char *sourcePath)
+{
+  uint8_t directoryHeader[apple2SmartPortBlockSize];
+  assert(apple2DiskImageReadBlock(image, 2, directoryHeader) == apple2DiskImageOk);
+  uint16_t directoryEnd = (uint16_t)(directoryHeader[2] | ((uint16_t)directoryHeader[3] << 8));
+  uint16_t totalBlocks = (uint16_t)(directoryHeader[14] | ((uint16_t)directoryHeader[15] << 8));
+  size_t directorySize = (size_t)(directoryEnd - 2) * apple2SmartPortBlockSize;
+  uint8_t *directory = malloc(directorySize);
+  assert(directory != NULL);
+  for (uint16_t block = 2; block < directoryEnd; ++block)
+  {
+    assert(apple2DiskImageReadBlock(image, block,
+                                    &directory[(size_t)(block - 2) * apple2SmartPortBlockSize]) ==
+           apple2DiskImageOk);
+  }
+
+  uint16_t entryCount = (uint16_t)(directory[16] | ((uint16_t)directory[17] << 8));
+  size_t fileNameLength = strlen(fileName);
+  assert(fileNameLength > 0 && fileNameLength <= 15);
+  uint16_t firstTextBlock = 0;
+  for (uint16_t index = 0; index < entryCount; ++index)
+  {
+    size_t entryOffset = 26U * ((size_t)index + 1U);
+    assert(entryOffset + 26U <= directorySize);
+    uint8_t *entry = &directory[entryOffset];
+    assert(!(entry[6] == fileNameLength && memcmp(&entry[7], fileName, fileNameLength) == 0));
+    if ((entry[4] & 0x0F) == 3)
+    {
+      firstTextBlock = (uint16_t)(entry[0] | ((uint16_t)entry[1] << 8));
+      break;
+    }
+  }
+  assert(firstTextBlock != 0);
+
+  FILE *sourceFile = fopen(sourcePath, "rb");
+  assert(sourceFile != NULL);
+  assert(fseek(sourceFile, 0, SEEK_END) == 0);
+  long sourceLength = ftell(sourceFile);
+  assert(sourceLength > 0);
+  assert(fseek(sourceFile, 0, SEEK_SET) == 0);
+  char *source = malloc((size_t)sourceLength + 1);
+  assert(source != NULL);
+  assert(fread(source, 1, (size_t)sourceLength, sourceFile) == (size_t)sourceLength);
+  assert(fclose(sourceFile) == 0);
+  source[sourceLength] = '\0';
+
+  size_t textCapacity = ((size_t)sourceLength + 1024U) * 2U;
+  uint8_t *text = calloc(textCapacity, 1);
+  assert(text != NULL);
+  uint8_t header[2 * apple2SmartPortBlockSize];
+  assert(apple2DiskImageReadBlock(image, firstTextBlock, header) == apple2DiskImageOk);
+  assert(apple2DiskImageReadBlock(image, firstTextBlock + 1, &header[apple2SmartPortBlockSize]) ==
+         apple2DiskImageOk);
+  memcpy(text, header, sizeof(header));
+  size_t textLength = sizeof(header);
+  const char *line = source;
+  while (*line != '\0')
+  {
+    const char *lineEnd = line;
+    while (*lineEnd != '\0' && *lineEnd != '\r' && *lineEnd != '\n')
+    {
+      ++lineEnd;
+    }
+    size_t lineLength = (size_t)(lineEnd - line);
+    size_t indentation = 0;
+    while (indentation < lineLength && line[indentation] == ' ')
+    {
+      ++indentation;
+    }
+    assert(indentation <= 95 && lineLength - indentation <= 255);
+    size_t recordLength = lineLength - indentation + 3U;
+    //-- Real Pascal text pages never split a line and always keep at least one trailing NUL.
+    size_t pageOffset = (textLength - sizeof(header)) % 1024U;
+    if (recordLength + 1U > 1024U - pageOffset)
+    {
+      textLength += 1024U - pageOffset;
+    }
+    assert(textLength + recordLength <= textCapacity);
+    text[textLength++] = 16;
+    text[textLength++] = (uint8_t)(32U + indentation);
+    memcpy(&text[textLength], line + indentation, lineLength - indentation);
+    textLength += lineLength - indentation;
+    text[textLength++] = '\r';
+    if (*lineEnd == '\r')
+    {
+      ++lineEnd;
+      if (*lineEnd == '\n')
+      {
+        ++lineEnd;
+      }
+    }
+    else if (*lineEnd == '\n')
+    {
+      ++lineEnd;
+    }
+    line = lineEnd;
+  }
+  textLength = (textLength + 1023U) & ~(size_t)1023U;
+  size_t requiredBlocks = textLength / apple2SmartPortBlockSize;
+  free(source);
+  assert(requiredBlocks > 0 && requiredBlocks < totalBlocks);
+
+  uint16_t firstBlock = directoryEnd;
+  for (;;)
+  {
+    assert((uint32_t)firstBlock + requiredBlocks <= totalBlocks);
+    bool moved = false;
+    for (uint16_t index = 0; index < entryCount; ++index)
+    {
+      size_t entryOffset = 26U * ((size_t)index + 1U);
+      const uint8_t *entry = &directory[entryOffset];
+      uint16_t occupiedFirst = (uint16_t)(entry[0] | ((uint16_t)entry[1] << 8));
+      uint16_t occupiedNext = (uint16_t)(entry[2] | ((uint16_t)entry[3] << 8));
+      if (firstBlock < occupiedNext && (uint32_t)firstBlock + requiredBlocks > occupiedFirst)
+      {
+        firstBlock = occupiedNext;
+        moved = true;
+        break;
+      }
+    }
+    if (!moved)
+    {
+      break;
+    }
+  }
+
+  for (size_t index = 0; index < requiredBlocks; ++index)
+  {
+    assert(apple2DiskImageWriteBlock(image, firstBlock + (uint32_t)index,
+                                     &text[index * apple2SmartPortBlockSize]) == apple2DiskImageOk);
+  }
+  free(text);
+
+  assert(26U * ((size_t)entryCount + 2U) <= directorySize);
+  uint8_t newEntry[26] = {0};
+  uint16_t nextBlock = (uint16_t)(firstBlock + requiredBlocks);
+  newEntry[0] = (uint8_t)firstBlock;
+  newEntry[1] = (uint8_t)(firstBlock >> 8);
+  newEntry[2] = (uint8_t)nextBlock;
+  newEntry[3] = (uint8_t)(nextBlock >> 8);
+  newEntry[4] = 3;
+  newEntry[6] = (uint8_t)fileNameLength;
+  memcpy(&newEntry[7], fileName, fileNameLength);
+  newEntry[22] = 0;
+  newEntry[23] = 2;
+  memcpy(&directory[26U * ((size_t)entryCount + 1U)], newEntry, sizeof(newEntry));
+  ++entryCount;
+  directory[16] = (uint8_t)entryCount;
+  directory[17] = (uint8_t)(entryCount >> 8);
+
+  for (uint16_t index = 1; index < entryCount; ++index)
+  {
+    size_t currentOffset = 26U * ((size_t)index + 1U);
+    uint8_t current[26];
+    memcpy(current, &directory[currentOffset], sizeof(current));
+    uint16_t currentFirst = (uint16_t)(current[0] | ((uint16_t)current[1] << 8));
+    uint16_t position = index;
+    while (position > 0)
+    {
+      size_t previousOffset = 26U * (size_t)position;
+      uint16_t previousFirst = (uint16_t)(directory[previousOffset] |
+                                          ((uint16_t)directory[previousOffset + 1] << 8));
+      if (previousFirst <= currentFirst)
+      {
+        break;
+      }
+      memcpy(&directory[previousOffset + 26U], &directory[previousOffset], 26U);
+      --position;
+    }
+    memcpy(&directory[26U * ((size_t)position + 1U)], current, sizeof(current));
+  }
+
+  for (uint16_t block = 2; block < directoryEnd; ++block)
+  {
+    assert(apple2DiskImageWriteBlock(image, block,
+                                     &directory[(size_t)(block - 2) * apple2SmartPortBlockSize]) ==
+           apple2DiskImageOk);
+  }
+  free(directory);
+}
+
+typedef struct
+{
+  apple2Core *core;
+  apple2DiskImage bootDisk;
+  apple2DiskImage toolsDisk;
+  apple2DiskImage workDisk;
+} pascalSession;
+
+//-- Boots Pascal 1.3 on the Apple IIe with the boot disk, a read-only tools volume and a writable work volume.
+static void pascalSessionOpen(pascalSession *session, const char *bootImagePath, bool bootWritable,
+                              const char *iieRomPath, const char *toolsImagePath, const char *workImagePath)
+{
+  apple2DiskImageInitialize(&session->bootDisk);
+  assert(apple2DiskImageOpenProfileMode(&session->bootDisk, bootImagePath, apple2DiskImageProfile140k,
+                                        apple2DiskImageOrderAuto, !bootWritable) == apple2DiskImageOk);
+  apple2DiskImageInitialize(&session->toolsDisk);
+  assert(apple2DiskImageOpenProfileMode(&session->toolsDisk, toolsImagePath, apple2DiskImageProfile640k,
+                                        apple2DiskImageOrderAuto, !bootWritable) == apple2DiskImageOk);
+  apple2DiskImageInitialize(&session->workDisk);
+  assert(apple2DiskImageOpenProfileMode(&session->workDisk, workImagePath, apple2DiskImageProfile640k,
+                                        apple2DiskImageOrderAuto, false) == apple2DiskImageOk);
+
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  session->core = core;
+  assert(apple2CoreEnableIIe(core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  apple2DiskSectorOrder bootOrder = session->bootDisk.order == apple2DiskImageOrderProdos
+                                       ? apple2DiskSectorOrderProdos
+                                       : apple2DiskSectorOrderDos;
+  assert(apple2CoreAttachWritableDiskDrive(core, 6, 0, bootOrder, session->bootDisk.trackCount,
+                                           apple2DiskImageReadSectorCallback,
+                                           bootWritable ? apple2DiskImageWriteSectorCallback : NULL,
+                                           &session->bootDisk) == apple2CoreOk);
+  assert(apple2CoreAttachSmartPortDevice(core, 1, (uint32_t)session->toolsDisk.trackCount * 8U,
+                                         apple2DiskImageReadBlockCallback,
+                                         bootWritable ? apple2DiskImageWriteBlockCallback : NULL,
+                                         &session->toolsDisk) == apple2CoreOk);
+  assert(apple2CoreAttachSmartPortDevice(core, 2, (uint32_t)session->workDisk.trackCount * 8U,
+                                         apple2DiskImageReadBlockCallback,
+                                         apple2DiskImageWriteBlockCallback,
+                                         &session->workDisk) == apple2CoreOk);
+  uint8_t rom[apple2IIeRomSize];
+  FILE *file = fopen(iieRomPath, "rb");
+  assert(file != NULL && fread(rom, 1, sizeof(rom), file) == sizeof(rom));
+  assert(fclose(file) == 0);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+
+  bool booted = false;
+  for (int step = 0; step < 120 && !booted; ++step)
+  {
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    booted = screenContains(core, "Command: F(ile");
+  }
+  if (!booted)
+  {
+    dumpScreen(core);
+  }
+  assert(booted);
+}
+
+static void pascalSessionClose(pascalSession *session)
+{
+  assert(apple2CoreDetachDisk(session->core) == apple2CoreOk);
+  apple2CoreDestroy(session->core);
+  assert(apple2DiskImageClose(&session->workDisk) == apple2DiskImageOk);
+  assert(apple2DiskImageClose(&session->toolsDisk) == apple2DiskImageOk);
+  assert(apple2DiskImageClose(&session->bootDisk) == apple2DiskImageOk);
+}
+
+//-- Runs in 1M-cycle steps until the text shows on screen; dumps the screen and fails on timeout.
+static void pascalWaitFor(apple2Core *core, const char *text, unsigned maxMillionCycles)
+{
+  for (unsigned step = 0; step < maxMillionCycles; ++step)
+  {
+    if (screenContains(core, text))
+    {
+      return;
+    }
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+  }
+  dumpScreen(core);
+  printf("TIMEOUT waiting for \"%s\"\n", text);
+  assert(screenContains(core, text));
+}
+
+static void testPascalCompilerPrompt(const char *bootImagePath, const char *iieRomPath,
+                                    const char *toolsImagePath, const char *workImagePath,
+                                    const char *pascalSourcePath, const char *assemblySourcePath)
+{
+  char toolsScratchPath[512];
+  char workScratchPath[512];
+  makeScratchCopy(toolsImagePath, toolsScratchPath, sizeof(toolsScratchPath));
+  makeScratchCopy(workImagePath, workScratchPath, sizeof(workScratchPath));
+  pascalSession session;
+  pascalSessionOpen(&session, bootImagePath, false, iieRomPath, toolsScratchPath, workScratchPath);
+  assert(!pascalVolumeHasFile(&session.workDisk, "HOST.CODE"));
+  stagePascalTextFile(&session.workDisk, "HOST.TEXT", pascalSourcePath);
+  stagePascalTextFile(&session.workDisk, "HOSTIO.TEXT", assemblySourcePath);
+
+  apple2Core *core = session.core;
+  typeText(core, "C");
+  pascalWaitFor(core, "Compile what textfile", 10);
+  typeText(core, "WORK1:HOST\r");
+  pascalWaitFor(core, "To what codefile", 10);
+  typeText(core, "WORK1:HOST\r");
+  pascalWaitFor(core, "Listing file", 10);
+  typeText(core, "\r");
+  for (unsigned step = 0; step < 400; ++step)
+  {
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    if (screenContains(core, "error ") || screenContains(core, "Command: F(ile"))
+    {
+      break;
+    }
+  }
+  dumpScreen(core);
+  assert(!screenContains(core, "error "));
+  assert(screenContains(core, "Command: F(ile"));
+
+  pascalSessionClose(&session);
+  apple2DiskImage workCheck;
+  apple2DiskImageInitialize(&workCheck);
+  assert(apple2DiskImageOpenProfileMode(&workCheck, workScratchPath, apple2DiskImageProfile640k,
+                                        apple2DiskImageOrderAuto, true) == apple2DiskImageOk);
+  assert(pascalVolumeHasFile(&workCheck, "HOST.CODE"));
+  assert(apple2DiskImageClose(&workCheck) == apple2DiskImageOk);
+  assert(unlink(workScratchPath) == 0);
+  assert(unlink(toolsScratchPath) == 0);
+}
+
+static uint8_t readScriptExchangeSlot(void *context, uint8_t registerIndex)
+{
+  return registerIndex == 0 ? hostExchangePortInput(context, hostExchangePort) : 0xFF;
+}
+
+static void writeScriptExchangeSlot(void *context, uint8_t registerIndex, uint8_t value)
+{
+  if (registerIndex == 0)
+  {
+    hostExchangePortOutput(context, hostExchangePort, value);
+  }
+  else if (registerIndex == 1)
+  {
+    hostExchangePortOutput(context, hostExchangeAbortPort, value);
+  }
+}
+
+//-- Development driver: stages HOST sources on private /tmp copies and plays a keystroke script.
+//-- Script lines: "type TEXT" (\r = return), "wait N TEXT" (N million cycles), "run N", "dump".
+static void testPascalScript(const char *bootImagePath, const char *iieRomPath,
+                             const char *toolsImagePath, const char *workImagePath,
+                             const char *pascalSourcePath, const char *assemblySourcePath,
+                             const char *scriptPath, const char *workOutPath)
+{
+  size_t toolsSize;
+  uint8_t *toolsData = readWholeFile(toolsImagePath, &toolsSize);
+  size_t workSize;
+  uint8_t *workData = readWholeFile(workImagePath, &workSize);
+  const char *toolsTmp = "/tmp/ucsd-script-tools.po";
+  FILE *copy = fopen(toolsTmp, "wb");
+  assert(copy != NULL && fwrite(toolsData, 1, toolsSize, copy) == toolsSize && fclose(copy) == 0);
+  copy = fopen(workOutPath, "wb");
+  assert(copy != NULL && fwrite(workData, 1, workSize, copy) == workSize && fclose(copy) == 0);
+  free(toolsData);
+  free(workData);
+
+  const char *bootTmp = "/tmp/ucsd-script-boot.dsk";
+  size_t bootSize;
+  uint8_t *bootData = readWholeFile(bootImagePath, &bootSize);
+  copy = fopen(bootTmp, "wb");
+  assert(copy != NULL && fwrite(bootData, 1, bootSize, copy) == bootSize && fclose(copy) == 0);
+  free(bootData);
+  pascalSession session;
+  pascalSessionOpen(&session, bootTmp, true, iieRomPath, toolsTmp, workOutPath);
+  if (getenv("UCSD_SKIP_STAGE") == NULL)
+  {
+    stagePascalTextFile(&session.workDisk, "HOST.TEXT", pascalSourcePath);
+    stagePascalTextFile(&session.workDisk, "HOSTIO.TEXT", assemblySourcePath);
+  }
+  //-- UCSD_STAGE_EXTRA="NAME.TEXT=/path/source" stages one additional experiment source.
+  const char *extraStage = getenv("UCSD_STAGE_EXTRA");
+  if (extraStage != NULL)
+  {
+    char extraName[64];
+    const char *separator = strchr(extraStage, '=');
+    assert(separator != NULL && (size_t)(separator - extraStage) < sizeof(extraName));
+    memcpy(extraName, extraStage, (size_t)(separator - extraStage));
+    extraName[separator - extraStage] = '\0';
+    stagePascalTextFile(&session.workDisk, extraName, separator + 1);
+  }
+
+  //-- When UCSD_EXCHANGE_DIR is set, the slot-2 exchange bridge serves that directory.
+  hostExchange exchange = {0};
+  const char *exchangeDirectory = getenv("UCSD_EXCHANGE_DIR");
+  if (exchangeDirectory != NULL)
+  {
+    assert(hostExchangeInitializeProdos(&exchange, exchangeDirectory));
+    assert(apple2CoreAttachSlotIoDevice(session.core, 2, readScriptExchangeSlot, writeScriptExchangeSlot,
+                                        &exchange) == apple2CoreOk);
+  }
+
+  FILE *script = fopen(scriptPath, "r");
+  assert(script != NULL);
+  char line[512];
+  while (fgets(line, sizeof(line), script) != NULL)
+  {
+    size_t length = strlen(line);
+    while (length > 0 && (line[length - 1] == '\n' || line[length - 1] == '\r'))
+    {
+      line[--length] = '\0';
+    }
+    if (strncmp(line, "type ", 5) == 0)
+    {
+      char text[512];
+      size_t out = 0;
+      for (const char *in = line + 5; *in != '\0'; ++in)
+      {
+        if (in[0] == '\\' && in[1] == 'r')
+        {
+          text[out++] = '\r';
+          ++in;
+        }
+        else
+        {
+          text[out++] = *in;
+        }
+      }
+      text[out] = '\0';
+      typeText(session.core, text);
+    }
+    else if (strncmp(line, "wait ", 5) == 0)
+    {
+      unsigned maxMillion = (unsigned)strtoul(line + 5, NULL, 10);
+      const char *text = strchr(line + 5, ' ');
+      assert(text != NULL);
+      pascalWaitFor(session.core, text + 1, maxMillion);
+    }
+    else if (strncmp(line, "run ", 4) == 0)
+    {
+      unsigned million = (unsigned)strtoul(line + 4, NULL, 10);
+      for (unsigned step = 0; step < million; ++step)
+      {
+        assert(apple2CoreRunCycles(session.core, 1000000) == apple2CoreOk);
+      }
+    }
+    else if (strcmp(line, "dump") == 0)
+    {
+      dumpScreen(session.core);
+      apple2DiskState diskState;
+      apple2CoreGetDiskState(session.core, &diskState);
+      printf("---- disk6: reads=%u readFail=%u writes=%u writeFail=%u\n", (unsigned)diskState.sectorReads,
+             (unsigned)diskState.sectorReadFailures, (unsigned)diskState.writeAttempts,
+             (unsigned)diskState.writeFailures);
+    }
+  }
+  assert(fclose(script) == 0);
+  if (exchangeDirectory != NULL)
+  {
+    hostExchangeClose(&exchange);
+  }
+  pascalSessionClose(&session);
+}
+
 //-- Pascal must enumerate three block volumes across slots and open a TEXT file from slot 5 unit 2.
 static void testPascalIIeEditorOpen(const char *bootImagePath, const char *iieRomPath,
                                     const char *systemImagePath, const char *workImagePath,
@@ -1351,6 +1847,18 @@ int main(int argc, char **argv)
   {
     testPascalIIeEditorOpen(argv[2], argv[3], argv[4], argv[5], argv[6]);
     puts("PASS: Pascal lists three SmartPort volumes and opens a TEXT file from WORK1");
+    return 0;
+  }
+  if (argc == 8 && strcmp(argv[1], "--pascal-compiler-prompt") == 0)
+  {
+    testPascalCompilerPrompt(argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);
+    puts("PASS: Apple Pascal compiles HOST.TEXT into HOST.CODE");
+    return 0;
+  }
+  if (argc == 10 && strcmp(argv[1], "--pascal-script") == 0)
+  {
+    testPascalScript(argv[2], argv[3], argv[4], argv[5], argv[6], argv[7], argv[8], argv[9]);
+    puts("DONE: Pascal script finished");
     return 0;
   }
   if (argc == 3 && strcmp(argv[1], "--pascal-boot") == 0)

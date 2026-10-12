@@ -46,12 +46,14 @@ endif()
 add_executable(
   apple2DiskTests
   apple2DiskTests.c
+  ../components/hostCore/hostCore.c
+  ../components/hostCore/hostExchange.c
   ../components/apple2Core/apple2Core.c
   ../components/apple2Core/apple2Disk.c
   ../main/apple2DiskImage.c
   ../main/imageFile.c
 )
-target_include_directories(apple2DiskTests PRIVATE ../components/apple2Core/include ../components/apple2Core
+target_include_directories(apple2DiskTests PRIVATE ../components/hostCore/include ../components/apple2Core/include ../components/apple2Core
   ../components/apple2Core/third_party/chips ../main)
 target_compile_options(apple2DiskTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
 target_compile_definitions(
@@ -100,6 +102,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/ucsd/ApplePascal1-140K.dsk"
     "${CMAKE_CURRENT_SOURCE_DIR}/../sdcard/retro/images/ucsd/pascalWork2.po"
     "${CMAKE_CURRENT_SOURCE_DIR}/../sdcard/retro/images/ucsd/pascalWork1.po"
     "${CMAKE_CURRENT_SOURCE_DIR}/../sdcard/retro/images/ucsd/ApplePascal2-640K.po")
+  add_test(NAME ucsdHostGuest COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/ucsdHostGuest.sh
+    $<TARGET_FILE:apple2DiskTests> ${CMAKE_CURRENT_SOURCE_DIR}/..)
+  set_tests_properties(ucsdHostGuest PROPERTIES TIMEOUT 900)
 endif()
 add_test(NAME apple2ProdosSystemImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/createSystemDsk.py --os apple2
   --profile PRODOS --output ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk)

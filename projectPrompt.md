@@ -356,6 +356,21 @@ HOST GET HELLO.C
 HOST PUT RESULT.TXT
 ```
 
+Prefered User Interface:
+
+```
+Start "HOST" programma
+
+HOST> {DIR | GET <file> [O] | PUT <file> [O]}
+```
+Example:                                                                            
+```
+HOST <Enter>
+HOST> _
+HOST GET testFile [O]
+Get testFile ... "Done"
+```
+
 Equivalent utilities/protocols are defined in each machine design.
 
 The common host supplies an emulator-neutral exchange service. Prefer having the guest OS create/read its own guest files. For example, CP/M HOST.COM should receive/send bytes through a virtual host interface and use BDOS for its CP/M file operations. The host should not edit CP/M directory structures merely to transfer an individual file.

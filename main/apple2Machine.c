@@ -20,6 +20,10 @@
 static const char *tag = "apple2Machine";
 static const char *romPath = "/littlefs/apple2/apple2.rom";
 static const char *iieRomPath = "/littlefs/apple2/apple2e.rom";
+static const char *apple2ConfigPath = "/littlefs/apple2/config.cfg";
+static const char *ucsdConfigPath = "/littlefs/ucsd/config.cfg";
+static const char *apple2ExchangeRoot = "/microSD/retro/exchange/apple2";
+static const char *ucsdExchangeRoot = "/microSD/retro/exchange/ucsd";
 static char driveConfigPath[apple2DriveConfigPathCapacity];
 static const size_t bootSlotIndex = 6 - apple2DriveConfigFirstSlot;
 static const uint8_t exchangeSlot = 2;
@@ -38,6 +42,23 @@ static int64_t lastTerminalByteUs;
 static const int64_t escapeTimeoutUs = 50000;
 static bool renderedVidexMode;
 static bool renderedVidexModeKnown;
+
+static const char *exchangeRootForConfig(const char *configPath)
+{
+  if (configPath == NULL)
+  {
+    return NULL;
+  }
+  if (strcmp(configPath, ucsdConfigPath) == 0)
+  {
+    return ucsdExchangeRoot;
+  }
+  if (strcmp(configPath, apple2ConfigPath) == 0)
+  {
+    return apple2ExchangeRoot;
+  }
+  return NULL;
+}
 
 static uint8_t readExchangeRegister(void *context, uint8_t registerIndex)
 {
@@ -610,6 +631,14 @@ static uint32_t totalWriteFailures(void)
 
 esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
 {
+  const char *exchangeRoot = exchangeRootForConfig(configPath);
+  if (exchangeRoot == NULL)
+  {
+    ESP_LOGE(tag, "No host exchange directory is configured for profile %s",
+             configPath == NULL ? "(null)" : configPath);
+    return ESP_ERR_INVALID_ARG;
+  }
+
   char configError[128];
   apple2DriveConfigResult configResult =
       apple2DriveConfigResolve(configPath, driveConfigPath, sizeof(driveConfigPath), configError, sizeof(configError));
@@ -686,9 +715,9 @@ esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
     guestCore = NULL;
     return ESP_ERR_INVALID_RESPONSE;
   }
-  if (!hostExchangeInitializeProdos(&exchangeService, "/microSD/retro/exchange/apple2"))
+  if (!hostExchangeInitializeProdos(&exchangeService, exchangeRoot))
   {
-    ESP_LOGE(tag, "Apple II host exchange service could not be initialized");
+    ESP_LOGE(tag, "Host exchange service could not be initialized for %s", exchangeRoot);
     apple2CoreDestroy(guestCore);
     guestCore = NULL;
     return ESP_ERR_INVALID_STATE;

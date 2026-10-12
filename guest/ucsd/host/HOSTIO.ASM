@@ -1,0 +1,163 @@
+.MACRO POP
+        PLA
+        STA %1
+        PLA
+        STA %1+1
+.ENDM
+
+.MACRO PUSH
+        LDA %1+1
+        PHA
+        LDA %1
+        PHA
+.ENDM
+
+.FUNC EXCHREAD
+RDRETN .EQU 0
+        POP RDRETN
+        PLA
+        PLA
+        PLA
+        PLA
+        LDA #0
+        PHA
+        LDA 0C0A0
+        PHA
+        PUSH RDRETN
+        RTS
+
+.PROC EXCHWRT,1
+WRTRETN .EQU 0
+WRTVAL .EQU 3
+        POP WRTRETN
+        PLA
+        STA WRTVAL
+        PLA
+        LDA WRTVAL
+        STA 0C0A0
+        PUSH WRTRETN
+        RTS
+
+.PROC EXCHABT
+ABRTRET .EQU 0
+        POP ABRTRET
+        LDA #0
+        STA 0C0A1
+        PUSH ABRTRET
+        RTS
+
+.PROC EXCHRDB,2
+RDBRET .EQU 0
+RDBBUF .EQU 2
+RDBCNT .EQU 4
+        POP RDBRET
+        POP RDBCNT
+        POP RDBBUF
+RDBNXT  LDA RDBCNT
+        ORA RDBCNT+1
+        BEQ RDBFIN
+        LDA 0C0A0
+        LDY #0
+        STA (RDBBUF),Y
+        INC RDBBUF
+        BNE RDBDEC
+        INC RDBBUF+1
+RDBDEC  LDA RDBCNT
+        BNE RDBLOW
+        DEC RDBCNT+1
+RDBLOW  DEC RDBCNT
+        JMP RDBNXT
+RDBFIN  PUSH RDBRET
+        RTS
+
+.PROC EXCHWRB,2
+WRBRET .EQU 0
+WRBBUF .EQU 2
+WRBCNT .EQU 4
+        POP WRBRET
+        POP WRBCNT
+        POP WRBBUF
+WRBNXT  LDA WRBCNT
+        ORA WRBCNT+1
+        BEQ WRBFIN
+        LDY #0
+        LDA (WRBBUF),Y
+        STA 0C0A0
+        INC WRBBUF
+        BNE WRBDEC
+        INC WRBBUF+1
+WRBDEC  LDA WRBCNT
+        BNE WRBLOW
+        DEC WRBCNT+1
+WRBLOW  DEC WRBCNT
+        JMP WRBNXT
+WRBFIN  PUSH WRBRET
+        RTS
+
+.PROC EXCHCRC,3
+CRCRET .EQU 0
+CRCBUF .EQU 2
+CRCCNT .EQU 4
+CRCPTR .EQU 6
+        POP CRCRET
+        POP CRCCNT
+        POP CRCBUF
+        POP CRCPTR
+        LDY #0
+CRCLD   LDA (CRCPTR),Y
+        STA CRCB0,Y
+        INY
+        CPY #4
+        BNE CRCLD
+CRCNXT  LDA CRCCNT
+        ORA CRCCNT+1
+        BEQ CRCFIN
+        LDY #0
+        LDA (CRCBUF),Y
+        EOR CRCB0
+        STA CRCB0
+        LDX #8
+CRCBIT  LSR CRCB3
+        ROR CRCB2
+        ROR CRCB1
+        ROR CRCB0
+        BCC CRCSKP
+        LDA CRCB3
+        EOR PLY3
+        STA CRCB3
+        LDA CRCB2
+        EOR PLY2
+        STA CRCB2
+        LDA CRCB1
+        EOR PLY1
+        STA CRCB1
+        LDA CRCB0
+        EOR PLY0
+        STA CRCB0
+CRCSKP  DEX
+        BNE CRCBIT
+        INC CRCBUF
+        BNE CRCDEC
+        INC CRCBUF+1
+CRCDEC  LDA CRCCNT
+        BNE CRCLOW
+        DEC CRCCNT+1
+CRCLOW  DEC CRCCNT
+        JMP CRCNXT
+CRCFIN  LDY #0
+CRCST   LDA CRCB0,Y
+        STA (CRCPTR),Y
+        INY
+        CPY #4
+        BNE CRCST
+        PUSH CRCRET
+        RTS
+CRCB0   .BYTE 0
+CRCB1   .BYTE 0
+CRCB2   .BYTE 0
+CRCB3   .BYTE 0
+PLY0    .BYTE 20
+PLY1    .BYTE 83
+PLY2    .BYTE 0B8
+PLY3    .BYTE 0ED
+.END

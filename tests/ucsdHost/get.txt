@@ -1,0 +1,40 @@
+type F
+run 3
+type P
+wait 5 Prefix filenames
+type WORK1:\r
+run 3
+type Q
+wait 10 Command:
+type X
+wait 10 Execute what file
+type HOSTX\r
+wait 30 HOST>
+type GET HELLO.TXT\r
+wait 300 GET HELLO.TXT ... Done
+type GET EMPTY.TXT\r
+wait 300 GET EMPTY.TXT ... Done
+type GET BIN.DAT\r
+wait 300 GET BIN.DAT ... Done
+type GET B512.DAT\r
+wait 300 GET B512.DAT ... Done
+type GET B513.DAT\r
+wait 300 GET B513.DAT ... Done
+type GET B1000.DAT\r
+wait 300 GET B1000.DAT ... Done
+type GET EIGHTK.DAT\r
+wait 300 GET EIGHTK.DAT ... Done
+type GET HELLO.TXT\r
+wait 30 specify O
+type GET HELLO.TXT O\r
+run 40
+type GET NOPE.DAT\r
+wait 30 unavailable
+type GET BIGFILE.DAT\r
+wait 1500 local file error
+type DIR\r
+wait 30 HELLO.TXT
+type GET BAD-NAME\r
+wait 30 Invalid filename
+type QUIT\r
+run 10

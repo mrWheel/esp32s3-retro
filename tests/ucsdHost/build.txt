@@ -1,0 +1,39 @@
+type F
+run 3
+type P
+wait 5 Prefix filenames
+type WORK1:\r
+run 3
+type Q
+wait 10 Command:
+type C
+wait 10 Compile what
+type HOST\r
+wait 10 To what codefile
+type HOST\r
+wait 10 Listing
+type \r
+wait 400 Command:
+dump
+type A
+wait 10 Assemble what
+type HOSTIO\r
+wait 10 To what codefile
+type HOSTIO\r
+wait 10 isting
+type \r
+wait 400 Command:
+dump
+type L
+wait 10 Link what host
+type HOST\r
+wait 10 Using what library
+type HOSTIO\r
+wait 10 Another library
+type \r
+wait 10 Map file
+type \r
+wait 10 Output file
+type HOSTX\r
+wait 60 Command:
+dump

@@ -68,7 +68,7 @@ Paths under `/retro/` denote the SD volume independently of its VFS mount prefix
 
 Only option 6 starts WiFi and browser File Transfer, using the existing `michmich/esp-idf-wifi-provisioner` dependency (`^0.4.0` requirement in the supplied contracts; resolve against the project's actual lock). Its scope remains `/retro/exchange/` and `/retro/images/` on SD, with bounded streaming, temporary uploads, traversal protection, deliberate overwrite, byte-identical binary transfer and progress display. The documented host transfer limit remains 4 GiB minus 2 bytes; it is a host-contract statement, not a Pascal file-size limit. Enter exits File Transfer. Emulator execution and browser transfer remain mutually exclusive.
 
-The UCSD image root `/retro/images/ucsd/` is supported by the Apple drive-config parser and File Transfer's machine selector. The LittleFS boot image and profile are in `/littlefs/ucsd/`. The `/retro/exchange/ucsd/` directory remains available for host exchange files; a native Pascal file utility is not yet implemented.
+The UCSD image root `/retro/images/ucsd/` is supported by the Apple drive-config parser and File Transfer's machine selector. The LittleFS boot image and profile are in `/littlefs/ucsd/`. The `/retro/exchange/ucsd/` directory is the requested native Pascal HOST utility's exchange root; the native `HOST` utility is implemented and guest-tested in the host emulator (UCSD-DEC-021); ESP32-S3 operation is unverified.
 
 Physical ESP32 reset returns to the host menu; guest reset is separate. Clean exit flushes/closes media, releases devices and restores the terminal. Ordinary guest Enter is never the host exit command. Sudden power loss cannot guarantee guest filesystem consistency; qualify recovery on disposable media.
 
@@ -190,20 +190,18 @@ SP5.2=/retro/images/ucsd/pascalWork2.po,RW,APPLE2_640K
 
 The code validates paths, image profiles, RO/RW modes and mutually exclusive
 controller types per slot; it does not validate a Pascal volume's label or
-contents. Earlier inspection of the workspace images identified
-`pascalWork2.po` as DATA3 with compiler/system files, `pascalWork1.po` as
-WORK1 with `SPIRODEMO.TEXT`, and `ApplePascal2-640K.po` as an empty WORK
-volume. That earlier image-role information conflicts with the active file's
-comments and access modes: DATA3 is currently configured read/write, while
-the image previously identified as empty WORK is configured read-only. Do not
-infer that the current SD-card images match the workspace copies. The current
-`ucsdPascalIIeTextOpen` test fails because its expected `DATA3:` volume is not
-present in the tested current image set. Verify the volume headers and
-`SYSTEM.PASCAL`/`SYSTEM.COMPILER` files on the actual SD card before changing
-the mapping or declaring the system/compiler volume safe. A prior fixture
-verified Filer listing DATA3, WORK1 and WORK and opening
-`WORK1:SPIRODEMO.TEXT` from slot 5 unit 2. The editor cannot read the same
-TEXT file from a Disk II mapping. The preserved
+contents. The workspace copy of
+`sdcard/retro/images/ucsd/ApplePascal2-640K.po` was inspected on 2026-10-12:
+it is the `SYSTEM:` volume and contains `SYSTEM.COMPILER`,
+`SYSTEM.ASSMBLER`, `SYSTEM.LINKER` and the Pascal 1.3 system files, with
+approximately 645 free blocks. The checked-in `drives.cfg` mounts it read-only
+on SP4.1. This confirms the compiler tools are present in that workspace image,
+not that the physical SD card contains the same bytes or that the compiler has
+been run by the current test harness. The current `ucsdPascalIIeTextOpen` test
+fails because its expected `DATA3:` volume is not present in the tested current
+image set. A prior fixture verified Filer listing DATA3, WORK1 and WORK and
+opening `WORK1:SPIRODEMO.TEXT` from slot 5 unit 2. The editor cannot read the
+same TEXT file from a Disk II mapping. The preserved
 ProDOS `drives.cfg` baseline, normally associated with option 4, explicitly lists:
 
 ```text
@@ -217,9 +215,9 @@ Each effective `drives.cfg` has one explicit SD6.1 mapping; do not combine these
 | `/littlefs/apple2/` | Existing ROM and ProDOS master |
 | `/littlefs/ucsd/` | UCSD profile and read-only Pascal system disk |
 | `/retro/images/apple2/` | Apple II media root |
-| `/retro/exchange/apple2/` | Existing slot-2 adapter root and browser staging; no Pascal file utility yet |
+| `/retro/exchange/apple2/` | Existing slot-2 adapter root and browser staging |
 | `/retro/images/ucsd/` | UCSD writable images; selected directly by File Transfer |
-| `/retro/exchange/ucsd/` | UCSD exchange files; no native Pascal utility yet |
+| `/retro/exchange/ucsd/` | Native Pascal HOST utility exchange root |
 
 ### Disk controllers, image ordering and native units
 
@@ -301,7 +299,7 @@ UCSD-M1–M10 retain their identifiers but are rebaselined by UCSD-DEC-015. They
 | UCSD-M6 | Guest Pascal work-volume writes, clean reopen, unit mapping, boundary/fault behavior and media ownership verified |
 | UCSD-M7 | Full 80×24 edit/compile/run/save/restart/reopen on ESP32, control keys and source/string case checked |
 | UCSD-M8 | Record larger-volume qualification or explicit supported-size limitation; no unsupported 640K/800K claims; enhancement may remain deferred |
-| UCSD-M9 | Whole-image File Transfer round trip verified; native HOSTXFER remains a separately scoped optional follow-up |
+| UCSD-M9 | Whole-image File Transfer round trip verified; native Pascal HOST utility implements `DIR`, `GET` and `PUT` through the common exchange protocol and passes guest tests (HOST part: PASSED in the host emulator 2026-10-12, ctest `ucsdHostGuest`; whole-image round trip and ESP32 not verified) |
 | UCSD-M10 | Repeated profile switching/reset, cleanup, recovery, memory/performance, deployment instructions and evidence logs complete |
 
 Definition of Done for the core extension: a config.cfg/drives.cfg combination boots a qualified original Apple Pascal disk set on the shared Apple II 6502 machine from either menu entry; Language Card and existing display/input support a complete 80×24 development and persistent native-file workflow on ESP32; the ProDOS configuration and current SD policy regress successfully, including identical behavior for identical configurations from either entry; supported media and limitations are documented; no unexplained corruption or guest crash remains. A new machine emulator, restored DOS 3.3 stack, large-volume guest driver and native exchange utility are not required to meet this scope.
@@ -384,12 +382,13 @@ All following rows are design decisions from this request/document comparison, n
 | UCSD-DEC-011 | Select a complete Apple Pascal release and original-Apple-II desktop reference before boot acceptance. Reject carrying Z80 II.0/z80pack acceptance into Apple Pascal. Evidence: no chosen Apple release or guest boot in supplied logs. Retargets UCSD-DEC-003. |
 | UCSD-DEC-012 | Reuse 64 KiB physical memory/Language Card and existing slot-3 video/input. Add only traced Pascal compatibility gaps. Reject IIe auxiliary memory on the Apple II model (superseded for the optional IIe model by UCSD-DEC-017), synthetic Shift sensing and blanket ROM-address hooks. Evidence: APPLE-DEC-030/035/036 keyboard and open Pascal editor tests. |
 | UCSD-DEC-013 | Qualify original-size media first; keep 640K/800K claims limited to evidence. Reject host-size-to-guest-capacity inference and a mandatory new large-disk driver. Evidence: APPLE-ISSUE-016/017 and VERIFY-024. Clarifies UCSD-DEC-006. |
-| UCSD-DEC-014 | Use whole-image File Transfer first; preserve existing ProDOS HOST and common slot-2 protocol. Defer optional Pascal/6502 HOSTXFER and namespace extensions. Reject executing HOST.SYS in Pascal or inventing a Z80 bridge. Evidence: dated APPLE-DEC-036 transfer record. Replaces old mandatory Z80 utility scope. |
+| UCSD-DEC-014 | SUPERSEDED 2026-10-12 by UCSD-DEC-021. Original decision: use whole-image File Transfer first; defer optional native Pascal/6502 exchange work. |
 | UCSD-DEC-015 | Preserve original logs verbatim and add explicit supersession/disposition; rebaseline M1–M10 without PASS promotion. Reject deletion of failed experiments and carrying old evidence into new acceptance. Evidence: both engineering-memory contracts. |
 | UCSD-DEC-017 | 2026-10-12, implemented. Apple Pascal 1.3 128K (`128K.APPLE`/`128K.PASCAL`) requires IIe auxiliary memory, so the project gains an optional real Apple IIe model (`MACHINE=IIE`) instead of faking 128K on the Apple II. Alternatives rejected: running the 128K system on an Apple II + Saturn card (the system does not use Saturn banks), patching the system files, and replacing the Apple II model (existing Pascal 1.1 boot and tests must stay valid). Consequence: UCSD-DEC-012's rejection of IIe auxiliary memory applies to the Apple II model only. See APPLE-DEC-037/038. |
 | UCSD-DEC-018 | 2026-10-12, implemented. Mount 640K Pascal work volumes as slot-5 SmartPort block devices (SP5.1/SP5.2), not Disk II sector drives (SD5.1/SD5.2). A host IIe test reproduces `ERROR: Reading file` for `WORK1:SPIRODEMO.TEXT` through Disk II and opens and displays its source through SmartPort. Keep the 140K Pascal boot disk on SD6.1. This does not establish ESP32-S3 compatibility or guest write support. |
 | UCSD-DEC-019 | SUPERSEDED 2026-10-12 by UCSD-DEC-020. Original decision: extend slot-5 SmartPort to four 640K units and keep the active Pascal volumes on units 1–3. |
 | UCSD-DEC-020 | 2026-10-12, implemented. Pascal 1.3's ProDOS block interface uses unit identifiers 1 and 2 per slot; more than two volumes on one slot are not enumerated. Keep DATA3 and WORK1 on SP5.1/SP5.2, and mount additional Pascal volumes on another free slot (SP4.1 in the tested profile). The emulator and config parser still support four SmartPort units per slot for software using the SmartPort command interface. Host Filer enumeration and file-open tests pass; firmware/hardware remains unverified. |
+| UCSD-DEC-021 | 2026-10-12, implemented and guest-tested on the host emulator. Native UCSD p-System `HOST` program with the Apple host utility's `HOST>` interaction (`DIR`, `GET name [O]`, `PUT name [O]`) at `guest/ucsd/host/` (`HOST.PAS`, `HOSTIO.ASM`), using the existing Apple II emulator and slot-2 exchange protocol and `/retro/exchange/ucsd/`. Compiled, assembled and linked with the real Apple Pascal tools in the in-repository harness; the linked `HOST.CODE` is on `littlefs/ucsd/ApplePascal1-140K.dsk`. GET writes blocks with `BLOCKWRITE` and re-applies exact directory last-byte counts (the runtime directory cache would otherwise undo them). ctest `ucsdHostGuest` proves GET/PUT of empty, text and binary files, overwrite rules, errors and a disk-full abort. ESP32-S3 hardware is not tested. No separate p-code VM was added. See `ucsdHostLog.md`. |
 
 ### 128 KiB memory: Apple IIe model and Saturn 128K card (2026-10-12)
 
@@ -422,9 +421,10 @@ Each issue uses the engineering-memory chain. At this rewrite, Pascal experiment
 | UCSD-ISSUE-009 | PARTIAL 2026-10-11: Pascal 1.1 used its built-in 40-column driver because the slot-3 ROM carried no Pascal firmware-protocol identification. Evidence (disassembly of the running interpreter startup): Pascal scans slots $C7..$C1, checksums each ROM page and accepts a card only with `$Cn05=$38`, `$Cn07=$18` (type 4) and `$Cn0B=$01` (type 6, Pascal 1.1 protocol); the slot type is stored at `$BE67+$Cn` (slot 3: `$BF2A`). Fix: `tools/buildApple2PascalCardRom.py` generates `apple2PascalCardRom.h` (project-authored slot-3 page with those bytes and the init/read/write/status offsets `$0D..$10`, plus the entry routines at `$CA00`: control codes CR, LF with scroll, BS, FS, US, EM, FF, VT, GS, RS GOTOXY, ESC). A SYNC hook at the init entry `$C320` sets `pascalCardActive`, which switches off the Apple II-specific hacks that would corrupt Pascal data (CH/CV sync at `$24/$25`, CSW-based screen selection, boot-80 `$36/$37` conversion, lowercase-echo fix, `$FC58` HOME hook). Host result: `ucsdPascalBoot` now boots in 80x24 mode (`Command: E(dit, R(un, F(ile, C(omp, L(ink, X(ecute, A(ssem, D(ebug,? [1.1]` on row 0 of the card, mixed-case text, `$BF2A=$06`), and a `?` key through the card shows the second command line. Still unverified: editor/compiler on the card, all editor keys, ESP32-S3 hardware, real terminal key mapping. |
 | UCSD-ISSUE-010 | OPEN: guest write persistence, RO behavior, volume swaps and interrupted-write recovery; host GCR write tests are insufficient |
 | UCSD-ISSUE-011 | OPEN: documented SD/UCSD path routing and validated image order; use existing Apple roots until explicit host support exists |
-| UCSD-ISSUE-012 | DEFERRED: optional native Pascal exchange binding, metadata/text conversion and root selection; existing ProDOS HOST is separate |
+| UCSD-ISSUE-012 | SUPERSEDED 2026-10-12 by UCSD-DEC-021: native Pascal exchange utility is now requested; implement and verify its binding, byte-preserving file behavior and UCSD exchange-root selection |
 | UCSD-ISSUE-013 | OPEN: ESP32 latency/memory/throughput, repeated option 3↔4 launches and terminal restoration |
 | UCSD-ISSUE-015 | PARTIAL 2026-10-12: Pascal 1.3 128K boots on the host IIe model. A prior fixture listed three block volumes and opened/displays `WORK1:SPIRODEMO.TEXT`; the current guest test fails its DATA3 volume assertion with the present worktree media. See UCSD-VERIFY-017. Not run: compiler, file writes, full editor workflow, ESP32-S3; IIe ROM redistribution rights remain unresolved. |
+| UCSD-ISSUE-016 | RESOLVED for the host emulator 2026-10-12: `HOST.PAS`/`HOSTIO.ASM` compile, assemble and link with the mounted Apple Pascal tools; guest `DIR`/`GET`/`PUT`, CRC-32, overwrite and binary byte preservation pass (ctest `ucsdHostGuest`). Still OPEN: ESP32-S3 hardware, and a guest test with a corrupted checksum. |
 | UCSD-ISSUE-014 | OPEN DOCUMENTATION DISCREPANCY: duplicate APPLE-DEC-036 IDs and stale menu/DOS/default prose; preserve source IDs, cite date/topic, follow explicit latest decisions |
 
 Inherited Apple issues retain their original IDs in Appendix B. DOS-image procurement/removed-tool issues are historical for this scope, not reasons to reinstate DOS. Large Pascal controller support, firmware identity and hardware tests remain open; the hardware-confirmed RGB LED fix is retained as its specific recorded result, not proof of Pascal compatibility.

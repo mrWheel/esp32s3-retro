@@ -1,0 +1,34 @@
+PROGRAM VIDEOTEST;
+
+VAR
+  CH: CHAR;
+
+BEGIN
+  { Scherm leegmaken }
+  WRITE(CHR(12)); { Vaak gebruikt in UCSD Pascal voor een Form Feed / Clear Screen }
+  
+  { Links Boven: x=0, y=0 }
+  GOTOXY(0, 0);
+  WRITE('Links Boven');
+  
+  { Rechts Boven: x=67 (79 minus de lengte van de tekst 'Rechts Boven'), y=0 }
+  GOTOXY(67, 0);
+  WRITE('Rechts Boven');
+  
+  { Rechts Onder: x=67, y=23 }
+  GOTOXY(67, 23);
+  WRITE('Rechts Onder');
+  
+  { Links Onder: x=0, y=23 }
+  GOTOXY(0, 23);
+  WRITE('Links Onder');
+  
+  { In het midden: x=28, y=12 }
+  GOTOXY(28, 12);
+  WRITE('Enter Q to Quit: ');
+  
+  { Wachten totdat de gebruiker 'Q' of 'q' typt }
+  REPEAT
+    READ(CH);
+  UNTIL (CH = 'Q') OR (CH = 'q');
+END.

@@ -74,9 +74,51 @@ static void testApple2SlotIoDevice(void)
   apple2CoreDestroy(core);
 }
 
+static uint8_t readHostExchangeSlot(void *context, uint8_t registerIndex)
+{
+  return registerIndex == 0 ? hostExchangePortInput(context, hostExchangePort) : 0xFF;
+}
+
+static void writeHostExchangeSlot(void *context, uint8_t registerIndex, uint8_t value)
+{
+  if (registerIndex == 0)
+  {
+    hostExchangePortOutput(context, hostExchangePort, value);
+  }
+  else if (registerIndex == 1)
+  {
+    hostExchangePortOutput(context, hostExchangeAbortPort, value);
+  }
+}
+
+static void testApple2HostExchangeSlot(void)
+{
+  char directoryPath[] = "/tmp/apple2-host-exchange-XXXXXX";
+  assert(mkdtemp(directoryPath) != NULL);
+  hostExchange exchange = {0};
+  assert(hostExchangeInitializeProdos(&exchange, directoryPath));
+
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreAttachSlotIoDevice(core, 2, readHostExchangeSlot, writeHostExchangeSlot, &exchange) ==
+         apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xC0A0, hostExchangeCommandQuery) == apple2CoreOk);
+
+  uint8_t value;
+  assert(apple2CoreReadMemory(core, 0xC0A0, &value) == apple2CoreOk && value == hostExchangeStatusOk);
+  assert(apple2CoreReadMemory(core, 0xC0A0, &value) == apple2CoreOk && value == 1);
+  assert(apple2CoreReadMemory(core, 0xC0A0, &value) == apple2CoreOk && value == 0x07);
+
+  assert(apple2CoreDetachSlotIoDevice(core, 2) == apple2CoreOk);
+  apple2CoreDestroy(core);
+  hostExchangeClose(&exchange);
+  assert(rmdir(directoryPath) == 0);
+}
+
 static void testApple2Core(void)
 {
   testApple2SlotIoDevice();
+  testApple2HostExchangeSlot();
   apple2Core *core = NULL;
   uint8_t value;
   assert(apple2CoreCreate(&core) == apple2CoreOk);
