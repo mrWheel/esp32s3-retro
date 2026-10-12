@@ -33,6 +33,9 @@ OS_EXAMPLES = {
   buildDiskImage.py --os apple2
   buildDiskImage.py --os apple2 --profile 140K --source-dir ~/files WORK.po
   buildDiskImage.py --os apple2 --bootable --name SYSTEM prodosBoot.po""",
+    "ucsd": """examples:
+  buildDiskImage.py --os ucsd
+  buildDiskImage.py --os ucsd --profile 140K --name pietJe""",
 }
 
 

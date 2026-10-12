@@ -1,33 +1,13 @@
 #!/usr/bin/env python3
-"""List files on an Apple II disk image (DOS 3.3, ProDOS or UCSD Pascal) and
-copy them to a ProDOS or UCSD Pascal destination image.
+"""Interactively browse, copy and remove files on Apple II disk images.
 
-usage: extractApple2Files.py        (no options; everything is done with commands)
-
-commands:
-  S(ource [<image>]           select the source image (asked for when omitted, no default)
-  D(estination [<image>]      select the destination image (ProDOS or UCSD Pascal);
-                              when omitted it is asked for; a name that does not start
-                              with / or ~ is looked up in /sdcard/retro/images/apple2/
-  SL(ist                      list the files on the source image
-  DL(ist                      list the files on the destination image
-  C(opy <nameIn> [<nameOut>]  copy a file from source to destination;
-                              <nameIn> may contain wildcards (* ? [abc]),
-                              <nameOut> is not allowed together with wildcards
-  R(emove <name>              remove a file from the destination; <name> may contain
-                              wildcards; every file is confirmed with "Remove <name>? (y/N)"
-  Q(uit
-Commands may be abbreviated and are case-insensitive.
-[Tab] completes a path like the shell does.
-An <image> path starting with "/" is looked up as an absolute path first and
-then relative to the repository root (e.g. /assets/apple2Downloads/appleDisks/x.po).
+Run with Python 3. Select source/dest folders and disk images from the menu.
+Relative paths are looked up from the current directory and the repository root.
 """
 
 import datetime
 import fnmatch
 import os
-import re
-import shlex
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,8 +16,6 @@ try:
   import readline
 except ImportError:
   readline = None
-
-DEFAULT_DEST_DIR = "/sdcard/retro/images/apple2/"
 
 BLOCK_SIZE = 512
 DOS_IMAGE_SIZE = 143360
@@ -751,17 +729,6 @@ def removeFiles(dest, name):
   print(f"{removed} of {len(matches)} files removed")
 
 
-COMMAND_NAMES = ("source", "destination", "slist", "dlist", "copy", "remove", "quit")
-PROMPT = "S(ource, D(estination, SL(ist, DL(ist, C(opy, R(emove, Q(uit: "
-
-
-def matchCommand(word):
-  for name in COMMAND_NAMES:
-    if name.startswith(word.lower()):
-      return name
-  return None
-
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 pathPromptActive = False
 pathBaseDir = ""
@@ -772,8 +739,21 @@ def searchBases(text):
   return [given, str(REPO_ROOT) + "/" + text.lstrip("/")] if text.startswith("/") else [given, str(REPO_ROOT) + "/" + text]
 
 
-def resolveImagePath(text):
-  bases = searchBases(text)
+def resolveDirectoryPath(text):
+  for candidate in searchBases(text):
+    if os.path.isdir(candidate):
+      return Path(candidate).resolve()
+  for candidate in searchBases(text):
+    if os.path.isfile(candidate):
+      raise ToolError(f"{text} is a file; enter a folder")
+  raise ToolError(f"folder not found: {text}")
+
+
+def resolveImagePath(text, baseDirectory=None):
+  if baseDirectory is not None and not text.startswith(("/", "~")):
+    bases = [str(baseDirectory / os.path.expanduser(text))]
+  else:
+    bases = searchBases(text)
   for candidate in bases:
     if os.path.isfile(candidate):
       return Path(candidate)
@@ -799,18 +779,12 @@ def pathMatches(partial):
 
 
 def pathCompleter(text, state):
-  head = ""
   partial = text
-  if not pathPromptActive:
-    match = re.match(r"^(\s*(\S+)\s+)(.*)$", text)
-    if not match or matchCommand(match.group(2)) not in ("source", "destination"):
-      return None
-    head, partial = match.group(1), match.group(3)
   if pathBaseDir and not partial.startswith(("/", "~")):
     matches = [m[len(pathBaseDir):] for m in pathMatches(pathBaseDir + partial)]
   else:
     matches = pathMatches(partial)
-  return head + matches[state] if state < len(matches) else None
+  return matches[state] if state < len(matches) else None
 
 
 def setupLineEditing():
@@ -838,18 +812,8 @@ def promptPath(label, baseDir=""):
   return text
 
 
-def imageArgument(rest):
-  try:
-    words = shlex.split(rest)
-    if len(words) == 1:
-      return words[0]
-  except ValueError:
-    pass
-  return rest.strip().strip("\"'")
-
-
-def loadVolume(text, otherImage):
-  path = resolveImagePath(text)
+def loadVolume(text, otherImage, baseDirectory=None):
+  path = resolveImagePath(text, baseDirectory)
   if otherImage is not None and otherImage.path.samefile(path):
     image = otherImage
   else:
@@ -863,32 +827,155 @@ class Session:
     self.source = None
     self.destImage = None
     self.dest = None
+    self.pathSource = None
+    self.pathDestination = None
 
   def showSource(self):
-    print(f"Source: {self.sourceImage.path.name if self.sourceImage else '(not set)'}")
+    print(f"3 - Source disk [{self.sourceImage.path.name if self.sourceImage else '<empty>'}]")
 
   def showDestination(self):
-    print(f"Destination: {self.destImage.path.name if self.destImage else '(not set)'}")
+    print(f"4 - Dest. disk [{self.destImage.path.name if self.destImage else '<empty>'}]")
+
+  def showSourcePath(self):
+    print(f"1 - Source path [{self.pathSource if self.pathSource else '<empty>'}]")
+
+  def showDestinationPath(self):
+    print(f"2 - Dest. path [{self.pathDestination if self.pathDestination else '<empty>'}]")
+
+  def setSourcePath(self, text):
+    self.pathSource = resolveDirectoryPath(text)
+
+  def setDestinationPath(self, text):
+    self.pathDestination = resolveDirectoryPath(text)
 
   def setSource(self, text):
-    image, volume = loadVolume(text, self.destImage)
+    image, volume = loadVolume(text, self.destImage, self.pathSource)
     self.sourceImage, self.source = image, volume
 
   def setDestination(self, text):
-    image, volume = loadVolume(text, self.sourceImage)
+    image, volume = loadVolume(text, self.sourceImage, self.pathDestination)
     if not volume.writable:
-      raise ToolError("destination must be a ProDOS or UCSD Pascal image")
+      raise ToolError("dest must be a ProDOS or UCSD Pascal image")
     self.destImage, self.dest = image, volume
+
+  def listPathFiles(self, role):
+    directory = self.pathSource if role == "source" else self.pathDestination
+    if directory is None:
+      pathName = "source" if role == "source" else "dest"
+      raise ToolError(f"{pathName} path is empty; select it with menu option {'1' if role == 'source' else '2'}")
+    try:
+      files = sorted((path for path in directory.iterdir() if path.is_file()),
+                     key=lambda path: path.name.casefold())
+    except OSError as error:
+      raise ToolError(f"cannot list {role} path '{directory}': {error}") from error
+    return files
 
   def requireSource(self):
     if self.source is None:
-      raise ToolError("no source set (use S)")
+      raise ToolError("source disk is empty; select it with menu option 3")
     return self.source
 
   def requireDestination(self):
     if self.dest is None:
-      raise ToolError("no destination set (use D)")
+      raise ToolError("dest disk is empty; select it with menu option 4")
     return self.dest
+
+
+def chooseNumber(items, prompt, allowName=False):
+  if not items:
+    print("  (no files)")
+    return None
+  width = len(str(len(items)))
+  for number, item in enumerate(items, 1):
+    name = item.name if isinstance(item, Path) else item.path
+    print(f"{number:>{width}}. {name}")
+  answer = input(prompt).strip()
+  try:
+    number = int(answer)
+  except ValueError as error:
+    if allowName and answer:
+      return answer
+    raise ToolError(f"enter a number between 1 and {len(items)}") from error
+  if number < 1 or number > len(items):
+    raise ToolError(f"number must be between 1 and {len(items)}")
+  return items[number - 1]
+
+
+def setPath(session, role):
+  if role == "source":
+    text = promptPath(f"Source path [{session.pathSource or '<empty>'}]: ")
+    if text:
+      session.setSourcePath(text)
+  else:
+    text = promptPath(f"Dest path [{session.pathDestination or '<empty>'}]: ")
+    if text:
+      session.setDestinationPath(text)
+
+
+def selectDisk(session, role):
+  files = session.listPathFiles(role)
+  imagePath = chooseNumber(files, "Select Disk: ")
+  if imagePath is None:
+    return
+  if role == "source":
+    session.setSource(str(imagePath))
+  else:
+    session.setDestination(str(imagePath))
+
+
+def copyFromSource(session):
+  source = session.requireSource()
+  dest = session.requireDestination()
+  entries = [entry for entry in source.listFiles() if not entry.isDir]
+  selected = chooseNumber(entries, "Select file number or enter a file name/wildcard: ", allowName=True)
+  if selected is None:
+    return
+  if isinstance(selected, Entry):
+    nameIn = selected.path
+  else:
+    nameIn = selected
+  nameOut = input("Destination name [same as source]: ").strip() or None
+  copyFile(source, dest, nameIn, nameOut)
+
+
+def removeFromDestination(session):
+  dest = session.requireDestination()
+  entries = [entry for entry in dest.listFiles() if not entry.isDir]
+  selected = chooseNumber(entries, "Select file number or enter a file name/wildcard: ", allowName=True)
+  if selected is None:
+    return
+  name = selected.path if isinstance(selected, Entry) else selected
+  removeFiles(dest, name)
+
+
+def showVolumeFiles(volume):
+  entries = [entry for entry in volume.listFiles() if not entry.isDir]
+  if not entries:
+    print("  (no files)")
+    return
+  for number, entry in enumerate(entries, 1):
+    print(f"{number}. {entry.path}")
+
+
+def listFilesOnSource(session):
+  showVolumeFiles(session.requireSource())
+
+
+def listFilesOnDestination(session):
+  showVolumeFiles(session.requireDestination())
+
+
+def showMenu(session):
+  print()
+  session.showSourcePath()
+  session.showDestinationPath()
+  session.showSource()
+  session.showDestination()
+  print("5 - List files on Source")
+  print("6 - List files on Destination")
+  print("7 - Copy file from Source to Destination")
+  print("8 - Remove file from Destination")
+  print("0 - Quit")
 
 
 def main(argv):
@@ -897,53 +984,39 @@ def main(argv):
     return 1
   setupLineEditing()
   session = Session()
-  session.showSource()
-  session.showDestination()
   while True:
+    showMenu(session)
     try:
-      line = input(PROMPT)
+      option = input("Select option: ").strip()
     except EOFError:
       print()
       return 0
-    parts = line.strip().split(None, 1)
-    if not parts:
-      continue
-    rest = parts[1] if len(parts) == 2 else ""
-    command = matchCommand(parts[0])
     try:
-      if command in ("source", "destination"):
-        if rest.strip():
-          text = imageArgument(rest)
-        elif command == "source":
-          text = promptPath("Source image: ")
-        else:
-          text = promptPath(f"Destination image [{DEFAULT_DEST_DIR}]: ", DEFAULT_DEST_DIR)
-          text = text or DEFAULT_DEST_DIR
-        if text and command == "source":
-          session.setSource(text)
-        elif text:
-          session.setDestination(text)
-      elif command == "quit":
+      if option == "0":
         return 0
-      elif command in ("slist", "dlist"):
-        if rest.strip():
-          raise ToolError("SL(ist and DL(ist take no arguments")
-        printListing(session.requireSource() if command == "slist" else session.requireDestination())
-      elif command == "copy" and len(shlex.split(rest)) in (1, 2):
-        words = shlex.split(rest)
-        copyFile(session.requireSource(), session.requireDestination(), words[0], words[1] if len(words) == 2 else None)
-      elif command == "remove" and len(shlex.split(rest)) == 1:
-        removeFiles(session.requireDestination(), shlex.split(rest)[0])
+      elif option == "1":
+        setPath(session, "source")
+      elif option == "2":
+        setPath(session, "destination")
+      elif option == "3":
+        selectDisk(session, "source")
+      elif option == "4":
+        selectDisk(session, "destination")
+      elif option == "5":
+        listFilesOnSource(session)
+      elif option == "6":
+        listFilesOnDestination(session)
+      elif option == "7":
+        copyFromSource(session)
+      elif option == "8":
+        removeFromDestination(session)
       else:
-        print("usage: S(ource [<image>] | D(estination [<image>] | SL(ist | DL(ist | C(opy <nameIn> [<nameOut>] | R(emove <name> | Q(uit")
+        print("Select an option from 0 to 8.")
     except (ToolError, ValueError) as error:
       print(f"error: {error}")
     except EOFError:
       print()
       return 0
-    print()
-    session.showSource()
-    session.showDestination()
 
 
 if __name__ == "__main__":

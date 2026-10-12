@@ -96,7 +96,18 @@ OS_REGISTRY = {
         ),
     ),
     "swtpc": OsInfo("swtpc", "SWTPC 6800", False),
-    "ucsd": OsInfo("ucsd", "UCSD p-System", False),
+    "ucsd": OsInfo(
+        "ucsd",
+        "UCSD p-System",
+        False,
+        build_module="buildDiskImageUcsd",
+        default_system_image="work.po",
+        build_only=True,
+        details=(
+            "buildDiskImage.py builds blank, formatted Apple Pascal work volumes (.po): 640K (1280 blocks,\n"
+            "default) or 140K (280 blocks). The Pascal boot disk is not built by this tool."
+        ),
+    ),
 }
 
 
