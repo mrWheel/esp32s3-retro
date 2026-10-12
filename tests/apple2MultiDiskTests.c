@@ -788,11 +788,11 @@ static void writeText(const char *path, const char *text)
   writeFile(path, (const uint8_t *)text, strlen(text));
 }
 
-static void expectDefaults(apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot])
+static void expectDefaults(apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot])
 {
   for (size_t slot = 0; slot < apple2DriveConfigSlotCount; ++slot)
   {
-    for (size_t drive = 0; drive < apple2DriveConfigDrivesPerSlot; ++drive)
+    for (size_t drive = 0; drive < apple2DriveConfigDevicesPerSlot; ++drive)
     {
       assert(!drives[slot][drive].configured);
     }
@@ -801,7 +801,7 @@ static void expectDefaults(apple2DriveConfig drives[apple2DriveConfigSlotCount][
 
 static void testDriveConfig(void)
 {
-  apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
+  apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
   char error[128];
   assert(apple2DriveConfigLoad(NULL, drives, error, sizeof(error)) == apple2DriveConfigInvalid);
   assert(apple2DriveConfigLoad("/tmp/apple2MultiDisk-no-such-drives.cfg", drives, error, sizeof(error)) ==
@@ -830,11 +830,17 @@ static void testDriveConfig(void)
   assert(!drives[0][0].configured && !drives[0][1].configured && !drives[1][1].configured && !drives[3][0].configured);
 
   writeText(path, "SP5.1=/retro/images/apple2/prodos140.po,RO,APPLE2_140K\n"
-                  "SP5.2=/retro/images/apple2/prodos640.po,RW,APPLE2_640K\n");
+                  "SP5.2=/retro/images/apple2/prodos640.po,RW,APPLE2_640K\n"
+                  "SP5.3=/retro/images/apple2/work3.po,RW,APPLE2_640K\n"
+                  "SP5.4=/retro/images/apple2/work4.po,RW,APPLE2_640K\n"
+                  "SP4.1=/retro/images/apple2/work5.po,RW,APPLE2_640K\n");
   assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
   assert(drives[1][0].configured && drives[1][0].smartPort && drives[1][0].readOnly);
   assert(drives[1][1].configured && drives[1][1].smartPort && !drives[1][1].readOnly);
   assert(drives[1][1].profile == apple2DiskImageProfile640k);
+  assert(drives[1][2].configured && drives[1][2].smartPort && !drives[1][2].readOnly);
+  assert(drives[1][3].configured && drives[1][3].smartPort && !drives[1][3].readOnly);
+  assert(drives[0][0].configured && drives[0][0].smartPort && !drives[0][0].readOnly);
 
   //-- SD6.1 is an ordinary drive entry; system.dsk is only used when it is listed.
   writeText(path, "SD6.1=/retro/images/apple2/boot.po,RO,APPLE2_640K\n");
@@ -874,7 +880,13 @@ static void testDriveConfig(void)
       "SD6.2=/littlefs/cpm86/system.dsk,RO,APPLE2_140K\n",
       "SD6.2=/retro/images/apple2/a.dsk,RO,APPLE2_140K\nSD6.2=/retro/images/apple2/b.dsk,RO,APPLE2_140K\n",
       "SD5.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP5.2=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
-      "SP4.1=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
+      "SD4.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP4.1=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
+      "SP4.1=/retro/images/apple2/a.po,RO,APPLE2_640K\nSP4.1=/retro/images/apple2/b.po,RO,APPLE2_640K\n",
+      "SP8.1=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
+      "SP5.5=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
+      "SD5.3=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\n",
+      "SD5.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP5.3=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
+      "SP5.4=/retro/images/apple2/a.po,RO,APPLE2_640K\nSP5.4=/retro/images/apple2/b.po,RO,APPLE2_640K\n",
       "just text\n",
   };
   for (size_t index = 0; index < sizeof(invalidLines) / sizeof(invalidLines[0]); ++index)
@@ -903,7 +915,7 @@ static void testProfileConfig(void)
   char sourcePath[256];
   char drivesPath[apple2DriveConfigPathCapacity];
   char error[128];
-  apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
+  apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
   makeTempPath(configPath, sizeof(configPath), ".cfg");
 
   assert(apple2DriveConfigResolve(NULL, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
@@ -936,12 +948,24 @@ static void testProfileConfig(void)
   assert(drives[6 - apple2DriveConfigFirstSlot][0].configured);
   assert(drives[6 - apple2DriveConfigFirstSlot][0].readOnly);
   assert(strcmp(drives[6 - apple2DriveConfigFirstSlot][0].path,
-                "/littlefs/ucsd/ApplePascal2-680-0005-00.dsk") == 0);
-  assert(drives[6 - apple2DriveConfigFirstSlot][1].configured);
-  assert(!drives[6 - apple2DriveConfigFirstSlot][1].readOnly);
-  assert(drives[6 - apple2DriveConfigFirstSlot][1].profile == apple2DiskImageProfile640k);
-  assert(strcmp(drives[6 - apple2DriveConfigFirstSlot][1].path,
-                "/microSD/retro/images/ucsd/pascal640.po") == 0);
+                "/littlefs/ucsd/ApplePascal1-140K.dsk") == 0);
+  assert(drives[5 - apple2DriveConfigFirstSlot][0].configured);
+  assert(drives[5 - apple2DriveConfigFirstSlot][0].smartPort);
+  assert(drives[5 - apple2DriveConfigFirstSlot][0].readOnly);
+  assert(strcmp(drives[5 - apple2DriveConfigFirstSlot][0].path,
+                "/microSD/retro/images/ucsd/pascalWork2.po") == 0);
+  assert(drives[5 - apple2DriveConfigFirstSlot][1].configured);
+  assert(drives[5 - apple2DriveConfigFirstSlot][1].smartPort);
+  assert(!drives[5 - apple2DriveConfigFirstSlot][1].readOnly);
+  assert(strcmp(drives[5 - apple2DriveConfigFirstSlot][1].path,
+                "/microSD/retro/images/ucsd/pascalWork1.po") == 0);
+  assert(!drives[5 - apple2DriveConfigFirstSlot][2].configured);
+  assert(drives[4 - apple2DriveConfigFirstSlot][0].configured);
+  assert(drives[4 - apple2DriveConfigFirstSlot][0].smartPort);
+  assert(!drives[4 - apple2DriveConfigFirstSlot][0].readOnly);
+  assert(strcmp(drives[4 - apple2DriveConfigFirstSlot][0].path,
+                "/microSD/retro/images/ucsd/ApplePascal2-640K.po") == 0);
+  assert(!drives[5 - apple2DriveConfigFirstSlot][3].configured);
 
   static const char *const invalidConfigs[] = {
       "# No selected drives file\n",

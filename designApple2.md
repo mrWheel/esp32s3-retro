@@ -1,6 +1,6 @@
 # designApple2.md
 
-Revision: 2026-10-10. Status: phase 1 motherboard, ProDOS block storage, and selected slot-3 80×24 text-card profile integrated; ROM provenance, redistribution rights and hardware behavior remain unverified.
+Revision: 2026-10-12. Status: motherboard, ProDOS block storage, and selected slot-3 80×24 text-card profile integrated. SmartPort block configuration supports slots 4–7 and up to four units per slot; Pascal's legacy ProDOS block interface exposes only two units per slot. Pascal 1.3 128K boot has host evidence; current three-volume file/media regression is failing. ROM provenance, redistribution rights and hardware behavior remain unverified.
 
 # Purpose and provenance
 
@@ -209,6 +209,20 @@ For standard Disk II support, distinguish 35-track 13-sector media (35×13×256 
 For the remembered double-sided double-density 8-inch drives, do not assume 640 KiB: capacities vary by tracks, heads, sectors and bytes/sector, as well as controller and filesystem. Keep geometry and a guest-visible controller interface configurable. The owner will address custom DOS/Pascal software support separately. Large virtual images do not become accessible to unmodified DOS 3.3 or UCSD Pascal simply by increasing host image size. No physical floppy controller pins, motors or real drives are required.
 
 Do not introduce ProDOS, SmartPort, Apple IIe auxiliary RAM (on the default Apple II model; the optional IIe model has it), or a ProDOS-specific harddisk as a required dependency. The user-approved optional ProDOS 8/SmartPort path in APPLE-DEC-028 does not change the DOS 3.3 default. Test image bounds, RO enforcement, error propagation, flush/reopen, interrupted writes and disk-full behavior. Never silently enlarge images on invalid guest requests.
+
+### Current block-device implementation (2026-10-12)
+
+The implementation provides both the ProDOS block entry and a SmartPort
+command interface through block-device slots. `drives.cfg` accepts `SP<slot>.<unit>`
+for slots 4–7 and units 1–4; a slot cannot mix Disk II and SmartPort devices.
+This is emulator capacity, not a promise that every guest probes all four
+units. Apple Pascal 1.3's tested ProDOS block path addresses units 1 and 2 per
+slot, so additional Pascal volumes must be assigned to another free slot.
+Earlier host evidence showed three volumes and opened `WORK1:SPIRODEMO.TEXT`
+with a three-volume fixture; the current Pascal test fails its expected
+`DATA3:` assertion against the current worktree images. See
+[`designUCSD.md`](designUCSD.md) for the exact active mapping and evidence
+limitations. Neither guest file writes nor ESP32-S3 behavior is verified.
 
 ## Boot and guest software
 

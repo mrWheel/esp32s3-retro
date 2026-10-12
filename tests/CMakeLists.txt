@@ -89,6 +89,18 @@ add_test(NAME apple2DiskStream COMMAND apple2DiskTests --disk-stream)
 add_test(NAME apple2MultiDisk COMMAND apple2MultiDiskTests)
 add_test(NAME ucsdPascalBoot COMMAND apple2DiskTests --pascal-boot
   "${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/ucsd/ApplePascal1-680-0004-01.dsk")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/ucsd/ApplePascal1-140K.dsk"
+  AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/apple2/apple2e.rom"
+  AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../sdcard/retro/images/ucsd/pascalWork2.po"
+  AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../sdcard/retro/images/ucsd/pascalWork1.po"
+  AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../sdcard/retro/images/ucsd/ApplePascal2-640K.po")
+  add_test(NAME ucsdPascalIIeTextOpen COMMAND apple2DiskTests --pascal-iie-editor-open
+    "${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/ucsd/ApplePascal1-140K.dsk"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/apple2/apple2e.rom"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../sdcard/retro/images/ucsd/pascalWork2.po"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../sdcard/retro/images/ucsd/pascalWork1.po"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../sdcard/retro/images/ucsd/ApplePascal2-640K.po")
+endif()
 add_test(NAME apple2ProdosSystemImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/createSystemDsk.py --os apple2
   --profile PRODOS --output ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk)
 add_test(NAME apple2ProdosDataImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/buildDiskImage.py

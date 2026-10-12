@@ -11,7 +11,7 @@ static const char *pascalSystemPathPrefix = "/littlefs/ucsd/";
 static const char *dataPathPrefix = "/retro/images/apple2/";
 static const char *pascalDataPathPrefix = "/retro/images/ucsd/";
 
-typedef apple2DriveConfig driveTable[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
+typedef apple2DriveConfig driveTable[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
 
 static void setError(char *error, size_t errorCapacity, const char *message)
 {
@@ -24,7 +24,7 @@ static void setError(char *error, size_t errorCapacity, const char *message)
 //-- There is no default drive: without a drives.cfg line nothing is attached.
 static void initializeDefaults(driveTable drives)
 {
-  memset(drives, 0, sizeof(apple2DriveConfig) * apple2DriveConfigSlotCount * apple2DriveConfigDrivesPerSlot);
+  memset(drives, 0, sizeof(apple2DriveConfig) * apple2DriveConfigSlotCount * apple2DriveConfigDevicesPerSlot);
 }
 
 static char *trim(char *text)
@@ -167,12 +167,11 @@ apple2DriveConfigResult apple2DriveConfigResolve(const char *configPath, char *d
   return apple2DriveConfigLoaded;
 }
 
-//-- Parses "SD<slot>.<drive>" or the slot-5 SmartPort form "SP5.<unit>" into zero-based table indexes.
+//-- Parses "SD<slot>.<drive>" or "SP<slot>.<unit>" into zero-based table indexes.
 static bool parseDriveName(const char *name, size_t *slotIndex, size_t *driveIndex, bool *smartPort)
 {
   if (strlen(name) != 5 || name[3] != '.' ||
-      name[2] < '0' + apple2DriveConfigFirstSlot || name[2] > '0' + apple2DriveConfigLastSlot ||
-      name[4] < '1' || name[4] >= '1' + apple2DriveConfigDrivesPerSlot)
+      name[2] < '0' + apple2DriveConfigFirstSlot || name[2] > '0' + apple2DriveConfigLastSlot)
   {
     return false;
   }
@@ -180,11 +179,16 @@ static bool parseDriveName(const char *name, size_t *slotIndex, size_t *driveInd
   {
     *smartPort = false;
   }
-  else if (name[0] == 'S' && name[1] == 'P' && name[2] == '5')
+  else if (name[0] == 'S' && name[1] == 'P')
   {
     *smartPort = true;
   }
   else
+  {
+    return false;
+  }
+  size_t maxUnits = *smartPort ? apple2DriveConfigSmartPortUnits : apple2DriveConfigDrivesPerSlot;
+  if (name[4] < '1' || name[4] >= '1' + maxUnits)
   {
     return false;
   }
@@ -193,7 +197,7 @@ static bool parseDriveName(const char *name, size_t *slotIndex, size_t *driveInd
   return true;
 }
 
-static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot],
+static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot],
                       char *error, size_t errorCapacity)
 {
   char *content = trim(line);
@@ -204,7 +208,7 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   char *equals = strchr(content, '=');
   if (equals == NULL || equals == content || strchr(equals + 1, '=') != NULL)
   {
-    setError(error, errorCapacity, "expected SD<slot>.<drive> or SP5.<unit>=<image>,<RO|RW>,<profile>");
+    setError(error, errorCapacity, "expected SD<slot>.<drive> or SP<slot>.<unit>=<image>,<RO|RW>,<profile>");
     return false;
   }
   *equals = '\0';
@@ -233,7 +237,7 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   bool smartPort;
   if (!parseDriveName(driveName, &slotIndex, &driveIndex, &smartPort))
   {
-    setError(error, errorCapacity, "controller must be SD4.1..SD7.2 or SP5.1..SP5.2");
+    setError(error, errorCapacity, "controller must be SD4.1..SD7.2 or SP4.1..SP7.4");
     return false;
   }
   if (seen[slotIndex][driveIndex])
@@ -301,15 +305,12 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   }
 
   apple2DriveConfig *drive = &drives[slotIndex][driveIndex];
-  if (slotIndex == 5 - apple2DriveConfigFirstSlot)
+  for (size_t index = 0; index < apple2DriveConfigDevicesPerSlot; ++index)
   {
-    for (size_t index = 0; index < apple2DriveConfigDrivesPerSlot; ++index)
+    if (drives[slotIndex][index].configured && drives[slotIndex][index].smartPort != smartPort)
     {
-      if (drives[slotIndex][index].configured && drives[slotIndex][index].smartPort != smartPort)
-      {
-        setError(error, errorCapacity, "slot 5 cannot contain both Disk II and SmartPort devices");
-        return false;
-      }
+      setError(error, errorCapacity, "a slot cannot contain both Disk II and SmartPort devices");
+      return false;
     }
   }
   bool apple2System = strncmp(imagePath, systemPathPrefix, strlen(systemPathPrefix)) == 0;
@@ -357,7 +358,7 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
 }
 
 apple2DriveConfigResult apple2DriveConfigLoad(const char *path,
-                                              apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot],
+                                              apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot],
                                               char *error, size_t errorCapacity)
 {
   if (path == NULL || drives == NULL)
@@ -379,7 +380,7 @@ apple2DriveConfigResult apple2DriveConfigLoad(const char *path,
     return apple2DriveConfigInvalid;
   }
 
-  bool seen[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot] = {{false}};
+  bool seen[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot] = {{false}};
   char line[256];
   char reason[96];
   size_t lineNumber = 0;

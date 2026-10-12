@@ -123,8 +123,12 @@ images holds a ProDOS volume (a `.po` file, or a `.dsk` that holds a ProDOS
 volume): the Disk II boot ROM cannot start ProDOS, so such a slot gets a
 project-authored block-device ROM. The Autostart ROM boots it at power-on
 (or type `PR#6`), and both drives of that slot are block devices, so keep Apple
-Pascal (Disk II) images in a slot of their own. `SP5.1`/`SP5.2` select the same
-kind of device explicitly as a SmartPort interface in slot 5 (`PR#5`).
+Pascal (Disk II) images in a slot of their own. `SP<slot>.<unit>` selects the
+same kind of device explicitly as a SmartPort interface; slots 4–7 accept up
+to four configured units each (`SP5.1`/`SP5.2` with `PR#5` are one example).
+Apple Pascal 1.3's tested ProDOS block path addresses only two units per slot,
+so extra Pascal volumes must use another slot. This guest limit is distinct
+from the emulator's four-unit SmartPort command interface.
 The firmware passes 512-byte block reads and writes to the image backend,
 preserving either DOS or ProDOS sector ordering and the configured `RO`/`RW`
 access. The guest filesystem owns all ProDOS directory and bitmap updates.

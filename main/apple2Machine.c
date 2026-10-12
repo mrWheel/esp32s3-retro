@@ -26,7 +26,7 @@ static const uint8_t exchangeSlot = 2;
 static apple2Core *guestCore;
 static hostExchange exchangeService;
 static bool exchangeServiceInitialized;
-static apple2DiskImage guestDisks[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
+static apple2DiskImage guestDisks[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
 static uint8_t renderedCells[apple2TextRows][apple2VidexTextColumns];
 static bool screenRendered;
 static bool renderedFlashOn;
@@ -323,7 +323,7 @@ machineState apple2MachineProbeWithConfig(const retroMachine *machine, const cha
     return configResult == apple2DriveConfigMissing ? machineMissingResource : machineResourceInvalid;
   }
 
-  apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
+  apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
   configResult = apple2DriveConfigLoad(selectedDrivesPath, drives, configError, sizeof(configError));
   if (configResult != apple2DriveConfigLoaded)
   {
@@ -407,7 +407,7 @@ static void releaseDisk(void)
   }
   for (size_t slotIndex = 0; slotIndex < apple2DriveConfigSlotCount; ++slotIndex)
   {
-    for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDrivesPerSlot; ++driveIndex)
+    for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDevicesPerSlot; ++driveIndex)
     {
       apple2DiskImage *image = &guestDisks[slotIndex][driveIndex];
       if (apple2DiskImageIsOpen(image) && apple2DiskImageClose(image) != apple2DiskImageOk)
@@ -522,7 +522,7 @@ static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2D
 //-- The boot drive SD6.1 must be configured in drives.cfg and its image must open; otherwise the machine does not start.
 static esp_err_t attachDisks(void)
 {
-  apple2DriveConfig config[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot];
+  apple2DriveConfig config[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
   char configError[128];
   apple2DriveConfigResult configResult = apple2DriveConfigLoad(driveConfigPath, config, configError, sizeof(configError));
   bool bootDriveOpened = false;
@@ -533,10 +533,10 @@ static esp_err_t attachDisks(void)
   }
   for (size_t slotIndex = 0; slotIndex < apple2DriveConfigSlotCount; ++slotIndex)
   {
-    bool opened[apple2DriveConfigDrivesPerSlot] = {false};
+    bool opened[apple2DriveConfigDevicesPerSlot] = {false};
     bool proDosContent = false;
     bool smartPort = false;
-    for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDrivesPerSlot; ++driveIndex)
+    for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDevicesPerSlot; ++driveIndex)
     {
       if (config[slotIndex][driveIndex].configured)
       {
@@ -552,7 +552,7 @@ static esp_err_t attachDisks(void)
       }
     }
     driveMode mode = smartPort ? driveModeSmartPort : (proDosContent ? driveModeProDosBlock : driveModeDiskII);
-    for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDrivesPerSlot; ++driveIndex)
+    for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDevicesPerSlot; ++driveIndex)
     {
       if (opened[driveIndex])
       {

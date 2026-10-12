@@ -295,6 +295,17 @@ static void testSmartPortBlockCall(void)
   assert(apple2CoreAttachDiskDrive(core, apple2SmartPortSlot, 0, apple2DiskSectorOrderDos,
                                    apple2DiskImageTracks, unusedDiskSectorRead, &fixture) == apple2CoreInvalidArgument);
   assert(apple2CoreDetachDisk(core) == apple2CoreOk);
+  for (uint8_t unit = 1; unit <= 4; ++unit)
+  {
+    assert(apple2CoreAttachSmartPortDevice(core, unit, 2, smartPortRead, NULL, &fixture) == apple2CoreOk);
+  }
+  assert(apple2CoreAttachSmartPortDevice(core, 5, 2, smartPortRead, NULL, &fixture) ==
+         apple2CoreInvalidArgument);
+  assert(apple2CoreReadMemory(core, 0xC5FE, &signature) == apple2CoreOk && signature == 0xF3);
+  for (uint8_t unit = 1; unit <= 4; ++unit)
+  {
+    assert(apple2CoreDetachSmartPortDevice(core, unit) == apple2CoreOk);
+  }
   assert(apple2CoreAttachDiskDrive(core, apple2SmartPortSlot, 0, apple2DiskSectorOrderDos,
                                    apple2DiskImageTracks, unusedDiskSectorRead, &fixture) == apple2CoreOk);
   assert(apple2CoreAttachSmartPortDevice(core, 1, 2, smartPortRead, NULL, &fixture) ==
@@ -1231,12 +1242,115 @@ static void testPascalIIeBoot(const char *bootImagePath, const char *iieRomPath)
   assert(apple2DiskImageClose(&bootDisk) == apple2DiskImageOk);
 }
 
+//-- Pascal must enumerate three block volumes across slots and open a TEXT file from slot 5 unit 2.
+static void testPascalIIeEditorOpen(const char *bootImagePath, const char *iieRomPath,
+                                    const char *systemImagePath, const char *workImagePath,
+                                    const char *emptyWorkImagePath)
+{
+  char systemScratchPath[512];
+  char scratchPath[512];
+  char emptyWorkScratchPath[512];
+  makeScratchCopy(systemImagePath, systemScratchPath, sizeof(systemScratchPath));
+  makeScratchCopy(workImagePath, scratchPath, sizeof(scratchPath));
+  makeScratchCopy(emptyWorkImagePath, emptyWorkScratchPath, sizeof(emptyWorkScratchPath));
+  apple2DiskImage bootDisk;
+  apple2DiskImageInitialize(&bootDisk);
+  assert(apple2DiskImageOpenProfileMode(&bootDisk, bootImagePath, apple2DiskImageProfile140k,
+                                        apple2DiskImageOrderAuto, true) == apple2DiskImageOk);
+  apple2DiskImage systemDisk;
+  apple2DiskImageInitialize(&systemDisk);
+  assert(apple2DiskImageOpenProfileMode(&systemDisk, systemScratchPath, apple2DiskImageProfile640k,
+                                        apple2DiskImageOrderAuto, false) == apple2DiskImageOk);
+  apple2DiskImage workDisk;
+  apple2DiskImageInitialize(&workDisk);
+  assert(apple2DiskImageOpenProfileMode(&workDisk, scratchPath, apple2DiskImageProfile640k,
+                                        apple2DiskImageOrderAuto, false) == apple2DiskImageOk);
+  apple2DiskImage emptyWorkDisk;
+  apple2DiskImageInitialize(&emptyWorkDisk);
+  assert(apple2DiskImageOpenProfileMode(&emptyWorkDisk, emptyWorkScratchPath, apple2DiskImageProfile640k,
+                                        apple2DiskImageOrderAuto, false) == apple2DiskImageOk);
+  assert(systemDisk.probe.content == apple2DiskImageContentPascal);
+  assert(workDisk.probe.content == apple2DiskImageContentPascal);
+  assert(emptyWorkDisk.probe.content == apple2DiskImageContentPascal);
+
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreEnableIIe(core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  apple2DiskSectorOrder bootOrder = bootDisk.order == apple2DiskImageOrderProdos
+                                       ? apple2DiskSectorOrderProdos
+                                       : apple2DiskSectorOrderDos;
+  assert(apple2CoreAttachDiskDrive(core, 6, 0, bootOrder, bootDisk.trackCount,
+                                   apple2DiskImageReadSectorCallback, &bootDisk) == apple2CoreOk);
+  assert(apple2CoreAttachSmartPortDevice(core, 1, (uint32_t)systemDisk.trackCount * 8U,
+                                         apple2DiskImageReadBlockCallback,
+                                         NULL, &systemDisk) == apple2CoreOk);
+  assert(apple2CoreAttachSmartPortDevice(core, 2, (uint32_t)workDisk.trackCount * 8U,
+                                         apple2DiskImageReadBlockCallback,
+                                         apple2DiskImageWriteBlockCallback, &workDisk) == apple2CoreOk);
+  assert(apple2CoreAttachBlockDevice(core, 4, 1, (uint32_t)emptyWorkDisk.trackCount * 8U, false,
+                                     apple2DiskImageReadBlockCallback,
+                                     apple2DiskImageWriteBlockCallback, &emptyWorkDisk) == apple2CoreOk);
+  uint8_t rom[apple2IIeRomSize];
+  FILE *file = fopen(iieRomPath, "rb");
+  assert(file != NULL && fread(rom, 1, sizeof(rom), file) == sizeof(rom));
+  fclose(file);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+
+  bool booted = false;
+  for (int step = 0; step < 120 && !booted; ++step)
+  {
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    booted = screenContains(core, "Command: F(ile");
+  }
+  assert(booted);
+  typeText(core, "F");
+  assert(apple2CoreRunCycles(core, 10000000) == apple2CoreOk);
+  typeText(core, "V");
+  assert(apple2CoreRunCycles(core, 10000000) == apple2CoreOk);
+  assert(screenContains(core, "DATA3:"));
+  assert(screenContains(core, "WORK1:"));
+  assert(screenContains(core, "WORK:"));
+  typeText(core, "Q");
+  assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+  typeText(core, "E");
+  assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+  typeText(core, "WORK1:SPIRODEMO.TEXT\r");
+  assert(apple2CoreRunCycles(core, 10000000) == apple2CoreOk);
+  if (screenContains(core, "ERROR: Reading file"))
+  {
+    dumpScreen(core);
+  }
+  if (!screenContains(core, "PROGRAM SPIRODEMO;"))
+  {
+    dumpScreen(core);
+  }
+  assert(!screenContains(core, "ERROR: Reading file"));
+  assert(screenContains(core, "PROGRAM SPIRODEMO;"));
+
+  assert(apple2CoreDetachDisk(core) == apple2CoreOk);
+  apple2CoreDestroy(core);
+  assert(apple2DiskImageClose(&emptyWorkDisk) == apple2DiskImageOk);
+  assert(apple2DiskImageClose(&workDisk) == apple2DiskImageOk);
+  assert(apple2DiskImageClose(&systemDisk) == apple2DiskImageOk);
+  assert(apple2DiskImageClose(&bootDisk) == apple2DiskImageOk);
+  assert(unlink(scratchPath) == 0);
+  assert(unlink(systemScratchPath) == 0);
+  assert(unlink(emptyWorkScratchPath) == 0);
+}
+
 int main(int argc, char **argv)
 {
   if (argc == 4 && strcmp(argv[1], "--pascal-iie-boot") == 0)
   {
     testPascalIIeBoot(argv[2], argv[3]);
     puts("PASS: Apple IIe boots the 128K Apple Pascal system");
+    return 0;
+  }
+  if (argc == 7 && strcmp(argv[1], "--pascal-iie-editor-open") == 0)
+  {
+    testPascalIIeEditorOpen(argv[2], argv[3], argv[4], argv[5], argv[6]);
+    puts("PASS: Pascal lists three SmartPort volumes and opens a TEXT file from WORK1");
     return 0;
   }
   if (argc == 3 && strcmp(argv[1], "--pascal-boot") == 0)
