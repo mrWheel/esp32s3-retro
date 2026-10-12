@@ -15,6 +15,12 @@ enum
 {
   apple2LanguageCardRamSize = 16 * 1024,
   apple2LanguageCardBankSize = 4 * 1024,
+  apple2Saturn128RamSize = 128 * 1024,
+  apple2Saturn128BankSize = 16 * 1024,
+  apple2IIeLanguageCardRamSize = 32 * 1024,
+  apple2IIeAuxRamSize = 48 * 1024,
+  apple2IIeFrameCycles = 17030,
+  apple2IIeVblankCycles = 4550,
   apple2VidexRamSize = 2048,
   apple2VidexRamBankSize = 512,
   apple2VidexRegisterCount = 32,
@@ -113,7 +119,11 @@ struct apple2Core
   m6502_t cpu;
   uint64_t pins;
   uint8_t *ram;
-  uint8_t languageCardRam[apple2LanguageCardRamSize];
+  uint8_t *languageCardRam;
+  uint8_t *auxRam;
+  uint8_t *iieRom;
+  size_t languageCardMainBank;
+  apple2RamCard ramCard;
   uint8_t rom[apple2RomSize];
   uint8_t busValue;
   uint8_t keyboardData;
@@ -138,6 +148,13 @@ struct apple2Core
   bool lowercaseCharacterRom;
   bool lowercaseKeyboard;
   bool romLoaded;
+  bool iie;
+  bool ramRead;
+  bool ramWrite;
+  bool altZp;
+  bool intCxRom;
+  bool slotC3Rom;
+  bool intC8Rom;
   bool bootIn80Columns;
   bool setvidActive;
   uint64_t cycles;
@@ -317,13 +334,22 @@ static size_t languageCardOffset(const apple2Core *core, uint16_t address)
 {
   if (address < 0xE000)
   {
-    return (size_t)(address - 0xD000) + (core->languageCardBank2 ? apple2LanguageCardBankSize : 0);
+    return core->languageCardMainBank + (size_t)(address - 0xD000) +
+           (core->languageCardBank2 ? apple2LanguageCardBankSize : 0);
   }
-  return 2 * apple2LanguageCardBankSize + (size_t)(address - 0xE000);
+  return core->languageCardMainBank + 2 * apple2LanguageCardBankSize + (size_t)(address - 0xE000);
 }
 
 static void accessLanguageCardSwitch(apple2Core *core, uint16_t address, bool isWrite)
 {
+  //-- Saturn 128K: offsets with bit 2 set only select one of eight 16 KiB banks ($C084-$C087, $C08C-$C08F).
+  if (core->ramCard == apple2RamCardSaturn128 && (address & 0x04) != 0)
+  {
+    static const uint8_t bankByOffset[16] = {0, 0, 0, 0, 0, 1, 2, 3, 0, 0, 0, 0, 4, 5, 6, 7};
+    core->languageCardMainBank = (size_t)bankByOffset[address & 0x0F] * apple2Saturn128BankSize;
+    core->languageCardPrewrite = false;
+    return;
+  }
   core->languageCardBank2 = (address & 0x08) == 0;
   core->languageCardReadEnabled = (address & 0x03) == 0 || (address & 0x03) == 0x03;
 
@@ -350,7 +376,7 @@ static void clearKeyboardStrobe(apple2Core *core)
 {
   bool keyWasReady = core->keyboardStrobe;
   core->keyboardStrobe = false;
-  if (core->cpuBusAccess && keyWasReady && core->lowercaseKeyboard &&
+  if (core->cpuBusAccess && !core->iie && keyWasReady && core->lowercaseKeyboard &&
       core->keyboardData >= 'a' && core->keyboardData <= 'z')
   {
     core->lowercaseEchoPending = true;
@@ -679,6 +705,7 @@ static bool executeSmartPortTrap(apple2Core *core)
   uint16_t slotBase = (uint16_t)(0xC000 + slot * 0x100);
   //— Only an opcode fetch at an entry address is a call; operand fetches of the slot boot code must pass.
   if ((core->pins & M6502_SYNC) == 0 || entry < 0xC000 || entry >= 0xC800 || !blockSlotIsAttached(core, slot) ||
+      (core->iie && core->intCxRom) ||
       (entry != slotBase + smartPortEntryBlockOffset && entry != slotBase + smartPortEntryCallOffset))
   {
     return false;
@@ -769,10 +796,300 @@ static uint8_t readBlockSlotRom(const apple2Core *core, uint8_t slot, uint8_t of
   return writable ? (uint8_t)(capabilities | 0x04U) : capabilities;
 }
 
+
+static void setVideoSwitch(apple2Core *core, uint16_t address)
+{
+  switch (address)
+  {
+  case 0xC050:
+    core->video.textMode = false;
+    break;
+  case 0xC051:
+    core->video.textMode = true;
+    break;
+  case 0xC052:
+    core->video.mixedMode = false;
+    break;
+  case 0xC053:
+    core->video.mixedMode = true;
+    break;
+  case 0xC054:
+    core->video.page2 = false;
+    break;
+  case 0xC055:
+    core->video.page2 = true;
+    break;
+  case 0xC056:
+    core->video.highResolution = false;
+    break;
+  case 0xC057:
+    core->video.highResolution = true;
+    break;
+  default:
+    break;
+  }
+}
+
+//-- Apple IIe memory map ($0000-$BFFF): ALTZP, RAMRD/RAMWRT and 80STORE (+PAGE2, +HIRES) choose main or auxiliary RAM.
+static uint8_t *iieRamPointer(apple2Core *core, uint16_t address, bool isWrite)
+{
+  bool useAux;
+  if (address < 0x0200)
+  {
+    useAux = core->altZp;
+  }
+  else if (core->video.store80 && ((address >= 0x0400 && address < 0x0800) ||
+                                   (core->video.highResolution && address >= 0x2000 && address < 0x4000)))
+  {
+    useAux = core->video.page2;
+  }
+  else
+  {
+    useAux = isWrite ? core->ramWrite : core->ramRead;
+  }
+  return &(useAux ? core->auxRam : core->ram)[address];
+}
+
+static uint8_t readIIeStatus(const apple2Core *core, uint16_t address)
+{
+  bool flag = false;
+  switch (address & 0x1F)
+  {
+  case 0x11:
+    flag = core->languageCardBank2;
+    break;
+  case 0x12:
+    flag = core->languageCardReadEnabled;
+    break;
+  case 0x13:
+    flag = core->ramRead;
+    break;
+  case 0x14:
+    flag = core->ramWrite;
+    break;
+  case 0x15:
+    flag = core->intCxRom;
+    break;
+  case 0x16:
+    flag = core->altZp;
+    break;
+  case 0x17:
+    flag = core->slotC3Rom;
+    break;
+  case 0x18:
+    flag = core->video.store80;
+    break;
+  case 0x19:
+    flag = (core->cycles % apple2IIeFrameCycles) >= apple2IIeVblankCycles;
+    break;
+  case 0x1A:
+    flag = core->video.textMode;
+    break;
+  case 0x1B:
+    flag = core->video.mixedMode;
+    break;
+  case 0x1C:
+    flag = core->video.page2;
+    break;
+  case 0x1D:
+    flag = core->video.highResolution;
+    break;
+  case 0x1E:
+    flag = core->video.altCharSet;
+    break;
+  case 0x1F:
+    flag = core->video.col80;
+    break;
+  default:
+    break;
+  }
+  return (uint8_t)((flag ? 0x80 : 0x00) | (core->keyboardData & 0x7F));
+}
+
+static void writeIIeSoftSwitch(apple2Core *core, uint16_t address)
+{
+  bool on = (address & 0x01) != 0;
+  switch (address & 0x0E)
+  {
+  case 0x00:
+    core->video.store80 = on;
+    break;
+  case 0x02:
+    core->ramRead = on;
+    break;
+  case 0x04:
+    core->ramWrite = on;
+    break;
+  case 0x06:
+    core->intCxRom = on;
+    break;
+  case 0x08:
+    core->altZp = on;
+    core->languageCardMainBank = on ? apple2LanguageCardRamSize : 0;
+    break;
+  case 0x0A:
+    core->slotC3Rom = on;
+    break;
+  case 0x0C:
+    core->video.col80 = on;
+    break;
+  default:
+    core->video.altCharSet = on;
+    break;
+  }
+}
+
+//-- $C100-$CFFF: built-in firmware or the slot cards, following INTCXROM, SLOTC3ROM and the INTC8ROM latch.
+static uint8_t readIIeSlotRom(apple2Core *core, uint16_t address)
+{
+  if (address >= 0xC800)
+  {
+    uint8_t value = (core->intCxRom || core->intC8Rom) ? core->iieRom[address - 0xC000] : core->busValue;
+    if (address == 0xCFFF)
+    {
+      core->intC8Rom = false;
+    }
+    return value;
+  }
+  if (core->intCxRom)
+  {
+    return core->iieRom[address - 0xC000];
+  }
+  if ((address >> 8) == 0xC3 && !core->slotC3Rom)
+  {
+    core->intC8Rom = true;
+    return core->iieRom[address - 0xC000];
+  }
+  if (diskForRom(core, address) != NULL)
+  {
+    return apple2DiskBootRoms[(address >> 8) - 0xC0 - apple2DiskFirstSlot][address & 0xFF];
+  }
+  uint8_t slot = (uint8_t)((address >> 8) & 0x0FU);
+  if (blockSlotIsAttached(core, slot))
+  {
+    return readBlockSlotRom(core, slot, (uint8_t)address);
+  }
+  return core->busValue;
+}
+
+static uint8_t readAddressIIe(apple2Core *core, uint16_t address)
+{
+  apple2Disk *disk;
+  if (address < 0xC000)
+  {
+    return *iieRamPointer(core, address, false);
+  }
+  if (address >= 0xD000)
+  {
+    return core->languageCardReadEnabled ? core->languageCardRam[languageCardOffset(core, address)]
+                                         : core->iieRom[address - 0xC000];
+  }
+  if (address >= 0xC100)
+  {
+    return readIIeSlotRom(core, address);
+  }
+  if (address >= 0xC090 && address <= 0xC0AF)
+  {
+    uint8_t slot = (uint8_t)((address - 0xC080) / 0x10);
+    if (slot >= 1 && slot <= 2 && core->slotIoDevices[slot - 1].attached)
+    {
+      apple2SlotIoDevice *device = &core->slotIoDevices[slot - 1];
+      return device->readRegister(device->context, (uint8_t)(address & 0x0F));
+    }
+  }
+  if (address <= 0xC00F)
+  {
+    return core->keyboardData | (core->keyboardStrobe ? 0x80 : 0x00);
+  }
+  if (address == 0xC010)
+  {
+    bool keyWasReady = core->keyboardStrobe;
+    clearKeyboardStrobe(core);
+    return core->keyboardData | (keyWasReady ? 0x80 : 0x00);
+  }
+  if (address <= 0xC01F)
+  {
+    return readIIeStatus(core, address);
+  }
+  if (address >= 0xC061 && address <= 0xC063)
+  {
+    return 0x00;
+  }
+  if (address >= 0xC050 && address <= 0xC057)
+  {
+    setVideoSwitch(core, address);
+    return core->busValue;
+  }
+  if (address >= 0xC080 && address <= 0xC08F)
+  {
+    accessLanguageCardSwitch(core, address, false);
+    return core->busValue;
+  }
+  if ((disk = diskForIo(core, address)) != NULL)
+  {
+    return apple2DiskAccess(disk, (uint8_t)(address & 0x0F), false, core->cycles, core->busValue);
+  }
+  return core->busValue;
+}
+
+static void writeAddressIIe(apple2Core *core, uint16_t address, uint8_t value)
+{
+  apple2Disk *disk;
+  if (address < 0xC000)
+  {
+    *iieRamPointer(core, address, true) = value;
+  }
+  else if (address >= 0xD000)
+  {
+    if (core->languageCardWriteEnabled)
+    {
+      core->languageCardRam[languageCardOffset(core, address)] = value;
+    }
+  }
+  else if (address >= 0xC100)
+  {
+    if (address == 0xCFFF)
+    {
+      core->intC8Rom = false;
+    }
+  }
+  else if (address >= 0xC090 && address <= 0xC0AF && core->slotIoDevices[(address - 0xC080) / 0x10 - 1].attached)
+  {
+    apple2SlotIoDevice *device = &core->slotIoDevices[(address - 0xC080) / 0x10 - 1];
+    device->writeRegister(device->context, (uint8_t)(address & 0x0F), value);
+  }
+  else if (address <= 0xC00F)
+  {
+    writeIIeSoftSwitch(core, address);
+  }
+  else if (address >= 0xC010 && address <= 0xC01F)
+  {
+    clearKeyboardStrobe(core);
+  }
+  else if (address >= 0xC050 && address <= 0xC057)
+  {
+    setVideoSwitch(core, address);
+  }
+  else if (address >= 0xC080 && address <= 0xC08F)
+  {
+    accessLanguageCardSwitch(core, address, true);
+  }
+  else if ((disk = diskForIo(core, address)) != NULL)
+  {
+    apple2DiskAccess(disk, (uint8_t)(address & 0x0F), true, core->cycles, value);
+  }
+}
+
 static uint8_t readAddress(apple2Core *core, uint16_t address)
 {
   uint8_t value;
   apple2Disk *disk;
+  if (core->iie)
+  {
+    value = readAddressIIe(core, address);
+    core->busValue = value;
+    return value;
+  }
   if (address >= 0xC090 && address <= 0xC0AF)
   {
     uint8_t slot = (uint8_t)((address - 0xC080) / 0x10);
@@ -829,35 +1146,7 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   }
   else if (address >= 0xC050 && address <= 0xC057)
   {
-    switch (address)
-    {
-    case 0xC050:
-      core->video.textMode = false;
-      break;
-    case 0xC051:
-      core->video.textMode = true;
-      break;
-    case 0xC052:
-      core->video.mixedMode = false;
-      break;
-    case 0xC053:
-      core->video.mixedMode = true;
-      break;
-    case 0xC054:
-      core->video.page2 = false;
-      break;
-    case 0xC055:
-      core->video.page2 = true;
-      break;
-    case 0xC056:
-      core->video.highResolution = false;
-      break;
-    case 0xC057:
-      core->video.highResolution = true;
-      break;
-    default:
-      break;
-    }
+    setVideoSwitch(core, address);
     value = core->busValue;
   }
   else if (address >= 0xC300 && address <= 0xC3FF)
@@ -901,6 +1190,12 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
 static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
 {
   apple2Disk *disk;
+  if (core->iie)
+  {
+    writeAddressIIe(core, address, value);
+    core->busValue = value;
+    return;
+  }
   if (address >= 0xC090 && address <= 0xC0AF)
   {
     uint8_t slot = (uint8_t)((address - 0xC080) / 0x10);
@@ -1021,6 +1316,14 @@ apple2CoreResult apple2CoreCreate(apple2Core **core)
     free(created);
     return apple2CoreNoMemory;
   }
+  created->languageCardRam = calloc(apple2LanguageCardRamSize, 1);
+  if (created->languageCardRam == NULL)
+  {
+    free(created->ram);
+    free(created);
+    return apple2CoreNoMemory;
+  }
+  created->ramCard = apple2RamCardLanguage16;
   created->busValue = 0xFF;
   for (size_t slot = 0; slot < apple2DiskSlotCount; ++slot)
   {
@@ -1037,11 +1340,111 @@ void apple2CoreDestroy(apple2Core *core)
     return;
   }
   free(core->ram);
+  free(core->languageCardRam);
+  free(core->auxRam);
+  free(core->iieRom);
   free(core);
+}
+
+apple2CoreResult apple2CoreSetRamCard(apple2Core *core, apple2RamCard ramCard)
+{
+  if (core == NULL || (ramCard != apple2RamCardLanguage16 && ramCard != apple2RamCardSaturn128))
+  {
+    return apple2CoreInvalidArgument;
+  }
+  if (core->ramCard == ramCard)
+  {
+    return apple2CoreOk;
+  }
+  size_t size = ramCard == apple2RamCardSaturn128 ? apple2Saturn128RamSize : apple2LanguageCardRamSize;
+  uint8_t *ram = NULL;
+#ifdef ESP_PLATFORM
+  ram = heap_caps_calloc(size, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (ram == NULL)
+  {
+    ram = heap_caps_calloc(size, 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
+#else
+  ram = calloc(size, 1);
+#endif
+  if (ram == NULL)
+  {
+    return apple2CoreNoMemory;
+  }
+  free(core->languageCardRam);
+  core->languageCardRam = ram;
+  core->ramCard = ramCard;
+  core->languageCardMainBank = 0;
+  return apple2CoreOk;
+}
+
+static uint8_t *allocateGuestMemory(size_t size)
+{
+#ifdef ESP_PLATFORM
+  uint8_t *memory = heap_caps_calloc(size, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (memory == NULL)
+  {
+    memory = heap_caps_calloc(size, 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
+  return memory;
+#else
+  return calloc(size, 1);
+#endif
+}
+
+apple2CoreResult apple2CoreEnableIIe(apple2Core *core)
+{
+  if (core == NULL)
+  {
+    return apple2CoreInvalidArgument;
+  }
+  if (core->iie)
+  {
+    return apple2CoreOk;
+  }
+  uint8_t *auxRam = allocateGuestMemory(apple2IIeAuxRamSize);
+  uint8_t *languageCardRam = allocateGuestMemory(apple2IIeLanguageCardRamSize);
+  uint8_t *iieRom = calloc(apple2IIeRomSize, 1);
+  if (auxRam == NULL || languageCardRam == NULL || iieRom == NULL)
+  {
+    free(auxRam);
+    free(languageCardRam);
+    free(iieRom);
+    return apple2CoreNoMemory;
+  }
+  free(core->languageCardRam);
+  core->languageCardRam = languageCardRam;
+  core->auxRam = auxRam;
+  core->iieRom = iieRom;
+  core->ramCard = apple2RamCardLanguage16;
+  core->bootIn80Columns = false;
+  core->iie = true;
+  core->romLoaded = false;
+  return apple2CoreOk;
+}
+
+bool apple2CoreIsIIe(const apple2Core *core)
+{
+  return core != NULL && core->iie;
 }
 
 apple2CoreResult apple2CoreLoadRom(apple2Core *core, const uint8_t *rom, size_t size)
 {
+  if (core != NULL && rom != NULL && core->iie)
+  {
+    if (size != apple2IIeRomSize)
+    {
+      return apple2CoreInvalidArgument;
+    }
+    uint16_t iieResetAddress = (uint16_t)(rom[0x3FFC] | ((uint16_t)rom[0x3FFD] << 8));
+    if (iieResetAddress < 0xC100)
+    {
+      return apple2CoreInvalidRom;
+    }
+    memcpy(core->iieRom, rom, apple2IIeRomSize);
+    core->romLoaded = true;
+    return apple2CoreReset(core);
+  }
   if (core == NULL || rom == NULL || size != apple2RomSize)
   {
     return apple2CoreInvalidArgument;
@@ -1076,16 +1479,23 @@ apple2CoreResult apple2CoreReset(apple2Core *core)
   core->lowercaseEchoPending = false;
   core->lowercaseEchoCycles = 0;
   core->languageCardBank2 = true;
+  core->languageCardMainBank = 0;
   core->languageCardReadEnabled = false;
   core->languageCardWriteEnabled = false;
   core->languageCardPrewrite = false;
   core->setvidActive = false;
+  core->ramRead = false;
+  core->ramWrite = false;
+  core->altZp = false;
+  core->intCxRom = false;
+  core->slotC3Rom = false;
+  core->intC8Rom = false;
   core->busValue = 0xFF;
   for (size_t slot = 0; slot < apple2DiskSlotCount; ++slot)
   {
     apple2DiskResetSwitches(&core->disks[slot]);
   }
-  if (core->bootIn80Columns)
+  if (core->bootIn80Columns && !core->iie)
   {
     activateVidexAtBoot(core);
   }
@@ -1118,6 +1528,11 @@ apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
     else
     {
       writeAddress(core, address, M6502_GET_DATA(core->pins));
+    }
+    if (core->iie)
+    {
+      core->cpuBusAccess = false;
+      continue;
     }
     //-- Monitor SETVID ($FE93, also called by the DOS boot code) is told apart from PR#n, which enters at OUTPORT ($FE95).
     if ((core->pins & M6502_SYNC) != 0 && core->bootIn80Columns)
@@ -1198,6 +1613,11 @@ apple2CoreResult apple2CoreSetCharacterOptions(apple2Core *core, bool lowercaseC
 
 char apple2CoreDecodeTextCharacter(const apple2Core *core, uint8_t value)
 {
+  if (core != NULL && core->iie && core->video.altCharSet)
+  {
+    uint8_t glyph = value & 0x7F;
+    return glyph == 0x7F ? ' ' : (char)(glyph < 0x20 ? glyph + 0x40 : glyph);
+  }
   if (core != NULL && core->lowercaseCharacterRom && value >= 0xE1 && value <= 0xFA)
   {
     return (char)(value - 0xE1 + 'a');
@@ -1264,6 +1684,13 @@ apple2CoreResult apple2CoreReadTextCell(const apple2Core *core, bool page2, size
                                         uint8_t *value)
 {
   uint16_t address;
+  if (core != NULL && core->iie && core->video.col80 && value != NULL && column < apple2VidexTextColumns &&
+      apple2CoreTextAddress(core->video.store80 ? false : page2, row, column / 2, &address))
+  {
+    //-- 80-column text: even columns come from auxiliary memory, odd columns from main memory.
+    *value = (column % 2 == 0 ? core->auxRam : core->ram)[address];
+    return apple2CoreOk;
+  }
   if (core == NULL || value == NULL || !apple2CoreTextAddress(page2, row, column, &address))
   {
     return apple2CoreInvalidArgument;
@@ -1298,7 +1725,7 @@ bool apple2CoreGetVidexCursor(const apple2Core *core, size_t *row, size_t *colum
 
 bool apple2CoreGetTextCursor(const apple2Core *core, size_t *row, size_t *column)
 {
-  if (core == NULL || row == NULL || column == NULL || core->ram[0x0024] >= apple2TextColumns ||
+  if (core == NULL || row == NULL || column == NULL || core->ram[0x0024] >= (core->iie && core->video.col80 ? apple2VidexTextColumns : apple2TextColumns) ||
       core->ram[0x0025] >= apple2TextRows)
   {
     return false;

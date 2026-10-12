@@ -304,6 +304,146 @@ static void testApple2LanguageCard(void)
   apple2CoreDestroy(core);
 }
 
+static uint8_t readByte(apple2Core *core, uint16_t address)
+{
+  uint8_t value = 0;
+  assert(apple2CoreReadMemory(core, address, &value) == apple2CoreOk);
+  return value;
+}
+
+static void testApple2IIe(void)
+{
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreEnableIIe(core) == apple2CoreOk && apple2CoreIsIIe(core));
+  uint8_t rom[apple2IIeRomSize];
+  memset(rom, 0xEA, sizeof(rom));
+  rom[0x0300] = 0x33;
+  rom[0x0100] = 0x11;
+  rom[0x0800] = 0x88;
+  rom[0x1000] = 0xD0;
+  rom[0x3FFC] = 0x00;
+  rom[0x3FFD] = 0xFA;
+  assert(apple2CoreLoadRom(core, rom, 0x1000) == apple2CoreInvalidArgument);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+
+  //-- Main and auxiliary RAM are separate, selected by RAMRD/RAMWRT.
+  apple2CoreWriteMemory(core, 0x1000, 0x11);
+  apple2CoreWriteMemory(core, 0xC005, 0);
+  apple2CoreWriteMemory(core, 0x1000, 0x22);
+  assert(readByte(core, 0xC014) == 0x80);
+  assert(readByte(core, 0x1000) == 0x11);
+  apple2CoreWriteMemory(core, 0xC003, 0);
+  assert(readByte(core, 0xC013) == 0x80 && readByte(core, 0x1000) == 0x22);
+  apple2CoreWriteMemory(core, 0xC002, 0);
+  apple2CoreWriteMemory(core, 0xC004, 0);
+  assert(readByte(core, 0x1000) == 0x11 && (readByte(core, 0xC013) & 0x80) == 0);
+
+  //-- 80STORE + PAGE2 routes the text page to auxiliary memory regardless of RAMRD/RAMWRT.
+  apple2CoreWriteMemory(core, 0xC001, 0);
+  readByte(core, 0xC055);
+  apple2CoreWriteMemory(core, 0x0400, 0x41);
+  readByte(core, 0xC054);
+  apple2CoreWriteMemory(core, 0x0400, 0x42);
+  apple2CoreWriteMemory(core, 0xC00D, 0);
+  uint8_t cell;
+  assert(apple2CoreReadTextCell(core, false, 0, 0, &cell) == apple2CoreOk && cell == 0x41);
+  assert(apple2CoreReadTextCell(core, false, 0, 1, &cell) == apple2CoreOk && cell == 0x42);
+  apple2CoreWriteMemory(core, 0xC000, 0);
+
+  //-- ALTZP gives a separate zero page, stack and Language Card.
+  apple2CoreWriteMemory(core, 0x0010, 0x55);
+  apple2CoreWriteMemory(core, 0xC009, 0);
+  assert(readByte(core, 0x0010) == 0x00 && (readByte(core, 0xC016) & 0x80) != 0);
+  apple2CoreWriteMemory(core, 0x0010, 0x66);
+  readByte(core, 0xC083);
+  readByte(core, 0xC083);
+  apple2CoreWriteMemory(core, 0xD000, 0x99);
+  assert(readByte(core, 0xD000) == 0x99);
+  apple2CoreWriteMemory(core, 0xC008, 0);
+  assert(readByte(core, 0x0010) == 0x55 && readByte(core, 0xD000) == 0x00);
+  apple2CoreWriteMemory(core, 0xD000, 0x77);
+  apple2CoreWriteMemory(core, 0xC009, 0);
+  assert(readByte(core, 0xD000) == 0x99 && readByte(core, 0x0010) == 0x66);
+  apple2CoreWriteMemory(core, 0xC008, 0);
+  readByte(core, 0xC082);
+  assert(readByte(core, 0xD000) == 0xD0);
+
+  //-- Built-in firmware: $C300 is internal until a card claims it; INTCXROM maps all of $C100-$CFFF.
+  assert(readByte(core, 0xC300) == 0x33 && readByte(core, 0xC800) == 0x88);
+  readByte(core, 0xCFFF);
+  assert(readByte(core, 0xC800) != 0x88);
+  assert(readByte(core, 0xC100) != 0x11);
+  apple2CoreWriteMemory(core, 0xC007, 0);
+  assert(readByte(core, 0xC100) == 0x11 && (readByte(core, 0xC015) & 0x80) != 0);
+  apple2CoreWriteMemory(core, 0xC006, 0);
+  apple2CoreWriteMemory(core, 0xC00F, 0);
+  assert((readByte(core, 0xC01E) & 0x80) != 0);
+  assert(apple2CoreDecodeTextCharacter(core, 0x01) == 'A');
+  assert(apple2CoreDecodeTextCharacter(core, 0xE1) == 'a');
+  assert(apple2CoreDecodeTextCharacter(core, 0x61) == 'a');
+
+  assert(apple2CoreReset(core) == apple2CoreOk);
+  assert((readByte(core, 0xC018) & 0x80) == 0 && (readByte(core, 0xC01E) & 0x80) == 0);
+  assert((readByte(core, 0xC011) & 0x80) != 0 && (readByte(core, 0xC012) & 0x80) == 0);
+  apple2CoreDestroy(core);
+}
+
+static void testApple2Saturn128(void)
+{
+  apple2Core *core = NULL;
+  uint8_t value;
+  uint8_t rom[apple2RomSize];
+  memset(rom, 0xEA, sizeof(rom));
+  rom[0x2FFC] = 0x00;
+  rom[0x2FFD] = 0xD0;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetRamCard(core, apple2RamCardSaturn128) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+
+  //— Enable bank-2 read/write, then write a pattern in each of the eight 16 KiB banks.
+  assert(apple2CoreReadMemory(core, 0xC083, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC083, &value) == apple2CoreOk);
+  static const uint16_t selectors[8] = {0xC084, 0xC085, 0xC086, 0xC087, 0xC08C, 0xC08D, 0xC08E, 0xC08F};
+  for (uint8_t bank = 0; bank < 8; bank++)
+  {
+    assert(apple2CoreReadMemory(core, selectors[bank], &value) == apple2CoreOk);
+    assert(apple2CoreWriteMemory(core, 0xD000, (uint8_t)(0x10 + bank)) == apple2CoreOk);
+    assert(apple2CoreWriteMemory(core, 0xE000, (uint8_t)(0x20 + bank)) == apple2CoreOk);
+    assert(apple2CoreWriteMemory(core, 0xFFFF, (uint8_t)(0x30 + bank)) == apple2CoreOk);
+  }
+  for (uint8_t bank = 0; bank < 8; bank++)
+  {
+    assert(apple2CoreReadMemory(core, selectors[bank], &value) == apple2CoreOk);
+    assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x10 + bank);
+    assert(apple2CoreReadMemory(core, 0xE000, &value) == apple2CoreOk && value == 0x20 + bank);
+    assert(apple2CoreReadMemory(core, 0xFFFF, &value) == apple2CoreOk && value == 0x30 + bank);
+  }
+
+  //— Bank selection keeps the RAM/ROM state; $C082 shows ROM, $C080 shows RAM again in the selected bank.
+  assert(apple2CoreReadMemory(core, 0xC082, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0xEA);
+  assert(apple2CoreReadMemory(core, 0xC080, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x17);
+
+  //— Reset returns to ROM and bank 0.
+  assert(apple2CoreReset(core) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC080, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x10);
+  apple2CoreDestroy(core);
+
+  //— The default 16 KiB card ignores the bank selectors ($C085 is a bank-2 switch there).
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC083, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC083, &value) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, 0xD000, 0x55) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xC087, &value) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, 0xD000, &value) == apple2CoreOk && value == 0x55);
+  apple2CoreDestroy(core);
+}
+
+
 static void testApple2VidexCard(void)
 {
   apple2Core *core = NULL;
@@ -4177,6 +4317,8 @@ int main(int argc, char **argv)
   if (argc == 2 && strcmp(argv[1], "--apple2-language-card") == 0)
   {
     testApple2LanguageCard();
+  testApple2Saturn128();
+  testApple2IIe();
     puts("PASS: Apple II Language Card banks, shared RAM, switching and write protection");
     return 0;
   }

@@ -42,3 +42,11 @@ apple2DriveConfigResult apple2DriveConfigResolve(const char *configPath, char *d
 apple2DriveConfigResult apple2DriveConfigLoad(const char *path,
                                               apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDrivesPerSlot],
                                               char *error, size_t errorCapacity);
+
+//-- Returns true when drives.cfg contains "RAMCARD=SATURN128" (a Saturn 128K card in slot 0). The default, also
+//-- selected by "RAMCARD=LC16" or a missing line, is the 16 KiB Language Card. Call after apple2DriveConfigLoad validated the file.
+bool apple2DriveConfigRamCardIsSaturn128(const char *path);
+
+//-- Returns true when drives.cfg contains "MACHINE=IIE": an Apple IIe with 128 KiB (main + auxiliary) memory. The
+//-- default, also selected by "MACHINE=II" or a missing line, is the Apple II Plus. RAMCARD is ignored on a IIe.
+bool apple2DriveConfigMachineIsIIe(const char *path);

@@ -8,6 +8,7 @@ enum
 {
   apple2RamSize = 48 * 1024,
   apple2RomSize = 12 * 1024,
+  apple2IIeRomSize = 16 * 1024,
   apple2TextRows = 24,
   apple2TextColumns = 40,
   apple2VidexTextRows = 24,
@@ -43,6 +44,9 @@ typedef struct
   bool page2;
   bool highResolution;
   bool videxTextMode;
+  bool store80;
+  bool col80;
+  bool altCharSet;
 } apple2VideoState;
 
 //-- Order in which the 16 sectors of a track are stored inside an image file.
@@ -77,8 +81,22 @@ typedef struct
   uint32_t writeFailures;
 } apple2DiskState;
 
+typedef enum
+{
+  apple2RamCardLanguage16 = 0,
+  apple2RamCardSaturn128
+} apple2RamCard;
+
 apple2CoreResult apple2CoreCreate(apple2Core **core);
 void apple2CoreDestroy(apple2Core *core);
+//-- Selects the slot-0 RAM card: the 16 KiB Language Card (default) or a Saturn 128K card (eight 16 KiB banks).
+//-- Clears the card RAM; call before apple2CoreLoadRom, which performs the reset.
+apple2CoreResult apple2CoreSetRamCard(apple2Core *core, apple2RamCard ramCard);
+//-- Turns the machine into an Apple IIe (64 KiB main + 64 KiB auxiliary memory, built-in Language Card, 80-column
+//-- softswitches). Call before apple2CoreLoadRom, which then expects the 16 KiB IIe ROM ($C000-$FFFF, NMOS-compatible
+//-- unenhanced version). The slot-0 RAM card, the Videx card and the Pascal card emulation are not used in this mode.
+apple2CoreResult apple2CoreEnableIIe(apple2Core *core);
+bool apple2CoreIsIIe(const apple2Core *core);
 apple2CoreResult apple2CoreLoadRom(apple2Core *core, const uint8_t *rom, size_t size);
 apple2CoreResult apple2CoreReset(apple2Core *core);
 apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles);

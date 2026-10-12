@@ -210,6 +210,24 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   *equals = '\0';
   char *driveName = trim(content);
   char *fields = trim(equals + 1);
+  if (strcmp(driveName, "MACHINE") == 0)
+  {
+    if (strcmp(fields, "II") != 0 && strcmp(fields, "IIE") != 0)
+    {
+      setError(error, errorCapacity, "MACHINE must be II or IIE");
+      return false;
+    }
+    return true;
+  }
+  if (strcmp(driveName, "RAMCARD") == 0)
+  {
+    if (strcmp(fields, "LC16") != 0 && strcmp(fields, "SATURN128") != 0)
+    {
+      setError(error, errorCapacity, "RAMCARD must be LC16 or SATURN128");
+      return false;
+    }
+    return true;
+  }
   size_t slotIndex;
   size_t driveIndex;
   bool smartPort;
@@ -403,4 +421,41 @@ apple2DriveConfigResult apple2DriveConfigLoad(const char *path,
   }
   setError(error, errorCapacity, "");
   return apple2DriveConfigLoaded;
+}
+
+static bool settingHasValue(const char *path, const char *key, const char *expected)
+{
+  FILE *file = path == NULL ? NULL : fopen(path, "rb");
+  if (file == NULL)
+  {
+    return false;
+  }
+  bool matches = false;
+  char line[256];
+  while (fgets(line, sizeof(line), file) != NULL)
+  {
+    char *content = trim(line);
+    char *equals = strchr(content, '=');
+    if (*content == '#' || equals == NULL)
+    {
+      continue;
+    }
+    *equals = '\0';
+    if (strcmp(trim(content), key) == 0)
+    {
+      matches = strcmp(trim(equals + 1), expected) == 0;
+    }
+  }
+  fclose(file);
+  return matches;
+}
+
+bool apple2DriveConfigRamCardIsSaturn128(const char *path)
+{
+  return settingHasValue(path, "RAMCARD", "SATURN128");
+}
+
+bool apple2DriveConfigMachineIsIIe(const char *path)
+{
+  return settingHasValue(path, "MACHINE", "IIE");
 }

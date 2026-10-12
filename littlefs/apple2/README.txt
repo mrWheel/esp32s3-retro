@@ -4,6 +4,11 @@ SHA-256: 378ba00c86a64cca49cedaca7de8d5d351983ebc295d9d11e0752febfc346249
 It boots the Apple ][ monitor and Integer BASIC in the host-side Apple II core
 test. The ROM image's redistribution license has not been verified.
 
+apple2e.rom is the upper 16 KiB ($C000-$FFFF) of the unenhanced Apple IIe ROM (32 KiB
+apple2eu.rom from assets/apple2_roms/apple_2e_unenhanced_rom.zip, from offset 0x4000). It is
+used when drives.cfg contains MACHINE=IIE (needed for Pascal 1.3 128K). Redistribution
+license not verified.
+
 system.dsk is the bootable ProDOS 8 volume /SYSTEM (140K), generated from the base
 bootDisks/apple2/prodosEmpty.po plus every file in bootDisks/apple2/systemDsk by the
 firmware build (CMake configure time), or manually with:

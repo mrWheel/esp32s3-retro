@@ -851,7 +851,7 @@ static size_t readActiveRow(apple2Core *core, size_t row, char *line, size_t lin
 {
   apple2VideoState video;
   apple2CoreGetVideoState(core, &video);
-  size_t columns = video.videxTextMode ? apple2VidexTextColumns : apple2TextColumns;
+  size_t columns = video.videxTextMode || video.col80 ? apple2VidexTextColumns : apple2TextColumns;
   assert(lineSize > columns);
   for (size_t column = 0; column < columns; ++column)
   {
@@ -1194,8 +1194,51 @@ static void testPascalBoot(const char *bootImagePath)
   assert(apple2DiskImageClose(&bootDisk) == apple2DiskImageOk);
 }
 
+//-- The Apple IIe 128K Pascal system (128K.APPLE/128K.PASCAL on the boot disk) needs auxiliary memory.
+static void testPascalIIeBoot(const char *bootImagePath, const char *iieRomPath)
+{
+  apple2DiskImage bootDisk;
+  apple2DiskImageInitialize(&bootDisk);
+  assert(apple2DiskImageOpenProfileMode(&bootDisk, bootImagePath, apple2DiskImageProfile140k,
+                                        apple2DiskImageOrderAuto, true) == apple2DiskImageOk);
+  apple2Core *core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreEnableIIe(core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  apple2DiskSectorOrder order = bootDisk.order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
+                                                                             : apple2DiskSectorOrderDos;
+  assert(apple2CoreAttachDiskDrive(core, 6, 0, order, bootDisk.trackCount, apple2DiskImageReadSectorCallback,
+                                   &bootDisk) == apple2CoreOk);
+  uint8_t rom[apple2IIeRomSize];
+  FILE *file = fopen(iieRomPath, "rb");
+  assert(file != NULL && fread(rom, 1, sizeof(rom), file) == sizeof(rom));
+  fclose(file);
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+
+  bool booted = false;
+  for (int step = 0; step < 120 && !booted; ++step)
+  {
+    assert(apple2CoreRunCycles(core, 1000000) == apple2CoreOk);
+    booted = screenContains(core, "Command:");
+  }
+  dumpScreen(core);
+  assert(booted);
+  assert(screenContains(core, "Pascal 1.3"));
+  assert(screenContains(core, "Pascal system size is 128K"));
+  assert(!screenContains(core, "128K memory required"));
+  assert(apple2CoreDetachDisk(core) == apple2CoreOk);
+  apple2CoreDestroy(core);
+  assert(apple2DiskImageClose(&bootDisk) == apple2DiskImageOk);
+}
+
 int main(int argc, char **argv)
 {
+  if (argc == 4 && strcmp(argv[1], "--pascal-iie-boot") == 0)
+  {
+    testPascalIIeBoot(argv[2], argv[3]);
+    puts("PASS: Apple IIe boots the 128K Apple Pascal system");
+    return 0;
+  }
   if (argc == 3 && strcmp(argv[1], "--pascal-boot") == 0)
   {
     testPascalBoot(argv[2]);

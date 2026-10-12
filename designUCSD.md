@@ -112,15 +112,15 @@ Here, “configuration profile” means a selected `config.cfg` and its associat
 
 | Element | Pascal requirement |
 |---|---|
-| Machine | Expanded original Apple II, not Apple IIe or a Z80 system |
+| Machine | Default: expanded original Apple II. Optional `MACHINE=IIE`: real Apple IIe (needed by the 128K Pascal 1.3 system). Never a Z80 system |
 | CPU | Existing NMOS 6502 and bus-cycle behavior |
-| RAM | 48 KiB motherboard plus bank-switched 16 KiB Language Card: 64 KiB physical RAM |
+| RAM | Apple II: 48 KiB motherboard plus bank-switched 16 KiB Language Card (64 KiB), optionally a Saturn 128K slot-0 card. Apple IIe: 64 KiB main + 64 KiB auxiliary (128 KiB) |
 | Firmware | Existing ROM/autostart and slot firmware, checksum-pinned; identity/provenance still to qualify |
 | Storage | Original compatible Apple Pascal system images, guest-controlled boot and filesystem access |
 | Display | Existing 40×24 motherboard text and independent slot-3 80×24 card |
 | Input | Existing keyboard latch/strobe and case-preserving USB character translation |
 | Additions | Only demonstrated disk-format/order, boot/controller and Pascal terminal compatibility gaps |
-| Exclusions | New CPU/machine/p-code emulator, CP/M runtime, restored DOS 3.3 product path, IIe auxiliary-memory substitution, physical drives |
+| Exclusions | New CPU/machine/p-code emulator, CP/M runtime, restored DOS 3.3 product path, IIe auxiliary-memory substitution on the Apple II model (the IIe is a separate, explicit machine model), physical drives |
 
 ### Mandatory desktop reference gate
 
@@ -241,7 +241,7 @@ The 2026-10-11 keyboard decision maps cursor Left/Right/Up/Down to `$08/$15/$0B/
 
 ### 40-column and 80-column display
 
-Reuse motherboard text memory and the independent slot-3 Videx-compatible card with banked VRAM, CRTC and project-authored firmware. Render guest memory/card state to the host ANSI/VT100 terminal. No IIe main/auxiliary interleaving or new host-side Pascal screen engine is allowed.
+Reuse motherboard text memory and the independent slot-3 Videx-compatible card with banked VRAM, CRTC and project-authored firmware. Render guest memory/card state to the host ANSI/VT100 terminal. On the Apple II model no IIe main/auxiliary interleaving or new host-side Pascal screen engine is allowed; the IIe model (`MACHINE=IIE`) uses the IIe 80COL/ALTCHARSET softswitches with even columns in auxiliary and odd columns in main memory.
 
 Existing boot-80 selection, CSW handling and ROM hooks were developed for BASIC/DOS/ProDOS. Pascal may use different output paths or overwrite vectors. Inspect whether its driver uses card registers, firmware calls or private routines; verify selection and rendering from real guest state. Keep the APPLE-DEC-035 protection that ROM HOME interception only applies while monitor ROM is visible. A Pascal RAM instruction at the same address must execute normally.
 
@@ -328,10 +328,21 @@ All following rows are design decisions from this request/document comparison, n
 | UCSD-DEC-009 | Boot original matching Apple media through existing reset/autostart/slot and on-disk loader. Reject COM-file loading, CP/M BIOS emulation and guessed PC/RAM bootstrap. Evidence: native Apple requirement and controller history. Qualify missing ROM entries before changing boot behavior. |
 | UCSD-DEC-010 | Preserve APPLE-DEC-033/034: ProDOS baseline, explicit SD6.1, SD4.1..SD7.2, optional SP5.1..SP5.2, no PR aliases/default fallback. Add native Pascal media support to the same configuration-driven path for both menu entries. Reject restoring DOS 3.3 or assuming .po means ProDOS. This extends the earlier ProDOS-only media restriction while preserving ProDOS support, shipped configuration, SD grammar and no-default policy; neither menu entry enforces an OS. |
 | UCSD-DEC-011 | Select a complete Apple Pascal release and original-Apple-II desktop reference before boot acceptance. Reject carrying Z80 II.0/z80pack acceptance into Apple Pascal. Evidence: no chosen Apple release or guest boot in supplied logs. Retargets UCSD-DEC-003. |
-| UCSD-DEC-012 | Reuse 64 KiB physical memory/Language Card and existing slot-3 video/input. Add only traced Pascal compatibility gaps. Reject IIe auxiliary memory, synthetic Shift sensing and blanket ROM-address hooks. Evidence: APPLE-DEC-030/035/036 keyboard and open Pascal editor tests. |
+| UCSD-DEC-012 | Reuse 64 KiB physical memory/Language Card and existing slot-3 video/input. Add only traced Pascal compatibility gaps. Reject IIe auxiliary memory on the Apple II model (superseded for the optional IIe model by UCSD-DEC-017), synthetic Shift sensing and blanket ROM-address hooks. Evidence: APPLE-DEC-030/035/036 keyboard and open Pascal editor tests. |
 | UCSD-DEC-013 | Qualify original-size media first; keep 640K/800K claims limited to evidence. Reject host-size-to-guest-capacity inference and a mandatory new large-disk driver. Evidence: APPLE-ISSUE-016/017 and VERIFY-024. Clarifies UCSD-DEC-006. |
 | UCSD-DEC-014 | Use whole-image File Transfer first; preserve existing ProDOS HOST and common slot-2 protocol. Defer optional Pascal/6502 HOSTXFER and namespace extensions. Reject executing HOST.SYS in Pascal or inventing a Z80 bridge. Evidence: dated APPLE-DEC-036 transfer record. Replaces old mandatory Z80 utility scope. |
 | UCSD-DEC-015 | Preserve original logs verbatim and add explicit supersession/disposition; rebaseline M1–M10 without PASS promotion. Reject deletion of failed experiments and carrying old evidence into new acceptance. Evidence: both engineering-memory contracts. |
+| UCSD-DEC-017 | 2026-10-12, implemented. Apple Pascal 1.3 128K (`128K.APPLE`/`128K.PASCAL`) requires IIe auxiliary memory, so the project gains an optional real Apple IIe model (`MACHINE=IIE`) instead of faking 128K on the Apple II. Alternatives rejected: running the 128K system on an Apple II + Saturn card (the system does not use Saturn banks), patching the system files, and replacing the Apple II model (existing Pascal 1.1 boot and tests must stay valid). Consequence: UCSD-DEC-012's rejection of IIe auxiliary memory applies to the Apple II model only. See APPLE-DEC-037/038. |
+
+### 128 KiB memory: Apple IIe model and Saturn 128K card (2026-10-12)
+
+Apple Pascal 1.3 ships two system variants. The 64K `SYSTEM.APPLE`/`SYSTEM.PASCAL` runs on the original Apple II + Language Card (banner "Pascal system size is 64K"). `128K.APPLE`/`128K.PASCAL` on `ApplePascal1-140K.dsk` print "128K memory required" on an Apple II/II+, because the 128K system is the **Apple IIe** variant: its disassembly uses the IIe softswitches `$C001`, `$C002–$C005`, `$C006/7`, `$C008/9`, `$C00F` and reads the status registers `$C011–$C01C`. It does not use Saturn banks. Consequences:
+
+- The Pascal profile selects the Apple IIe machine with `MACHINE=IIE` in its `drives.cfg` (see [designApple2.md](designApple2.md) "Apple IIe model (MACHINE=IIE)"). Booting `ApplePascal1-140K.dsk` as SD6.1 then prints "Welcome APPLE1, to Apple II Pascal 1.3", "Based on UCSD Pascal II.1" and **"Pascal system size is 128K"**.
+- The IIe 80-column firmware at `$C300` is the Pascal console; the Pascal 1.1 card ROM/Videx path is not used in this model.
+- `MACHINE=II` (default) keeps the original-machine behaviour: Pascal 1.1 (`ApplePascal1-680-0004-01.dsk`) with the 64K system, optionally with `RAMCARD=SATURN128`.
+- Saturn 128K (slot 0, `RAMCARD=SATURN128`) is an optional original-II extension; Apple/UCSD Pascal 1.x does not use extra banks by itself, so it only helps software or drivers that know the Saturn protocol. Details and register map: [designApple2.md](designApple2.md) "128 KiB RAM options".
+- Verification: see UCSD-VERIFY-015. Real hardware and editor/compiler use of the 128K system remain unverified.
 
 ### Configuration-only clarification — UCSD-DEC-016, 2026-10-11
 
@@ -356,6 +367,7 @@ Each issue uses the engineering-memory chain. At this rewrite, Pascal experiment
 | UCSD-ISSUE-011 | OPEN: documented SD/UCSD path routing and validated image order; use existing Apple roots until explicit host support exists |
 | UCSD-ISSUE-012 | DEFERRED: optional native Pascal exchange binding, metadata/text conversion and root selection; existing ProDOS HOST is separate |
 | UCSD-ISSUE-013 | OPEN: ESP32 latency/memory/throughput, repeated option 3↔4 launches and terminal restoration |
+| UCSD-ISSUE-015 | PARTIAL 2026-10-12: Pascal 1.3 128K boots on the host IIe model; not run: editor, compiler, file writes, 128K-specific features, ESP32-S3, and IIe ROM redistribution rights. |
 | UCSD-ISSUE-014 | OPEN DOCUMENTATION DISCREPANCY: duplicate APPLE-DEC-036 IDs and stale menu/DOS/default prose; preserve source IDs, cite date/topic, follow explicit latest decisions |
 
 Inherited Apple issues retain their original IDs in Appendix B. DOS-image procurement/removed-tool issues are historical for this scope, not reasons to reinstate DOS. Large Pascal controller support, firmware identity and hardware tests remain open; the hardware-confirmed RGB LED fix is retained as its specific recorded result, not proof of Pascal compatibility.
@@ -384,6 +396,7 @@ Inherited Apple issues retain their original IDs in Appendix B. DOS-image procur
 | UCSD-VERIFY-011 | NOT RUN | ProDOS and Pascal configurations through either entry, identical-config equivalence, swapped-config behavior, SD grammar, no-default errors and shared controller dispatch |
 | UCSD-VERIFY-012 | PARTIAL HOST 2026-10-11 | `ucsdPascalBoot` host test: 80x24 card is the Pascal console (Pascal 1.1 firmware protocol), one key (`?`) round trip passes; not run: Pascal source case, all editor keys, bank-aware hooks, ESP32-S3 |
 | UCSD-VERIFY-013 | NOT RUN | ESP32 guest save/reopen, media swaps, RO/errors, image bounds and power-loss recovery |
+| UCSD-VERIFY-015 | PARTIAL HOST 2026-10-12 | `apple2DiskTests --pascal-iie-boot littlefs/ucsd/ApplePascal1-140K.dsk littlefs/apple2/apple2e.rom` boots the 128K system on the IIe model to "Command: F(ile, E(dit, R(un, C(omp, L(ink, X(ecute, A(ssem, ?  [1.3]" and "Pascal system size is 128K"; `hostTests` `testApple2IIe` and `testApple2Saturn128` pass. Not run: ESP32-S3, editor/compiler, 128K-specific behaviour. |
 | UCSD-VERIFY-014 | NOT RUN | Whole-image File Transfer byte/hash round trip; optional native utility qualified separately |
 
 Inherited host evidence: APPLE-VERIFY-024/025 covers image/controller subsets; VERIFY-028 covers Language Card; VERIFY-030/031 covers ProDOS guest boot/save in the host harness; VERIFY-032 records the ProDOS-only transition; VERIFY-033 covers keyboard translation and explicitly notes an `apple2DiskStream` asset-open failure. These runs occurred at different historical states. Do not combine them into a claim that the current suite is clean or Pascal works. Preserve unrelated recorded CP/M test failures as evidence, without assigning them to Pascal changes.

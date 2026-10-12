@@ -19,6 +19,7 @@
 
 static const char *tag = "apple2Machine";
 static const char *romPath = "/littlefs/apple2/apple2.rom";
+static const char *iieRomPath = "/littlefs/apple2/apple2e.rom";
 static char driveConfigPath[apple2DriveConfigPathCapacity];
 static const size_t bootSlotIndex = 6 - apple2DriveConfigFirstSlot;
 static const uint8_t exchangeSlot = 2;
@@ -88,10 +89,11 @@ static char decodeVidexCharacter(uint8_t value)
 }
 
 static bool appendTextCell(char *buffer, size_t capacity, size_t *length, const apple2Core *core, uint8_t value,
-                           bool flashOn, bool *inverse, bool *flashing)
+                           bool flashOn, bool altCharSet, bool *inverse, bool *flashing)
 {
-  bool cellInverse = (value & 0x80) == 0 && (value & 0x40) == 0;
-  bool cellFlashing = (value & 0xC0) == 0x40;
+  //-- The IIe alternate character set has inverse glyphs for $00-$7F and no flashing ones.
+  bool cellInverse = altCharSet ? (value & 0x80) == 0 : (value & 0xC0) == 0;
+  bool cellFlashing = !altCharSet && (value & 0xC0) == 0x40;
   if (cellInverse != *inverse)
   {
     if (!appendText(buffer, capacity, length, cellInverse ? "\x1b[7m" : "\x1b[27m"))
@@ -130,8 +132,9 @@ static void renderScreen(int64_t nowUs)
 {
   apple2VideoState video;
   apple2CoreGetVideoState(guestCore, &video);
-  size_t columns = video.videxTextMode ? apple2VidexTextColumns : apple2TextColumns;
-  if (renderedVidexModeKnown && video.videxTextMode != renderedVidexMode)
+  bool wideText = video.videxTextMode || video.col80;
+  size_t columns = wideText ? apple2VidexTextColumns : apple2TextColumns;
+  if (renderedVidexModeKnown && wideText != renderedVidexMode)
   {
     if (!hostConsoleWrite("\x1b[2J\x1b[H"))
     {
@@ -165,7 +168,7 @@ static void renderScreen(int64_t nowUs)
         value = (uint8_t)("GRAPHICS DISPLAY NOT IMPLEMENTED"[column] | 0x80);
       }
       currentCells[column] = value;
-      hasFlashingCells = hasFlashingCells || (!video.videxTextMode && (value & 0xC0) == 0x40);
+      hasFlashingCells = hasFlashingCells || (!video.videxTextMode && !video.altCharSet && (value & 0xC0) == 0x40);
     }
     bool cellsChanged = !screenRendered || memcmp(currentCells, renderedCells[row], columns) != 0;
     bool flashChanged = screenRendered && hasFlashingCells && flashOn != renderedFlashOn;
@@ -188,7 +191,7 @@ static void renderScreen(int64_t nowUs)
                             ? appendVidexTextCell(rowBuffer, sizeof(rowBuffer), &length, currentCells[column],
                                                   &inverse)
                             : appendTextCell(rowBuffer, sizeof(rowBuffer), &length, guestCore,
-                                             currentCells[column], flashOn, &inverse, &flashing);
+                                             currentCells[column], flashOn, video.altCharSet, &inverse, &flashing);
         if (!appended)
         {
           return;
@@ -213,7 +216,7 @@ static void renderScreen(int64_t nowUs)
                              : apple2CoreGetTextCursor(guestCore, &cursorRow, &cursorColumn);
   if (cursorAvailable)
   {
-    size_t maxRows = video.videxTextMode ? apple2VidexTextRows : apple2TextRows;
+    size_t maxRows = apple2TextRows;
     if (cursorRow >= maxRows)
     {
       cursorRow = maxRows - 1;
@@ -232,7 +235,7 @@ static void renderScreen(int64_t nowUs)
   }
   screenRendered = true;
   renderedFlashOn = flashOn;
-  renderedVidexMode = video.videxTextMode;
+  renderedVidexMode = wideText;
   renderedVidexModeKnown = true;
 }
 
@@ -277,20 +280,19 @@ static void handleInput(void)
   pressNextQueuedKey();
 }
 
-machineState apple2MachineProbeWithConfig(const retroMachine *machine, const char *configPath)
+static machineState probeRom(const char *path, size_t size, long resetOffset, uint16_t minimumReset)
 {
-  (void)machine;
   struct stat info;
-  if (stat(romPath, &info) != 0)
+  if (stat(path, &info) != 0)
   {
     return machineMissingResource;
   }
-  if (!S_ISREG(info.st_mode) || info.st_size < 0 || (uint64_t)info.st_size != apple2RomSize)
+  if (!S_ISREG(info.st_mode) || info.st_size < 0 || (uint64_t)info.st_size != size)
   {
     return machineResourceInvalid;
   }
-  FILE *romFile = fopen(romPath, "rb");
-  if (romFile == NULL || fseek(romFile, 0x2FFC, SEEK_SET) != 0)
+  FILE *romFile = fopen(path, "rb");
+  if (romFile == NULL || fseek(romFile, resetOffset, SEEK_SET) != 0)
   {
     if (romFile != NULL)
     {
@@ -305,11 +307,12 @@ machineState apple2MachineProbeWithConfig(const retroMachine *machine, const cha
     return machineResourceInvalid;
   }
   uint16_t resetAddress = valid ? (uint16_t)(resetVector[0] | ((uint16_t)resetVector[1] << 8)) : 0;
-  if (!valid || resetAddress < 0xD000)
-  {
-    return machineResourceInvalid;
-  }
+  return valid && resetAddress >= minimumReset ? machineAvailable : machineResourceInvalid;
+}
 
+machineState apple2MachineProbeWithConfig(const retroMachine *machine, const char *configPath)
+{
+  (void)machine;
   char selectedDrivesPath[apple2DriveConfigPathCapacity];
   char configError[128];
   apple2DriveConfigResult configResult =
@@ -327,6 +330,16 @@ machineState apple2MachineProbeWithConfig(const retroMachine *machine, const cha
     return configResult == apple2DriveConfigMissing ? machineMissingResource : machineResourceInvalid;
   }
 
+  machineState romState =
+      apple2DriveConfigMachineIsIIe(selectedDrivesPath)
+          ? probeRom(iieRomPath, apple2IIeRomSize, 0x3FFC, 0xC100)
+          : probeRom(romPath, apple2RomSize, 0x2FFC, 0xD000);
+  if (romState != machineAvailable)
+  {
+    return romState;
+  }
+
+  struct stat info;
   const apple2DriveConfig *bootDrive =
       &drives[6 - apple2DriveConfigFirstSlot][0];
   if (!bootDrive->configured || stat(bootDrive->path, &info) != 0)
@@ -607,18 +620,20 @@ esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
     return configResult == apple2DriveConfigMissing ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_ARG;
   }
 
-  FILE *romFile = fopen(romPath, "rb");
+  bool iie = apple2DriveConfigMachineIsIIe(driveConfigPath);
+  size_t romSize = iie ? apple2IIeRomSize : apple2RomSize;
+  FILE *romFile = fopen(iie ? iieRomPath : romPath, "rb");
   if (romFile == NULL)
   {
     return ESP_ERR_NOT_FOUND;
   }
-  uint8_t *rom = malloc(apple2RomSize);
+  uint8_t *rom = malloc(romSize);
   if (rom == NULL)
   {
     fclose(romFile);
     return ESP_ERR_NO_MEM;
   }
-  bool loaded = fread(rom, 1, apple2RomSize, romFile) == apple2RomSize && fgetc(romFile) == EOF && !ferror(romFile);
+  bool loaded = fread(rom, 1, romSize, romFile) == romSize && fgetc(romFile) == EOF && !ferror(romFile);
   bool closed = fclose(romFile) == 0;
   if (!loaded || !closed)
   {
@@ -642,8 +657,16 @@ esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
     free(rom);
     return coreResult == apple2CoreNoMemory ? ESP_ERR_NO_MEM : ESP_ERR_INVALID_STATE;
   }
-  coreResult = apple2CoreSetCharacterOptions(guestCore, true, true);
+  coreResult = iie ? apple2CoreEnableIIe(guestCore) : apple2CoreOk;
   if (coreResult == apple2CoreOk)
+  {
+    coreResult = apple2CoreSetCharacterOptions(guestCore, true, true);
+  }
+  if (coreResult == apple2CoreOk && !iie && apple2DriveConfigRamCardIsSaturn128(driveConfigPath))
+  {
+    coreResult = apple2CoreSetRamCard(guestCore, apple2RamCardSaturn128);
+  }
+  if (coreResult == apple2CoreOk && !iie)
   {
     //-- The 80-column card is selected automatically at every start, like the Disk II controller boots.
     coreResult = apple2CoreSetBootIn80Columns(guestCore, true);
@@ -655,7 +678,7 @@ esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
     free(rom);
     return ESP_ERR_INVALID_STATE;
   }
-  coreResult = apple2CoreLoadRom(guestCore, rom, apple2RomSize);
+  coreResult = apple2CoreLoadRom(guestCore, rom, romSize);
   free(rom);
   if (coreResult != apple2CoreOk)
   {

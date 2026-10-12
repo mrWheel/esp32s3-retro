@@ -2,6 +2,8 @@
 """Interactively browse, copy and remove files on Apple II disk images.
 
 Run with Python 3. Select source/dest folders and disk images from the menu.
+Choose n in the source disk list to copy files from the source folder.
+Choose n in the destination disk list to extract files into the destination folder.
 Relative paths are looked up from the current directory and the repository root.
 """
 
@@ -683,10 +685,55 @@ def copyFile(source, dest, nameIn, nameOut):
   copyOne(source, dest, findEntry(source, nameIn), nameOut)
 
 
+class FolderSource:
+  def __init__(self, directory):
+    self.directory = Path(directory)
+
+  def listFiles(self):
+    try:
+      files = sorted((path for path in self.directory.iterdir() if path.is_file()),
+                     key=lambda path: path.name.casefold())
+      return [Entry(path.name, "BIN", blocksFor(path.stat().st_size), path.stat().st_size)
+              for path in files]
+    except OSError as error:
+      raise ToolError(f"cannot list source folder '{self.directory}': {error}") from error
+
+  def exportFile(self, entry):
+    if entry.isDir or Path(entry.path).name != entry.path or entry.path in (".", ".."):
+      raise ToolError("invalid source file name")
+    try:
+      data = (self.directory / entry.path).read_bytes()
+    except OSError as error:
+      raise ToolError(f"cannot read '{entry.path}': {error}") from error
+    # Host files have no Apple II metadata; import their bytes as BIN / Pascal DATA.
+    return Exported(data, 0x06, 0, 5)
+
+
+class FolderDestination:
+  def __init__(self, directory):
+    self.directory = Path(directory)
+
+  def importFile(self, outPath, exported):
+    # Extract into the selected folder, including files from image subdirectories.
+    name = outPath.rsplit("/", 1)[-1]
+    if name in ("", ".", "..") or "\\" in name or "\x00" in name:
+      raise ToolError("invalid destination file name")
+    target = self.directory / name
+    try:
+      with target.open("xb") as output:
+        output.write(exported.data)
+    except FileExistsError as error:
+      raise ToolError(f"'{name}' already exists in the destination folder") from error
+    except OSError as error:
+      raise ToolError(f"cannot extract '{name}': {error}") from error
+    return str(target)
+
+
 def copyOne(source, dest, entry, nameOut):
   exported = source.exportFile(entry)
   target = dest.importFile(nameOut or entry.path, exported)
-  dest.image.save()
+  if not isinstance(dest, FolderDestination):
+    dest.image.save()
   print(f"copied '{entry.path}' -> '{target}' ({len(exported.data)} bytes)")
 
 
@@ -829,12 +876,16 @@ class Session:
     self.dest = None
     self.pathSource = None
     self.pathDestination = None
+    self.extractToFolder = False
+    self.copyFromFolder = False
 
   def showSource(self):
-    print(f"3 - Source disk [{self.sourceImage.path.name if self.sourceImage else '<empty>'}]")
+    label = "Copy File from Folder" if self.copyFromFolder else (self.sourceImage.path.name if self.sourceImage else '<empty>')
+    print(f"3 - Source disk [{label}]")
 
   def showDestination(self):
-    print(f"4 - Dest. disk [{self.destImage.path.name if self.destImage else '<empty>'}]")
+    label = "Extract File to Folder" if self.extractToFolder else (self.destImage.path.name if self.destImage else '<empty>')
+    print(f"4 - Dest. disk [{label}]")
 
   def showSourcePath(self):
     print(f"1 - Source path [{self.pathSource if self.pathSource else '<empty>'}]")
@@ -851,12 +902,26 @@ class Session:
   def setSource(self, text):
     image, volume = loadVolume(text, self.destImage, self.pathSource)
     self.sourceImage, self.source = image, volume
+    self.copyFromFolder = False
+
+  def setFolderSource(self):
+    if self.pathSource is None:
+      raise ToolError("source path is empty; select it with menu option 1")
+    self.sourceImage, self.source = None, None
+    self.copyFromFolder = True
 
   def setDestination(self, text):
     image, volume = loadVolume(text, self.sourceImage, self.pathDestination)
     if not volume.writable:
       raise ToolError("dest must be a ProDOS or UCSD Pascal image")
     self.destImage, self.dest = image, volume
+    self.extractToFolder = False
+
+  def setFolderDestination(self):
+    if self.pathDestination is None:
+      raise ToolError("dest path is empty; select it with menu option 2")
+    self.destImage, self.dest = None, None
+    self.extractToFolder = True
 
   def listPathFiles(self, role):
     directory = self.pathSource if role == "source" else self.pathDestination
@@ -871,25 +936,39 @@ class Session:
     return files
 
   def requireSource(self):
+    if self.copyFromFolder:
+      if self.pathSource is None:
+        raise ToolError("source path is empty; select it with menu option 1")
+      return FolderSource(self.pathSource)
     if self.source is None:
       raise ToolError("source disk is empty; select it with menu option 3")
     return self.source
 
-  def requireDestination(self):
+  def requireDestination(self, forCopy=False):
+    if self.extractToFolder:
+      if forCopy:
+        if self.pathDestination is None:
+          raise ToolError("dest path is empty; select it with menu option 2")
+        return FolderDestination(self.pathDestination)
+      raise ToolError("destination is a folder; select a disk image with menu option 4 to list or remove files")
     if self.dest is None:
       raise ToolError("dest disk is empty; select it with menu option 4")
     return self.dest
 
 
-def chooseNumber(items, prompt, allowName=False):
-  if not items:
+def chooseNumber(items, prompt, allowName=False, allowFolder=False, folderLabel="Extract File to Folder"):
+  if not items and not allowFolder:
     print("  (no files)")
     return None
   width = len(str(len(items)))
   for number, item in enumerate(items, 1):
     name = item.name if isinstance(item, Path) else item.path
     print(f"{number:>{width}}. {name}")
+  if allowFolder:
+    print(f"n - {folderLabel}")
   answer = input(prompt).strip()
+  if allowFolder and answer.lower() == "n":
+    return "n"
   try:
     number = int(answer)
   except ValueError as error:
@@ -914,7 +993,14 @@ def setPath(session, role):
 
 def selectDisk(session, role):
   files = session.listPathFiles(role)
-  imagePath = chooseNumber(files, "Select Disk: ")
+  folderLabel = "Copy File from Folder" if role == "source" else "Extract File to Folder"
+  imagePath = chooseNumber(files, "Select Disk: ", allowFolder=True, folderLabel=folderLabel)
+  if imagePath == "n":
+    if role == "source":
+      session.setFolderSource()
+    else:
+      session.setFolderDestination()
+    return
   if imagePath is None:
     return
   if role == "source":
@@ -925,7 +1011,7 @@ def selectDisk(session, role):
 
 def copyFromSource(session):
   source = session.requireSource()
-  dest = session.requireDestination()
+  dest = session.requireDestination(forCopy=True)
   entries = [entry for entry in source.listFiles() if not entry.isDir]
   selected = chooseNumber(entries, "Select file number or enter a file name/wildcard: ", allowName=True)
   if selected is None:
@@ -973,7 +1059,7 @@ def showMenu(session):
   session.showDestination()
   print("5 - List files on Source")
   print("6 - List files on Destination")
-  print("7 - Copy file from Source to Destination")
+  print("7 - Copy file from Source to Destination (c/C)")
   print("8 - Remove file from Destination")
   print("0 - Quit")
 
@@ -1006,12 +1092,12 @@ def main(argv):
         listFilesOnSource(session)
       elif option == "6":
         listFilesOnDestination(session)
-      elif option == "7":
+      elif option in ("7", "c", "C"):
         copyFromSource(session)
       elif option == "8":
         removeFromDestination(session)
       else:
-        print("Select an option from 0 to 8.")
+        print("Select an option from 0 to 8, or c/C to copy.")
     except (ToolError, ValueError) as error:
       print(f"error: {error}")
     except EOFError:
