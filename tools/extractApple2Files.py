@@ -786,6 +786,20 @@ def searchBases(text):
   return [given, str(REPO_ROOT) + "/" + text.lstrip("/")] if text.startswith("/") else [given, str(REPO_ROOT) + "/" + text]
 
 
+def displayDirectoryPath(path):
+  path = Path(path).resolve()
+  try:
+    path.relative_to(REPO_ROOT)
+  except ValueError:
+    try:
+      relative = path.relative_to(Path.home().resolve())
+    except ValueError:
+      return str(path)
+    return f"~/{relative.as_posix()}" if relative.parts else "~"
+  relative = path.relative_to(REPO_ROOT.parent)
+  return f"./{relative.as_posix()}" if relative.parts else "."
+
+
 def resolveDirectoryPath(text):
   for candidate in searchBases(text):
     if os.path.isdir(candidate):
@@ -888,10 +902,12 @@ class Session:
     print(f"4 - Dest. disk [{label}]")
 
   def showSourcePath(self):
-    print(f"1 - Source path [{self.pathSource if self.pathSource else '<empty>'}]")
+    path = displayDirectoryPath(self.pathSource) if self.pathSource else '<empty>'
+    print(f"1 - Source path [{path}]")
 
   def showDestinationPath(self):
-    print(f"2 - Dest. path [{self.pathDestination if self.pathDestination else '<empty>'}]")
+    path = displayDirectoryPath(self.pathDestination) if self.pathDestination else '<empty>'
+    print(f"2 - Dest. path [{path}]")
 
   def setSourcePath(self, text):
     self.pathSource = resolveDirectoryPath(text)
@@ -1057,11 +1073,11 @@ def showMenu(session):
   session.showDestinationPath()
   session.showSource()
   session.showDestination()
-  print("5 - List files on Source")
+  print("5 - List files on Source (L)")
   print("6 - List files on Destination")
-  print("7 - Copy file from Source to Destination (c/C)")
+  print("7 - Copy file from Source to Destination (C)")
   print("8 - Remove file from Destination")
-  print("0 - Quit")
+  print("0 - Quit (Q)")
 
 
 def main(argv):
@@ -1073,12 +1089,12 @@ def main(argv):
   while True:
     showMenu(session)
     try:
-      option = input("Select option: ").strip()
+      option = input("Select option: ").strip().upper()
     except EOFError:
       print()
       return 0
     try:
-      if option == "0":
+      if option in ("0", "Q"):
         return 0
       elif option == "1":
         setPath(session, "source")
@@ -1088,16 +1104,16 @@ def main(argv):
         selectDisk(session, "source")
       elif option == "4":
         selectDisk(session, "destination")
-      elif option == "5":
+      elif option in ("5", "L"):
         listFilesOnSource(session)
       elif option == "6":
         listFilesOnDestination(session)
-      elif option in ("7", "c", "C"):
+      elif option in ("7", "C"):
         copyFromSource(session)
       elif option == "8":
         removeFromDestination(session)
       else:
-        print("Select an option from 0 to 8, or c/C to copy.")
+        print("Select an option from 0 to 8, or L, C, or Q.")
     except (ToolError, ValueError) as error:
       print(f"error: {error}")
     except EOFError:
