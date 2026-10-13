@@ -28,6 +28,13 @@ open(d + 'B512.DAT', 'wb').write(bytes(range(256)) * 2)
 open(d + 'B513.DAT', 'wb').write(bytes((i * 7) % 256 for i in range(513)))
 open(d + 'B1000.DAT', 'wb').write(bytes((i * 13 + 5) % 256 for i in range(1000)))
 open(d + 'EIGHTK.DAT', 'wb').write(bytes((i * 31 + i // 256) % 256 for i in range(8192)))
+open(d + 'UNIX.TEXT', 'wb').write(b"PROGRAM UNIXTXT;\nBEGIN\n\tWRITELN('UNIX OK');\n\n    WRITELN('caf\xc3\xa9 ', 7)\nEND.")
+open(d + 'WIN.TEXT', 'wb').write(b"PROGRAM WINTXT;\r\nBEGIN\r\n  WRITELN('WIN OK')\r\nEND.\r\n")
+open(d + 'PROG.TEXT', 'wb').write(b"PROGRAM PROG;\nBEGIN\n  WRITELN('TEXT OK')\nEND.\n")
+open(d + 'EMPTY2.TEXT', 'wb').write(b'')
+open(d + 'NOTETXT.TXT', 'wb').write(b'plain note\n')
+open(d + 'LONG.TEXT', 'wb').write(b'x' * 250 + b'\n')
+open(d + 'PAGES.TEXT', 'wb').write(b''.join(b' ' * (n % 40) + (b'LINE %03d ' % n) + b'abcdefghij' * (n % 5) + b'\n' for n in range(150)))
 open(d + 'BIGFILE.DAT', 'wb').write(bytes(i % 251 for i in range(450000)))
 PYEOF
 
@@ -48,4 +55,25 @@ do
 done
 test -s "$tmp/put/HOSTX.CODE"
 test ! -e "$tmp/put/BIGFILE.DAT"
+
+#-- Text mode: expected OS text is the source with tabs expanded, ? for non-ASCII and the final newline added.
+python3 -I - "$tmp/src" "$tmp/put" <<'PYEOF'
+import sys
+src = sys.argv[1] + '/'
+put = sys.argv[2] + '/'
+def read(path):
+    return open(path, 'rb').read()
+unixExpected = b"PROGRAM UNIXTXT;\nBEGIN\n        WRITELN('UNIX OK');\n\n    WRITELN('caf?? ', 7)\nEND.\n"
+assert read(put + 'UNIX.TEXT') == unixExpected.replace(b'\n', b'\r\n'), 'UNIX.TEXT PUT T W'
+assert read(put + 'WIN.TEXT') == read(src + 'WIN.TEXT').replace(b'\r\n', b'\n'), 'WIN.TEXT PUT T'
+assert read(put + 'PROG.TEXT') == read(src + 'PROG.TEXT'), 'PROG.TEXT PUT T'
+assert read(put + 'PAGES.TEXT') == read(src + 'PAGES.TEXT'), 'PAGES.TEXT PUT T'
+assert read(put + 'EMPTY2.TEXT') == b'', 'EMPTY2.TEXT PUT T'
+PYEOF
+test ! -e "$tmp/put/NOTETXT.TXT"
+test ! -e "$tmp/put/LONG.TEXT"
+
+#-- The Pascal Editor must open and show the converted file.
+UCSD_SKIP_STAGE=1 "$tester" --pascal-script "$boot" "$rom" "$tools" \
+  "$tmp/received.po" "$pas" "$asm" "$scripts/edit.txt" "$tmp/edited.po"
 echo "ucsdHostGuest PASS"

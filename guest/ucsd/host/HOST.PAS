@@ -8,6 +8,8 @@ TYPE
   TBlock = PACKED ARRAY[0..511] OF CHAR;
   TDirBuf = PACKED ARRAY[0..2047] OF CHAR;
   TFileNm = STRING[15];
+  TPage = PACKED ARRAY[0..1023] OF CHAR;
+  TLine = PACKED ARRAY[1..201] OF CHAR;
 
 VAR
   CmdLine: TCommand;
@@ -25,6 +27,24 @@ VAR
   FileSize: TQuad;
   IoError: BOOLEAN;
   ExchOK: BOOLEAN;
+  QuitReq: BOOLEAN;
+  FileKind: INTEGER;
+  (*-- GET T state: Pascal TEXT pages are built in PageBuf, one line at a time in LineBuf *)
+  PageBuf: TPage;
+  PageLen: INTEGER;
+  LineBuf: TLine;
+  LineLen: INTEGER;
+  PrevCR: BOOLEAN;
+  BadChars: INTEGER;
+  LongLine: BOOLEAN;
+  (*-- PUT T state: converted bytes are collected in OutBuf and counted in OutSize *)
+  OutBuf: TBlock;
+  OutLen: INTEGER;
+  OutSize: TQuad;
+  OutSend: BOOLEAN;
+  CrLfEol: BOOLEAN;
+  DleSeen: BOOLEAN;
+  SkipRest: BOOLEAN;
 
 FUNCTION EXCHREAD: INTEGER; EXTERNAL;
 PROCEDURE EXCHWRT(Value: INTEGER); EXTERNAL;
@@ -108,6 +128,26 @@ BEGIN
   END
 END;
 
+PROCEDURE AddQuad(VAR Value: TQuad; Amount: INTEGER);
+VAR
+  Counter: INTEGER;
+  Sum: INTEGER;
+  Carry: INTEGER;
+BEGIN
+  Carry := Amount;
+  FOR Counter := 1 TO 4 DO
+  BEGIN
+    Sum := Value[Counter] + (Carry MOD 256);
+    Carry := Carry DIV 256;
+    IF Sum >= 256 THEN
+    BEGIN
+      Sum := Sum - 256;
+      Carry := Carry + 1
+    END;
+    Value[Counter] := Sum
+  END
+END;
+
 PROCEDURE QuadParts(Value: TQuad; VAR Chunks: INTEGER; VAR Rest: INTEGER;
                     VAR Fits: BOOLEAN);
 BEGIN
@@ -124,6 +164,13 @@ BEGIN
     UpperChr := CHR(ORD(Value) - 32)
   ELSE
     UpperChr := Value
+END;
+
+FUNCTION IsTextNm(Name: TCommand): BOOLEAN;
+BEGIN
+  IsTextNm := FALSE;
+  IF LENGTH(Name) > 5 THEN
+    IsTextNm := COPY(Name, LENGTH(Name) - 4, 5) = '.TEXT'
 END;
 
 PROCEDURE UpString(VAR Value: TCommand);
@@ -300,6 +347,7 @@ BEGIN
   Good := FALSE;
   Blocks := 0;
   LastByt := 0;
+  FileKind := 0;
   RESET(BlkFile, ':');
   IF IORESULT = 0 THEN
   BEGIN
@@ -312,7 +360,8 @@ BEGIN
       BEGIN
         Blocks := (ORD(DirBuf[Base + 2]) + (256 * ORD(DirBuf[Base + 3]))) -
                   (ORD(DirBuf[Base]) + (256 * ORD(DirBuf[Base + 1])));
-        LastByt := ORD(DirBuf[Base + 22]) + (256 * ORD(DirBuf[Base + 23]))
+        LastByt := ORD(DirBuf[Base + 22]) + (256 * ORD(DirBuf[Base + 23]));
+        FileKind := ORD(DirBuf[Base + 4]) MOD 16
       END
     END;
     CLOSE(BlkFile)
@@ -356,6 +405,111 @@ BEGIN
     IF IORESULT <> 0 THEN
       IoError := TRUE
   END;
+  IF (NOT Send) AND (NOT IoError) THEN
+    EndCrc(CrcValue)
+END;
+
+PROCEDURE FlushOut;
+BEGIN
+  IF OutLen > 0 THEN
+  BEGIN
+    IF OutSend THEN
+      EXCHWRB(OutBuf, OutLen)
+    ELSE
+      EXCHCRC(CrcValue, OutBuf, OutLen);
+    AddQuad(OutSize, OutLen);
+    OutLen := 0
+  END
+END;
+
+PROCEDURE EmitOut(Value: CHAR);
+BEGIN
+  OutBuf[OutLen] := Value;
+  OutLen := OutLen + 1;
+  IF OutLen = 512 THEN
+    FlushOut
+END;
+
+PROCEDURE EmitEol;
+BEGIN
+  IF CrLfEol THEN
+    EmitOut(CHR(13));
+  EmitOut(CHR(10))
+END;
+
+(*-- Decodes one 512-byte block of a TEXT page: DLE n = n-32 spaces, CR = end of line, NUL = page padding *)
+PROCEDURE UnpackBlk(PageStart: BOOLEAN);
+VAR
+  Index: INTEGER;
+  Counter: INTEGER;
+  Value: CHAR;
+BEGIN
+  IF PageStart THEN
+  BEGIN
+    SkipRest := FALSE;
+    DleSeen := FALSE
+  END;
+  FOR Index := 0 TO 511 DO
+  BEGIN
+    Value := BlkBuf[Index];
+    IF NOT SkipRest THEN
+    BEGIN
+      IF DleSeen THEN
+      BEGIN
+        DleSeen := FALSE;
+        FOR Counter := 33 TO ORD(Value) DO
+          EmitOut(' ')
+      END
+      ELSE IF ORD(Value) = 0 THEN
+        SkipRest := TRUE
+      ELSE IF ORD(Value) = 16 THEN
+        DleSeen := TRUE
+      ELSE IF ORD(Value) = 13 THEN
+        EmitEol
+      ELSE
+        EmitOut(Value)
+    END
+  END
+END;
+
+(*-- Converts a Pascal TEXT file to OS text. Pass 1 (Send = FALSE) gives the size and CRC, pass 2 sends it *)
+PROCEDURE TextScan(Name: TCommand; Blocks: INTEGER; Send: BOOLEAN);
+VAR
+  BlockNo: INTEGER;
+  Got: INTEGER;
+BEGIN
+  IoError := FALSE;
+  OutSend := Send;
+  OutLen := 0;
+  DleSeen := FALSE;
+  SkipRest := FALSE;
+  ZeroQuad(OutSize);
+  IF NOT Send THEN
+    InitCrc(CrcValue);
+  RESET(BlkFile, Name);
+  IF IORESULT <> 0 THEN
+    IoError := TRUE
+  ELSE
+  BEGIN
+    BlockNo := 1;
+    WHILE (BlockNo <= Blocks) AND (NOT IoError) DO
+    BEGIN
+      Got := BLOCKREAD(BlkFile, BlkBuf, 1);
+      IF (Got <> 1) OR (IORESULT <> 0) THEN
+        IoError := TRUE
+      ELSE
+      BEGIN
+        IF BlockNo > 2 THEN
+          UnpackBlk(((BlockNo - 3) MOD 2) = 0);
+        BlockNo := BlockNo + 1
+      END
+    END;
+    CLOSE(BlkFile);
+    IF IORESULT <> 0 THEN
+      IoError := TRUE
+  END;
+  IF NOT IoError THEN
+    FlushOut;
   IF (NOT Send) AND (NOT IoError) THEN
     EndCrc(CrcValue)
 END;
@@ -428,7 +582,113 @@ BEGIN
   END
 END;
 
-PROCEDURE RecvPart(Count: INTEGER);
+PROCEDURE FlushPage;
+VAR
+  Got: INTEGER;
+BEGIN
+  IF PageLen > 0 THEN
+  BEGIN
+    FILLCHAR(PageBuf[PageLen], 1024 - PageLen, CHR(0));
+    Got := BLOCKWRITE(BlkFile, PageBuf, 2);
+    IF (Got <> 2) OR (IORESULT <> 0) THEN
+      IoError := TRUE;
+    PageLen := 0
+  END
+END;
+
+(*-- Stores LineBuf as DLE, 32+indent, text, CR. A line never crosses a page and a page keeps one NUL *)
+PROCEDURE PutLine;
+VAR
+  Indent: INTEGER;
+  Counter: INTEGER;
+BEGIN
+  Indent := 0;
+  WHILE (Indent < LineLen) AND (LineBuf[Indent + 1] = ' ') DO
+    Indent := Indent + 1;
+  IF PageLen + (LineLen - Indent) + 4 > 1024 THEN
+    FlushPage;
+  PageBuf[PageLen] := CHR(16);
+  PageBuf[PageLen + 1] := CHR(32 + Indent);
+  PageLen := PageLen + 2;
+  FOR Counter := Indent + 1 TO LineLen DO
+  BEGIN
+    PageBuf[PageLen] := LineBuf[Counter];
+    PageLen := PageLen + 1
+  END;
+  PageBuf[PageLen] := CHR(13);
+  PageLen := PageLen + 1;
+  LineLen := 0
+END;
+
+PROCEDURE AddChar(Value: CHAR);
+BEGIN
+  IF LineLen >= 200 THEN
+    LongLine := TRUE
+  ELSE
+  BEGIN
+    LineLen := LineLen + 1;
+    LineBuf[LineLen] := Value
+  END
+END;
+
+(*-- LF, CRLF and a lone CR all end a line; TAB goes to the next multiple of 8; other controls become ? *)
+PROCEDURE ConvChar(Value: CHAR);
+BEGIN
+  IF PrevCR AND (ORD(Value) = 10) THEN
+    PrevCR := FALSE
+  ELSE
+  BEGIN
+    PrevCR := ORD(Value) = 13;
+    IF (ORD(Value) = 13) OR (ORD(Value) = 10) THEN
+      PutLine
+    ELSE IF ORD(Value) = 9 THEN
+    BEGIN
+      AddChar(' ');
+      WHILE (LineLen MOD 8) <> 0 DO
+        AddChar(' ')
+    END
+    ELSE IF (ORD(Value) < 32) OR (ORD(Value) > 126) THEN
+    BEGIN
+      BadChars := BadChars + 1;
+      AddChar('?')
+    END
+    ELSE
+      AddChar(Value)
+  END
+END;
+
+PROCEDURE ConvBlock(Count: INTEGER);
+VAR
+  Index: INTEGER;
+BEGIN
+  FOR Index := 0 TO Count - 1 DO
+    ConvChar(BlkBuf[Index]);
+  IF LongLine THEN
+    IoError := TRUE
+END;
+
+PROCEDURE StartText;
+VAR
+  Got: INTEGER;
+BEGIN
+  PageLen := 0;
+  LineLen := 0;
+  PrevCR := FALSE;
+  BadChars := 0;
+  FILLCHAR(PageBuf, 1024, CHR(0));
+  Got := BLOCKWRITE(BlkFile, PageBuf, 2);
+  IF (Got <> 2) OR (IORESULT <> 0) THEN
+    IoError := TRUE
+END;
+
+PROCEDURE FinishText;
+BEGIN
+  IF LineLen > 0 THEN
+    PutLine;
+  FlushPage
+END;
+
+PROCEDURE RecvPart(Count: INTEGER; TextMode: BOOLEAN);
 VAR
   Got: INTEGER;
 BEGIN
@@ -436,12 +696,17 @@ BEGIN
     FILLCHAR(BlkBuf, 512, CHR(0));
   EXCHRDB(BlkBuf, Count);
   EXCHCRC(CrcValue, BlkBuf, Count);
-  Got := BLOCKWRITE(BlkFile, BlkBuf, 1);
-  IF (Got <> 1) OR (IORESULT <> 0) THEN
-    IoError := TRUE
+  IF TextMode THEN
+    ConvBlock(Count)
+  ELSE
+  BEGIN
+    Got := BLOCKWRITE(BlkFile, BlkBuf, 1);
+    IF (Got <> 1) OR (IORESULT <> 0) THEN
+      IoError := TRUE
+  END
 END;
 
-PROCEDURE RecvFile(Name: TCommand; Overwrte: BOOLEAN);
+PROCEDURE RecvFile(Name: TCommand; Overwrte, TextMode: BOOLEAN);
 VAR
   Status: INTEGER;
   Chunks: INTEGER;
@@ -514,22 +779,30 @@ BEGIN
   IF CanContinue THEN
   BEGIN
     IoError := FALSE;
+    LongLine := FALSE;
     InitCrc(CrcValue);
+    IF TextMode THEN
+      StartText;
     FullBlks := Chunks DIV 2;
     Tail := ((Chunks MOD 2) * 256) + Rest;
     Counter := 1;
     WHILE (Counter <= FullBlks) AND (NOT IoError) DO
     BEGIN
-      RecvPart(512);
+      RecvPart(512, TextMode);
       Counter := Counter + 1
     END;
     IF (NOT IoError) AND (Tail > 0) THEN
-      RecvPart(Tail);
+      RecvPart(Tail, TextMode);
+    IF TextMode AND (NOT IoError) THEN
+      FinishText;
     IF IoError THEN
     BEGIN
       EXCHABT;
       CLOSE(BlkFile);
-      WRITELN('GET: local file error; nothing was stored.')
+      IF LongLine THEN
+        WRITELN('GET: a line is longer than 200 characters; nothing was stored.')
+      ELSE
+        WRITELN('GET: local file error; nothing was stored.')
     END
     ELSE
     BEGIN
@@ -554,7 +827,8 @@ BEGIN
           WRITELN('GET: could not store the verified file.')
         ELSE
         BEGIN
-          NoteLast(Name, Tail, Noted);
+          IF NOT TextMode THEN
+            NoteLast(Name, Tail, Noted);
           Stored := TRUE
         END
       END
@@ -567,6 +841,10 @@ BEGIN
     BEGIN
       IF NOT (Applied AND Noted) THEN
         WRITELN('GET: stored, but the exact length could not be set.');
+      IF TextMode AND (BadChars > 0) THEN
+        WRITELN('GET: ', BadChars, ' unsupported characters replaced by ?');
+      IF TextMode AND NOT IsTextNm(Name) THEN
+        WRITELN('GET: note: only a name ending in .TEXT is a Pascal TEXT file.');
       WRITELN('GET ', Name, ' ... Done')
     END
     ELSE IF NOT Applied THEN
@@ -574,7 +852,7 @@ BEGIN
   END
 END;
 
-PROCEDURE SendFile(Name: TCommand; Overwrte: BOOLEAN);
+PROCEDURE SendFile(Name: TCommand; Overwrte, TextMode, WinEol: BOOLEAN);
 VAR
   Status: INTEGER;
   Counter: INTEGER;
@@ -588,10 +866,21 @@ BEGIN
     WRITELN('PUT: cannot read the local file.')
   ELSE IF Blocks > 16000 THEN
     WRITELN('PUT: file is too large for this utility.')
+  ELSE IF TextMode AND (FileKind <> 3) THEN
+    WRITELN('PUT: option T needs a Pascal TEXT file (name ending in .TEXT).')
   ELSE
   BEGIN
-    LenQuad(Blocks, LastByt, FileSize);
-    ScanFile(Name, Blocks, LastByt, FALSE);
+    CrLfEol := WinEol;
+    IF TextMode THEN
+    BEGIN
+      TextScan(Name, Blocks, FALSE);
+      FileSize := OutSize
+    END
+    ELSE
+    BEGIN
+      LenQuad(Blocks, LastByt, FileSize);
+      ScanFile(Name, Blocks, LastByt, FALSE)
+    END;
     IF IoError THEN
       WRITELN('PUT: cannot read the local file.')
     ELSE
@@ -613,7 +902,10 @@ BEGIN
       END
       ELSE
       BEGIN
-        ScanFile(Name, Blocks, LastByt, TRUE);
+        IF TextMode THEN
+          TextScan(Name, Blocks, TRUE)
+        ELSE
+          ScanFile(Name, Blocks, LastByt, TRUE);
         IF IoError THEN
         BEGIN
           EXCHABT;
@@ -635,52 +927,76 @@ BEGIN
   END
 END;
 
+PROCEDURE ShowUsage;
+BEGIN
+  WRITELN('Use DIR, GET <file> [T] [W] [O], PUT <file> [T] [W] [O], or QUIT.');
+  WRITELN('  O = overwrite an existing file');
+  WRITELN('  T = convert OS text <-> Pascal TEXT file');
+  WRITELN('  W = with T: PUT ends lines with CR LF (default LF)')
+END;
+
 PROCEDURE RunCmd;
 VAR
   Cursor: INTEGER;
+  OptCount: INTEGER;
   Overwrte: BOOLEAN;
-  Valid: BOOLEAN;
-  Extra: TCommand;
+  TextMode: BOOLEAN;
+  WinEol: BOOLEAN;
+  OptsOK: BOOLEAN;
 BEGIN
   UpString(CmdLine);
   Cursor := 1;
+  Overwrte := FALSE;
+  TextMode := FALSE;
+  WinEol := FALSE;
+  OptsOK := TRUE;
+  OptCount := 0;
   GetToken(CmdLine, Cursor, Verb);
   GetToken(CmdLine, Cursor, Argument);
   GetToken(CmdLine, Cursor, Option);
-  GetToken(CmdLine, Cursor, Extra);
-  Valid := Extra = '';
-  IF Verb <> '' THEN
+  WHILE Option <> '' DO
   BEGIN
-    IF (Verb = 'QUIT') OR (Verb = 'Q') THEN
-      CmdLine := ''
-    ELSE IF Verb = 'DIR' THEN
-    BEGIN
-      IF (Argument <> '') OR (Option <> '') OR NOT Valid THEN
-        WRITELN('Usage: DIR')
-      ELSE
-        ListXchg
-    END
-    ELSE IF (Verb <> 'GET') AND (Verb <> 'PUT') THEN
-      WRITELN('Use DIR, GET <file> [O], PUT <file> [O], or QUIT.')
-    ELSE IF NOT ValidNm(Argument) THEN
-      WRITELN('Invalid filename.')
-    ELSE IF NOT Valid THEN
-      WRITELN('Too many command arguments.')
+    OptCount := OptCount + 1;
+    IF (Option = 'O') AND NOT Overwrte THEN
+      Overwrte := TRUE
+    ELSE IF (Option = 'T') AND NOT TextMode THEN
+      TextMode := TRUE
+    ELSE IF (Option = 'W') AND NOT WinEol THEN
+      WinEol := TRUE
     ELSE
-    BEGIN
-      Overwrte := Option = 'O';
-      IF (Option <> '') AND NOT Overwrte THEN
-        WRITELN('The optional overwrite argument is O.')
-      ELSE IF Verb = 'GET' THEN
-        RecvFile(Argument, Overwrte)
-      ELSE
-        SendFile(Argument, Overwrte)
-    END
+      OptsOK := FALSE;
+    GetToken(CmdLine, Cursor, Option)
+  END;
+  IF Verb = '' THEN
+    ShowUsage
+  ELSE IF (Verb = 'QUIT') OR (Verb = 'Q') THEN
+    QuitReq := TRUE
+  ELSE IF Verb = 'DIR' THEN
+  BEGIN
+    IF (Argument <> '') OR (OptCount > 0) THEN
+      WRITELN('Usage: DIR')
+    ELSE
+      ListXchg
   END
+  ELSE IF (Verb <> 'GET') AND (Verb <> 'PUT') THEN
+    ShowUsage
+  ELSE IF NOT ValidNm(Argument) THEN
+    WRITELN('Invalid filename.')
+  ELSE IF OptCount > 3 THEN
+    WRITELN('Too many command arguments.')
+  ELSE IF NOT OptsOK THEN
+    WRITELN('The options are O, T and W; use each at most once.')
+  ELSE IF WinEol AND NOT TextMode THEN
+    WRITELN('Option W needs option T.')
+  ELSE IF Verb = 'GET' THEN
+    RecvFile(Argument, Overwrte, TextMode)
+  ELSE
+    SendFile(Argument, Overwrte, TextMode, WinEol)
 END;
 
 BEGIN
   PendCnt := 0;
+  QuitReq := FALSE;
   QueryExc(ExchOK);
   IF ExchOK THEN
   BEGIN
@@ -689,6 +1005,6 @@ BEGIN
       WRITE('HOST> ');
       READLN(CmdLine);
       RunCmd
-    UNTIL CmdLine = ''
+    UNTIL QuitReq
   END
 END.

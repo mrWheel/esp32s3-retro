@@ -1,6 +1,6 @@
 ApplePascal1-140K.dsk is the configured read-only Apple Pascal 1.3 128K system
 disk for menu option 3. The project emulator boots it on the Apple IIe model
-to the Pascal command line. It also holds HOST.CODE (11 blocks), the native
+to the Pascal command line. It also holds HOST.CODE (15 blocks), the native
 file-exchange utility: set the Filer prefix to a writable volume (P, WORK1:),
 then X(ecute) APPLE1:HOST. Host-emulator tested only; see ucsdHostLog.md.
 ESP32-S3 behaviour has not been verified.

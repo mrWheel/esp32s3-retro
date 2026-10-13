@@ -32,6 +32,22 @@ type PUT HELLO.TXT O\r
 wait 60 PUT HELLO.TXT ... Done
 type PUT NOPE.DAT\r
 wait 30 cannot read
+type PUT UNIX.TEXT T W\r
+wait 600 PUT UNIX.TEXT ... Done
+type PUT WIN.TEXT T\r
+wait 600 PUT WIN.TEXT ... Done
+type PUT PROG.TEXT T\r
+wait 600 PUT PROG.TEXT ... Done
+type PUT EMPTY2.TEXT T\r
+wait 600 PUT EMPTY2.TEXT ... Done
+type PUT PAGES.TEXT T\r
+wait 3000 PUT PAGES.TEXT ... Done
+type PUT NOTETXT.TXT T\r
+wait 600 needs a Pascal TEXT file
+type PUT PROG.TEXT T\r
+wait 30 Destination already exists
+type PUT PROG.TEXT W\r
+wait 30 Option W needs option T
 type DIR\r
 wait 30 HOSTX.CODE
 type QUIT\r

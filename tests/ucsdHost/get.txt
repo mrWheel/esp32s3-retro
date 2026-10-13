@@ -36,5 +36,45 @@ type DIR\r
 wait 30 HELLO.TXT
 type GET BAD-NAME\r
 wait 30 Invalid filename
+type GET UNIX.TEXT T\r
+wait 600 GET UNIX.TEXT ... Done
+wait 5 replaced by ?
+type GET WIN.TEXT T W\r
+wait 600 GET WIN.TEXT ... Done
+type GET PROG.TEXT T\r
+wait 600 GET PROG.TEXT ... Done
+type GET EMPTY2.TEXT T\r
+wait 600 GET EMPTY2.TEXT ... Done
+type GET PAGES.TEXT T\r
+wait 3000 GET PAGES.TEXT ... Done
+type GET NOTETXT.TXT T\r
+wait 600 only a name ending in .TEXT
+type GET LONG.TEXT T\r
+wait 600 longer than 200 characters
+type GET X W\r
+wait 30 Option W needs option T
+type GET X T T\r
+wait 30 at most once
+type GET X T W O Z\r
+wait 30 Too many command arguments
+type \r
+wait 30 Use DIR, GET
+type FOO\r
+wait 30 Use DIR, GET
+type GET UNIX.TEXT T\r
+wait 30 specify O
 type QUIT\r
 run 10
+type C
+wait 10 Compile what
+type PROG\r
+wait 10 To what codefile
+type PROG\r
+wait 10 Listing
+type \r
+wait 400 Command:
+dump
+type X
+wait 10 Execute what file
+type PROG\r
+wait 30 TEXT OK

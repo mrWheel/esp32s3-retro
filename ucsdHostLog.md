@@ -13,7 +13,7 @@ Bronnen: `guest/ucsd/host/HOST.PAS` en `guest/ucsd/host/HOSTIO.ASM`.
 - GET, PUT, DIR, foutpaden, overwrite, abort bij schijf vol: PASS (zie hieronder).
 - Herhaalbaar bewijs: ctest `ucsdHostGuest` (`tests/ucsdHostGuest.sh`,
   scripts in `tests/ucsdHost/`) — PASS.
-- `HOST.CODE` (gelinkt, 11 blokken) staat in `littlefs/ucsd/ApplePascal1-140K.dsk`.
+- `HOST.CODE` (gelinkt, 15 blokken, met T/W-opties) staat in `littlefs/ucsd/ApplePascal1-140K.dsk`.
 - Niet geflasht, niet gecommit. ESP32-S3-hardware is niet getest.
 
 ## Gebruik
@@ -144,3 +144,21 @@ staging; een test die altijd PASS meldde; alleen-lezen `SYSTEM:`-volume
 - `idf.py build` (ESP-IDF 6.0.2): PASS. Niet geflasht.
 - Voorgestelde commitboodschap: "Add native Apple Pascal HOST utility (DIR/GET/PUT)
   with guest tests; promote HOST.CODE to the Pascal 1.3 boot image".
+
+## Tekstopties T en W (2026-10-13)
+
+- `GET <bestand> [T] [W] [O]` en `PUT <bestand> [T] [W] [O]`: `T` zet OS-tekst
+  om naar/van de Pascal TEXT-blokstructuur (header 1 KiB, pagina's van 1 KiB,
+  regels als DLE, 32+inspringing, tekst, CR); `W` kiest bij PUT CRLF (anders LF).
+  Zie designUCSD.md, "HOST text transfer" en UCSD-DEC-022.
+- Een lege Return toont nu de Usage-tekst; HOST stopt alleen met `QUIT`/`Q`.
+- ctest `ucsdHostGuest` uitgebreid (get.txt, put.txt, edit.txt): PASS in de
+  hostemulator, inclusief compileren en draaien van een geconverteerd programma
+  en het openen van een geconverteerd bestand in de Editor.
+- Gepromoveerd naar `littlefs/ucsd/ApplePascal1-140K.dsk` (Filer `T`
+  `WORK1:HOSTX.CODE` -> `APPLE1:HOST.CODE`, oude versie vervangen, op een
+  kopie; daarna pas over het origineel): 15 blokken, 9/9 bestanden, 49 blokken
+  vrij; boot, `X APPLE1:HOST`, lege Return (Usage), `GET T` en `PUT T W O`
+  werken vanaf de boot-image. Eerdere vermelding "11 blokken" (regel 124,
+  vrije ruimte 53) betreft de vorige versie.
+- ESP32-S3-hardware niet getest; niets geflasht of gecommit.
