@@ -23,12 +23,14 @@ BEGIN
   GOTOXY(0, 23);
   WRITE('Links Onder');
   
-  { In het midden: x=28, y=12 }
-  GOTOXY(28, 12);
-  WRITE('Enter Q to Quit: ');
   
   { Wachten totdat de gebruiker 'Q' of 'q' typt }
-  REPEAT
+  REPEAT 
+    { In het midden: x=28, y=12 }
+    GOTOXY(28, 12);
+    WRITE('Enter Q to Quit:      ');
+
+    GOTOXY(44,12);
     READ(CH);
   UNTIL (CH = 'Q') OR (CH = 'q');
 END.

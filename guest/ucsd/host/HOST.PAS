@@ -8,6 +8,7 @@ TYPE
   TBlock = PACKED ARRAY[0..511] OF CHAR;
   TDirBuf = PACKED ARRAY[0..2047] OF CHAR;
   TFileNm = STRING[15];
+  TVolNm = STRING[8];
   TPage = PACKED ARRAY[0..1023] OF CHAR;
   TLine = PACKED ARRAY[1..201] OF CHAR;
 
@@ -17,6 +18,7 @@ VAR
   Argument: TCommand;
   Option: TCommand;
   BlkFile: FILE;
+  PendVol: ARRAY[1..24] OF TVolNm;
   PendName: ARRAY[1..24] OF TFileNm;
   PendTail: ARRAY[1..24] OF INTEGER;
   PendCnt: INTEGER;
@@ -45,6 +47,7 @@ VAR
   CrLfEol: BOOLEAN;
   DleSeen: BOOLEAN;
   SkipRest: BOOLEAN;
+  DotCount: INTEGER;
 
 FUNCTION EXCHREAD: INTEGER; EXTERNAL;
 PROCEDURE EXCHWRT(Value: INTEGER); EXTERNAL;
@@ -204,6 +207,145 @@ BEGIN
   ValidNm := IsValid
 END;
 
+FUNCTION IsWild(Value: TCommand): BOOLEAN;
+VAR
+  Counter: INTEGER;
+  Seen: BOOLEAN;
+BEGIN
+  Seen := FALSE;
+  FOR Counter := 1 TO LENGTH(Value) DO
+    IF Value[Counter] = '=' THEN
+      Seen := TRUE;
+  IsWild := Seen
+END;
+
+FUNCTION ValidPat(Value: TCommand): BOOLEAN;
+VAR
+  Counter: INTEGER;
+  CharVal: CHAR;
+  IsValid: BOOLEAN;
+BEGIN
+  IF IsWild(Value) THEN
+  BEGIN
+    IsValid := (LENGTH(Value) >= 1) AND (LENGTH(Value) <= 15);
+    IF IsValid THEN
+      FOR Counter := 1 TO LENGTH(Value) DO
+      BEGIN
+        CharVal := Value[Counter];
+        IF NOT (((CharVal >= 'A') AND (CharVal <= 'Z')) OR
+                ((CharVal >= '0') AND (CharVal <= '9')) OR
+                (CharVal = '.') OR (CharVal = '=')) THEN
+          IsValid := FALSE
+      END;
+    ValidPat := IsValid
+  END
+  ELSE
+    ValidPat := ValidNm(Value)
+END;
+
+FUNCTION WildMatch(Pat, Name: TCommand): BOOLEAN;
+VAR
+  PatPos: INTEGER;
+  NamePos: INTEGER;
+  StarPat: INTEGER;
+  StarNam: INTEGER;
+  Failed: BOOLEAN;
+BEGIN
+  PatPos := 1;
+  NamePos := 1;
+  StarPat := 0;
+  StarNam := 0;
+  Failed := FALSE;
+  WHILE (NamePos <= LENGTH(Name)) AND NOT Failed DO
+  BEGIN
+    IF PatPos <= LENGTH(Pat) THEN
+    BEGIN
+      IF Pat[PatPos] = '=' THEN
+      BEGIN
+        StarPat := PatPos;
+        StarNam := NamePos;
+        PatPos := PatPos + 1
+      END
+      ELSE IF Pat[PatPos] = Name[NamePos] THEN
+      BEGIN
+        PatPos := PatPos + 1;
+        NamePos := NamePos + 1
+      END
+      ELSE IF StarPat > 0 THEN
+      BEGIN
+        PatPos := StarPat + 1;
+        StarNam := StarNam + 1;
+        NamePos := StarNam
+      END
+      ELSE
+        Failed := TRUE
+    END
+    ELSE IF StarPat > 0 THEN
+    BEGIN
+      PatPos := StarPat + 1;
+      StarNam := StarNam + 1;
+      NamePos := StarNam
+    END
+    ELSE
+      Failed := TRUE
+  END;
+  WHILE (PatPos <= LENGTH(Pat)) AND NOT Failed DO
+    IF Pat[PatPos] = '=' THEN
+      PatPos := PatPos + 1
+    ELSE
+      Failed := TRUE;
+  WildMatch := NOT Failed
+END;
+
+PROCEDURE SplitNm(Spec: TCommand; VAR Lead: TVolNm; VAR Vol: TVolNm;
+                  VAR Bare: TCommand; VAR Good: BOOLEAN);
+VAR
+  Counter: INTEGER;
+  Colon: INTEGER;
+  CharVal: CHAR;
+BEGIN
+  Good := TRUE;
+  Lead := '';
+  Vol := ':';
+  Bare := Spec;
+  Colon := 0;
+  FOR Counter := LENGTH(Spec) DOWNTO 1 DO
+    IF Spec[Counter] = ':' THEN
+      Colon := Counter;
+  IF LENGTH(Spec) = 0 THEN
+    Good := FALSE
+  ELSE IF Spec[1] = '*' THEN
+  BEGIN
+    Vol := '*';
+    Lead := '*';
+    Bare := COPY(Spec, 2, LENGTH(Spec) - 1);
+    IF Colon > 0 THEN
+      Good := FALSE
+  END
+  ELSE IF Colon > 0 THEN
+  BEGIN
+    IF Colon > 8 THEN
+      Good := FALSE
+    ELSE
+    BEGIN
+      Vol := COPY(Spec, 1, Colon);
+      Lead := Vol;
+      Bare := COPY(Spec, Colon + 1, LENGTH(Spec) - Colon);
+      FOR Counter := 1 TO Colon - 1 DO
+      BEGIN
+        CharVal := Spec[Counter];
+        IF NOT (((CharVal >= 'A') AND (CharVal <= 'Z')) OR
+                ((CharVal >= '0') AND (CharVal <= '9')) OR
+                (CharVal = '#')) THEN
+          Good := FALSE
+      END;
+      FOR Counter := 1 TO LENGTH(Bare) DO
+        IF Bare[Counter] = ':' THEN
+          Good := FALSE
+    END
+  END
+END;
+
 PROCEDURE GetToken(VAR Text: TCommand; VAR Cursor: INTEGER;
                    VAR Token: TCommand);
 VAR
@@ -231,17 +373,33 @@ BEGIN
   END;
 END;
 
-PROCEDURE PrStatus(Status: INTEGER);
+PROCEDURE StatusMsg(Status: INTEGER; VAR Msg: TCommand);
 BEGIN
   CASE Status OF
-    1: WRITELN('Invalid name or request.');
-    2: WRITELN('File or exchange directory unavailable.');
-    3: WRITELN('Destination already exists.');
-    4: WRITELN('I/O or checksum error.');
-    5: WRITELN('Exchange service busy.')
+    1: Msg := 'Invalid name or request.';
+    2: Msg := 'File or exchange directory unavailable.';
+    3: Msg := 'Destination already exists.';
+    4: Msg := 'I/O or checksum error.';
+    5: Msg := 'Exchange service busy.'
   OTHERWISE
-    WRITELN('Unknown exchange error.')
+    Msg := 'Unknown exchange error.'
   END
+END;
+
+PROCEDURE PrStatus(Status: INTEGER);
+VAR
+  Msg: TCommand;
+BEGIN
+  StatusMsg(Status, Msg);
+  WRITELN(Msg)
+END;
+
+PROCEDURE ShowDot;
+BEGIN
+  IF DotCount = 0 THEN
+    WRITE(' ');
+  WRITE('.');
+  DotCount := DotCount + 1
 END;
 
 PROCEDURE QueryExc(VAR Good: BOOLEAN);
@@ -307,6 +465,63 @@ BEGIN
 END;
 
 
+PROCEDURE XchgMatch(Pattern: TCommand; Want: INTEGER; VAR Name: TCommand;
+                    VAR Found: BOOLEAN; VAR Good: BOOLEAN);
+VAR
+  Status: INTEGER;
+  CharVal: INTEGER;
+  Seen: INTEGER;
+  Current: TCommand;
+  OneChar: STRING[1];
+BEGIN
+  Found := FALSE;
+  Good := TRUE;
+  Seen := 0;
+  Name := '';
+  OneChar := ' ';
+  EXCHWRT(1);
+  Status := EXCHREAD;
+  IF Status <> 0 THEN
+  BEGIN
+    Good := FALSE;
+    WRITE('GET: ');
+    PrStatus(Status)
+  END
+  ELSE
+  BEGIN
+    REPEAT
+      Current := '';
+      CharVal := EXCHREAD;
+      WHILE CharVal <> 0 DO
+      BEGIN
+        IF LENGTH(Current) < 15 THEN
+        BEGIN
+          OneChar[1] := UpperChr(CHR(CharVal));
+          Current := CONCAT(Current, OneChar)
+        END;
+        CharVal := EXCHREAD
+      END;
+      IF (LENGTH(Current) > 0) AND (Seen < Want) THEN
+        IF ValidNm(Current) AND WildMatch(Pattern, Current) THEN
+        BEGIN
+          Seen := Seen + 1;
+          IF Seen = Want THEN
+          BEGIN
+            Found := TRUE;
+            Name := Current
+          END
+        END
+    UNTIL LENGTH(Current) = 0;
+    Status := EXCHREAD;
+    IF Status <> 0 THEN
+    BEGIN
+      Good := FALSE;
+      WRITE('GET: ');
+      PrStatus(Status)
+    END
+  END
+END;
+
 PROCEDURE FindEntry(Name: TCommand; VAR Found: BOOLEAN; VAR Base: INTEGER);
 VAR
   Counter: INTEGER;
@@ -337,8 +552,9 @@ BEGIN
   END
 END;
 
-PROCEDURE FileInfo(Name: TCommand; VAR Found: BOOLEAN; VAR Blocks: INTEGER;
-                   VAR LastByt: INTEGER; VAR Good: BOOLEAN);
+PROCEDURE FileInfo(Vol: TVolNm; Name: TCommand; VAR Found: BOOLEAN;
+                   VAR Blocks: INTEGER; VAR LastByt: INTEGER;
+                   VAR Good: BOOLEAN);
 VAR
   Base: INTEGER;
   Got: INTEGER;
@@ -348,7 +564,7 @@ BEGIN
   Blocks := 0;
   LastByt := 0;
   FileKind := 0;
-  RESET(BlkFile, ':');
+  RESET(BlkFile, Vol);
   IF IORESULT = 0 THEN
   BEGIN
     Got := BLOCKREAD(BlkFile, DirBuf, 4, 2);
@@ -365,6 +581,55 @@ BEGIN
       END
     END;
     CLOSE(BlkFile)
+  END
+END;
+
+PROCEDURE DirMatch(Vol: TVolNm; Pattern: TCommand; Want: INTEGER;
+                   VAR Name: TCommand; VAR Found: BOOLEAN; VAR Good: BOOLEAN);
+VAR
+  Counter: INTEGER;
+  Index: INTEGER;
+  NumFiles: INTEGER;
+  Seen: INTEGER;
+  Base: INTEGER;
+  Blocks: INTEGER;
+  LastByt: INTEGER;
+  Current: TCommand;
+  OneChar: STRING[1];
+BEGIN
+  Found := FALSE;
+  Name := '';
+  OneChar := ' ';
+  FileInfo(Vol, '', Found, Blocks, LastByt, Good);
+  Found := FALSE;
+  IF Good THEN
+  BEGIN
+    NumFiles := ORD(DirBuf[16]) + (256 * ORD(DirBuf[17]));
+    IF NumFiles > 77 THEN
+      NumFiles := 77;
+    Seen := 0;
+    Counter := 1;
+    WHILE (Counter <= NumFiles) AND NOT Found DO
+    BEGIN
+      Base := Counter * 26;
+      Current := '';
+      FOR Index := 1 TO ORD(DirBuf[Base + 6]) DO
+        IF Index <= 15 THEN
+        BEGIN
+          OneChar[1] := DirBuf[Base + 6 + Index];
+          Current := CONCAT(Current, OneChar)
+        END;
+      IF WildMatch(Pattern, Current) THEN
+      BEGIN
+        Seen := Seen + 1;
+        IF Seen = Want THEN
+        BEGIN
+          Found := TRUE;
+          Name := Current
+        END
+      END;
+      Counter := Counter + 1
+    END
   END
 END;
 
@@ -398,6 +663,8 @@ BEGIN
           EXCHWRB(BlkBuf, Count)
         ELSE
           EXCHCRC(CrcValue, BlkBuf, Count);
+        IF Send THEN
+          ShowDot;
         BlockNo := BlockNo + 1
       END
     END;
@@ -501,6 +768,8 @@ BEGIN
       BEGIN
         IF BlockNo > 2 THEN
           UnpackBlk(((BlockNo - 3) MOD 2) = 0);
+        IF Send THEN
+          ShowDot;
         BlockNo := BlockNo + 1
       END
     END;
@@ -514,7 +783,8 @@ BEGIN
     EndCrc(CrcValue)
 END;
 
-PROCEDURE NoteLast(Name: TCommand; Tail: INTEGER; VAR Good: BOOLEAN);
+PROCEDURE NoteLast(Vol: TVolNm; Name: TCommand; Tail: INTEGER;
+                   VAR Good: BOOLEAN);
 VAR
   Slot: INTEGER;
   Counter: INTEGER;
@@ -522,7 +792,7 @@ BEGIN
   Good := TRUE;
   Slot := 0;
   FOR Counter := 1 TO PendCnt DO
-    IF PendName[Counter] = Name THEN
+    IF (PendName[Counter] = Name) AND (PendVol[Counter] = Vol) THEN
       Slot := Counter;
   IF (Slot = 0) AND (Tail > 0) THEN
   BEGIN
@@ -530,6 +800,7 @@ BEGIN
     BEGIN
       PendCnt := PendCnt + 1;
       Slot := PendCnt;
+      PendVol[Slot] := Vol;
       PendName[Slot] := Name
     END
     ELSE
@@ -547,36 +818,51 @@ END;
 PROCEDURE ApplyLast(VAR Good: BOOLEAN);
 VAR
   Found: BOOLEAN;
+  First: BOOLEAN;
+  VolGood: BOOLEAN;
   Blocks: INTEGER;
   LastByt: INTEGER;
   Counter: INTEGER;
+  Inner: INTEGER;
   Base: INTEGER;
   Got: INTEGER;
 BEGIN
   Good := TRUE;
-  IF PendCnt > 0 THEN
+  FOR Counter := 1 TO PendCnt DO
   BEGIN
-    FileInfo('', Found, Blocks, LastByt, Good);
-    IF Good THEN
+    First := TRUE;
+    FOR Inner := 1 TO Counter - 1 DO
+      IF PendVol[Inner] = PendVol[Counter] THEN
+        First := FALSE;
+    IF First THEN
     BEGIN
-      FOR Counter := 1 TO PendCnt DO
+      FileInfo(PendVol[Counter], '', Found, Blocks, LastByt, VolGood);
+      IF NOT VolGood THEN
+        Good := FALSE
+      ELSE
       BEGIN
-        FindEntry(PendName[Counter], Found, Base);
-        IF Found THEN
-        BEGIN
-          DirBuf[Base + 22] := CHR(PendTail[Counter] MOD 256);
-          DirBuf[Base + 23] := CHR(PendTail[Counter] DIV 256)
-        END
-      END;
-      RESET(BlkFile, ':');
-      Good := IORESULT = 0;
-      IF Good THEN
-      BEGIN
-        Got := BLOCKWRITE(BlkFile, DirBuf, 4, 2);
-        Good := (Got = 4) AND (IORESULT = 0);
-        CLOSE(BlkFile);
+        FOR Inner := Counter TO PendCnt DO
+          IF PendVol[Inner] = PendVol[Counter] THEN
+          BEGIN
+            FindEntry(PendName[Inner], Found, Base);
+            IF Found THEN
+            BEGIN
+              DirBuf[Base + 22] := CHR(PendTail[Inner] MOD 256);
+              DirBuf[Base + 23] := CHR(PendTail[Inner] DIV 256)
+            END
+          END;
+        RESET(BlkFile, PendVol[Counter]);
         IF IORESULT <> 0 THEN
           Good := FALSE
+        ELSE
+        BEGIN
+          Got := BLOCKWRITE(BlkFile, DirBuf, 4, 2);
+          IF (Got <> 4) OR (IORESULT <> 0) THEN
+            Good := FALSE;
+          CLOSE(BlkFile);
+          IF IORESULT <> 0 THEN
+            Good := FALSE
+        END
       END
     END
   END
@@ -703,10 +989,13 @@ BEGIN
     Got := BLOCKWRITE(BlkFile, BlkBuf, 1);
     IF (Got <> 1) OR (IORESULT <> 0) THEN
       IoError := TRUE
-  END
+  END;
+  IF NOT IoError THEN
+    ShowDot
 END;
 
-PROCEDURE RecvFile(Name: TCommand; Overwrte, TextMode: BOOLEAN);
+PROCEDURE RecvFile(Name: TCommand; Vol: TVolNm; Bare: TCommand;
+                   Overwrte, TextMode: BOOLEAN; VAR Ok: BOOLEAN);
 VAR
   Status: INTEGER;
   Chunks: INTEGER;
@@ -724,33 +1013,37 @@ VAR
   Stored: BOOLEAN;
   Applied: BOOLEAN;
   Noted: BOOLEAN;
+  Msg: TCommand;
 BEGIN
   CanContinue := TRUE;
   Touched := FALSE;
   Stored := FALSE;
+  Applied := TRUE;
   Noted := TRUE;
-  FileInfo(Name, Found, Blocks, LastByt, Good);
+  Msg := '';
+  DotCount := 0;
+  WRITE('GET ', Name, ':');
+  FileInfo(Vol, Bare, Found, Blocks, LastByt, Good);
   IF NOT Good THEN
   BEGIN
-    WRITELN('GET: cannot check the local destination.');
+    Msg := 'cannot check the local destination.';
     CanContinue := FALSE
   END
   ELSE IF Found AND NOT Overwrte THEN
   BEGIN
-    WRITELN('GET: destination already exists; specify O to replace it.');
+    Msg := 'destination already exists; specify O to replace it.';
     CanContinue := FALSE
   END;
   IF CanContinue THEN
   BEGIN
     EXCHWRT(2);
-    FOR Counter := 1 TO LENGTH(Name) DO
-      EXCHWRT(ORD(Name[Counter]));
+    FOR Counter := 1 TO LENGTH(Bare) DO
+      EXCHWRT(ORD(Bare[Counter]));
     EXCHWRT(0);
     Status := EXCHREAD;
     IF Status <> 0 THEN
     BEGIN
-      WRITE('GET: ');
-      PrStatus(Status);
+      StatusMsg(Status, Msg);
       CanContinue := FALSE
     END
   END;
@@ -761,7 +1054,7 @@ BEGIN
     IF NOT Fits THEN
     BEGIN
       EXCHABT;
-      WRITELN('GET: file is too large for this utility.');
+      Msg := 'file is too large for this utility.';
       CanContinue := FALSE
     END
   END;
@@ -772,7 +1065,7 @@ BEGIN
     IF IORESULT <> 0 THEN
     BEGIN
       EXCHABT;
-      WRITELN('GET: cannot create the local file.');
+      Msg := 'cannot create the local file.';
       CanContinue := FALSE
     END
   END;
@@ -800,9 +1093,9 @@ BEGIN
       EXCHABT;
       CLOSE(BlkFile);
       IF LongLine THEN
-        WRITELN('GET: a line is longer than 200 characters; nothing was stored.')
+        Msg := 'a line is longer than 200 characters; nothing was stored.'
       ELSE
-        WRITELN('GET: local file error; nothing was stored.')
+        Msg := 'local file error; nothing was stored.'
     END
     ELSE
     BEGIN
@@ -812,47 +1105,51 @@ BEGIN
       IF Status <> 0 THEN
       BEGIN
         CLOSE(BlkFile);
-        WRITE('GET: ');
-        PrStatus(Status)
+        StatusMsg(Status, Msg)
       END
       ELSE IF NOT SameQuad(CrcValue, ExpCrc) THEN
       BEGIN
         CLOSE(BlkFile);
-        WRITELN('GET: checksum error; nothing was stored.')
+        Msg := 'checksum error; nothing was stored.'
       END
       ELSE
       BEGIN
         CLOSE(BlkFile, LOCK);
         IF IORESULT <> 0 THEN
-          WRITELN('GET: could not store the verified file.')
+          Msg := 'could not store the verified file.'
         ELSE
         BEGIN
           IF NOT TextMode THEN
-            NoteLast(Name, Tail, Noted);
+            NoteLast(Vol, Bare, Tail, Noted);
           Stored := TRUE
         END
       END
     END
   END;
   IF Touched THEN
-  BEGIN
     ApplyLast(Applied);
-    IF Stored THEN
-    BEGIN
-      IF NOT (Applied AND Noted) THEN
-        WRITELN('GET: stored, but the exact length could not be set.');
-      IF TextMode AND (BadChars > 0) THEN
-        WRITELN('GET: ', BadChars, ' unsupported characters replaced by ?');
-      IF TextMode AND NOT IsTextNm(Name) THEN
-        WRITELN('GET: note: only a name ending in .TEXT is a Pascal TEXT file.');
-      WRITELN('GET ', Name, ' ... Done')
-    END
-    ELSE IF NOT Applied THEN
+  Ok := Stored AND Applied AND Noted;
+  IF Stored THEN
+  BEGIN
+    IF Ok THEN
+      WRITELN(' Done')
+    ELSE
+      WRITELN(' stored, but the exact length could not be set.');
+    IF TextMode AND (BadChars > 0) THEN
+      WRITELN('  ', BadChars, ' unsupported characters replaced by ?');
+    IF TextMode AND NOT IsTextNm(Bare) THEN
+      WRITELN('  note: only a name ending in .TEXT is a Pascal TEXT file.')
+  END
+  ELSE
+  BEGIN
+    WRITELN(' ', Msg);
+    IF NOT Applied THEN
       WRITELN('GET: could not restore the exact lengths of earlier files.')
   END
 END;
 
-PROCEDURE SendFile(Name: TCommand; Overwrte, TextMode, WinEol: BOOLEAN);
+PROCEDURE SendFile(Name: TCommand; Vol: TVolNm; Bare: TCommand;
+                   Overwrte, TextMode, WinEol: BOOLEAN; VAR Ok: BOOLEAN);
 VAR
   Status: INTEGER;
   Counter: INTEGER;
@@ -860,14 +1157,19 @@ VAR
   LastByt: INTEGER;
   Found: BOOLEAN;
   Good: BOOLEAN;
+  Msg: TCommand;
 BEGIN
-  FileInfo(Name, Found, Blocks, LastByt, Good);
+  Ok := FALSE;
+  Msg := '';
+  DotCount := 0;
+  WRITE('PUT ', Name, ':');
+  FileInfo(Vol, Bare, Found, Blocks, LastByt, Good);
   IF NOT (Good AND Found) THEN
-    WRITELN('PUT: cannot read the local file.')
+    Msg := 'cannot read the local file.'
   ELSE IF Blocks > 16000 THEN
-    WRITELN('PUT: file is too large for this utility.')
+    Msg := 'file is too large for this utility.'
   ELSE IF TextMode AND (FileKind <> 3) THEN
-    WRITELN('PUT: option T needs a Pascal TEXT file (name ending in .TEXT).')
+    Msg := 'option T needs a Pascal TEXT file (name ending in .TEXT).'
   ELSE
   BEGIN
     CrLfEol := WinEol;
@@ -882,24 +1184,21 @@ BEGIN
       ScanFile(Name, Blocks, LastByt, FALSE)
     END;
     IF IoError THEN
-      WRITELN('PUT: cannot read the local file.')
+      Msg := 'cannot read the local file.'
     ELSE
     BEGIN
       IF Overwrte THEN
         EXCHWRT(4)
       ELSE
         EXCHWRT(3);
-      FOR Counter := 1 TO LENGTH(Name) DO
-        EXCHWRT(ORD(Name[Counter]));
+      FOR Counter := 1 TO LENGTH(Bare) DO
+        EXCHWRT(ORD(Bare[Counter]));
       EXCHWRT(0);
       SendQuad(FileSize);
       SendQuad(CrcValue);
       Status := EXCHREAD;
       IF Status <> 0 THEN
-      BEGIN
-        WRITE('PUT: ');
-        PrStatus(Status)
-      END
+        StatusMsg(Status, Msg)
       ELSE
       BEGIN
         IF TextMode THEN
@@ -909,27 +1208,121 @@ BEGIN
         IF IoError THEN
         BEGIN
           EXCHABT;
-          WRITELN('PUT: local file changed or could not be read.')
+          Msg := 'local file changed or could not be read.'
         END
         ELSE
         BEGIN
           Status := EXCHREAD;
           IF Status <> 0 THEN
-          BEGIN
-            WRITE('PUT: ');
-            PrStatus(Status)
-          END
+            StatusMsg(Status, Msg)
           ELSE
-            WRITELN('PUT ', Name, ' ... Done')
+            Ok := TRUE
         END
       END
     END
-  END
+  END;
+  IF Ok THEN
+    WRITELN(' Done')
+  ELSE
+    WRITELN(' ', Msg)
+END;
+
+PROCEDURE ShowTotals(Total, Failed: INTEGER);
+BEGIN
+  IF Total = 0 THEN
+    WRITELN('No files match.')
+  ELSE IF Failed = 0 THEN
+    WRITELN(Total, ' files transferred.')
+  ELSE
+    WRITELN(Total - Failed, ' of ', Total, ' files transferred; ', Failed,
+            ' failed.')
+END;
+
+PROCEDURE GetMany(Lead, Vol: TVolNm; Pattern: TCommand;
+                  Overwrte, TextMode: BOOLEAN);
+VAR
+  Index: INTEGER;
+  Total: INTEGER;
+  Failed: INTEGER;
+  More: BOOLEAN;
+  Found: BOOLEAN;
+  Good: BOOLEAN;
+  Ok: BOOLEAN;
+  Name: TCommand;
+BEGIN
+  Index := 0;
+  Total := 0;
+  Failed := 0;
+  More := TRUE;
+  WHILE More DO
+  BEGIN
+    Index := Index + 1;
+    XchgMatch(Pattern, Index, Name, Found, Good);
+    IF NOT (Good AND Found) THEN
+      More := FALSE
+    ELSE
+    BEGIN
+      Total := Total + 1;
+      RecvFile(CONCAT(Lead, Name), Vol, Name, Overwrte, TextMode, Ok);
+      IF NOT Ok THEN
+        Failed := Failed + 1
+    END
+  END;
+  IF Good THEN
+    ShowTotals(Total, Failed)
+END;
+
+PROCEDURE PutMany(Lead, Vol: TVolNm; Pattern: TCommand;
+                  Overwrte, TextMode, WinEol: BOOLEAN);
+VAR
+  Index: INTEGER;
+  Total: INTEGER;
+  Failed: INTEGER;
+  More: BOOLEAN;
+  Found: BOOLEAN;
+  Good: BOOLEAN;
+  Ok: BOOLEAN;
+  Name: TCommand;
+BEGIN
+  Index := 0;
+  Total := 0;
+  Failed := 0;
+  More := TRUE;
+  Good := TRUE;
+  WHILE More DO
+  BEGIN
+    Index := Index + 1;
+    DirMatch(Vol, Pattern, Index, Name, Found, Good);
+    IF NOT Good THEN
+    BEGIN
+      WRITELN('PUT: cannot read the local volume.');
+      More := FALSE
+    END
+    ELSE IF NOT Found THEN
+      More := FALSE
+    ELSE
+    BEGIN
+      Total := Total + 1;
+      IF ValidNm(Name) THEN
+        SendFile(CONCAT(Lead, Name), Vol, Name, Overwrte, TextMode, WinEol, Ok)
+      ELSE
+      BEGIN
+        WRITELN('PUT ', Lead, Name, ': not a valid exchange name.');
+        Ok := FALSE
+      END;
+      IF NOT Ok THEN
+        Failed := Failed + 1
+    END
+  END;
+  IF Good THEN
+    ShowTotals(Total, Failed)
 END;
 
 PROCEDURE ShowUsage;
 BEGIN
   WRITELN('Use DIR, GET <file> [T] [W] [O], PUT <file> [T] [W] [O], or QUIT.');
+  WRITELN('  <file> = NAME, :NAME (prefix disk), *NAME (system disk), VOL:NAME');
+  WRITELN('  = is a wildcard in the name: GET =.TEXT, PUT WORK2:A=');
   WRITELN('  O = overwrite an existing file');
   WRITELN('  T = convert OS text <-> Pascal TEXT file');
   WRITELN('  W = with T: PUT ends lines with CR LF (default LF)')
@@ -943,6 +1336,11 @@ VAR
   TextMode: BOOLEAN;
   WinEol: BOOLEAN;
   OptsOK: BOOLEAN;
+  NameOK: BOOLEAN;
+  Done: BOOLEAN;
+  Lead: TVolNm;
+  Vol: TVolNm;
+  Bare: TCommand;
 BEGIN
   UpString(CmdLine);
   Cursor := 1;
@@ -954,6 +1352,9 @@ BEGIN
   GetToken(CmdLine, Cursor, Verb);
   GetToken(CmdLine, Cursor, Argument);
   GetToken(CmdLine, Cursor, Option);
+  SplitNm(Argument, Lead, Vol, Bare, NameOK);
+  IF NameOK THEN
+    NameOK := ValidPat(Bare);
   WHILE Option <> '' DO
   BEGIN
     OptCount := OptCount + 1;
@@ -980,7 +1381,7 @@ BEGIN
   END
   ELSE IF (Verb <> 'GET') AND (Verb <> 'PUT') THEN
     ShowUsage
-  ELSE IF NOT ValidNm(Argument) THEN
+  ELSE IF NOT NameOK THEN
     WRITELN('Invalid filename.')
   ELSE IF OptCount > 3 THEN
     WRITELN('Too many command arguments.')
@@ -989,9 +1390,19 @@ BEGIN
   ELSE IF WinEol AND NOT TextMode THEN
     WRITELN('Option W needs option T.')
   ELSE IF Verb = 'GET' THEN
-    RecvFile(Argument, Overwrte, TextMode)
+  BEGIN
+    IF IsWild(Bare) THEN
+      GetMany(Lead, Vol, Bare, Overwrte, TextMode)
+    ELSE
+      RecvFile(Argument, Vol, Bare, Overwrte, TextMode, Done)
+  END
   ELSE
-    SendFile(Argument, Overwrte, TextMode, WinEol)
+  BEGIN
+    IF IsWild(Bare) THEN
+      PutMany(Lead, Vol, Bare, Overwrte, TextMode, WinEol)
+    ELSE
+      SendFile(Argument, Vol, Bare, Overwrte, TextMode, WinEol, Done)
+  END
 END;
 
 BEGIN

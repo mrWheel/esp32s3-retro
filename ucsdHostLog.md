@@ -13,7 +13,7 @@ Bronnen: `guest/ucsd/host/HOST.PAS` en `guest/ucsd/host/HOSTIO.ASM`.
 - GET, PUT, DIR, foutpaden, overwrite, abort bij schijf vol: PASS (zie hieronder).
 - Herhaalbaar bewijs: ctest `ucsdHostGuest` (`tests/ucsdHostGuest.sh`,
   scripts in `tests/ucsdHost/`) — PASS.
-- `HOST.CODE` (gelinkt, 15 blokken, met T/W-opties) staat in `littlefs/ucsd/ApplePascal1-140K.dsk`.
+- `HOST.CODE` (gelinkt, 19 blokken, met T/W-opties, volume-prefix, voortgangsregel en wildcards) staat in `littlefs/ucsd/ApplePascal1-140K.dsk`.
 - Niet geflasht, niet gecommit. ESP32-S3-hardware is niet getest.
 
 ## Gebruik
@@ -157,8 +157,35 @@ staging; een test die altijd PASS meldde; alleen-lezen `SYSTEM:`-volume
   en het openen van een geconverteerd bestand in de Editor.
 - Gepromoveerd naar `littlefs/ucsd/ApplePascal1-140K.dsk` (Filer `T`
   `WORK1:HOSTX.CODE` -> `APPLE1:HOST.CODE`, oude versie vervangen, op een
-  kopie; daarna pas over het origineel): 15 blokken, 9/9 bestanden, 49 blokken
-  vrij; boot, `X APPLE1:HOST`, lege Return (Usage), `GET T` en `PUT T W O`
+  kopie; daarna pas over het origineel): 16 blokken (versie met volume-prefix), 9/9
+  bestanden, 48 blokken vrij; boot, `X APPLE1:HOST`, lege Return (Usage), `GET T` en `PUT T W O`
   werken vanaf de boot-image. Eerdere vermelding "11 blokken" (regel 124,
   vrije ruimte 53) betreft de vorige versie.
+- ESP32-S3-hardware niet getest; niets geflasht of gecommit.
+
+## Volume-prefix in bestandsnamen (2026-10-13)
+
+- `GET`/`PUT` accepteren `NAME`, `:NAME` (prefix-volume), `*NAME` (systeemvolume)
+  en `VOL:NAME`. Alleen de kale naam gaat naar de exchange-map. Het herstel van
+  de exacte lengte (`ApplyLast`) werkt nu per volume.
+- Nieuw script `tests/ucsdHost/vol.txt` (in ctest `ucsdHostGuest`): PASS; bestanden
+  over APPLE1: (`*`), WORK1: (`:` en `WORK1:`) heen en weer, byte-voor-byte gelijk.
+- Het nieuwe `HOST.CODE` (16 blokken) staat op `littlefs/ucsd/ApplePascal1-140K.dsk`
+  (gepromoveerd via Filer-transfer op een kopie, gestart vanaf `APPLE1:HOST`).
+- Opmerking: schrijven naar het alleen-lezen `SYSTEM:`-volume meldt de emulator
+  als gelukt (bestaand gedrag, niet gewijzigd).
+- ESP32-S3-hardware niet getest; niets geflasht of gecommit.
+
+## Voortgangsregel en wildcards (2026-10-13)
+
+- `GET NAME:` verschijnt direct na het commando, per blok een punt, en pas aan het
+  eind ` Done` of de foutmelding op dezelfde regel (leeg bestand: `GET NAME: Done`).
+- Wildcard in UCSD is `=` (niet `*`): `GET =.TEXT`, `PUT WORK2:A=`, `GET *=.TXT`.
+  Een fout bij één bestand stopt de rest niet; totaalregel `N files transferred.`
+  of `X of N files transferred; Y failed.`, anders `No files match.`.
+- Tests: `get.txt`, `put.txt`, `vol.txt` aangepast aan het nieuwe formaat, nieuw
+  `wild.txt` (ctest `ucsdHostGuest`): PASS, byte-voor-byte vergelijking.
+- `HOST.CODE` (19 blokken, 45 vrij) staat op `littlefs/ucsd/ApplePascal1-140K.dsk`
+  (gepromoveerd via Filer-transfer op een kopie; start vanaf `APPLE1:HOST`, Usage,
+  GET, PUT en `GET =.DAT O` getest).
 - ESP32-S3-hardware niet getest; niets geflasht of gecommit.

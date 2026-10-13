@@ -1,0 +1,65 @@
+type F
+run 3
+type P
+wait 5 Prefix filenames
+type WORK1:\r
+run 3
+type Q
+wait 10 Command:
+type X
+wait 10 Execute what file
+type HOSTX\r
+wait 30 HOST>
+type GET *VOLA.DAT\r
+wait 300 GET *VOLA.DAT: .. Done
+type GET :VOLB.DAT\r
+wait 300 GET :VOLB.DAT: ... Done
+type GET WORK1:VOLC.DAT\r
+wait 300 GET WORK1:VOLC.DAT: .. Done
+type GET apple1:vold.dat\r
+wait 300 GET APPLE1:VOLD.DAT: . Done
+type GET WORK1:VOLC.DAT\r
+wait 30 specify O
+type GET WORK1:VOLC.DAT O\r
+wait 300 GET WORK1:VOLC.DAT: .. Done
+run 20
+type GET NOSUCH:VOLE.DAT\r
+wait 30 cannot check the local destination
+type GET *:VOLE.DAT\r
+wait 30 Invalid filename
+type GET A:B:VOLE.DAT\r
+run 5
+type GET WORK1:\r
+run 5
+type GET VOLONGNAME:VOLE.DAT\r
+run 5
+type GET WORK1:VOLE.DAT T\r
+wait 30 note: only a name
+type PUT *VOLA.DAT O\r
+wait 300 PUT *VOLA.DAT: .. Done
+type PUT :VOLB.DAT O\r
+wait 300 PUT :VOLB.DAT: ... Done
+type PUT WORK1:VOLC.DAT O\r
+wait 300 PUT WORK1:VOLC.DAT: .. Done
+type PUT APPLE1:VOLD.DAT O\r
+wait 300 PUT APPLE1:VOLD.DAT: . Done
+type PUT VOLB.DAT O\r
+wait 300 PUT VOLB.DAT: ... Done
+type PUT NOSUCH:VOLB.DAT\r
+wait 30 cannot read
+type PUT *VOLB.DAT\r
+run 5
+type QUIT\r
+run 10
+type F
+run 3
+type L
+run 3
+type APPLE1:\r
+run 5
+dump
+type L
+run 3
+type WORK1:\r
+run 5
+dump

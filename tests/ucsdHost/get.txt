@@ -11,19 +11,19 @@ wait 10 Execute what file
 type HOSTX\r
 wait 30 HOST>
 type GET HELLO.TXT\r
-wait 300 GET HELLO.TXT ... Done
+wait 300 GET HELLO.TXT: . Done
 type GET EMPTY.TXT\r
-wait 300 GET EMPTY.TXT ... Done
+wait 300 GET EMPTY.TXT: Done
 type GET BIN.DAT\r
-wait 300 GET BIN.DAT ... Done
+wait 300 GET BIN.DAT: .. Done
 type GET B512.DAT\r
-wait 300 GET B512.DAT ... Done
+wait 300 GET B512.DAT: . Done
 type GET B513.DAT\r
-wait 300 GET B513.DAT ... Done
+wait 300 GET B513.DAT: .. Done
 type GET B1000.DAT\r
-wait 300 GET B1000.DAT ... Done
+wait 300 GET B1000.DAT: .. Done
 type GET EIGHTK.DAT\r
-wait 300 GET EIGHTK.DAT ... Done
+wait 300 GET EIGHTK.DAT: ................ Done
 type GET HELLO.TXT\r
 wait 30 specify O
 type GET HELLO.TXT O\r
@@ -37,16 +37,16 @@ wait 30 HELLO.TXT
 type GET BAD-NAME\r
 wait 30 Invalid filename
 type GET UNIX.TEXT T\r
-wait 600 GET UNIX.TEXT ... Done
+wait 600 GET UNIX.TEXT: . Done
 wait 5 replaced by ?
 type GET WIN.TEXT T W\r
-wait 600 GET WIN.TEXT ... Done
+wait 600 GET WIN.TEXT: . Done
 type GET PROG.TEXT T\r
-wait 600 GET PROG.TEXT ... Done
+wait 600 GET PROG.TEXT: . Done
 type GET EMPTY2.TEXT T\r
-wait 600 GET EMPTY2.TEXT ... Done
+wait 600 GET EMPTY2.TEXT: Done
 type GET PAGES.TEXT T\r
-wait 3000 GET PAGES.TEXT ... Done
+wait 3000 GET PAGES.TEXT: ............... Done
 type GET NOTETXT.TXT T\r
 wait 600 only a name ending in .TEXT
 type GET LONG.TEXT T\r

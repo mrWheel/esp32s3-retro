@@ -26,9 +26,20 @@ the transfer tests in the emulator.
 
 `X(ecute)` `APPLE1:HOST` (the linked `HOST.CODE` is on the boot image
 `littlefs/ucsd/ApplePascal1-140K.dsk`). Files are read from and written to the
-Filer prefix volume, so set it to a writable volume first. Names are 1-15
-characters (letters, digits, `.`; first a letter) and are upper-cased.
+Filer prefix volume unless the name carries a volume prefix, so set the
+prefix to a writable volume first. Names are 1-15 characters (letters, digits,
+`.`; first a letter) and are upper-cased. A Pascal name may start with a
+volume: `NAME` and `:NAME` (prefix volume), `*NAME` (system volume) or
+`VOL:NAME` (e.g. `WORK2:NAME`, `#5:NAME`). The exchange file always uses the
+bare `NAME`. A volume that cannot be opened gives "cannot check the local
+destination" (GET) or "cannot read the local file" (PUT).
 
+* Progress: `GET NAME:` appears at once, then one `.` per block, then
+  `Done` (or the error message) on the same line.
+* Wildcard: `=` in the name matches any string (`GET =.TEXT`, `PUT WORK2:A=`,
+  `GET *=.TXT`). Every matching file is transferred; an error on one file does
+  not stop the next. The run ends with `N files transferred.` or
+  `X of N files transferred; Y failed.` (`No files match.` if none).
 * `GET name`  - copy exchange file to the prefix volume; fails if it exists
 * `GET name O` - replace an existing file (the old file survives a failed GET)
 * `PUT name` / `PUT name O` - copy a Pascal file to the exchange directory
