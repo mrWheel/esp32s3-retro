@@ -79,24 +79,40 @@ static bool decodeCpm80Name(const uint8_t name[11], char filename[13])
   return true;
 }
 
-static bool decodeProdosName(const uint8_t *name, size_t length, char filename[16])
+//-- ProDOS 8 names: a letter first, then letters, digits and '.'. UCSD names also allow a digit first
+//-- and '-' and '_' (Apple Pascal file names such as ANNU-README.TEXT).
+static bool namePrefixAllowed(hostExchangeFilenameFormat format, unsigned char character)
 {
-  if (length == 0 || length > 15 ||
-      !((name[0] >= 'A' && name[0] <= 'Z') || (name[0] >= 'a' && name[0] <= 'z')))
+  bool letter = (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z');
+  return letter || (format == hostExchangeFilenameUcsd && character >= '0' && character <= '9');
+}
+
+static bool nameCharacterAllowed(hostExchangeFilenameFormat format, unsigned char character)
+{
+  if ((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
+      (character >= '0' && character <= '9') || character == '.')
+  {
+    return true;
+  }
+  return format == hostExchangeFilenameUcsd && (character == '-' || character == '_');
+}
+
+static bool decodeProdosName(hostExchangeFilenameFormat format, const uint8_t *name, size_t length, char filename[16])
+{
+  if (length == 0 || length > 15 || !namePrefixAllowed(format, name[0]))
   {
     return false;
   }
   for (size_t index = 0; index < length; ++index)
   {
     uint8_t character = name[index];
+    if (!nameCharacterAllowed(format, character))
+    {
+      return false;
+    }
     if (character >= 'a' && character <= 'z')
     {
       character = (uint8_t)(character - ('a' - 'A'));
-    }
-    if (!((character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') ||
-          character == '.'))
-    {
-      return false;
     }
     filename[index] = (char)character;
   }
@@ -104,11 +120,11 @@ static bool decodeProdosName(const uint8_t *name, size_t length, char filename[1
   return true;
 }
 
-static bool encodeProdosDirectoryName(const char *name, uint8_t encoded[16]);
+static bool encodeProdosDirectoryName(hostExchangeFilenameFormat format, const char *name, uint8_t encoded[16]);
 
 static bool findProdosFilename(hostExchange *exchange, const char *requestedName, bool *found)
 {
-  if (exchange->filenameFormat != hostExchangeFilenameProdos8)
+  if (exchange->filenameFormat == hostExchangeFilenameCpm80)
   {
     *found = false;
     return true;
@@ -123,7 +139,7 @@ static bool findProdosFilename(hostExchange *exchange, const char *requestedName
   while ((entry = readdir(directory)) != NULL)
   {
     uint8_t encodedName[16];
-    if (encodeProdosDirectoryName(entry->d_name, encodedName) && strcmp((const char *)encodedName, requestedName) == 0)
+    if (encodeProdosDirectoryName(exchange->filenameFormat, entry->d_name, encodedName) && strcmp((const char *)encodedName, requestedName) == 0)
     {
       size_t length = strlen(entry->d_name);
       if (length < sizeof(exchange->filename))
@@ -190,26 +206,21 @@ static bool encodeCpm80DirectoryName(const char *name, uint8_t encoded[16])
   return true;
 }
 
-static bool encodeProdosDirectoryName(const char *name, uint8_t encoded[16])
+static bool encodeProdosDirectoryName(hostExchangeFilenameFormat format, const char *name, uint8_t encoded[16])
 {
   size_t length = strlen(name);
-  if (length == 0 || length > 15)
+  if (length == 0 || length > 15 || !namePrefixAllowed(format, (unsigned char)name[0]))
   {
     return false;
   }
   for (size_t index = 0; index < length; ++index)
   {
     unsigned char character = (unsigned char)name[index];
-    if (!((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-          (character >= '0' && character <= '9') || character == '.'))
+    if (!nameCharacterAllowed(format, character))
     {
       return false;
     }
     encoded[index] = (uint8_t)(character >= 'a' && character <= 'z' ? character - ('a' - 'A') : character);
-  }
-  if (encoded[0] < 'A' || encoded[0] > 'Z')
-  {
-    return false;
   }
   encoded[length] = '\0';
   return true;
@@ -217,20 +228,22 @@ static bool encodeProdosDirectoryName(const char *name, uint8_t encoded[16])
 
 static bool encodeDirectoryName(const hostExchange *exchange, const char *name, uint8_t encoded[16])
 {
-  return exchange->filenameFormat == hostExchangeFilenameProdos8 ? encodeProdosDirectoryName(name, encoded)
-                                                                  : encodeCpm80DirectoryName(name, encoded);
+  return exchange->filenameFormat != hostExchangeFilenameCpm80
+             ? encodeProdosDirectoryName(exchange->filenameFormat, name, encoded)
+             : encodeCpm80DirectoryName(name, encoded);
 }
 
 static size_t expectedFilenameLength(const hostExchange *exchange)
 {
-  return exchange->filenameFormat == hostExchangeFilenameProdos8 ? 0 : 11;
+  return exchange->filenameFormat != hostExchangeFilenameCpm80 ? 0 : 11;
 }
 
 static bool decodeFilename(const hostExchange *exchange, char filename[16])
 {
-  if (exchange->filenameFormat == hostExchangeFilenameProdos8)
+  if (exchange->filenameFormat != hostExchangeFilenameCpm80)
   {
-    return decodeProdosName(exchange->nameBytes, strlen((const char *)exchange->nameBytes), filename);
+    return decodeProdosName(exchange->filenameFormat, exchange->nameBytes, strlen((const char *)exchange->nameBytes),
+                            filename);
   }
   return decodeCpm80Name(exchange->nameBytes, filename);
 }
@@ -300,7 +313,7 @@ static void openReadFile(hostExchange *exchange)
     exchange->state = hostExchangeStatus;
     return;
   }
-  if (exchange->filenameFormat == hostExchangeFilenameProdos8 && !found)
+  if (exchange->filenameFormat != hostExchangeFilenameCpm80 && !found)
   {
     exchange->status = hostExchangeStatusUnavailable;
     exchange->state = hostExchangeStatus;
@@ -588,6 +601,16 @@ bool hostExchangeInitializeProdos(hostExchange *exchange, const char *root)
     return false;
   }
   exchange->filenameFormat = hostExchangeFilenameProdos8;
+  return true;
+}
+
+bool hostExchangeInitializeUcsd(hostExchange *exchange, const char *root)
+{
+  if (!hostExchangeInitialize(exchange, root))
+  {
+    return false;
+  }
+  exchange->filenameFormat = hostExchangeFilenameUcsd;
   return true;
 }
 

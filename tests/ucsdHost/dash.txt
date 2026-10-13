@@ -1,0 +1,28 @@
+type F
+run 3
+type P
+wait 5 Prefix filenames
+type WORK1:\r
+run 3
+type Q
+wait 10 Command:
+type X
+wait 10 Execute what file
+type HOSTX\r
+wait 30 HOST>
+type DIR\r
+wait 60 X-Y_Z.TXT
+type GET X-Y_Z.TXT\r
+wait 300 GET X-Y_Z.TXT: . Done
+type PUT X-Y_Z.TXT\r
+wait 60 already exists
+type PUT X-Y_Z.TXT O\r
+wait 300 PUT X-Y_Z.TXT: . Done
+run 5
+type \r
+run 10
+type X
+run 3
+type NOSUCHPG\r
+wait 30 No file NOSUCHPG.CODE
+run 5

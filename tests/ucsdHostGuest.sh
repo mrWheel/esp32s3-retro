@@ -115,4 +115,11 @@ done
 test -s "$tmp/wex/HOST.CODE"
 test -s "$tmp/wex/HOSTIO.CODE"
 test -s "$tmp/wex/HOSTX.CODE"
+#-- UCSD names with '-' and '_' are listed, fetched and stored.
+mkdir "$tmp/dsrc" "$tmp/dex"
+python3 -I -c "import sys; open(sys.argv[1] + '/X-Y_Z.TXT', 'wb').write(bytes((i * 11 + 5) % 256 for i in range(300)))" "$tmp/dsrc"
+cp "$tmp/dsrc/X-Y_Z.TXT" "$tmp/dex/"
+UCSD_SKIP_STAGE=1 UCSD_EXCHANGE_DIR="$tmp/dex" "$tester" --pascal-script "$boot" "$rom" "$tools" \
+  "$tmp/built.po" "$pas" "$asm" "$scripts/dash.txt" "$tmp/dash.po"
+cmp "$tmp/dsrc/X-Y_Z.TXT" "$tmp/dex/X-Y_Z.TXT"
 echo "ucsdHostGuest PASS"

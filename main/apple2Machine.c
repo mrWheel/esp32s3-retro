@@ -715,7 +715,9 @@ esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
     guestCore = NULL;
     return ESP_ERR_INVALID_RESPONSE;
   }
-  if (!hostExchangeInitializeProdos(&exchangeService, exchangeRoot))
+  bool exchangeReady = exchangeRoot == ucsdExchangeRoot ? hostExchangeInitializeUcsd(&exchangeService, exchangeRoot)
+                                                         : hostExchangeInitializeProdos(&exchangeService, exchangeRoot);
+  if (!exchangeReady)
   {
     ESP_LOGE(tag, "Host exchange service could not be initialized for %s", exchangeRoot);
     apple2CoreDestroy(guestCore);

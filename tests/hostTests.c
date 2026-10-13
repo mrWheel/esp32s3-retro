@@ -1404,6 +1404,94 @@ static void testHostExchangeProdos(void)
   assert(rmdir(directoryPath) == 0);
 }
 
+static void testHostExchangeUcsd(void)
+{
+  char directoryPath[] = "/tmp/ucsd-exchange-test-XXXXXX";
+  assert(mkdtemp(directoryPath) != NULL);
+  const char *validNames[] = {"ANNU-READ.TEXT", "my_file.text"};
+  const char *hiddenNames[] = {"ANNUITY.PAS.TEXT", "BAD NAME.TXT", "A=B.TXT"};
+  char path[absolutePathCapacity];
+  for (size_t index = 0; index < 2; ++index)
+  {
+    assert(snprintf(path, sizeof(path), "%s/%s", directoryPath, validNames[index]) < (int)sizeof(path));
+    FILE *file = fopen(path, "wb");
+    assert(file != NULL && fclose(file) == 0);
+  }
+  for (size_t index = 0; index < 3; ++index)
+  {
+    assert(snprintf(path, sizeof(path), "%s/%s", directoryPath, hiddenNames[index]) < (int)sizeof(path));
+    FILE *file = fopen(path, "wb");
+    assert(file != NULL && fclose(file) == 0);
+  }
+
+  hostExchange exchange = {0};
+  assert(hostExchangeInitializeUcsd(&exchange, directoryPath));
+  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandDirectory);
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+  size_t listed = 0;
+  bool sawDash = false;
+  bool sawUnderscore = false;
+  for (;;)
+  {
+    char name[16];
+    size_t length = 0;
+    uint8_t character;
+    while ((character = hostExchangePortInput(&exchange, hostExchangePort)) != 0)
+    {
+      assert(length + 1 < sizeof(name));
+      name[length++] = (char)character;
+    }
+    if (length == 0)
+    {
+      break;
+    }
+    name[length] = '\0';
+    sawDash = sawDash || strcmp(name, "ANNU-READ.TEXT") == 0;
+    sawUnderscore = sawUnderscore || strcmp(name, "MY_FILE.TEXT") == 0;
+    ++listed;
+  }
+  assert(listed == 2 && sawDash && sawUnderscore);
+
+  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
+  writeProdosFilename(&exchange, "annu-read.text");
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+
+  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
+  writeProdosFilename(&exchange, "NEW-FILE.TEXT");
+  for (uint8_t index = 0; index < 8; ++index)
+  {
+    hostExchangePortOutput(&exchange, hostExchangePort, 0);
+  }
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
+  assert(snprintf(path, sizeof(path), "%s/NEW-FILE.TEXT", directoryPath) < (int)sizeof(path));
+  assert(unlink(path) == 0);
+
+  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
+  writeProdosFilename(&exchange, "../ESCAPE");
+  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusInvalid);
+  hostExchangeClose(&exchange);
+
+  hostExchange prodos = {0};
+  assert(hostExchangeInitializeProdos(&prodos, directoryPath));
+  hostExchangePortOutput(&prodos, hostExchangePort, hostExchangeCommandGet);
+  writeProdosFilename(&prodos, "ANNU-READ.TEXT");
+  assert(hostExchangePortInput(&prodos, hostExchangePort) == hostExchangeStatusInvalid);
+  hostExchangeClose(&prodos);
+
+  for (size_t index = 0; index < 2; ++index)
+  {
+    assert(snprintf(path, sizeof(path), "%s/%s", directoryPath, validNames[index]) < (int)sizeof(path));
+    assert(unlink(path) == 0);
+  }
+  for (size_t index = 0; index < 3; ++index)
+  {
+    assert(snprintf(path, sizeof(path), "%s/%s", directoryPath, hiddenNames[index]) < (int)sizeof(path));
+    assert(unlink(path) == 0);
+  }
+  assert(rmdir(directoryPath) == 0);
+}
+
 static void testCpm86Core(void)
 {
   char exchangeDirectoryPath[] = "/tmp/cpm86-exchange-test-XXXXXX";
@@ -4393,6 +4481,7 @@ int main(int argc, char **argv)
   testApple2Keyboard();
   testHostExchange();
   testHostExchangeProdos();
+  testHostExchangeUcsd();
   testCpm86Core();
   testCpm86Boot();
   testLayout();

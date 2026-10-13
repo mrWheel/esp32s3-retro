@@ -13,7 +13,7 @@ Bronnen: `guest/ucsd/host/HOST.PAS` en `guest/ucsd/host/HOSTIO.ASM`.
 - GET, PUT, DIR, foutpaden, overwrite, abort bij schijf vol: PASS (zie hieronder).
 - Herhaalbaar bewijs: ctest `ucsdHostGuest` (`tests/ucsdHostGuest.sh`,
   scripts in `tests/ucsdHost/`) — PASS.
-- `HOST.CODE` (gelinkt, 19 blokken, met T/W-opties, volume-prefix, voortgangsregel en wildcards) staat in `littlefs/ucsd/ApplePascal1-140K.dsk`.
+- `HOST.CODE` (gelinkt, 20 blokken, met T/W-opties, volume-prefix, voortgangsregel en wildcards) staat in `littlefs/ucsd/ApplePascal1-140K.dsk`.
 - Niet geflasht, niet gecommit. ESP32-S3-hardware is niet getest.
 
 ## Gebruik
@@ -185,7 +185,29 @@ staging; een test die altijd PASS meldde; alleen-lezen `SYSTEM:`-volume
   of `X of N files transferred; Y failed.`, anders `No files match.`.
 - Tests: `get.txt`, `put.txt`, `vol.txt` aangepast aan het nieuwe formaat, nieuw
   `wild.txt` (ctest `ucsdHostGuest`): PASS, byte-voor-byte vergelijking.
-- `HOST.CODE` (19 blokken, 45 vrij) staat op `littlefs/ucsd/ApplePascal1-140K.dsk`
+- `HOST.CODE` (19 blokken, 45 vrij; sinds de naamregel-fix 20 blokken, 44 vrij) staat op `littlefs/ucsd/ApplePascal1-140K.dsk`
   (gepromoveerd via Filer-transfer op een kopie; start vanaf `APPLE1:HOST`, Usage,
   GET, PUT en `GET =.DAT O` getest).
 - ESP32-S3-hardware niet getest; niets geflasht of gecommit.
+
+## Bestandsnamen met `-` en `_` (2026-10-13)
+
+- Oorzaak van "HOST ziet mijn bestanden niet": de exchange-service paste voor
+  `/retro/exchange/ucsd/` de ProDOS-naamregel toe (letters, cijfers, `.`). Namen als
+  `ANNU-README.TEXT` werden stil weggelaten uit `DIR` en geweigerd door GET/PUT.
+  De map zelf (`/microSD/retro/exchange/ucsd`) was al juist.
+- Nieuw: `hostExchangeInitializeUcsd` met eigen regel (1-15 tekens, letters, cijfers,
+  `.`, `-`, `_`); `apple2Machine.c` kiest die voor het UCSD-profiel. `HOST.PAS`
+  (`ValidNm`/`ValidPat`) accepteert dezelfde tekens.
+- Namen langer dan 15 tekens (bv. `ANNUITY.PAS.TEXT`) kunnen geen Pascal-naam zijn en
+  blijven verborgen: hernoem ze op de PC.
+- Tests: `testHostExchangeUcsd` in hostTests, `tests/ucsdHost/dash.txt` in ctest
+  `ucsdHostGuest`.
+
+## Ctrl-C op de HOST>-prompt (2026-10-13)
+
+- Symptoom: eindeloos de Usage-tekst, ook na `q`/`QUIT`. Oorzaak: Ctrl-C (ETX) zet in
+  Apple Pascal EOF op het toetsenbord; `READLN` keert daarna direct terug met een lege
+  regel en HOST bleef lopen. Gereproduceerd in de emulator.
+- Fix: na `READLN` verlaat HOST het programma als `EOF(INPUT)` waar is (terug naar
+  het Pascal-commandoprompt). Test: laatste stap van `tests/ucsdHost/dash.txt`.

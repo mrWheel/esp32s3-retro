@@ -34,7 +34,7 @@ type GET BIGFILE.DAT\r
 wait 1500 local file error
 type DIR\r
 wait 30 HELLO.TXT
-type GET BAD-NAME\r
+type GET BAD$NAME\r
 wait 30 Invalid filename
 type GET UNIX.TEXT T\r
 wait 600 GET UNIX.TEXT: . Done

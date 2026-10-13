@@ -1671,7 +1671,7 @@ static void testPascalScript(const char *bootImagePath, const char *iieRomPath,
   const char *exchangeDirectory = getenv("UCSD_EXCHANGE_DIR");
   if (exchangeDirectory != NULL)
   {
-    assert(hostExchangeInitializeProdos(&exchange, exchangeDirectory));
+    assert(hostExchangeInitializeUcsd(&exchange, exchangeDirectory));
     assert(apple2CoreAttachSlotIoDevice(session.core, 2, readScriptExchangeSlot, writeScriptExchangeSlot,
                                         &exchange) == apple2CoreOk);
   }

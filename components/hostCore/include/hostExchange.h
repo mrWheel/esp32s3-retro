@@ -25,7 +25,8 @@ enum
 typedef enum
 {
   hostExchangeFilenameCpm80,
-  hostExchangeFilenameProdos8
+  hostExchangeFilenameProdos8,
+  hostExchangeFilenameUcsd
 } hostExchangeFilenameFormat;
 
 typedef enum
@@ -73,6 +74,7 @@ typedef struct
 
 bool hostExchangeInitialize(hostExchange *exchange, const char *root);
 bool hostExchangeInitializeProdos(hostExchange *exchange, const char *root);
+bool hostExchangeInitializeUcsd(hostExchange *exchange, const char *root);
 void hostExchangeClose(hostExchange *exchange);
 uint8_t hostExchangePortInput(void *context, uint8_t port);
 void hostExchangePortOutput(void *context, uint8_t port, uint8_t value);

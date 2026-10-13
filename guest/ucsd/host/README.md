@@ -28,7 +28,7 @@ the transfer tests in the emulator.
 `littlefs/ucsd/ApplePascal1-140K.dsk`). Files are read from and written to the
 Filer prefix volume unless the name carries a volume prefix, so set the
 prefix to a writable volume first. Names are 1-15 characters (letters, digits,
-`.`; first a letter) and are upper-cased. A Pascal name may start with a
+`.`, `-`, `_`; first a letter or digit) and are upper-cased. A Pascal name may start with a
 volume: `NAME` and `:NAME` (prefix volume), `*NAME` (system volume) or
 `VOL:NAME` (e.g. `WORK2:NAME`, `#5:NAME`). The exchange file always uses the
 bare `NAME`. A volume that cannot be opened gives "cannot check the local
@@ -71,6 +71,7 @@ Every transfer is CRC-32 checked; a failed GET stores nothing.
   the length is rounded up to a whole block.
 * PUT reads files with `BLOCKREAD` and the exact length from the directory;
   `FILE OF CHAR` reads are text-like (CR becomes space, NUL ends the file).
+* Ctrl-C at the `HOST>` prompt (console EOF) leaves HOST; otherwise `READLN` would return empty lines forever.
 * `(*$I-*)` is used and `IORESULT` is checked after file operations.
 
 Evidence and history: `ucsdHostLog.md`.

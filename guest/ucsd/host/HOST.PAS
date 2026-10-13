@@ -193,14 +193,15 @@ BEGIN
   IsValid := (LENGTH(Value) >= 1) AND (LENGTH(Value) <= 15);
   IF IsValid THEN
   BEGIN
-    IF NOT ((Value[1] >= 'A') AND (Value[1] <= 'Z')) THEN
+    IF NOT (((Value[1] >= 'A') AND (Value[1] <= 'Z')) OR
+            ((Value[1] >= '0') AND (Value[1] <= '9'))) THEN
       IsValid := FALSE;
     FOR Counter := 1 TO LENGTH(Value) DO
     BEGIN
       CharVal := Value[Counter];
       IF NOT (((CharVal >= 'A') AND (CharVal <= 'Z')) OR
               ((CharVal >= '0') AND (CharVal <= '9')) OR
-              (CharVal = '.')) THEN
+              (CharVal = '.') OR (CharVal = '-') OR (CharVal = '_')) THEN
         IsValid := FALSE
     END
   END;
@@ -234,7 +235,8 @@ BEGIN
         CharVal := Value[Counter];
         IF NOT (((CharVal >= 'A') AND (CharVal <= 'Z')) OR
                 ((CharVal >= '0') AND (CharVal <= '9')) OR
-                (CharVal = '.') OR (CharVal = '=')) THEN
+                (CharVal = '.') OR (CharVal = '-') OR (CharVal = '_') OR
+                (CharVal = '=')) THEN
           IsValid := FALSE
       END;
     ValidPat := IsValid
@@ -1415,7 +1417,10 @@ BEGIN
     REPEAT
       WRITE('HOST> ');
       READLN(CmdLine);
-      RunCmd
+      IF EOF(INPUT) THEN
+        QuitReq := TRUE
+      ELSE
+        RunCmd
     UNTIL QuitReq
   END
 END.
