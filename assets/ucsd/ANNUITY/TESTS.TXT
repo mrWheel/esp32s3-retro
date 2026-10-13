@@ -1,0 +1,44 @@
+VALIDATION
+==========
+
+Source: ANNUITY.TEXT (plain ASCII).
+
+1. UCSD syntax/code generation
+   Successfully compiled without warnings using the jdykstra fork of
+   Peter Miller's UCSD p-System crosscompiler, with --host=apple.
+   https://github.com/jdykstra/ucsd-psystem-xc
+   The crosscompiler was built locally with portability adaptations.
+   This is not a claim of native Apple Pascal 1.3 execution.
+
+2. Calculation tests
+   Executed a mechanically adapted Free Pascal build. Adaptations replaced
+   INTEGER[20] with Int64, EXIT(procedure) with EXIT, and file open/close
+   syntax and file-not-found codes with their Free Pascal equivalents.
+   Financial formulas and menu logic were unchanged.
+
+   Fourteen scenarios compared every monthly amount, annual subtotal,
+   grand total and applied extra-payment detail with the existing Python
+   program's Decimal calculations. All matched exactly to the cent:
+   - Each of the three modes without extras.
+   - Each mode with an oversized extra payment.
+   - Each mode with a start-date payment and two same-day month-end extras.
+   - A start on leap day, 29 February 2024.
+   - A zero-interest fixed-total loan, including its smaller final payment.
+   - A one-cent loan over twelve original months.
+   - A regular fixed total greater than the entire loan.
+   - An extra paying off the loan on its start date, followed by another
+     planned extra which must not be applied or shown.
+
+   Year totals have a blank line after them. Outstanding balances are
+   closing balances, never sums of monthly balances.
+
+3. Interactive lifecycle
+   Passed: initial empty index, create two named loans, list them, reopen,
+   add/remove an extra payment, change payment mode, edit description,
+   generate/replace a report, cancel input, reject an insufficient fixed
+   total without changing saved data, and create backup files.
+
+4. Limitations
+   Native Apple Pascal 1.3 linking, decimal runtime, memory usage and disk
+   behavior remain untested. Free Pascal testing does not reproduce UCSD
+   text encoding, disk-full behavior or interrupted writes.

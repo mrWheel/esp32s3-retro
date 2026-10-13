@@ -1,0 +1,66 @@
+ANNUITY - LOAN SCHEDULE
+Test
+Example loan
+Capital: EUR 15000.00
+Start: 15-10-2026
+Annual interest %: 6.00
+Annual gift %: 3.00
+Mode: interest only
+All amounts are EUR.
+
+10-2026
+  Interest: 41.13
+  Principal: 0.00
+  Net principal: -20.56
+  Extra: 0.00
+  Balance: 15000.00
+  Gift: 20.56
+11-2026
+  Interest: 75.00
+  Principal: 0.00
+  Net principal: -37.50
+  Extra: 0.00
+  Balance: 15000.00
+  Gift: 37.50
+12-2026
+  Interest: 75.00
+  Principal: 0.00
+  Net principal: -37.50
+  Extra: 0.00
+  Balance: 15000.00
+  Gift: 37.50
+YEAR 2026 TOTAL
+  Interest: 191.13
+  Principal: 0.00
+  Net principal: -95.56
+  Extra: 0.00
+  Balance: 15000.00
+  Gift: 95.56
+
+Extra 15-01-2027: 15000.00
+01-2027
+  Interest: 33.87
+  Principal: 0.00
+  Net principal: -16.94
+  Extra: 15000.00
+  Balance: 0.00
+  Gift: 16.94
+YEAR 2027 TOTAL
+  Interest: 33.87
+  Principal: 0.00
+  Net principal: -16.94
+  Extra: 15000.00
+  Balance: 0.00
+  Gift: 16.94
+
+GRAND TOTAL
+  Interest: 225.00
+  Principal: 0.00
+  Net principal: -112.50
+  Extra: 15000.00
+  Balance: 0.00
+  Gift: 112.50
+Months shown: 4
+Net principal = principal minus gift.
+Extra payments are capped at the balance.
+Gift rate is not a tax exemption decision.

@@ -30,7 +30,7 @@ BEGIN
     GOTOXY(28, 12);
     WRITE('Enter Q to Quit:      ');
 
-    GOTOXY(44,12);
+    GOTOXY(45,12);
     READ(CH);
   UNTIL (CH = 'Q') OR (CH = 'q');
 END.
