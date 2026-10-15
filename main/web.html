@@ -69,7 +69,9 @@ progress
 <form id="upload">
 <input id="file" type="file" multiple required><button id="send">Upload</button>
 </form>
-<p>Existing files are never overwritten. Every listed item shows its full SD-card VFS path. Names must begin with a letter or digit; use letters, digits, spaces, dots, underscores or hyphens (64 characters per name). No trailing space or dot.</p>
+<label><input id="overwrite" type="checkbox"> OVERWRITE</label>
+<label><input id="deleteNoConfirm" type="checkbox"> DELETE without confirming</label>
+<p>Existing files are only overwritten when OVERWRITE is checked. Every listed item shows its full SD-card VFS path. Names must begin with a letter or digit; use letters, digits, spaces, dots, underscores or hyphens (64 characters per name). No trailing space or dot.</p>
 <table>
 <thead><tr><th>Name</th><th>SD-card path</th><th>Bytes</th><th>Actions</th></tr></thead>
 <tbody id="entries"></tbody>
@@ -198,7 +200,7 @@ async function refresh()
       deleteButton.textContent = "Delete";
       deleteButton.onclick = () => run(async () =>
       {
-        if (!confirm("Delete " + entry.name + "? This cannot be undone."))
+        if (!element("deleteNoConfirm").checked && !confirm("Delete " + entry.name + "? This cannot be undone."))
         {
           return;
         }
@@ -222,6 +224,10 @@ function transfer(method, path, file, expectedSize, fileName)
   if (method === "PUT")
   {
     request.setRequestHeader("Content-Type", "application/octet-stream");
+    if (element("overwrite").checked)
+    {
+      request.setRequestHeader("X-Overwrite", "1");
+    }
   }
   request.upload.onprogress = (event) =>
   {

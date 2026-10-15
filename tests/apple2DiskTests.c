@@ -525,6 +525,38 @@ static void stepToHalfTrack(apple2Disk *disk, uint8_t halfTrack)
   }
 }
 
+static void testWritableBlockImage800k(void)
+{
+  char path[64];
+  makeTempPath(path, sizeof(path));
+  uint8_t *blank = calloc(apple2DiskImage800kSize, 1);
+  assert(blank != NULL);
+  writeFile(path, blank, apple2DiskImage800kSize);
+  free(blank);
+
+  apple2DiskImage image;
+  apple2DiskImageInitialize(&image);
+  assert(apple2DiskImageOpenProfileMode(&image, path, apple2DiskImageProfile800k,
+                                        apple2DiskImageOrderProdos, false) == apple2DiskImageOk);
+  uint8_t expected[apple2SmartPortBlockSize];
+  uint8_t actual[apple2SmartPortBlockSize];
+  for (size_t index = 0; index < sizeof(expected); ++index)
+  {
+    expected[index] = (uint8_t)(index * 17U + 3U);
+  }
+  assert(apple2DiskImageWriteBlock(&image, 1599, expected) == apple2DiskImageOk);
+  assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
+
+  apple2DiskImageInitialize(&image);
+  assert(apple2DiskImageOpenProfile(&image, path, apple2DiskImageProfile800k,
+                                    apple2DiskImageOrderProdos) == apple2DiskImageOk);
+  assert(apple2DiskImageReadBlock(&image, 1599, actual) == apple2DiskImageOk);
+  assert(memcmp(actual, expected, sizeof(expected)) == 0);
+  assert(apple2DiskImageReadBlock(&image, 1600, actual) == apple2DiskImageOutOfRange);
+  assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
+  assert(remove(path) == 0);
+}
+
 static void testControllerStream(void)
 {
   buildDecodeTable();
@@ -1207,20 +1239,30 @@ static void testPascalBoot(const char *bootImagePath)
 }
 
 //-- The Apple IIe 128K Pascal system (128K.APPLE/128K.PASCAL on the boot disk) needs auxiliary memory.
-static void testPascalIIeBoot(const char *bootImagePath, const char *iieRomPath)
+static void testPascalIIeBoot(const char *bootImagePath, const char *iieRomPath, apple2DiskImageProfile profile,
+                              bool blockBoot)
 {
   apple2DiskImage bootDisk;
   apple2DiskImageInitialize(&bootDisk);
-  assert(apple2DiskImageOpenProfileMode(&bootDisk, bootImagePath, apple2DiskImageProfile140k,
-                                        apple2DiskImageOrderAuto, true) == apple2DiskImageOk);
+  assert(apple2DiskImageOpenProfileMode(&bootDisk, bootImagePath, profile, apple2DiskImageOrderAuto, true) ==
+         apple2DiskImageOk);
   apple2Core *core = NULL;
   assert(apple2CoreCreate(&core) == apple2CoreOk);
   assert(apple2CoreEnableIIe(core) == apple2CoreOk);
   assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
-  apple2DiskSectorOrder order = bootDisk.order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
-                                                                             : apple2DiskSectorOrderDos;
-  assert(apple2CoreAttachDiskDrive(core, 6, 0, order, bootDisk.trackCount, apple2DiskImageReadSectorCallback,
-                                   &bootDisk) == apple2CoreOk);
+  if (blockBoot)
+  {
+    assert(bootDisk.probe.content == apple2DiskImageContentPascal);
+    assert(apple2CoreAttachBlockDevice(core, 6, 1, (uint32_t)bootDisk.trackCount * 8U, true,
+                                       apple2DiskImageReadBlockCallback, NULL, &bootDisk) == apple2CoreOk);
+  }
+  else
+  {
+    apple2DiskSectorOrder order = bootDisk.order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
+                                                                               : apple2DiskSectorOrderDos;
+    assert(apple2CoreAttachDiskDrive(core, 6, 0, order, bootDisk.trackCount, apple2DiskImageReadSectorCallback,
+                                     &bootDisk) == apple2CoreOk);
+  }
   uint8_t rom[apple2IIeRomSize];
   FILE *file = fopen(iieRomPath, "rb");
   assert(file != NULL && fread(rom, 1, sizeof(rom), file) == sizeof(rom));
@@ -1236,8 +1278,12 @@ static void testPascalIIeBoot(const char *bootImagePath, const char *iieRomPath)
   dumpScreen(core);
   assert(booted);
   assert(screenContains(core, "Pascal 1.3"));
-  assert(screenContains(core, "Pascal system size is 128K"));
-  assert(!screenContains(core, "128K memory required"));
+  assert(screenContains(core, profile == apple2DiskImageProfile800k ? "Pascal system size is 64K"
+                                                                      : "Pascal system size is 128K"));
+  if (profile == apple2DiskImageProfile140k)
+  {
+    assert(!screenContains(core, "128K memory required"));
+  }
   assert(apple2CoreDetachDisk(core) == apple2CoreOk);
   apple2CoreDestroy(core);
   assert(apple2DiskImageClose(&bootDisk) == apple2DiskImageOk);
@@ -1839,8 +1885,20 @@ int main(int argc, char **argv)
 {
   if (argc == 4 && strcmp(argv[1], "--pascal-iie-boot") == 0)
   {
-    testPascalIIeBoot(argv[2], argv[3]);
+    testPascalIIeBoot(argv[2], argv[3], apple2DiskImageProfile140k, false);
     puts("PASS: Apple IIe boots the 128K Apple Pascal system");
+    return 0;
+  }
+  if (argc == 4 && strcmp(argv[1], "--pascal-iie-boot-800k-block") == 0)
+  {
+    testPascalIIeBoot(argv[2], argv[3], apple2DiskImageProfile800k, true);
+    puts("PASS: Apple IIe boots the 64K Apple Pascal system from an 800K block device");
+    return 0;
+  }
+  if (argc == 2 && strcmp(argv[1], "--writable-800k-block-image") == 0)
+  {
+    testWritableBlockImage800k();
+    puts("PASS: writable 800K block image persists its final block and rejects out-of-range access");
     return 0;
   }
   if (argc == 7 && strcmp(argv[1], "--pascal-iie-editor-open") == 0)
@@ -1893,6 +1951,7 @@ int main(int argc, char **argv)
   }
   testImageOpenAndBounds();
   testWritableDiskImage();
+  testWritableBlockImage800k();
   testControllerStream();
   testControllerFailureAndHalfTrack();
   testMotorCoastDown();

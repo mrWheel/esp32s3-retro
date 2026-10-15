@@ -40,7 +40,7 @@ apple2DriveConfigResult apple2DriveConfigResolve(const char *configPath, char *d
 //-- The result is indexed [slot - 4][unit - 1]. SD drives support units 1..2; SmartPort supports units 1..4.
 //-- A drive without a line is empty: there is no default image, not even for SD6.1.
 //-- Images may be below /littlefs/apple2/, /littlefs/ucsd/, /retro/images/apple2/ or /retro/images/ucsd/.
-//-- The Apple II system.dsk and all /littlefs/ucsd/ images must be read-only.
+//-- The Apple II system.dsk must be read-only; only the SD6.1 UCSD boot image may be writable in /littlefs/ucsd/.
 //-- On any error all drives are left empty and error describes the problem.
 apple2DriveConfigResult apple2DriveConfigLoad(const char *path,
                                               apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot],

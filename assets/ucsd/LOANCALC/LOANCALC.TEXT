@@ -1,0 +1,1261 @@
+PROGRAM LOANCALC;
+
+CONST
+  FieldCol = 26;
+  MaxLoans = 20;
+  MaxExtra = 80;
+  MaxMonth = 1200;
+  MaxAmt = 1.0E12;
+  NameSize = 24;
+  TitlSiz = 38;
+  DataFNam = 'LOANS.DATA';
+  ExtraFNm = 'EXTRAS.DATA';
+  RptFName = 'LOANREPORT.TEXT';
+
+TYPE
+  NameType = STRING[24];
+  TitlTyp = STRING[38];
+  DateType = RECORD
+    yy, mm, dd: INTEGER
+  END;
+  LoanType = RECORD
+    name: NameType;
+    title: TitlTyp;
+    loanAmt: REAL;
+    rate: REAL;
+    rebate: REAL;
+    months: INTEGER;
+    starts: DateType;
+    freePay: BOOLEAN;
+    fixPay: REAL
+  END;
+  ExtRec = RECORD
+    loanName: NameType;
+    paid: DateType;
+    amount: REAL
+  END;
+  LoanFTyp = FILE OF LoanType;
+  ExtFTyp = FILE OF ExtRec;
+  TextFTyp = TEXT; 
+  Str255 = STRING[255];
+
+VAR
+  loans: ARRAY[1..MaxLoans] OF LoanType;
+  extras: ARRAY[1..MaxExtra] OF ExtRec;
+  loanCnt, extCount, current: INTEGER;
+  workLoan: LoanType;
+  dirty: BOOLEAN;
+  lnFile: LoanFTyp;
+  exFile: ExtFTyp;
+  rptFile: TextFTyp; 
+  statText: STRING[78];
+  fieldRow: INTEGER;
+  fieldOld: STRING[24];
+  rl: LoanType;
+  rBeg, rEnd, rCur: DateType;
+  rBal, rWInt, rWReb, rEx: REAL;
+  rYInt, rYPrin, rYNet, rYEx, rYReb, rYBal: REAL;
+  rTInt, rTPrin, rTNet, rTEx, rTReb: REAL;
+  rYr: INTEGER;
+  rUsed: ARRAY[1..MaxExtra] OF BOOLEAN;
+  rFail, rHasRow: BOOLEAN;
+
+FUNCTION Upper(c: CHAR): CHAR;
+BEGIN
+  IF (c >= 'a') AND (c <= 'z') THEN
+    Upper := CHR(ORD(c) - 32)
+  ELSE
+    Upper := c
+END;
+
+PROCEDURE ClearRow(y: INTEGER);
+BEGIN
+  GOTOXY(0, y);
+  WRITE(CHR(29))
+END;
+
+PROCEDURE PutRow(y: INTEGER; s: STRING);
+BEGIN
+  GOTOXY(0, y);
+  WRITE(s, CHR(29))
+END;
+
+PROCEDURE Status(s: STRING);
+BEGIN
+  statText := s;
+  PutRow(23, s)
+END;
+
+PROCEDURE NewScrn;
+BEGIN
+  WRITE(CHR(12));
+  Status('')
+END;
+
+FUNCTION MenuLine(menuText: Str255; valid: STRING): CHAR;
+VAR
+  c: CHAR;
+  first, last, n, k, breakAt: INTEGER;
+  shown: STRING[82];
+  done: BOOLEAN;
+BEGIN
+  n := LENGTH(menuText);
+  first := 1;
+  done := FALSE;
+  REPEAT
+    last := first + 76;
+    IF last > n THEN
+      last := n;
+    IF last < n THEN
+    BEGIN
+      breakAt := last;
+      WHILE (breakAt > first) AND (menuText[breakAt] <> ',') DO
+        breakAt := breakAt - 1;
+      IF breakAt > first THEN
+        last := breakAt
+    END;
+    shown := COPY(menuText, first, last - first + 1);
+    PutRow(0, shown);
+    k := LENGTH(shown) + 1;
+    IF n > 77 THEN
+    BEGIN
+      GOTOXY(k, 0);
+      WRITE(' ?');
+      k := k + 2
+    END;
+    IF k > 79 THEN k := 79;
+    GOTOXY(k, 0);
+    READ(KEYBOARD, c);
+    c := Upper(c);
+    IF c = '?' THEN
+    BEGIN
+      IF last < n THEN
+        first := last + 1
+      ELSE
+        first := 1;
+      WHILE (first <= n) AND (menuText[first] = ' ') DO
+        first := first + 1
+    END
+    ELSE
+    BEGIN
+      k := 1;
+      WHILE (k <= LENGTH(valid)) AND (valid[k] <> c) DO
+        k := k + 1;
+      IF k <= LENGTH(valid) THEN
+        done := TRUE
+      ELSE
+        WRITE(CHR(7))
+    END
+  UNTIL done;
+  MenuLine := c
+END;
+
+FUNCTION Leap(y: INTEGER): BOOLEAN;
+BEGIN
+  Leap := (y MOD 4 = 0) AND
+          ((y MOD 100 <> 0) OR (y MOD 400 = 0))
+END;
+
+FUNCTION DaysMon(y, m: INTEGER): INTEGER;
+BEGIN
+  CASE m OF
+    1,3,5,7,8,10,12: DaysMon := 31;
+    4,6,9,11: DaysMon := 30;
+    2:
+    BEGIN
+      IF Leap(y) THEN
+        DaysMon := 29
+      ELSE
+        DaysMon := 28
+    END
+  END
+END;
+
+FUNCTION ValidDat(d: DateType): BOOLEAN;
+VAR
+  ok: BOOLEAN;
+BEGIN
+  ok := (d.yy >= 1) AND (d.yy <= 9999) AND
+        (d.mm >= 1) AND (d.mm <= 12);
+  IF ok THEN
+    ok := (d.dd >= 1) AND
+          (d.dd <= DaysMon(d.yy, d.mm));
+  ValidDat := ok
+END;
+
+FUNCTION Serial(d: DateType): REAL;
+VAR
+  y, m: INTEGER;
+  total: REAL;
+BEGIN
+  y := d.yy - 1;
+  total := y * 365.0 + TRUNC(y / 4.0) -
+           TRUNC(y / 100.0) + TRUNC(y / 400.0);
+  FOR m := 1 TO d.mm - 1 DO
+    total := total + DaysMon(d.yy, m);
+  Serial := total + d.dd
+END;
+
+FUNCTION Later(a, b: DateType): BOOLEAN;
+BEGIN
+  Later := Serial(a) > Serial(b)
+END;
+
+FUNCTION SameDate(a, b: DateType): BOOLEAN;
+BEGIN
+  SameDate := Serial(a) = Serial(b)
+END;
+
+PROCEDURE MonthAt(d: DateType; offset: REAL; VAR a: DateType);
+VAR
+  m: REAL;
+BEGIN
+  a.yy := d.yy;
+  a.mm := d.mm;
+  m := a.yy * 12.0 + a.mm - 1 + offset;
+  a.yy := TRUNC(m / 12.0);
+  a.mm := TRUNC(m - TRUNC(m / 12.0) * 12.0) + 1;
+  a.dd := 1;
+END;
+
+FUNCTION MaxTerm(d: DateType): REAL;
+VAR
+  yearLeft: REAL;
+BEGIN
+  yearLeft := 9999.0;
+  yearLeft := yearLeft - d.yy;
+  MaxTerm := yearLeft * 12 + 12 - d.mm
+END;
+
+PROCEDURE MonthStr(d: DateType; VAR outText: STRING);
+BEGIN
+  outText := '00-0000';
+  outText[1] := CHR(ORD('0') + d.mm DIV 10);
+  outText[2] := CHR(ORD('0') + d.mm MOD 10);
+  outText[4] := CHR(ORD('0') + d.yy DIV 1000);
+  outText[5] := CHR(ORD('0') + (d.yy DIV 100) MOD 10);
+  outText[6] := CHR(ORD('0') + (d.yy DIV 10) MOD 10);
+  outText[7] := CHR(ORD('0') + d.yy MOD 10)
+END;
+
+FUNCTION Money(x: REAL): REAL;
+VAR
+  absVal, rest, total: REAL;
+  bigPart, midPart, whole, cents: INTEGER;
+BEGIN
+  absVal := ABS(x);
+  bigPart := TRUNC(absVal / 100000000.0);
+  rest := absVal - bigPart * 100000000.0;
+  midPart := TRUNC(rest / 10000.0);
+  rest := rest - midPart * 10000.0;
+  whole := TRUNC(rest);
+  cents := TRUNC((rest - whole) * 100.0 + 0.50001);
+  total := bigPart * 100000000.0 +
+           midPart * 10000.0 + whole + cents / 100.0;
+  IF x < 0.0 THEN
+    Money := -total
+  ELSE
+    Money := total
+END;
+
+PROCEDURE ReadLine(VAR s: STRING; maxLen: INTEGER);
+VAR
+  c: CHAR;
+  ch: STRING[1];
+  done: BOOLEAN;
+BEGIN
+  s := '';
+  done := FALSE;
+  REPEAT
+    READ(c);
+    IF EOLN THEN
+      done := TRUE
+    ELSE IF (c = CHR(8)) OR (c = CHR(127)) THEN
+    BEGIN
+      IF LENGTH(s) > 0 THEN
+        DELETE(s, LENGTH(s), 1)
+    END
+    ELSE IF (c >= ' ') AND (LENGTH(s) < maxLen) THEN
+    BEGIN
+      ch := ' ';
+      ch[1] := c;
+      s := CONCAT(s, ch)
+    END
+  UNTIL done
+END;
+
+PROCEDURE SetField(row: INTEGER; old: STRING);
+VAR
+  skip: BOOLEAN;
+BEGIN
+  fieldRow := row;
+  skip := TRUE;
+  WHILE skip AND (LENGTH(old) > 0) DO
+  BEGIN
+    skip := old[1] = ' ';
+    IF skip THEN DELETE(old, 1, 1)
+  END;
+  IF LENGTH(old) > 24 THEN
+    DELETE(old, 25, LENGTH(old) - 24);
+  fieldOld := old
+END;
+
+PROCEDURE Ask(prompt: STRING; maxLen: INTEGER; VAR outText: STRING);
+VAR
+  s: STRING[80];
+BEGIN
+  IF fieldRow > 0 THEN
+  BEGIN
+    GOTOXY(FieldCol, fieldRow);
+    WRITE(CHR(29));
+    IF (LENGTH(fieldOld) > 0) AND
+       (FieldCol + LENGTH(fieldOld) + maxLen + 5 <= 79) THEN
+      WRITE('(', fieldOld, ') ');
+    ReadLine(s, maxLen)
+  END
+  ELSE
+  BEGIN
+    PutRow(2, prompt);
+    GOTOXY(LENGTH(prompt), 2);
+    ReadLine(s, maxLen);
+    ClearRow(2)
+  END;
+  outText := s
+END;
+
+FUNCTION ParseNum(s: STRING; VAR x: REAL): BOOLEAN;
+VAR
+  i, digit: INTEGER;
+  value, frac, place: REAL;
+  dot, anyDigit, good: BOOLEAN;
+BEGIN
+  value := 0.0;
+  frac := 0.0;
+  place := 1.0;
+  dot := FALSE;
+  anyDigit := FALSE;
+  good := TRUE;
+  ParseNum := FALSE;
+  FOR i := 1 TO LENGTH(s) DO
+  BEGIN
+    IF good THEN
+    BEGIN
+      IF (s[i] >= '0') AND (s[i] <= '9') THEN
+      BEGIN
+        digit := ORD(s[i]) - ORD('0');
+        anyDigit := TRUE;
+        IF dot THEN
+        BEGIN
+          place := place / 10.0;
+          frac := frac + digit * place
+        END
+        ELSE IF value > 1000000000000.0 THEN
+          good := FALSE
+        ELSE
+          value := value * 10.0 + digit
+      END
+      ELSE IF (s[i] = '.') OR (s[i] = ',') THEN
+      BEGIN
+        IF dot THEN
+          good := FALSE
+        ELSE
+          dot := TRUE
+      END
+      ELSE
+        good := FALSE
+    END
+  END;
+  IF good AND anyDigit THEN
+  BEGIN
+    x := value + frac;
+    ParseNum := TRUE
+  END
+END;
+
+FUNCTION GetReal(prompt: STRING; old, minVal, maxVal: REAL;
+                 cashVal: BOOLEAN): REAL;
+VAR
+  s: STRING[80];
+  x: REAL;
+  done: BOOLEAN;
+BEGIN
+  done := FALSE;
+  x := old;
+  REPEAT
+    Ask(prompt, 20, s);
+    IF LENGTH(s) = 0 THEN
+      done := TRUE
+    ELSE
+    BEGIN
+      IF ParseNum(s, x) AND (x >= minVal) AND (x <= maxVal) AND
+         ((NOT cashVal) OR (Money(x) = x)) THEN
+        done := TRUE
+      ELSE
+        Status('Number out of range or precision')
+    END
+  UNTIL done;
+  GetReal := x
+END;
+
+FUNCTION ParseInt(s: STRING; VAR x: INTEGER): BOOLEAN;
+VAR
+  i, digit, value: INTEGER;
+  good: BOOLEAN;
+BEGIN
+  value := 0;
+  good := LENGTH(s) > 0;
+  FOR i := 1 TO LENGTH(s) DO
+    IF good THEN
+    BEGIN
+      IF (s[i] >= '0') AND (s[i] <= '9') THEN
+      BEGIN
+        digit := ORD(s[i]) - ORD('0');
+        IF (value > 3276) OR ((value = 3276) AND (digit > 7)) THEN
+          good := FALSE
+        ELSE
+          value := value * 10 + digit
+      END
+      ELSE
+        good := FALSE
+    END;
+  IF good THEN x := value;
+  ParseInt := good
+END;
+
+FUNCTION GetInt(prompt: STRING; old: INTEGER): INTEGER;
+VAR
+  s: STRING[80];
+  x: INTEGER;
+  done: BOOLEAN;
+BEGIN
+  done := FALSE;
+  x := old;
+  REPEAT
+    Ask(prompt, 5, s);
+    IF LENGTH(s) = 0 THEN
+      done := TRUE
+    ELSE
+    BEGIN
+      IF ParseInt(s, x) AND (x > 0) AND (x <= MaxMonth) THEN
+        done := TRUE
+      ELSE
+        Status('Use 1 to 1200 months')
+    END
+  UNTIL done;
+  GetInt := x
+END;
+
+PROCEDURE DateStr(d: DateType; VAR outText: STRING);
+BEGIN
+  outText := '0000-00-00';
+  outText[1] := CHR(ORD('0') + d.yy DIV 1000);
+  outText[2] := CHR(ORD('0') + (d.yy DIV 100) MOD 10);
+  outText[3] := CHR(ORD('0') + (d.yy DIV 10) MOD 10);
+  outText[4] := CHR(ORD('0') + d.yy MOD 10);
+  outText[6] := CHR(ORD('0') + d.mm DIV 10);
+  outText[7] := CHR(ORD('0') + d.mm MOD 10);
+  outText[9] := CHR(ORD('0') + d.dd DIV 10);
+  outText[10] := CHR(ORD('0') + d.dd MOD 10)
+END;
+
+FUNCTION ParseDat(s: STRING; VAR d: DateType): BOOLEAN;
+VAR
+  a, b, c: INTEGER;
+BEGIN
+  ParseDat := FALSE;
+  IF LENGTH(s) <> 10 THEN EXIT(ParseDat);
+  IF (s[5] <> '-') OR (s[8] <> '-') THEN EXIT(ParseDat);
+  IF NOT ParseInt(COPY(s, 1, 4), a) THEN EXIT(ParseDat);
+  IF NOT ParseInt(COPY(s, 6, 2), b) THEN EXIT(ParseDat);
+  IF NOT ParseInt(COPY(s, 9, 2), c) THEN EXIT(ParseDat);
+  d.yy := a;
+  d.mm := b;
+  d.dd := c;
+  ParseDat := ValidDat(d)
+END;
+
+PROCEDURE GetDate(prompt: STRING; old: DateType; VAR outDate: DateType);
+VAR
+  s: STRING[80];
+  done: BOOLEAN;
+BEGIN
+  outDate := old;
+  done := FALSE;
+  REPEAT
+    Ask(prompt, 10, s);
+    IF LENGTH(s) = 0 THEN
+      done := TRUE
+    ELSE IF ParseDat(s, outDate) THEN
+      done := TRUE
+    ELSE
+      Status('Use YYYY-MM-DD')
+  UNTIL done
+END;
+
+FUNCTION FindLoan(s: NameType): INTEGER;
+VAR
+  i: INTEGER;
+BEGIN
+  FindLoan := 0;
+  FOR i := 1 TO loanCnt DO
+    IF loans[i].name = s THEN
+      FindLoan := i
+END;
+
+PROCEDURE LoadData;
+BEGIN
+  loanCnt := 0;
+  extCount := 0;
+  (*$I-*)
+  RESET(lnFile, DataFNam);
+  (*$I+*)
+  IF IORESULT <> 0 THEN
+    EXIT(LoadData);
+  WHILE NOT EOF(lnFile) AND (loanCnt < MaxLoans) DO
+  BEGIN
+    loanCnt := loanCnt + 1;
+    loans[loanCnt] := lnFile^;
+    GET(lnFile)
+  END;
+  CLOSE(lnFile);
+  (*$I-*)
+  RESET(exFile, ExtraFNm);
+  (*$I+*)
+  IF IORESULT <> 0 THEN
+    EXIT(LoadData);
+  WHILE NOT EOF(exFile) AND (extCount < MaxExtra) DO
+  BEGIN
+    extCount := extCount + 1;
+    extras[extCount] := exFile^;
+    GET(exFile)
+  END;
+  CLOSE(exFile)
+END;
+
+PROCEDURE SaveLoan;
+VAR
+  i: INTEGER;
+BEGIN
+  REWRITE(lnFile, DataFNam);
+  FOR i := 1 TO loanCnt DO
+  BEGIN
+    lnFile^ := loans[i];
+    PUT(lnFile)
+  END;
+  CLOSE(lnFile, LOCK)
+END;
+
+PROCEDURE SaveExtr;
+VAR
+  i: INTEGER;
+BEGIN
+  REWRITE(exFile, ExtraFNm);
+  FOR i := 1 TO extCount DO
+  BEGIN
+    exFile^ := extras[i];
+    PUT(exFile)
+  END;
+  CLOSE(exFile, LOCK)
+END;
+
+PROCEDURE LoanSum(l: LoanType);
+VAR
+  s: STRING[80];
+  payment: REAL;
+BEGIN
+  PutRow(7,  CONCAT(' Name...................: ', l.name));
+  PutRow(8,  CONCAT(' Title..................: ', l.title));
+  PutRow(9, ' Loan Amount............:');
+  GOTOXY(FieldCol, 9);
+  WRITE(l.loanAmt:12:2);
+  PutRow(10, ' Duration...............:');
+  GOTOXY(FieldCol, 10);
+  WRITE(l.months:6);
+  PutRow(11, ' Interest Rate %........:');
+  GOTOXY(FieldCol, 11);
+  WRITE(l.rate:8:3);
+  PutRow(12, ' Rebate %...............:');
+  GOTOXY(FieldCol, 12);
+  WRITE(l.rebate:8:3);
+  IF l.fixPay > 0.0 THEN
+    payment := l.fixPay
+  ELSE IF l.freePay THEN
+    payment := 0.0
+  ELSE IF l.months > 0 THEN
+    payment := Money(l.loanAmt / l.months)
+  ELSE
+    payment := 0.0;
+  PutRow(13, ' Monthly Payment........:');
+  GOTOXY(FieldCol, 13);
+  WRITE(payment:12:2);
+  IF l.freePay THEN
+    PutRow(14, ' No repayment...........: On')
+  ELSE
+    PutRow(14, ' No repayment...........: Off');
+  IF l.fixPay > 0.0 THEN
+    PutRow(15, ' Fixed monthly amount...: On')
+  ELSE
+    PutRow(15, ' Fixed monthly amount...: Off');
+  DateStr(l.starts, s);
+  PutRow(16, CONCAT(' Start Date.............: ', s))
+END;
+
+PROCEDURE MainScrn;
+BEGIN
+  NewScrn;
+  IF current > 0 THEN
+    LoanSum(loans[current])
+  ELSE
+    PutRow(7, ' No loan selected')
+END;
+
+PROCEDURE ListLoan;
+VAR
+  i: INTEGER;
+  s: STRING[10];
+BEGIN
+  FOR i := 2 TO 22 DO ClearRow(i);
+  FOR i := 1 TO loanCnt DO
+  BEGIN
+    GOTOXY(0, i + 2);
+    WRITE(' ', i:2, '. ', loans[i].name, CHR(29))
+  END
+END;
+
+FUNCTION ChooseLn(prompt: STRING): INTEGER;
+VAR
+  s: STRING[80];
+  n: INTEGER;
+BEGIN
+  n := 0;
+  Ask(prompt, 5, s);
+  IF LENGTH(s) > 0 THEN
+  BEGIN
+    IF (NOT ParseInt(s, n)) OR (n < 1) OR (n > loanCnt) THEN
+    BEGIN
+      Status('Invalid loan number');
+      n := 0
+    END
+  END;
+  ChooseLn := n
+END;
+
+PROCEDURE NewLoan;
+VAR
+  l: LoanType;
+  c: CHAR;
+  s: STRING[80];
+  saved: BOOLEAN;
+BEGIN
+  l.name := '';
+  l.title := '';
+  l.loanAmt := 0.0;
+  l.rate := 0.0;
+  l.rebate := 0.0;
+  l.months := 12;
+  l.freePay := FALSE;
+  l.fixPay := 0.0;
+  l.starts.yy := 2026;
+  l.starts.mm := 1;
+  l.starts.dd := 1;
+  saved := FALSE;
+  NewScrn;
+  REPEAT
+    PutRow(2, CONCAT(' Name...................: ', l.name));
+    PutRow(3, CONCAT(' Title..................: ', l.title));
+    c := MenuLine('New Loan: N(ame, T(itle, S(ave, Q(uit', 'NTSQ');
+    CASE c OF
+      'N':
+      BEGIN
+        SetField(2, l.name);
+        Ask('Name: ', NameSize, s);
+        fieldRow := 0;
+        IF LENGTH(s) > NameSize THEN
+          DELETE(s, NameSize + 1, LENGTH(s) - NameSize);
+        IF LENGTH(s) > 0 THEN
+          l.name := s
+      END;
+      'T':
+      BEGIN
+        SetField(3, l.title);
+        Ask('Title: ', TitlSiz, s);
+        fieldRow := 0;
+        IF LENGTH(s) > TitlSiz THEN
+          DELETE(s, TitlSiz + 1, LENGTH(s) - TitlSiz);
+        IF LENGTH(s) > 0 THEN
+          l.title := s
+      END;
+      'S':
+      BEGIN
+        IF (l.name = '') OR (FindLoan(l.name) <> 0) THEN
+          Status('Name missing or already exists')
+        ELSE IF loanCnt >= MaxLoans THEN
+          Status('Loan storage full')
+        ELSE
+        BEGIN
+          loanCnt := loanCnt + 1;
+          loans[loanCnt] := l;
+          SaveLoan;
+          current := loanCnt;
+          Status('New loan saved');
+          saved := TRUE
+        END
+      END
+    END
+{ UNTIL (c = 'Q') OR saved --> only "Q" exits menu }
+  UNTIL (c = 'Q')
+END;
+
+PROCEDURE RemLoan;
+VAR
+  n, i, j: INTEGER;
+  name: NameType;
+  c: CHAR;
+BEGIN
+  n := ChooseLn('Remove number (Enter cancels): ');
+  IF n = 0 THEN EXIT(RemLoan);
+  name := loans[n].name;
+  PutRow(2, CONCAT('Remove ', name, '? Y/N'));
+  READ(KEYBOARD, c);
+  ClearRow(2);
+  IF Upper(c) <> 'Y' THEN EXIT(RemLoan);
+  FOR i := n TO loanCnt - 1 DO
+    loans[i] := loans[i + 1];
+  loanCnt := loanCnt - 1;
+  j := 1;
+  FOR i := 1 TO extCount DO
+  BEGIN
+    IF extras[i].loanName <> name THEN
+    BEGIN
+      extras[j] := extras[i];
+      j := j + 1
+    END
+  END;
+  extCount := j - 1;
+  IF current = n THEN current := 0;
+  IF current > n THEN current := current - 1;
+  SaveLoan;
+  SaveExtr;
+  Status('Loan removed')
+END;
+
+PROCEDURE LoanMenu;
+VAR
+  c: CHAR;
+  n: INTEGER;
+BEGIN
+  NewScrn;
+  ListLoan;
+  REPEAT
+    c := MenuLine(
+      'Loans: S(elect loan, N(ew loan, R(emove loan, Q(uit',
+      'SNRQ');
+    CASE c OF
+      'S':
+      BEGIN
+        n := ChooseLn('Select number (Enter cancels): ');
+        IF n > 0 THEN
+        BEGIN
+          current := n;
+          Status('Loan selected')
+        END
+      END;
+      'N': NewLoan;
+      'R': RemLoan
+    END;
+    IF c <> 'Q' THEN
+    BEGIN
+      NewScrn;
+      ListLoan
+    END
+  UNTIL c = 'Q'
+END;
+
+PROCEDURE DataMenu;
+VAR
+  c: CHAR;
+  s: STRING[80];
+  menuTxt: Str255;
+  done: BOOLEAN;
+BEGIN
+  IF current = 0 THEN
+  BEGIN
+    Status('Select a loan first');
+    EXIT(DataMenu);
+  END;
+  workLoan := loans[current];
+  dirty := FALSE;
+  done := FALSE;
+  NewScrn;
+  REPEAT
+    LoanSum(workLoan);
+    menuTxt := 'Data: L(oan, D(uration, I(nterest, R(ebate, ';
+    INSERT('T(itle, B(egin date, F(ix payment, N(o repayment, ',
+           menuTxt, LENGTH(menuTxt) + 1);
+    INSERT('S(ave, Q(uit', menuTxt, LENGTH(menuTxt) + 1);
+    c := MenuLine(menuTxt, 'LDIRTB FNSQ');
+    CASE c OF
+      'L':
+      BEGIN
+        SetField(9, '');
+        workLoan.loanAmt :=
+          GetReal('Loan amount: ', workLoan.loanAmt, 0.01,
+                  MaxAmt, TRUE)
+      END;
+      'D':
+      BEGIN
+        SetField(10, '');
+        workLoan.months :=
+          GetInt('Duration months: ', workLoan.months)
+      END;
+      'I':
+      BEGIN
+        SetField(11, '');
+        workLoan.rate :=
+          GetReal('Interest percent: ', workLoan.rate, 0.0,
+                  100.0, FALSE)
+      END;
+      'R':
+      BEGIN
+        SetField(12, '');
+        workLoan.rebate :=
+          GetReal('Rebate percent: ', workLoan.rebate, 0.0,
+                  workLoan.rate, FALSE)
+      END;
+      'T':
+      BEGIN
+        SetField(8, workLoan.title);
+        Ask('Title: ', TitlSiz, s);
+        IF LENGTH(s) > TitlSiz THEN
+          DELETE(s, TitlSiz + 1, LENGTH(s) - TitlSiz);
+        IF LENGTH(s) > 0 THEN
+          workLoan.title := s
+      END;
+      'B':
+      BEGIN
+        DateStr(workLoan.starts, s);
+        SetField(16, s);
+        GetDate('Start YYYY-MM-DD: ', workLoan.starts,
+                workLoan.starts)
+      END;
+      'F':
+      BEGIN
+        SetField(15, '');
+        workLoan.freePay := FALSE;
+        workLoan.fixPay :=
+          GetReal('Monthly payment incl. interest: ',
+                  workLoan.fixPay, 0.01, MaxAmt, TRUE)
+      END;
+      'N':
+      BEGIN
+        IF workLoan.freePay THEN
+          workLoan.freePay := FALSE
+        ELSE
+        BEGIN
+          workLoan.freePay := TRUE;
+          workLoan.fixPay := 0.0
+        END
+      END;
+      'S':
+      BEGIN
+        IF (workLoan.loanAmt <= 0.0) OR
+           (workLoan.loanAmt > MaxAmt) OR
+           (workLoan.months <= 0) OR
+           (workLoan.months > MaxMonth) OR
+           (NOT ValidDat(workLoan.starts)) OR
+           (workLoan.starts.yy +
+            (workLoan.starts.mm - 1 + workLoan.months) DIV 12 > 9999) OR
+           (workLoan.rate > 100.0) OR
+           (workLoan.rebate < 0.0) OR
+           (workLoan.rebate > workLoan.rate) OR
+           (workLoan.fixPay < 0.0) OR
+           (workLoan.fixPay > MaxAmt) OR
+           ((workLoan.fixPay > 0.0) AND workLoan.freePay) THEN
+          Status('Check loan values and payment options')
+        ELSE
+        BEGIN
+          Status('Saving data');
+          loans[current] := workLoan;
+          SaveLoan;
+          dirty := FALSE;
+          Status('Data saved')
+        END
+      END;
+      'Q': done := TRUE
+    END;
+    fieldRow := 0;
+    IF (c <> 'S') AND (c <> 'Q') THEN dirty := TRUE
+  UNTIL done
+END;
+
+PROCEDURE RptHead;
+VAR
+  dateText: STRING;
+BEGIN
+  REWRITE(rptFile, RptFName);
+  WRITELN(rptFile, 'LOANCALC - LINEAR LOAN REPORT');
+  WRITELN(rptFile, 'Loan: ', rl.name, '  ', rl.title);
+  DateStr(rl.starts, dateText);
+  WRITELN(rptFile, 'Start: ', dateText);
+  WRITELN(rptFile, 'Principal: ', rl.loanAmt:12:2);
+  WRITELN(rptFile, 'Annual interest %: ', rl.rate:8:3);
+  WRITELN(rptFile, 'Annual rebate %: ', rl.rebate:8:3);
+  IF rl.freePay THEN
+    WRITELN(rptFile, 'No repayment: regular principal is zero')
+  ELSE IF rl.fixPay > 0.0 THEN
+    WRITELN(rptFile, 'Fixed monthly payment: ', rl.fixPay:12:2)
+  ELSE
+    WRITELN(rptFile, 'Linear principal over ', rl.months:4, ' months');
+  WRITELN(rptFile, 'Interest: annual rate / 12, weighted by days');
+  WRITELN(rptFile, 'Month  Interest  Principal  Net principal');
+  WRITELN(rptFile, '       Extra     Balance    Rebate')
+END;
+
+PROCEDURE RptYear;
+BEGIN
+  WRITELN(rptFile, 'Year ', rYr:4, ' totals ',
+          rYInt:10:2, rYPrin:10:2, rYNet:10:2);
+  WRITELN(rptFile, '       ', rYEx:10:2, rYBal:10:2,
+          rYReb:10:2);
+  rYInt := 0.0;
+  rYPrin := 0.0;
+  rYNet := 0.0;
+  rYEx := 0.0;
+  rYReb := 0.0
+END;
+
+PROCEDURE RptExtr;
+VAR
+  i: INTEGER;
+  found: BOOLEAN;
+  evtDate: DateType;
+  days, effAmt: REAL;
+BEGIN
+  REPEAT
+    found := FALSE;
+    evtDate := rEnd;
+    FOR i := 1 TO extCount DO
+      IF (NOT rUsed[i]) AND (extras[i].loanName = rl.name) AND
+         (NOT Later(rCur, extras[i].paid)) AND
+         Later(rEnd, extras[i].paid) AND
+         ((NOT found) OR Later(evtDate, extras[i].paid)) THEN
+      BEGIN
+        evtDate := extras[i].paid;
+        found := TRUE
+      END;
+    IF found THEN
+    BEGIN
+      days := Serial(evtDate) - Serial(rCur);
+      rWInt := rWInt + rBal * days;
+      rWReb := rWReb + rBal * days;
+      FOR i := 1 TO extCount DO
+        IF (extras[i].loanName = rl.name) AND
+           (NOT rUsed[i]) AND
+           SameDate(extras[i].paid, evtDate) THEN
+        BEGIN
+          rUsed[i] := TRUE;
+          effAmt := extras[i].amount;
+          IF effAmt > rBal THEN effAmt := rBal;
+          rEx := rEx + effAmt;
+          rBal := Money(rBal - effAmt)
+        END;
+      rCur := evtDate
+    END
+  UNTIL NOT found
+END;
+
+PROCEDURE RptPay(mNo: REAL; VAR intAmt, prAmt, rebAmt: REAL);
+VAR
+  i: INTEGER;
+  futExt: BOOLEAN;
+BEGIN
+  intAmt := Money(rWInt * rl.rate /
+                  (1200.0 * DaysMon(rBeg.yy, rBeg.mm)));
+  rebAmt := Money(rWReb * rl.rebate /
+                  (1200.0 * DaysMon(rBeg.yy, rBeg.mm)));
+  prAmt := 0.0;
+  IF rl.fixPay > 0.0 THEN
+  BEGIN
+    IF intAmt > rl.fixPay THEN
+    BEGIN
+      WRITELN(rptFile, 'ERROR: fixed payment does not cover interest');
+      rFail := TRUE
+    END
+    ELSE
+    BEGIN
+      prAmt := rl.fixPay - intAmt;
+      IF prAmt > rBal THEN prAmt := rBal;
+      prAmt := Money(prAmt)
+    END
+  END
+  ELSE IF rl.freePay THEN
+    prAmt := 0.0
+  ELSE IF mNo = rl.months THEN
+    prAmt := rBal
+  ELSE
+  BEGIN
+    prAmt := Money(rl.loanAmt / rl.months);
+    IF prAmt > rBal THEN prAmt := rBal
+  END;
+  IF NOT rFail AND (rl.fixPay > 0.0) AND
+     (prAmt = 0.0) AND (rBal > 0.0) THEN
+  BEGIN
+    futExt := FALSE;
+    FOR i := 1 TO extCount DO
+      IF (extras[i].loanName = rl.name) AND
+         (NOT rUsed[i]) AND
+         (NOT Later(rEnd, extras[i].paid)) THEN
+        futExt := TRUE;
+    IF NOT futExt THEN
+    BEGIN
+      WRITELN(rptFile, 'ERROR: fixed payment only covers interest');
+      rFail := TRUE
+    END
+  END
+END;
+
+PROCEDURE RptMonth(intAmt, prAmt, rebAmt: REAL);
+VAR
+  netAmt: REAL;
+  dateText: STRING;
+BEGIN
+  rBal := Money(rBal - prAmt);
+  netAmt := prAmt - rebAmt;
+  IF rHasRow AND (rBeg.yy <> rYr) THEN RptYear;
+  rYr := rBeg.yy;
+  rHasRow := TRUE;
+  MonthStr(rBeg, dateText);
+  WRITELN(rptFile, dateText,
+          intAmt:10:2, prAmt:10:2, netAmt:10:2);
+  WRITELN(rptFile, '       ', rEx:10:2, rBal:10:2,
+          rebAmt:10:2);
+  rYInt := rYInt + intAmt;
+  rYPrin := rYPrin + prAmt;
+  rYNet := rYNet + netAmt;
+  rYEx := rYEx + rEx;
+  rYReb := rYReb + rebAmt;
+  rYBal := rBal;
+  rTInt := rTInt + intAmt;
+  rTPrin := rTPrin + prAmt;
+  rTNet := rTNet + netAmt;
+  rTEx := rTEx + rEx;
+  rTReb := rTReb + rebAmt
+END;
+
+PROCEDURE RptTotal;
+BEGIN
+  RptYear;
+  WRITELN(rptFile, 'TOTAL ', rTInt:10:2, rTPrin:10:2,
+          rTNet:10:2);
+  WRITELN(rptFile, '       ', rTEx:10:2, rBal:10:2,
+          rTReb:10:2)
+END;
+
+PROCEDURE PrintRpt;
+VAR
+  intAmt, prAmt, rebAmt, days, mNo: REAL;
+  i: INTEGER;
+BEGIN
+  IF current = 0 THEN
+  BEGIN
+    Status('Select a loan first');
+    EXIT(PrintRpt)
+  END;
+  rl := loans[current];
+  IF (rl.loanAmt <= 0.0) OR (rl.months <= 0) THEN
+  BEGIN
+    Status('Complete loan data first');
+    EXIT(PrintRpt)
+  END;
+  IF (rl.rebate < 0.0) OR (rl.rebate > rl.rate) OR
+     (rl.rate > 100.0) OR (rl.months > MaxMonth) OR
+     ((rl.fixPay > 0.0) AND rl.freePay) THEN
+  BEGIN
+    Status('Check loan percentages and payment options');
+    EXIT(PrintRpt)
+  END;
+  Status('Writing report');
+  RptHead;
+  rBal := Money(rl.loanAmt);
+  mNo := 0;
+  rYInt := 0.0;
+  rYPrin := 0.0;
+  rYNet := 0.0;
+  rYEx := 0.0;
+  rYReb := 0.0;
+  rYBal := rBal;
+  rTInt := 0.0;
+  rTPrin := 0.0;
+  rTNet := 0.0;
+  rTEx := 0.0;
+  rTReb := 0.0;
+  rHasRow := FALSE;
+  rFail := FALSE;
+  FOR i := 1 TO extCount DO rUsed[i] := FALSE;
+  WHILE (rBal > 0.005) AND
+        (((rl.fixPay > 0.0) AND (mNo < MaxTerm(rl.starts))) OR
+         ((rl.fixPay <= 0.0) AND (mNo < rl.months))) AND
+        (NOT rFail) DO
+  BEGIN
+    MonthAt(rl.starts, mNo, rBeg);
+    MonthAt(rl.starts, mNo + 1, rEnd);
+    rCur := rBeg;
+    IF Later(rl.starts, rCur) THEN rCur := rl.starts;
+    rWInt := 0.0;
+    rWReb := 0.0;
+    rEx := 0.0;
+    mNo := mNo + 1;
+    RptExtr;
+    days := Serial(rEnd) - Serial(rCur);
+    rWInt := rWInt + rBal * days;
+    rWReb := rWReb + rBal * days;
+    RptPay(mNo, intAmt, prAmt, rebAmt);
+    IF NOT rFail THEN RptMonth(intAmt, prAmt, rebAmt)
+  END;
+  IF rHasRow THEN RptTotal;
+  IF (rBal > 0.005) AND (rl.fixPay > 0.0) AND
+     (mNo >= MaxTerm(rl.starts)) AND NOT rFail THEN
+  BEGIN
+    WRITELN(rptFile, 'ERROR: loan was not paid before date limit');
+    rFail := TRUE
+  END;
+  CLOSE(rptFile, LOCK);
+  IF rFail THEN
+    Status('Report contains a payment error')
+  ELSE
+    Status('Report saved as LOANREPORT.TEXT')
+END;
+
+PROCEDURE ListExtr;
+VAR
+  i, row: INTEGER;
+  dateText: STRING;
+BEGIN
+  FOR i := 6 TO 22 DO ClearRow(i);
+  row := 6;
+  FOR i := 1 TO extCount DO
+    IF (current > 0) AND
+       (extras[i].loanName = loans[current].name) AND
+       (row < 22) THEN
+    BEGIN
+      DateStr(extras[i].paid, dateText);
+      GOTOXY(0, row);
+      WRITE(i:3, ' ', dateText);
+      GOTOXY(20, row);
+      WRITE(extras[i].amount:12:2, CHR(29));
+      row := row + 1
+    END
+END;
+
+PROCEDURE AddExtra;
+VAR
+  e: ExtRec;
+  endDate: DateType;
+BEGIN
+  IF (loans[current].loanAmt <= 0.0) OR
+     (loans[current].months <= 0) THEN
+  BEGIN
+    Status('Complete loan data first');
+    EXIT(AddExtra)
+  END;
+  IF extCount >= MaxExtra THEN
+  BEGIN
+    Status('Extra payment storage full');
+    EXIT(AddExtra)
+  END;
+  e.loanName := loans[current].name;
+  GetDate('Payment YYYY-MM-DD: ', loans[current].starts, e.paid);
+  IF loans[current].fixPay > 0.0 THEN
+    MonthAt(loans[current].starts, MaxTerm(loans[current].starts),
+            endDate)
+  ELSE
+    MonthAt(loans[current].starts, loans[current].months, endDate);
+  IF Later(loans[current].starts, e.paid) OR
+     (NOT Later(endDate, e.paid)) THEN
+  BEGIN
+    Status('Payment date is outside loan term');
+    EXIT(AddExtra)
+  END;
+  e.amount := GetReal('Extra amount: ', 0.0, 0.01, MaxAmt, TRUE);
+  IF e.amount <= 0.0 THEN EXIT(AddExtra);
+  extCount := extCount + 1;
+  extras[extCount] := e;
+  SaveExtr;
+  Status('Extra payment saved')
+END;
+
+PROCEDURE RemExtr;
+VAR
+  s: STRING[80];
+  n, i: INTEGER;
+BEGIN
+  Ask('Extra number (Enter cancels): ', 5, s);
+  IF LENGTH(s) = 0 THEN EXIT(RemExtr);
+  IF (NOT ParseInt(s, n)) OR (n < 1) OR (n > extCount) THEN
+  BEGIN
+    Status('Invalid extra number');
+    EXIT(RemExtr)
+  END;
+  IF extras[n].loanName <> loans[current].name THEN
+  BEGIN
+    Status('Extra belongs to another loan');
+    EXIT(RemExtr)
+  END;
+  FOR i := n TO extCount - 1 DO
+    extras[i] := extras[i + 1];
+  extCount := extCount - 1;
+  SaveExtr;
+  Status('Extra payment removed')
+END;
+
+PROCEDURE PayMenu;
+VAR
+  c: CHAR;
+BEGIN
+  IF current = 0 THEN
+  BEGIN
+    Status('Select a loan first');
+    EXIT(PayMenu)
+  END;
+  NewScrn;
+  REPEAT
+    ListExtr;
+    c := MenuLine(
+      'Payments: A(dd extra, R(emove extra, L(ist, Q(uit',
+      'ARLQ');
+    CASE c OF
+      'A': AddExtra;
+      'R': RemExtr;
+      'L': ListExtr
+    END
+  UNTIL c = 'Q'
+END;
+
+PROCEDURE MainMenu;
+VAR
+  c: CHAR;
+BEGIN
+  REPEAT
+    MainScrn;
+    c := MenuLine(
+      'LOANCALC: L(oans, D(ata, E(xtra, P(rint, Q(uit',
+      'LDEPQ');
+    CASE c OF
+      'L': LoanMenu;
+      'D': DataMenu;
+      'E': PayMenu;
+      'P': PrintRpt
+    END
+  UNTIL c = 'Q'
+END;
+
+BEGIN
+  loanCnt := 0;
+  extCount := 0;
+  current := 0;
+  fieldRow := 0;
+  fieldOld := '';
+  LoadData;
+  MainMenu;
+  WRITE(CHR(12))
+END.

@@ -859,9 +859,15 @@ static void testDriveConfig(void)
   assert(drives[2][1].configured && !drives[2][1].readOnly);
   assert(strcmp(drives[2][1].path, "/microSD/retro/images/ucsd/pascal640.po") == 0);
 
+  writeText(path, "SD6.1=/littlefs/ucsd/ApplePascal.dsk,RW,APPLE2_140K\n");
+  assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
+  assert(drives[2][0].configured && !drives[2][0].readOnly);
+  assert(strcmp(drives[2][0].path, "/littlefs/ucsd/ApplePascal.dsk") == 0);
+
   static const char *const invalidLines[] = {
       "SD6.1=/littlefs/apple2/system.dsk,RW,APPLE2_140K\n",
-      "SD6.1=/littlefs/ucsd/ApplePascal.dsk,RW,APPLE2_140K\n",
+      "SD6.2=/littlefs/ucsd/ApplePascal.dsk,RW,APPLE2_140K\n",
+      "SP6.1=/littlefs/ucsd/ApplePascal.dsk,RW,APPLE2_140K\n",
       "SD6.1=/littlefs/ucsd/../apple2/system.dsk,RO,APPLE2_140K\n",
       "SD6.2=/retro/images/apple2/data.po,WR,APPLE2_640K\n",
       "SD3.1=/retro/images/apple2/data.po,RO,APPLE2_140K\n",
@@ -946,23 +952,24 @@ static void testProfileConfig(void)
   snprintf(sourcePath, sizeof(sourcePath), "%s/sdcard/retro/images/ucsd/drives.cfg", PROJECT_ROOT_PATH);
   assert(apple2DriveConfigLoad(sourcePath, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
   assert(drives[6 - apple2DriveConfigFirstSlot][0].configured);
-  assert(drives[6 - apple2DriveConfigFirstSlot][0].readOnly);
+  assert(!drives[6 - apple2DriveConfigFirstSlot][0].readOnly);
+  assert(drives[6 - apple2DriveConfigFirstSlot][0].profile == apple2DiskImageProfile800k);
   assert(strcmp(drives[6 - apple2DriveConfigFirstSlot][0].path,
-                "/littlefs/ucsd/ApplePascal1-140K.dsk") == 0);
+                "/microSD/retro/images/ucsd/Apple Pascal 1.3 3.5.po") == 0);
   assert(drives[5 - apple2DriveConfigFirstSlot][0].configured);
   assert(drives[5 - apple2DriveConfigFirstSlot][0].smartPort);
-  assert(drives[5 - apple2DriveConfigFirstSlot][0].readOnly);
+  assert(!drives[5 - apple2DriveConfigFirstSlot][0].readOnly);
   assert(strcmp(drives[5 - apple2DriveConfigFirstSlot][0].path,
-                "/microSD/retro/images/ucsd/pascalWork2.po") == 0);
+                "/microSD/retro/images/ucsd/pascalWork1.po") == 0);
   assert(drives[5 - apple2DriveConfigFirstSlot][1].configured);
   assert(drives[5 - apple2DriveConfigFirstSlot][1].smartPort);
   assert(!drives[5 - apple2DriveConfigFirstSlot][1].readOnly);
   assert(strcmp(drives[5 - apple2DriveConfigFirstSlot][1].path,
-                "/microSD/retro/images/ucsd/pascalWork1.po") == 0);
+                "/microSD/retro/images/ucsd/pascalWork2.po") == 0);
   assert(!drives[5 - apple2DriveConfigFirstSlot][2].configured);
   assert(drives[4 - apple2DriveConfigFirstSlot][0].configured);
   assert(drives[4 - apple2DriveConfigFirstSlot][0].smartPort);
-  assert(!drives[4 - apple2DriveConfigFirstSlot][0].readOnly);
+  assert(drives[4 - apple2DriveConfigFirstSlot][0].readOnly);
   assert(strcmp(drives[4 - apple2DriveConfigFirstSlot][0].path,
                 "/microSD/retro/images/ucsd/ApplePascal2-640K.po") == 0);
   assert(!drives[5 - apple2DriveConfigFirstSlot][3].configured);

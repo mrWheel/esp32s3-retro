@@ -264,12 +264,24 @@ static esp_err_t uploadHandler(httpd_req_t *request)
   {
     return ESP_OK;
   }
+  char overwriteValue[4] = "";
+  bool overwriteAllowed = httpd_req_get_hdr_value_str(request, "X-Overwrite", overwriteValue, sizeof(overwriteValue)) == ESP_OK &&
+                          strcmp(overwriteValue, "1") == 0;
   struct stat info;
+  bool destinationExists = false;
   if (stat(path, &info) == 0)
   {
-    return respond(request, "409 Conflict", "Destination exists; delete explicitly before uploading");
+    if (!overwriteAllowed)
+    {
+      return respond(request, "409 Conflict", "Destination exists; enable OVERWRITE or delete explicitly before uploading");
+    }
+    if (!S_ISREG(info.st_mode))
+    {
+      return respond(request, "409 Conflict", "Destination is not a regular file");
+    }
+    destinationExists = true;
   }
-  if (errno != ENOENT)
+  else if (errno != ENOENT)
   {
     return respond(request, "500 Internal Server Error", "Cannot inspect destination");
   }
@@ -332,6 +344,11 @@ static esp_err_t uploadHandler(httpd_req_t *request)
     success = false;
   }
   if (close(descriptor) != 0)
+  {
+    success = false;
+  }
+  //-- FAT rename() fails when the destination exists, so remove it first.
+  if (success && destinationExists && unlink(path) != 0 && errno != ENOENT)
   {
     success = false;
   }

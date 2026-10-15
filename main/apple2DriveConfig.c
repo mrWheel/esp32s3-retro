@@ -317,9 +317,10 @@ static bool parseLine(char *line, driveTable drives, bool seen[apple2DriveConfig
   bool pascalSystem = strncmp(imagePath, pascalSystemPathPrefix, strlen(pascalSystemPathPrefix)) == 0;
   bool littlefsImage = apple2System || pascalSystem;
   bool pascalData = strncmp(imagePath, pascalDataPathPrefix, strlen(pascalDataPathPrefix)) == 0;
-  if (pascalSystem && !readOnly)
+  bool pascalBootDrive = !smartPort && slotIndex + apple2DriveConfigFirstSlot == 6 && driveIndex == 0;
+  if (pascalSystem && !readOnly && !pascalBootDrive)
   {
-    setError(error, errorCapacity, "UCSD LittleFS images must be read-only");
+    setError(error, errorCapacity, "only the SD6.1 UCSD boot image may be writable in LittleFS");
     return false;
   }
   if (!readOnly && strcmp(imagePath, systemImagePath) == 0)

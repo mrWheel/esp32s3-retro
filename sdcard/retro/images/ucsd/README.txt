@@ -1,7 +1,10 @@
 Menu option 3 uses this profile and the same Apple II 6502 emulator as option 4.
 
-The active profile boots the 128K Apple Pascal 1.3 system from
-`/littlefs/ucsd/ApplePascal1-140K.dsk` read-only as SD6.1. It mounts
+The active profile boots the Apple Pascal 1.3 64K system from the 800K
+`/retro/images/ucsd/Apple Pascal 1.3 3.5.po` image as a writable block-autostart
+device on SD6.1. Copy that image from `assets/ucsd/ucsdDiskImages/` to this
+directory on the SD card. The 140K LittleFS boot image remains available as an
+alternate Disk II profile. The active profile mounts
 `ApplePascal2-640K.po` read-only as SP4.1, `pascalWork1.po` read/write as
 SP5.1, and `pascalWork2.po` read/write as SP5.2. SmartPort block devices may
 use slots 4 through
@@ -15,9 +18,9 @@ actual SD media and reconcile the mapping before relying on that result.
 ESP32-S3 behaviour and filesystem writes remain unverified.
 
 Copy this directory's `drives.cfg` to `/retro/images/ucsd/drives.cfg` on the
-SD card when updating the UCSD profile. Menu option 3 requires that file as
-well as the LittleFS boot image. In File Transfer, select UCSD Pascal and Disk
-image; uploads go directly into this machine's image directory.
+SD card when updating the UCSD profile. Menu option 3 requires the config and
+the 800K boot image on the SD card. In File Transfer, select UCSD Pascal and
+Disk image; uploads go directly into this machine's image directory.
 
 The profile's `drives.cfg` must be copied to `/retro/images/ucsd/drives.cfg`
 on the SD card. In File Transfer, select UCSD Pascal and Disk image; uploads

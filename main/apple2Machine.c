@@ -459,7 +459,7 @@ typedef enum
 {
   driveModeDiskII,
   driveModeSmartPort,
-  driveModeProDosBlock
+  driveModeBlock
 } driveMode;
 
 //-- A missing or invalid disk image is reported but never prevents the machine from starting.
@@ -496,7 +496,7 @@ static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2D
   {
     attachResult = apple2CoreAttachBlockDevice(
         guestCore, slot, (uint8_t)(driveIndex + 1), (uint32_t)image->trackCount * 8U,
-        mode == driveModeProDosBlock, readSmartPortBlock, config->readOnly ? NULL : writeSmartPortBlock, image);
+        mode == driveModeBlock, readSmartPortBlock, config->readOnly ? NULL : writeSmartPortBlock, image);
   }
   if (attachResult != apple2CoreOk)
   {
@@ -511,11 +511,11 @@ static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2D
              (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write", config->path,
              (unsigned)image->trackCount * 8U, contentText(image));
   }
-  else if (mode == driveModeProDosBlock)
+  else if (mode == driveModeBlock)
   {
-    ESP_LOGI(tag, "ProDOS block device PR%u.%u (%s): %s, %u blocks, boots with PR#%u", (unsigned)slot,
+    ESP_LOGI(tag, "Block device PR%u.%u (%s): %s, %u blocks, %s, boots with PR#%u", (unsigned)slot,
              (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write", config->path,
-             (unsigned)image->trackCount * 8U, (unsigned)slot);
+             (unsigned)image->trackCount * 8U, contentText(image), (unsigned)slot);
   }
   else
   {
@@ -538,8 +538,7 @@ static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2D
   }
 }
 
-//-- A controller slot is a SmartPort interface (SP5.x), a ProDOS block device when one of its images holds a ProDOS
-//-- volume (the Disk II boot path cannot start ProDOS), or a Disk II controller for every other content.
+//-- A controller slot is SmartPort, a block device for ProDOS content or an 800K Pascal boot image, or Disk II.
 //-- The boot drive SD6.1 must be configured in drives.cfg and its image must open; otherwise the machine does not start.
 static esp_err_t attachDisks(void)
 {
@@ -572,7 +571,14 @@ static esp_err_t attachDisks(void)
                          guestDisks[slotIndex][driveIndex].probe.content == apple2DiskImageContentProDos);
       }
     }
-    driveMode mode = smartPort ? driveModeSmartPort : (proDosContent ? driveModeProDosBlock : driveModeDiskII);
+    const apple2DriveConfig *bootDrive = &config[bootSlotIndex][0];
+    const apple2DiskImage *bootImage = &guestDisks[bootSlotIndex][0];
+    //-- The Pascal 3.5-inch system disk boots through the block-device slot ROM; 5.25-inch Pascal boots through Disk II.
+    bool pascalBlockBoot =
+        slotIndex == bootSlotIndex && opened[0] && bootDrive->profile == apple2DiskImageProfile800k &&
+        bootImage->probe.content == apple2DiskImageContentPascal;
+    driveMode mode = smartPort ? driveModeSmartPort
+                              : (proDosContent || pascalBlockBoot ? driveModeBlock : driveModeDiskII);
     for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDevicesPerSlot; ++driveIndex)
     {
       if (opened[driveIndex])

@@ -68,7 +68,7 @@ Paths under `/retro/` denote the SD volume independently of its VFS mount prefix
 
 Only option 6 starts WiFi and browser File Transfer, using the existing `michmich/esp-idf-wifi-provisioner` dependency (`^0.4.0` requirement in the supplied contracts; resolve against the project's actual lock). Its scope remains `/retro/exchange/` and `/retro/images/` on SD, with bounded streaming, temporary uploads, traversal protection, deliberate overwrite, byte-identical binary transfer and progress display. The documented host transfer limit remains 4 GiB minus 2 bytes; it is a host-contract statement, not a Pascal file-size limit. Enter exits File Transfer. Emulator execution and browser transfer remain mutually exclusive.
 
-The UCSD image root `/retro/images/ucsd/` is supported by the Apple drive-config parser and File Transfer's machine selector. The LittleFS boot image and profile are in `/littlefs/ucsd/`. The `/retro/exchange/ucsd/` directory is the requested native Pascal HOST utility's exchange root; the native `HOST` utility is implemented and guest-tested in the host emulator (UCSD-DEC-021); ESP32-S3 operation is unverified.
+The UCSD image root `/retro/images/ucsd/` is supported by the Apple drive-config parser and File Transfer's machine selector. The active 800K boot image and profile are on the SD card; the 140K alternate boot image remains in `/littlefs/ucsd/`. The `/retro/exchange/ucsd/` directory is the requested native Pascal HOST utility's exchange root; the native `HOST` utility is implemented and guest-tested in the host emulator (UCSD-DEC-021); ESP32-S3 operation is unverified.
 
 Physical ESP32 reset returns to the host menu; guest reset is separate. Clean exit flushes/closes media, releases devices and restores the terminal. Ordinary guest Enter is never the host exit command. Sudden power loss cannot guarantee guest filesystem consistency; qualify recovery on disposable media.
 
@@ -165,7 +165,7 @@ APPLE-DEC-033 supersedes the earlier DOS 3.3 default and missing-drive fallback.
 
 The current request authorizes **native Pascal media in the shared Apple II disk path**, selected solely by `drives.cfg`, as a narrowly scoped extension of that policy. This support is not restricted by menu number. It does not make Pascal media ProDOS volumes. Keep filesystem content, sector order and guest-visible controller protocol separate. A Pascal `.po` may use the documented ProDOS/Pascal sector layout without containing ProDOS or supporting SmartPort.
 
-APPLE-DEC-032 attaches ProDOS content as a block-device slot, with both drives in that slot sharing the controller type. Pascal boot through Disk II needs its compatible sector/controller path. Do not identify a ProDOS filesystem from a `.po` suffix alone or pair Disk II and SmartPort media in one slot. A prior host test proves Pascal 1.3 can use the ProDOS block entry for Pascal volumes when the test images carry the expected volume contents; current configured media must be reconciled before relying on that result. This is separate from the custom ATTACH-style protocol tracked by APPLE-ISSUE-017.
+APPLE-DEC-032 attaches ProDOS content as a block-device slot, with both drives in that slot sharing the controller type. The 140K Pascal system uses the Disk II boot path; the 800K Pascal 3.5-inch system uses the block-device autostart path. Do not identify a ProDOS filesystem from a `.po` suffix alone or pair Disk II and SmartPort media in one slot. Host testing has now booted the supplied 800K Pascal 1.3 image through the block-device bootstrap; guest access to its full volume and writes remain unverified. This is separate from the custom ATTACH-style protocol tracked by APPLE-ISSUE-017.
 
 ### Configuration and resource locations
 
@@ -177,20 +177,24 @@ SD<slot>.<drive>=<image>,<RO-or-RW>,<profile>
 
 Accepted baseline: Disk II slots 4–7 have drives 1–2; SmartPort block devices can be configured as `SP<slot>.<unit>` on slots 4–7, units 1–4. Pascal 1.3's ProDOS block interface exposes only units 1 and 2 per slot, so Pascal volumes beyond the first two must be assigned to another free slot. Slot 0 is Language Card, slot 2 is the exchange bridge, slot 3 is video. `PR6.1`, lettered CP/M mappings and Disk II drives 3–99 are not supported configuration extensions. Guest `PR#n` is a separate command, unchanged.
 
-The checked-in UCSD `drives.cfg` maps the boot disk to Disk II and distributes
-three block images across slots 4 and 5. Its current entries are:
+The checked-in UCSD `drives.cfg` maps the 800K boot disk to a block-device
+autostart slot and distributes three additional block images across slots 4
+and 5. Its current entries are:
 
 ```text
 MACHINE=IIE
-SD6.1=/littlefs/ucsd/ApplePascal1-140K.dsk,RO,APPLE2_140K
+SD6.1=/retro/images/ucsd/Apple Pascal 1.3 3.5.po,RW,APPLE2_800K
 SP4.1=/retro/images/ucsd/ApplePascal2-640K.po,RO,APPLE2_640K
 SP5.1=/retro/images/ucsd/pascalWork1.po,RW,APPLE2_640K
 SP5.2=/retro/images/ucsd/pascalWork2.po,RW,APPLE2_640K
 ```
 
-The code validates paths, image profiles, RO/RW modes and mutually exclusive
-controller types per slot; it does not validate a Pascal volume's label or
-contents. The workspace copy of
+The 800K SD6.1 image is presented through the block-device boot ROM, not the
+Disk II controller; the 140K LittleFS image remains available as the alternate
+Disk II boot profile. Copy `assets/ucsd/ucsdDiskImages/Apple Pascal 1.3 3.5.po`
+to `/retro/images/ucsd/` on the SD card. The code validates paths, image
+profiles, RO/RW modes and mutually exclusive controller types per slot; it
+does not validate a Pascal volume's label or contents. The workspace copy of
 `sdcard/retro/images/ucsd/ApplePascal2-640K.po` was inspected on 2026-10-12:
 it is the `SYSTEM:` volume and contains `SYSTEM.COMPILER`,
 `SYSTEM.ASSMBLER`, `SYSTEM.LINKER` and the Pascal 1.3 system files, with
@@ -213,7 +217,7 @@ Each effective `drives.cfg` has one explicit SD6.1 mapping; do not combine these
 | Location | Intended use / current constraint |
 |---|---|
 | `/littlefs/apple2/` | Existing ROM and ProDOS master |
-| `/littlefs/ucsd/` | UCSD profile and read-only Pascal system disk |
+| `/littlefs/ucsd/` | UCSD profile and alternate 140K Pascal boot image |
 | `/retro/images/apple2/` | Apple II media root |
 | `/retro/exchange/apple2/` | Existing slot-2 adapter root and browser staging |
 | `/retro/images/ucsd/` | UCSD writable images; selected directly by File Transfer |
@@ -229,7 +233,7 @@ The documented image profiles are:
 |---|---:|---|---|
 | `APPLE2_140K` | 143,360 | 35 × 16 × 256; 280 blocks of 512 bytes | First qualification target; boot still NOT RUN |
 | `APPLE2_640K` | 655,360 | 160 × 16 × 256; 1,280 blocks | Host sector/layout evidence only |
-| `APPLE2_800K` | 819,200 | 200 × 16 × 256; 1,600 blocks | ProDOS large-volume baseline; Pascal support unknown |
+| `APPLE2_800K` | 819,200 | 200 × 16 × 256; 1,600 blocks | Host boots supplied Pascal 1.3 3.5-inch image to its 64K system; guest full-volume use and writes unverified |
 
 Do not describe 640K/800K as universally supported original Apple Pascal floppy geometries. Thirteen-sector, nibble, protected and other image formats are not automatically accepted. Add one only if required by the selected original media, with a separate test and recorded format contract.
 
@@ -241,7 +245,7 @@ Test first/last block, cross-track reads, malformed images, partial I/O, RO refu
 
 ### Larger volumes
 
-First complete the workflow on original-size media. Retain APPLE-DEC-031's 800K preference for ProDOS and its 640K compatibility profile. Neither choice establishes a Pascal capacity limit or guest driver.
+Retain APPLE-DEC-031's 800K preference for ProDOS and its 640K compatibility profile. The supplied 800K Pascal image has host-tested block-device boot support, but booting does not establish Pascal's ability to enumerate, allocate or write all 1,600 blocks.
 
 Larger Pascal volumes are a later qualification task. Audit the selected release's block representation, allocation/directory fields, formatter, file-size limits and device driver together. A 16-bit field alone is not a capacity proof. The existing blank Pascal-volume builder and block-1279 controller read do not prove that Pascal can boot, enumerate or write that volume.
 
@@ -325,7 +329,7 @@ UCSD-M1–M10 retain their identifiers but are rebaselined by UCSD-DEC-015. They
 | UCSD-M1 | Confirm shared Apple II baseline, exact Apple Pascal release/media/ROM and provenance; inspect option-3 resource selection and current parser/controller policy |
 | UCSD-M2 | Matched desktop reference boots, edits, compiles/runs and performs native file I/O; hashes, transcripts and configuration saved |
 | UCSD-M3 | Document authentic boot/controller/order/unit mapping and Language Card/video behavior; identify only demonstrated compatibility gaps |
-| UCSD-M4 | Both menu entries differ only in config.cfg selection; configured Pascal and ProDOS disks boot via the same machine path; swap/same-configuration and missing-SD6.1 regressions succeed |
+| UCSD-M4 | Both menu entries differ only in config.cfg selection; the configured 800K Pascal boot disk reaches its 64K command line on host; ProDOS, swap/same-configuration, missing-SD6.1 and hardware regressions remain |
 | UCSD-M5 | Same boot on ESP32 using qualified resources; missing/invalid/RO/media-change cases observed; no silent fallback |
 | UCSD-M6 | Guest Pascal work-volume writes, clean reopen, unit mapping, boundary/fault behavior and media ownership verified |
 | UCSD-M7 | Full 80×24 edit/compile/run/save/restart/reopen on ESP32, control keys and source/string case checked |
@@ -337,9 +341,21 @@ Definition of Done for the core extension: a config.cfg/drives.cfg combination b
 
 ## Implementation record — documentation rebaseline, 2026-10-11
 
-The 2026-10-11 design-only rebaseline reused the Apple record's motherboard, Language Card, Videx, multi-drive, writable-sector, ProDOS block-device, keyboard and exchange work. That record did not claim code changes, media deployment, successful Pascal boot, a selected release, new test execution or newly verified ROM rights.
+The 2026-10-11 design-only rebaseline reused the Apple record's motherboard, Language Card, Videx, multi-drive, writable-sector, ProDOS block-device, keyboard and exchange work. That record did not claim code changes, media deployment, successful Pascal boot, a selected release, new test execution or newly verified ROM rights. The 2026-10-15 implementation record below supersedes its 140K active-boot mapping.
 
 The shared menu/profile routing, config.cfg resolution and current drives.cfg policy have now been inspected and integrated. Remaining work begins with selecting and hashing a complete original Apple Pascal release and desktop reference, then tracing its authentic boot and adding only demonstrated controller, ROM, Language Card or terminal compatibility fixes. The old “implement Apple II afterwards” sequence is retired. The inherited implementation and failed experiments are reproduced in Appendix B.
+
+## Implementation record — 800K Pascal block boot, 2026-10-15
+
+The active UCSD profile now maps the supplied `Apple Pascal 1.3 3.5.po`
+(`APPLE2_800K`) as a writable block-autostart device on SD6.1. The existing
+140K image remains an alternate Disk II boot image. When the configured SD6.1
+image probes as Pascal and uses the 800K profile, the shared Apple II machine
+attaches it through the block-device slot ROM; other Pascal 5.25-inch media
+continue through their configured Disk II or SmartPort paths. Copy the 800K
+asset to `/retro/images/ucsd/` on the SD card. Host test evidence is recorded
+under UCSD-VERIFY-021. Boot was observed; full 1,600-block guest access, writes,
+the editor workflow and ESP32-S3 operation remain unverified.
 
 ## Implementation record — shared profile routing, 2026-10-11
 
@@ -494,13 +510,14 @@ Inherited Apple issues retain their original IDs in Appendix B. DOS-image procur
 | UCSD-VERIFY-018 | PARTIAL HOST 2026-10-13 | `ctest -R ucsdHostGuest`: after the build stage, `GET ... T` converts LF, CR LF, tab, UTF-8, empty, 150-line multi-page and unterminated-last-line sources; the Pascal compiler compiles and the guest runs a converted program (`TEXT OK`); the Editor displays a converted file; `PUT ... T [W]` output equals the expected LF/CR LF text byte for byte; option errors, over-long line, non-`.TEXT` note and bare `<Return>` usage verified. ESP32-S3 hardware and Editor save/reopen are not verified. |
 | UCSD-VERIFY-019 | PARTIAL HOST 2026-10-13 | `ctest -R ucsdHostGuest` (script `tests/ucsdHost/vol.txt`): `GET`/`PUT` with `*NAME`, `:NAME`, `WORK1:NAME`, `APPLE1:NAME` and a bare name move files across the system and work volumes with exact lengths (byte-for-byte compare of the exchange directory); an unknown volume, `*:NAME`, `A:B:NAME`, a name without file part and an over-long volume name are refused. The then-rebuilt `HOST.CODE` (16 blocks) was installed on the boot image `littlefs/ucsd/ApplePascal1-140K.dsk` and run from there. Not tested: ESP32-S3 hardware, `#n:` volume numbers. A write to the read-only `SYSTEM:` tools volume is reported as done by the emulator layer (pre-existing behaviour, not changed). |
 | UCSD-VERIFY-020 | PARTIAL HOST 2026-10-13 | `ctest -R ucsdHostGuest` (scripts `get.txt`, `put.txt`, `vol.txt`, `wild.txt`): the header `GET NAME:` is shown before the transfer, the dot count equals the block count and `Done` ends the line; `GET`/`PUT` with `=` (`A=.TXT`, `=.TXT O`, `HOST=`, `WORK1:=.TXT`, `*=.TXT`) transfer all matches byte-for-byte, a failing file (exists without `O`) does not stop the others, totals and `No files match.` are reported. The rebuilt `HOST.CODE` (19 blocks, 20 after UCSD-DEC-025) was installed on the boot image `littlefs/ucsd/ApplePascal1-140K.dsk` and run from there (Usage, GET, PUT, `GET =.DAT O`). Not tested: ESP32-S3 hardware, `#n:` volume numbers, dot-wrapping for very large files. |
+| UCSD-VERIFY-021 | PARTIAL HOST 2026-10-15; DIRTY WORKTREE | Image `assets/ucsd/ucsdDiskImages/Apple Pascal 1.3 3.5.po`, SHA-256 `ee7d1ce58b936bb031e2b3b8009c7212498792ed24250494b7369499d9ae572d` (819,200 bytes); IIe ROM SHA-256 `1fb812584c6633fa16b77b20915986ed1178d1e6fc07a647f7ee8d4e6ab9d40b`. `build-host/apple2DiskTests --pascal-iie-boot-800k-block 'assets/ucsd/ucsdDiskImages/Apple Pascal 1.3 3.5.po' littlefs/apple2/apple2e.rom` passed: block-device autostart reaches Pascal 1.3 command line and reports a 64K system. `build-host/apple2DiskTests --writable-800k-block-image` passed: writing block 1599 persists across close/reopen and block 1600 is rejected. The same boot image on the Disk II path stayed at `Apple ][`; the active configuration therefore uses the block boot path. `ctest --test-dir build-host -R apple2MultiDisk --output-on-failure`, the 140K Pascal boot test and ESP-IDF 6.0.2 firmware build passed. Not tested: full guest access to all 1,600 blocks, guest Pascal writes/reopen, editor/compiler, physical LOLIN S3 Pro, or ESP32-S3 behavior. |
 | UCSD-VERIFY-014 | NOT RUN | Whole-image File Transfer byte/hash round trip; optional native utility qualified separately |
 
 Inherited host evidence: APPLE-VERIFY-024/025 covers image/controller subsets; VERIFY-028 covers Language Card; VERIFY-030/031 covers ProDOS guest boot/save in the host harness; VERIFY-032 records the ProDOS-only transition; VERIFY-033 covers keyboard translation and explicitly notes an `apple2DiskStream` asset-open failure. These runs occurred at different historical states. Do not combine them into a claim that the current suite is clean or Pascal works. Preserve unrelated recorded CP/M test failures as evidence, without assigning them to Pascal changes.
 
 ## Next implementation session
 
-Inspect the current repository and governing project contract, map options 3 and 4 to the same Apple II launch path with only config.cfg selection differing, and select/hash original Apple Pascal media. Establish the desktop reference before changing boot behavior. Inspect current controller selection and path rules, run the authentic loader with trace capture, and fix only the first demonstrated compatibility gap. Then qualify Language Card use, native writes and 80×24 editing on host and ESP32 while retaining ProDOS/configuration regressions. Append findings and evidence; do not restart the retired Z80 design.
+Qualify the active 800K block-boot profile's full guest-visible capacity and writable persistence, then test the editor/compiler workflow, media recovery and hardware behavior. Establish a matched desktop reference; retain the alternate 140K Disk II path and ProDOS/configuration regressions. Append findings and evidence; do not restart the retired Z80 design.
 
 ## Source fingerprints and archival policy
 
