@@ -1050,6 +1050,26 @@ def removeFromDestination(session):
   removeFiles(dest, name)
 
 
+def addHostFile(session):
+  dest = session.requireDestination()
+  text = promptPath("Full path of file to add: ")
+  hostPath = Path(text).expanduser()
+  if not hostPath.is_file():
+    raise ToolError(f"file not found: {hostPath}")
+  nameOut = input(f"Name on disk [{hostPath.name}]: ").strip() or hostPath.name
+  data = hostPath.read_bytes()
+  suffix = hostPath.suffix.upper()
+  pascalKind = {".TEXT": 3, ".CODE": 2}.get(suffix, 5)
+  if isinstance(dest, PascalVolume) and pascalKind == 3:
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "include"))
+    import extractUcsd
+    data = extractUcsd.hostTextToUcsd(data)
+  prodosType = 0x04 if suffix in (".TXT", ".TEXT") else 0x06
+  stored = dest.importFile(nameOut, Exported(data, prodosType, 0, pascalKind))
+  dest.image.save()
+  print(f"added '{hostPath}' -> '{stored}' ({len(data)} bytes)")
+
+
 def showVolumeFiles(volume):
   entries = [entry for entry in volume.listFiles() if not entry.isDir]
   if not entries:
@@ -1077,6 +1097,7 @@ def showMenu(session):
   print("6 - List files on Destination")
   print("7 - Copy file from Source to Destination (C)")
   print("8 - Remove file from Destination")
+  print("9 - Add one specific file (full path) to Destination (A)")
   print("0 - Quit (Q)")
 
 
@@ -1112,8 +1133,10 @@ def main(argv):
         copyFromSource(session)
       elif option == "8":
         removeFromDestination(session)
+      elif option in ("9", "A"):
+        addHostFile(session)
       else:
-        print("Select an option from 0 to 8, or L, C, or Q.")
+        print("Select an option from 0 to 9, or L, C, A, or Q.")
     except (ToolError, ValueError) as error:
       print(f"error: {error}")
     except EOFError:

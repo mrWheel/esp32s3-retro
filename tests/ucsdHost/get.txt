@@ -48,9 +48,15 @@ wait 600 GET EMPTY2.TEXT: Done
 type GET PAGES.TEXT T\r
 wait 3000 GET PAGES.TEXT: ............... Done
 type GET NOTETXT.TXT T\r
-wait 600 only a name ending in .TEXT
+wait 30 filename ending in .TEXT
+type GET NOTETXT.TXT\r
+wait 600 GET NOTETXT.TXT: . Done
 type GET LONG.TEXT T\r
 wait 600 longer than 200 characters
+type GET LOANCALC.TEXT T\r
+wait 30 GET LOANCALC.TEXT:
+wait 3000 ............................................................
+run 200
 type GET X W\r
 wait 30 Option W needs option T
 type GET X T T\r

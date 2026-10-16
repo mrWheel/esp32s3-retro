@@ -1139,8 +1139,6 @@ BEGIN
       WRITELN(' stored, but the exact length could not be set.');
     IF TextMode AND (BadChars > 0) THEN
       WRITELN('  ', BadChars, ' unsupported characters replaced by ?');
-    IF TextMode AND NOT IsTextNm(Bare) THEN
-      WRITELN('  note: only a name ending in .TEXT is a Pascal TEXT file.')
   END
   ELSE
   BEGIN
@@ -1170,7 +1168,7 @@ BEGIN
     Msg := 'cannot read the local file.'
   ELSE IF Blocks > 16000 THEN
     Msg := 'file is too large for this utility.'
-  ELSE IF TextMode AND (FileKind <> 3) THEN
+  ELSE IF TextMode AND ((FileKind <> 3) OR NOT IsTextNm(Bare)) THEN
     Msg := 'option T needs a Pascal TEXT file (name ending in .TEXT).'
   ELSE
   BEGIN
@@ -1391,6 +1389,8 @@ BEGIN
     WRITELN('The options are O, T and W; use each at most once.')
   ELSE IF WinEol AND NOT TextMode THEN
     WRITELN('Option W needs option T.')
+  ELSE IF (Verb = 'GET') AND TextMode AND NOT IsTextNm(Bare) THEN
+    WRITELN('Option T needs a filename ending in .TEXT.')
   ELSE IF Verb = 'GET' THEN
   BEGIN
     IF IsWild(Bare) THEN

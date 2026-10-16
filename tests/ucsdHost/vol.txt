@@ -34,7 +34,7 @@ run 5
 type GET VOLONGNAME:VOLE.DAT\r
 run 5
 type GET WORK1:VOLE.DAT T\r
-wait 30 note: only a name
+wait 30 filename ending in .TEXT
 type PUT *VOLA.DAT O\r
 wait 300 PUT *VOLA.DAT: .. Done
 type PUT :VOLB.DAT O\r

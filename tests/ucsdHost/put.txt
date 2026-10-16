@@ -43,6 +43,10 @@ type PUT EMPTY2.TEXT T\r
 wait 600 PUT EMPTY2.TEXT: .. Done
 type PUT PAGES.TEXT T\r
 wait 3000 PUT PAGES.TEXT: ............ Done
+type PUT LOANCALC.TEXT T\r
+wait 30 PUT LOANCALC.TEXT:
+wait 3000 ............................................................
+run 200
 type PUT NOTETXT.TXT T\r
 wait 600 needs a Pascal TEXT file
 type PUT PROG.TEXT T\r

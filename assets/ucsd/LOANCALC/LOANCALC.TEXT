@@ -6,6 +6,8 @@ CONST
   MaxExtra = 80;
   MaxMonth = 1200;
   MaxAmt = 1.0E12;
+  RptMax = 9999999.99;
+  RptMin = -999999.99;
   NameSize = 24;
   TitlSiz = 38;
   DataFNam = 'LOANS.DATA';
@@ -42,15 +44,30 @@ TYPE
 VAR
   loans: ARRAY[1..MaxLoans] OF LoanType;
   extras: ARRAY[1..MaxExtra] OF ExtRec;
+  scrRows: ARRAY[0..23] OF STRING[79];
+  rowKnown: ARRAY[0..23] OF BOOLEAN;
+  loanRows: ARRAY[1..19] OF NameType;
+  lnRwIdx: ARRAY[1..19] OF INTEGER;
+  lnRwOk: ARRAY[1..19] OF BOOLEAN;
+  exRwIdx: ARRAY[6..22] OF INTEGER;
+  exRwOk: ARRAY[6..22] OF BOOLEAN;
+  exRwDat: ARRAY[6..22] OF DateType;
+  exRwAmt: ARRAY[6..22] OF REAL;
   loanCnt, extCount, current: INTEGER;
+  loanPage: INTEGER;
   workLoan: LoanType;
   dirty: BOOLEAN;
+  sumLoan: LoanType;
+  sumValid: BOOLEAN;
   lnFile: LoanFTyp;
   exFile: ExtFTyp;
   rptFile: TextFTyp; 
   statText: STRING[78];
   fieldRow: INTEGER;
   fieldOld: STRING[24];
+  rptDest: CHAR;
+  rptRow: INTEGER;
+  rptStop: BOOLEAN;
   rl: LoanType;
   rBeg, rEnd, rCur: DateType;
   rBal, rWInt, rWReb, rEx: REAL;
@@ -70,14 +87,24 @@ END;
 
 PROCEDURE ClearRow(y: INTEGER);
 BEGIN
-  GOTOXY(0, y);
-  WRITE(CHR(29))
+  IF (NOT rowKnown[y]) OR (LENGTH(scrRows[y]) > 0) THEN
+  BEGIN
+    GOTOXY(0, y);
+    WRITE(CHR(29));
+    scrRows[y] := '';
+    rowKnown[y] := TRUE
+  END
 END;
 
 PROCEDURE PutRow(y: INTEGER; s: STRING);
 BEGIN
-  GOTOXY(0, y);
-  WRITE(s, CHR(29))
+  IF (NOT rowKnown[y]) OR (scrRows[y] <> s) THEN
+  BEGIN
+    GOTOXY(0, y);
+    WRITE(s, CHR(29));
+    scrRows[y] := s;
+    rowKnown[y] := TRUE
+  END
 END;
 
 PROCEDURE Status(s: STRING);
@@ -86,10 +113,100 @@ BEGIN
   PutRow(23, s)
 END;
 
+PROCEDURE ClrBelow(y: INTEGER);
+VAR
+  i: INTEGER;
+BEGIN
+  GOTOXY(0, y);
+  WRITE(CHR(11));
+  FOR i := y TO 23 DO
+  BEGIN
+    scrRows[i] := '';
+    rowKnown[i] := TRUE
+  END;
+  IF y <= 22 THEN
+    FOR i := 1 TO 19 DO lnRwOk[i] := FALSE;
+  IF y <= 22 THEN
+    FOR i := 6 TO 22 DO exRwOk[i] := FALSE;
+  IF y <= 16 THEN sumValid := FALSE;
+  Status('')
+END;
+
 PROCEDURE NewScrn;
 BEGIN
-  WRITE(CHR(12));
-  Status('')
+  ClrBelow(1)
+END;
+
+PROCEDURE RptEnd(lineLen: INTEGER);
+VAR
+  i: INTEGER;
+BEGIN
+  IF NOT rptStop THEN
+  BEGIN
+    FOR i := lineLen + 1 TO 78 DO
+      IF rptDest = 'P' THEN
+        WRITE(rptFile, ' ')
+      ELSE
+        WRITE(' ');
+    IF rptDest = 'P' THEN
+      WRITELN(rptFile, '')
+    ELSE
+    BEGIN
+      WRITELN;
+      rptRow := rptRow + 1
+    END
+  END
+END;
+
+PROCEDURE RptMoney(v: REAL);
+BEGIN
+  IF (v > RptMax) OR (v < RptMin) THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, '**********')
+    ELSE
+      WRITE('**********')
+  END
+  ELSE IF rptDest = 'P' THEN
+    WRITE(rptFile, v:10:2)
+  ELSE
+    WRITE(v:10:2)
+END;
+
+PROCEDURE RptSpace;
+BEGIN
+  IF rptDest = 'P' THEN
+    WRITE(rptFile, ' ')
+  ELSE
+    WRITE(' ')
+END;
+
+PROCEDURE RptTick;
+BEGIN
+  IF LENGTH(statText) >= 76 THEN
+    Status('Writing report');
+  Status(CONCAT(statText, '.'))
+END;
+
+PROCEDURE RptPos;
+VAR
+  c: CHAR;
+BEGIN
+  IF (rptDest = 'S') AND (rptRow > 22) AND
+     (NOT rptStop) THEN
+  BEGIN
+    Status('Any key for next page, Q to stop');
+    READ(KEYBOARD, c);
+    IF Upper(c) = 'Q' THEN
+      rptStop := TRUE
+    ELSE
+    BEGIN
+      ClrBelow(1);
+      rptRow := 1
+    END
+  END;
+  IF (rptDest = 'S') AND (NOT rptStop) THEN
+    GOTOXY(0, rptRow)
 END;
 
 FUNCTION MenuLine(menuText: Str255; valid: STRING): CHAR;
@@ -97,7 +214,7 @@ VAR
   c: CHAR;
   first, last, n, k, breakAt: INTEGER;
   shown: STRING[82];
-  done: BOOLEAN;
+  done, matched: BOOLEAN;
 BEGIN
   n := LENGTH(menuText);
   first := 1;
@@ -109,10 +226,15 @@ BEGIN
     IF last < n THEN
     BEGIN
       breakAt := last;
-      WHILE (breakAt > first) AND (menuText[breakAt] <> ',') DO
-        breakAt := breakAt - 1;
-      IF breakAt > first THEN
-        last := breakAt
+      matched := FALSE;
+      WHILE (breakAt > first) AND (NOT matched) DO
+      BEGIN
+        IF menuText[breakAt] = ',' THEN
+          matched := TRUE
+        ELSE
+          breakAt := breakAt - 1
+      END;
+      IF matched THEN last := breakAt
     END;
     shown := COPY(menuText, first, last - first + 1);
     PutRow(0, shown);
@@ -133,15 +255,25 @@ BEGIN
         first := last + 1
       ELSE
         first := 1;
-      WHILE (first <= n) AND (menuText[first] = ' ') DO
-        first := first + 1
+      WHILE first <= n DO
+        IF menuText[first] = ' ' THEN
+          first := first + 1
+        ELSE
+          first := n + 1
     END
     ELSE
     BEGIN
       k := 1;
-      WHILE (k <= LENGTH(valid)) AND (valid[k] <> c) DO
-        k := k + 1;
-      IF k <= LENGTH(valid) THEN
+      matched := FALSE;
+      WHILE k <= LENGTH(valid) DO
+      BEGIN
+        IF valid[k] = c THEN
+          matched := TRUE
+        ELSE
+          k := k + 1;
+        IF matched THEN k := LENGTH(valid) + 1
+      END;
+      IF matched THEN
         done := TRUE
       ELSE
         WRITE(CHR(7))
@@ -563,20 +695,32 @@ VAR
   s: STRING[80];
   payment: REAL;
 BEGIN
-  PutRow(7,  CONCAT(' Name...................: ', l.name));
-  PutRow(8,  CONCAT(' Title..................: ', l.title));
-  PutRow(9, ' Loan Amount............:');
-  GOTOXY(FieldCol, 9);
-  WRITE(l.loanAmt:12:2);
-  PutRow(10, ' Duration...............:');
-  GOTOXY(FieldCol, 10);
-  WRITE(l.months:6);
-  PutRow(11, ' Interest Rate %........:');
-  GOTOXY(FieldCol, 11);
-  WRITE(l.rate:8:3);
-  PutRow(12, ' Rebate %...............:');
-  GOTOXY(FieldCol, 12);
-  WRITE(l.rebate:8:3);
+  PutRow(7, CONCAT(' Name...................: ', l.name));
+  PutRow(8, CONCAT(' Title..................: ', l.title));
+  IF (NOT sumValid) OR (sumLoan.loanAmt <> l.loanAmt) THEN
+  BEGIN
+    PutRow(9, ' Loan Amount............:');
+    GOTOXY(FieldCol, 9);
+    WRITE(l.loanAmt:12:2)
+  END;
+  IF (NOT sumValid) OR (sumLoan.months <> l.months) THEN
+  BEGIN
+    PutRow(10, ' Duration...............:');
+    GOTOXY(FieldCol, 10);
+    WRITE(l.months:6)
+  END;
+  IF (NOT sumValid) OR (sumLoan.rate <> l.rate) THEN
+  BEGIN
+    PutRow(11, ' Interest Rate %........:');
+    GOTOXY(FieldCol, 11);
+    WRITE(l.rate:8:3)
+  END;
+  IF (NOT sumValid) OR (sumLoan.rebate <> l.rebate) THEN
+  BEGIN
+    PutRow(12, ' Rebate %...............:');
+    GOTOXY(FieldCol, 12);
+    WRITE(l.rebate:8:3)
+  END;
   IF l.fixPay > 0.0 THEN
     payment := l.fixPay
   ELSE IF l.freePay THEN
@@ -585,41 +729,110 @@ BEGIN
     payment := Money(l.loanAmt / l.months)
   ELSE
     payment := 0.0;
-  PutRow(13, ' Monthly Payment........:');
-  GOTOXY(FieldCol, 13);
-  WRITE(payment:12:2);
-  IF l.freePay THEN
-    PutRow(14, ' No repayment...........: On')
-  ELSE
-    PutRow(14, ' No repayment...........: Off');
+  IF (NOT sumValid) OR (sumLoan.loanAmt <> l.loanAmt) OR
+     (sumLoan.months <> l.months) OR
+     (sumLoan.freePay <> l.freePay) OR
+     (sumLoan.fixPay <> l.fixPay) THEN
+  BEGIN
+    PutRow(13, ' Monthly Payment........:');
+    GOTOXY(FieldCol, 13);
+    WRITE(payment:12:2)
+  END;
+  IF (NOT sumValid) OR (sumLoan.freePay <> l.freePay) THEN
+    IF l.freePay THEN
+      PutRow(14, ' No repayment...........: On')
+    ELSE
+      PutRow(14, ' No repayment...........: Off');
   IF l.fixPay > 0.0 THEN
-    PutRow(15, ' Fixed monthly amount...: On')
-  ELSE
+  BEGIN
+    IF (NOT sumValid) OR
+       (sumLoan.fixPay <> l.fixPay) THEN
+      PutRow(15, ' Fixed monthly amount...: On')
+  END
+  ELSE IF (NOT sumValid) OR
+          (sumLoan.fixPay <> l.fixPay) THEN
     PutRow(15, ' Fixed monthly amount...: Off');
-  DateStr(l.starts, s);
-  PutRow(16, CONCAT(' Start Date.............: ', s))
+  IF (NOT sumValid) OR (sumLoan.starts.yy <> l.starts.yy) OR
+     (sumLoan.starts.mm <> l.starts.mm) OR
+     (sumLoan.starts.dd <> l.starts.dd) THEN
+  BEGIN
+    DateStr(l.starts, s);
+    PutRow(16, CONCAT(' Start Date.............: ', s))
+  END;
+  sumLoan := l;
+  sumValid := TRUE
 END;
 
 PROCEDURE MainScrn;
+VAR
+  i: INTEGER;
 BEGIN
-  NewScrn;
+  FOR i := 1 TO 6 DO ClearRow(i);
+  FOR i := 17 TO 22 DO ClearRow(i);
   IF current > 0 THEN
     LoanSum(loans[current])
   ELSE
-    PutRow(7, ' No loan selected')
+  BEGIN
+    PutRow(7, ' No loan selected');
+    FOR i := 8 TO 16 DO ClearRow(i);
+    sumValid := FALSE
+  END
 END;
 
 PROCEDURE ListLoan;
 VAR
-  i: INTEGER;
-  s: STRING[10];
+  i, firstLn, lastLoan, row: INTEGER;
+  pageText: STRING[40];
+  index: INTEGER;
+  changed: BOOLEAN;
 BEGIN
-  FOR i := 2 TO 22 DO ClearRow(i);
-  FOR i := 1 TO loanCnt DO
+  firstLn := loanPage * 19 + 1;
+  lastLoan := firstLn + 18;
+  IF lastLoan > loanCnt THEN lastLoan := loanCnt;
+  FOR row := 4 TO 22 DO
   BEGIN
-    GOTOXY(0, i + 2);
-    WRITE(' ', i:2, '. ', loans[i].name, CHR(29))
+    index := loanPage * 19 + row - 3;
+    IF index > lastLoan THEN index := 0;
+    changed := NOT lnRwOk[row - 3];
+    IF NOT changed THEN
+      changed := lnRwIdx[row - 3] <> index;
+    IF (NOT changed) AND (index > 0) THEN
+      changed := loanRows[row - 3] <> loans[index].name;
+    IF changed THEN
+    BEGIN
+      IF index > 0 THEN
+      BEGIN
+        GOTOXY(0, row);
+        WRITE(' ', index:2, '. ', loans[index].name, CHR(29));
+        loanRows[row - 3] := loans[index].name;
+        scrRows[row] := 'X';
+        rowKnown[row] := TRUE
+      END
+      ELSE
+      BEGIN
+        IF lnRwIdx[row - 3] > 0 THEN
+        BEGIN
+          GOTOXY(0, row);
+          WRITE(CHR(29));
+          scrRows[row] := '';
+          rowKnown[row] := TRUE
+        END
+      END;
+      lnRwIdx[row - 3] := index;
+      lnRwOk[row - 3] := TRUE
+    END
+  END;
+  IF loanCnt > 19 THEN
+  BEGIN
+    pageText := 'Page ';
+    IF loanPage = 0 THEN
+      pageText := CONCAT(pageText, '1')
+    ELSE
+      pageText := CONCAT(pageText, '2');
+    PutRow(2, CONCAT(pageText, ' - [ previous, ] next'))
   END
+  ELSE
+    ClearRow(2)
 END;
 
 FUNCTION ChooseLn(prompt: STRING): INTEGER;
@@ -659,7 +872,7 @@ BEGIN
   l.starts.mm := 1;
   l.starts.dd := 1;
   saved := FALSE;
-  NewScrn;
+  ClrBelow(2);
   REPEAT
     PutRow(2, CONCAT(' Name...................: ', l.name));
     PutRow(3, CONCAT(' Title..................: ', l.title));
@@ -744,12 +957,13 @@ VAR
   c: CHAR;
   n: INTEGER;
 BEGIN
+  loanPage := 0;
   NewScrn;
   ListLoan;
   REPEAT
     c := MenuLine(
-      'Loans: S(elect loan, N(ew loan, R(emove loan, Q(uit',
-      'SNRQ');
+      'Loans: S(elect, N(ew), R(emove), [previous, ]next, Q(uit',
+      'SNRQ[]');
     CASE c OF
       'S':
       BEGIN
@@ -760,12 +974,23 @@ BEGIN
           Status('Loan selected')
         END
       END;
-      'N': NewLoan;
-      'R': RemLoan
+      'N':
+      BEGIN
+        NewLoan;
+      END;
+      'R': RemLoan;
+      '[':
+        IF loanPage > 0 THEN loanPage := loanPage - 1;
+      ']':
+        IF (loanPage + 1) * 19 < loanCnt THEN
+          loanPage := loanPage + 1
     END;
+    IF loanCnt = 0 THEN
+      loanPage := 0
+    ELSE IF loanPage * 19 >= loanCnt THEN
+      loanPage := (loanCnt - 1) DIV 19;
     IF c <> 'Q' THEN
     BEGIN
-      NewScrn;
       ListLoan
     END
   UNTIL c = 'Q'
@@ -786,7 +1011,6 @@ BEGIN
   workLoan := loans[current];
   dirty := FALSE;
   done := FALSE;
-  NewScrn;
   REPEAT
     LoanSum(workLoan);
     menuTxt := 'Data: L(oan, D(uration, I(nterest, R(ebate, ';
@@ -892,31 +1116,144 @@ PROCEDURE RptHead;
 VAR
   dateText: STRING;
 BEGIN
-  REWRITE(rptFile, RptFName);
-  WRITELN(rptFile, 'LOANCALC - LINEAR LOAN REPORT');
-  WRITELN(rptFile, 'Loan: ', rl.name, '  ', rl.title);
+  IF rptDest = 'P' THEN REWRITE(rptFile, RptFName);
+  IF rptDest = 'S' THEN ClrBelow(0);
+  rptRow := 1;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'LOANCALC - LINEAR LOAN REPORT')
+    ELSE
+      WRITE('LOANCALC - LINEAR LOAN REPORT');
+    RptEnd(LENGTH('LOANCALC - LINEAR LOAN REPORT'))
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Loan: ', rl.name, '  ', rl.title)
+    ELSE
+      WRITE('Loan: ', rl.name, '  ', rl.title);
+    RptEnd(8 + LENGTH(rl.name) + LENGTH(rl.title))
+  END;
   DateStr(rl.starts, dateText);
-  WRITELN(rptFile, 'Start: ', dateText);
-  WRITELN(rptFile, 'Principal: ', rl.loanAmt:12:2);
-  WRITELN(rptFile, 'Annual interest %: ', rl.rate:8:3);
-  WRITELN(rptFile, 'Annual rebate %: ', rl.rebate:8:3);
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN WRITE(rptFile, 'Start: ', dateText)
+    ELSE WRITE('Start: ', dateText);
+    RptEnd(LENGTH('Start: ') + LENGTH(dateText))
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Principal: ')
+    ELSE
+      WRITE('Principal: ');
+    RptMoney(rl.loanAmt);
+    RptEnd(LENGTH('Principal: ') + 10)
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Annual interest %: ', rl.rate:8:3)
+    ELSE
+      WRITE('Annual interest %: ', rl.rate:8:3);
+    RptEnd(LENGTH('Annual interest %: ') + 8)
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Annual rebate %: ', rl.rebate:8:3)
+    ELSE
+      WRITE('Annual rebate %: ', rl.rebate:8:3);
+    RptEnd(LENGTH('Annual rebate %: ') + 8)
+  END;
+  RptPos;
   IF rl.freePay THEN
-    WRITELN(rptFile, 'No repayment: regular principal is zero')
+  BEGIN
+    IF NOT rptStop THEN
+    BEGIN
+      IF rptDest = 'P' THEN
+        WRITE(rptFile, 'No repayment: regular principal is zero')
+      ELSE
+        WRITE('No repayment: regular principal is zero');
+      RptEnd(LENGTH('No repayment: regular principal is zero'))
+    END
+  END
   ELSE IF rl.fixPay > 0.0 THEN
-    WRITELN(rptFile, 'Fixed monthly payment: ', rl.fixPay:12:2)
+  BEGIN
+    IF NOT rptStop THEN
+    BEGIN
+      IF rptDest = 'P' THEN
+        WRITE(rptFile, 'Fixed monthly payment: ')
+      ELSE
+        WRITE('Fixed monthly payment: ');
+      RptMoney(rl.fixPay);
+      RptEnd(LENGTH('Fixed monthly payment: ') + 10)
+    END
+  END
   ELSE
-    WRITELN(rptFile, 'Linear principal over ', rl.months:4, ' months');
-  WRITELN(rptFile, 'Interest: annual rate / 12, weighted by days');
-  WRITELN(rptFile, 'Month  Interest  Principal  Net principal');
-  WRITELN(rptFile, '       Extra     Balance    Rebate')
+  BEGIN
+    IF NOT rptStop THEN
+    BEGIN
+      IF rptDest = 'P' THEN
+        WRITE(rptFile, 'Linear principal over ', rl.months:4, ' months')
+      ELSE
+        WRITE('Linear principal over ', rl.months:4, ' months');
+      RptEnd(LENGTH('Linear principal over ') + 4 +
+             LENGTH(' months'))
+    END
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Interest: annual rate / 12, weighted by days')
+    ELSE
+      WRITE('Interest: annual rate / 12, weighted by days');
+    RptEnd(LENGTH('Interest: annual rate / 12, weighted by days'))
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile,
+            'Month     Interest  Principal  Net princ.      Extra      ',
+            'Balance        Rebate    ')
+    ELSE
+      WRITE('Month   Interest   Principal  Net princ. Extra      ',
+            'Balance        Rebate    ');
+    RptEnd(73)
+  END
 END;
 
 PROCEDURE RptYear;
 BEGIN
-  WRITELN(rptFile, 'Year ', rYr:4, ' totals ',
-          rYInt:10:2, rYPrin:10:2, rYNet:10:2);
-  WRITELN(rptFile, '       ', rYEx:10:2, rYBal:10:2,
-          rYReb:10:2);
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Year ', rYr:4, ' ')
+    ELSE
+      WRITE('Year ', rYr:4, ' ');
+    RptMoney(rYInt);
+    RptSpace;
+    RptMoney(rYPrin);
+    RptSpace;
+    RptMoney(rYNet);
+    RptSpace;
+    RptMoney(rYEx);
+    RptSpace;
+    RptMoney(rYBal);
+    RptSpace;
+    RptMoney(rYReb);
+    RptEnd(75)
+  END;
   rYInt := 0.0;
   rYPrin := 0.0;
   rYNet := 0.0;
@@ -978,7 +1315,15 @@ BEGIN
   BEGIN
     IF intAmt > rl.fixPay THEN
     BEGIN
-      WRITELN(rptFile, 'ERROR: fixed payment does not cover interest');
+      RptPos;
+      IF NOT rptStop THEN
+      BEGIN
+        IF rptDest = 'P' THEN
+          WRITE(rptFile, 'ERROR: fixed payment does not cover interest')
+        ELSE
+          WRITE('ERROR: fixed payment does not cover interest');
+        RptEnd(LENGTH('ERROR: fixed payment does not cover interest'))
+      END;
       rFail := TRUE
     END
     ELSE
@@ -1008,7 +1353,15 @@ BEGIN
         futExt := TRUE;
     IF NOT futExt THEN
     BEGIN
-      WRITELN(rptFile, 'ERROR: fixed payment only covers interest');
+      RptPos;
+      IF NOT rptStop THEN
+      BEGIN
+        IF rptDest = 'P' THEN
+          WRITE(rptFile, 'ERROR: fixed payment only covers interest')
+        ELSE
+          WRITE('ERROR: fixed payment only covers interest');
+        RptEnd(LENGTH('ERROR: fixed payment only covers interest'))
+      END;
       rFail := TRUE
     END
   END
@@ -1025,10 +1378,28 @@ BEGIN
   rYr := rBeg.yy;
   rHasRow := TRUE;
   MonthStr(rBeg, dateText);
-  WRITELN(rptFile, dateText,
-          intAmt:10:2, prAmt:10:2, netAmt:10:2);
-  WRITELN(rptFile, '       ', rEx:10:2, rBal:10:2,
-          rebAmt:10:2);
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, dateText)
+    ELSE
+      WRITE(dateText);
+    RptSpace;
+    RptMoney(intAmt);
+    RptSpace;
+    RptMoney(prAmt);
+    RptSpace;
+    RptMoney(netAmt);
+    RptSpace;
+    RptMoney(rEx);
+    RptSpace;
+    RptMoney(rBal);
+    RptSpace;
+    RptMoney(rebAmt);
+    RptEnd(73)
+  END;
+  IF rptDest = 'P' THEN RptTick;
   rYInt := rYInt + intAmt;
   rYPrin := rYPrin + prAmt;
   rYNet := rYNet + netAmt;
@@ -1045,16 +1416,33 @@ END;
 PROCEDURE RptTotal;
 BEGIN
   RptYear;
-  WRITELN(rptFile, 'TOTAL ', rTInt:10:2, rTPrin:10:2,
-          rTNet:10:2);
-  WRITELN(rptFile, '       ', rTEx:10:2, rBal:10:2,
-          rTReb:10:2)
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'TOTAL ')
+    ELSE
+      WRITE('TOTAL ');
+    RptMoney(rTInt);
+    RptSpace;
+    RptMoney(rTPrin);
+    RptSpace;
+    RptMoney(rTNet);
+    RptSpace;
+    RptMoney(rTEx);
+    RptSpace;
+    RptMoney(rBal);
+    RptSpace;
+    RptMoney(rTReb);
+    RptEnd(LENGTH('TOTAL ') + 65)
+  END
 END;
 
 PROCEDURE PrintRpt;
 VAR
   intAmt, prAmt, rebAmt, days, mNo: REAL;
   i: INTEGER;
+  c: CHAR;
 BEGIN
   IF current = 0 THEN
   BEGIN
@@ -1074,6 +1462,10 @@ BEGIN
     Status('Check loan percentages and payment options');
     EXIT(PrintRpt)
   END;
+  c := MenuLine('Report: S(creen, P(rinter, Q(uit', 'SPQ');
+  IF c = 'Q' THEN EXIT(PrintRpt);
+  rptDest := c;
+  rptStop := FALSE;
   Status('Writing report');
   RptHead;
   rBal := Money(rl.loanAmt);
@@ -1116,35 +1508,84 @@ BEGIN
   IF (rBal > 0.005) AND (rl.fixPay > 0.0) AND
      (mNo >= MaxTerm(rl.starts)) AND NOT rFail THEN
   BEGIN
-    WRITELN(rptFile, 'ERROR: loan was not paid before date limit');
+    RptPos;
+    IF NOT rptStop THEN
+    BEGIN
+      IF rptDest = 'P' THEN
+        WRITE(rptFile, 'ERROR: loan was not paid before date limit')
+      ELSE
+        WRITE('ERROR: loan was not paid before date limit');
+      RptEnd(LENGTH('ERROR: loan was not paid before date limit'))
+    END;
     rFail := TRUE
   END;
-  CLOSE(rptFile, LOCK);
-  IF rFail THEN
+  IF rptDest = 'P' THEN CLOSE(rptFile, LOCK);
+  IF rptStop THEN
+    Status('Report stopped')
+  ELSE IF rptDest = 'S' THEN
+    IF rFail THEN
+      Status('Report displayed; contains a payment error')
+    ELSE
+    BEGIN
+      Status('Report displayed');
+      Status('Press a key ');
+      READ(KEYBOARD, c);
+    END
+  ELSE IF rFail THEN
     Status('Report contains a payment error')
   ELSE
-    Status('Report saved as LOANREPORT.TEXT')
+    Status('Report file saved: LOANREPORT.TEXT')
 END;
 
 PROCEDURE ListExtr;
 VAR
   i, row: INTEGER;
   dateText: STRING;
+  changed: BOOLEAN;
 BEGIN
-  FOR i := 6 TO 22 DO ClearRow(i);
   row := 6;
   FOR i := 1 TO extCount DO
     IF (current > 0) AND
        (extras[i].loanName = loans[current].name) AND
-       (row < 22) THEN
+       (row <= 22) THEN
     BEGIN
-      DateStr(extras[i].paid, dateText);
-      GOTOXY(0, row);
-      WRITE(i:3, ' ', dateText);
-      GOTOXY(20, row);
-      WRITE(extras[i].amount:12:2, CHR(29));
+      changed := NOT exRwOk[row];
+      IF NOT changed THEN
+        changed := exRwIdx[row] <> i;
+      IF NOT changed THEN
+        changed := exRwDat[row].yy <> extras[i].paid.yy;
+      IF NOT changed THEN
+        changed := exRwDat[row].mm <> extras[i].paid.mm;
+      IF NOT changed THEN
+        changed := exRwDat[row].dd <> extras[i].paid.dd;
+      IF NOT changed THEN
+        changed := exRwAmt[row] <> extras[i].amount;
+      IF changed THEN
+      BEGIN
+        DateStr(extras[i].paid, dateText);
+        GOTOXY(0, row);
+        WRITE(i:3, ' ', dateText);
+        GOTOXY(20, row);
+        WRITE(extras[i].amount:12:2, CHR(29));
+        scrRows[row] := 'X';
+        rowKnown[row] := TRUE;
+        exRwIdx[row] := i;
+        exRwDat[row] := extras[i].paid;
+        exRwAmt[row] := extras[i].amount;
+        exRwOk[row] := TRUE
+      END;
       row := row + 1
-    END
+    END;
+  WHILE row <= 22 DO
+  BEGIN
+    IF exRwOk[row] AND (exRwIdx[row] > 0) THEN
+    BEGIN
+      ClearRow(row);
+      exRwIdx[row] := 0
+    END;
+    exRwOk[row] := TRUE;
+    row := row + 1
+  END
 END;
 
 PROCEDURE AddExtra;
@@ -1217,7 +1658,7 @@ BEGIN
     Status('Select a loan first');
     EXIT(PayMenu)
   END;
-  NewScrn;
+  ClrBelow(6);
   REPEAT
     ListExtr;
     c := MenuLine(
@@ -1255,6 +1696,16 @@ BEGIN
   current := 0;
   fieldRow := 0;
   fieldOld := '';
+  loanPage := 0;
+  WRITE(CHR(12));
+  FOR fieldRow := 0 TO 23 DO
+  BEGIN
+    scrRows[fieldRow] := '';
+    rowKnown[fieldRow] := TRUE
+  END;
+  FOR fieldRow := 1 TO 19 DO lnRwOk[fieldRow] := FALSE;
+  sumValid := FALSE;
+  fieldRow := 0;
   LoadData;
   MainMenu;
   WRITE(CHR(12))

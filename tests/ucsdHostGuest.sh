@@ -11,8 +11,8 @@ trap 'rm -rf "$tmp"' EXIT
 
 boot="$root/littlefs/ucsd/ApplePascal1-140K.dsk"
 rom="$root/littlefs/apple2/apple2e.rom"
-tools="$root/sdcard/retro/images/ucsd/ApplePascal2-640K.po"
-work="$root/sdcard/retro/images/ucsd/pascalWork1.po"
+tools="$root/assets/ucsd/ucsdDiskImages/ApplePascal2-640K.po"
+work="$root/assets/ucsd/ucsdDiskImages/pascalWork1.po"
 pas="$root/guest/ucsd/host/HOST.PAS"
 asm="$root/guest/ucsd/host/HOSTIO.ASM"
 scripts="$root/tests/ucsdHost"
@@ -37,6 +37,7 @@ open(d + 'LONG.TEXT', 'wb').write(b'x' * 250 + b'\n')
 open(d + 'PAGES.TEXT', 'wb').write(b''.join(b' ' * (n % 40) + (b'LINE %03d ' % n) + b'abcdefghij' * (n % 5) + b'\n' for n in range(150)))
 open(d + 'BIGFILE.DAT', 'wb').write(bytes(i % 251 for i in range(450000)))
 PYEOF
+cp "$root/assets/ucsd/LOANCALC/LOANCALC.TEXT" "$tmp/src/LOANCALC.TEXT"
 
 #-- Compile, assemble and link with the real guest tools; the sources are staged by the harness.
 "$tester" --pascal-script "$boot" "$rom" "$tools" "$work" "$pas" "$asm" "$scripts/build.txt" "$tmp/built.po"
@@ -49,7 +50,7 @@ UCSD_SKIP_STAGE=1 UCSD_EXCHANGE_DIR="$tmp/src" "$tester" --pascal-script "$boot"
 UCSD_SKIP_STAGE=1 UCSD_EXCHANGE_DIR="$tmp/put" "$tester" --pascal-script "$boot" "$rom" "$tools" \
   "$tmp/received.po" "$pas" "$asm" "$scripts/put.txt" "$tmp/sent.po"
 
-for name in HELLO.TXT EMPTY.TXT BIN.DAT B512.DAT B513.DAT B1000.DAT EIGHTK.DAT
+for name in HELLO.TXT EMPTY.TXT BIN.DAT B512.DAT B513.DAT B1000.DAT EIGHTK.DAT LOANCALC.TEXT
 do
   cmp "$tmp/src/$name" "$tmp/put/$name"
 done

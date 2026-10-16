@@ -10,6 +10,10 @@
   veldlengte (bijv. Name 24, Title 38, getallen 20, datum 10) om
   String overflows te voorkomen.
 - Code regels moegen maximaal 79 posities lang zijn!
+- UCSD Pascal 1.3 identifiers have only 8 significant characters. Keep every
+  variable, parameter, constant, type, field, function and procedure name to
+  at most 8 characters, and make names unique within their first 8 characters.
+  Check new and renamed identifiers against this limit before compiling.
 - Alle code, comments en userinterface language: Engels§
 - Doelstelling: Zo MIN mogelijk scherm veranderingen. Als er 1 regel veranderd, dan 
   alleen de verandering in die regel schrijven en de rest ongemoeid laten.
@@ -134,18 +138,22 @@ Invoer bij Select loan: nummer van de lening of <Ret> alleen is terug naar Loans
 
 Voorbeeld (Select loan):
 ------------
-00 |Loans: S(elect loan, N(ew loan, R(emove loan, Q(uit
+00 |Loans: S(elect, N(ew), R(emove), [previous, ]next, Q(uit
 01 |
-02 |  1. Lening A
-03 |  2. Lening B
-04 |  3. Speciale lening
-05 |  4. Enz...
-06 |
-07 | Select Loan number (<Ret> is exit): 
+02 |Select Loan number (<Ret> is exit):
+03 |
+04 |  1. Lening A
+05 |  2. Lening B
+06 |  3. Speciale lening
+07 |  4. Enz...
 08 |
 .. |
 23 |<status regel>
 ------------
+
+Loans are displayed in pages of up to 19 entries, starting at row 04, so
+the selection prompt and status row remain available. Use `[` and `]` to
+change pages when there are more than 19 loans.
 
 Invoer bij New loan: <Ret> alleen is terug naar Loans-menu
 
@@ -168,12 +176,13 @@ Voorbeeld (Remove loan):
 ------------
 00 |Loans: S(elect loan, N(ew loan, R(emove loan, Q(uit
 01 |
-02 |  1. Lening A
-03 |  2. Lening B
-04 |  3. Speciale lening
+02 |Remove Loan number (<Ret> is exit):
+03 |
+04 |  1. Lening A
+05 |  2. Lening B
+06 |  3. Speciale lening
 .. |  4. Enz...
 .. |
-.. |Remove Loan number (<Ret> is exit): 
 .. |
 23 |<Status regel>
 ------------
@@ -221,6 +230,19 @@ Wort er op "S" (Save) gedrukt dan verschijnt er op de status regel een
 melding "Saving data". Gaat dat goed dan wordt de regel "Data Saved".
 Is er een fout opgetreden dan verschijnt de melding "Error saving data".
 
+### Report menu
+
+The report menu offers `S(creen`, `P(rinter`, and `Q(uit`. Screen output is
+shown directly in pages and does not create a report file. The printer option
+writes `LOANREPORT.TEXT`. Report lines are at most 78 characters; a status dot
+is added for every monthly report block written to the printer file. The
+report is limited to 78 columns; screen output clears from the top-left with
+`CHR(11)` before the first report line. The monthly date column is 7 characters
+wide; each amount column is 10 characters, with one space between amounts.
+Amounts that cannot fit their signed 10-character `0.00` field are shown as
+`**********`. The month headings, monthly values and year/overall totals are
+each written on one line, with the extra, balance and rebate columns following
+net principal.
 
 
 
@@ -231,7 +253,8 @@ functionaliteit als loancalc.py (zonder PDF). Namen zijn uniek binnen de
 eerste 8 tekens.
 
 ## Status
-- Compileert zonder fouten (1241 regels, ~15000 woorden vrij).
+- De eerdere versie compileerde zonder fouten (1241 regels, ~15000 woorden
+  vrij); de wijzigingen hieronder moeten nog opnieuw worden gecompileerd.
 - Nog NIET functioneel getest in de emulator (rapport vergelijken met
   loancalc.py is open).
 
@@ -252,6 +275,9 @@ CONCAT, COPY, LENGTH, DELETE, ORD, CHR, TRUNC, ABS, GOTOXY, WRITE met
 VAR-parameters (STRING/record), WRITELN(textfile, ...), REAL-rekenwerk.
 
 ## Werkt NIET - niet opnieuw proberen
+- Identifiers have only 8 significant characters: names longer than 8 can
+  collide or fail to compile. Keep every declared name at 8 characters or
+  fewer; ensure the first 8 characters are unique.
 - EXIT zonder argument: fout 9. Gebruik EXIT(procnaam)  <- oorzaak van
   de ParseDat-fout (regel 451).
 - READ/WRITE op FILE OF record: fout 125. Gebruik f^, GET, PUT.
@@ -276,6 +302,8 @@ Aanroep: UCSD_STAGE_EXTRA="LOANCALC.TEXT=<pad>" apple2DiskTests
 
 ## Open
 - Run-test in emulator en vergelijken met loancalc.py.
+- Compile and emulator-test screen clearing, changed-row redraw, paged Loans
+  list, report destination menu, progress dots, and 79-column output.
 - MaxAmt = 1.0E12 en 79-kolomsregel zijn gecontroleerd/compileren; geen
   regels > 79.
 
@@ -302,6 +330,15 @@ Run-test: script `/tmp/loancalc-compile.txt` met `type`/`wait`/`run`/`dump`
    gebruik DELETE(s, n+1, LENGTH(s)-n) om in te korten.
 5. "Value range error" in SetField: old[1] op lege string, want AND
    kortsluit niet. Lus herschreven met vlag (geen BREAK in 1.3).
+
+## Loans-menu cijferinvoer en rapport (AANGEPAST, EMULATORTEST OPEN)
+- UCSD Pascal evalueert beide kanten van AND/OR; controleer een stringindex
+  daarom pas nadat de indexgrens apart is gecontroleerd. Een ongeldig cijfer
+  bij de Loans-menuopties mag alleen een BEL geven, geen Value range error.
+- `S` opent de selectieprompt; het leningnummer wordt daarna ingevoerd.
+- `S(cherm` schrijft het rapport direct naar het scherm, in pagina's, zonder
+  eerst `LOANREPORT.TEXT` te maken. `P(rinter` schrijft het bestand.
+- Scherm- en bestandsregels blijven maximaal 79 tekens breed.
 
 ## Data-menu "String overflow" (OPGELOST)
 - STRING-parameters/CONCAT-resultaten zijn maximaal 80 tekens; de Data-menutekst

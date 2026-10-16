@@ -46,8 +46,9 @@ destination" (GET) or "cannot read the local file" (PUT).
 * `DIR` - list the exchange directory
 * `T` (with GET or PUT) - text mode: GET converts an OS text file (LF, CR LF
   or CR line ends) to a Pascal TEXT file; PUT converts a Pascal TEXT file to
-  OS text. The name must end in `.TEXT` to be a Pascal TEXT file (GET notes it
-  if not); PUT T refuses other files.
+  OS text. The name must end in `.TEXT`; GET T refuses other names before
+  transferring, and PUT T refuses non-TEXT files. For example, use
+  `GET LOANCALC.TEXT T O`, not `GET LOANCALC.TEST T O`.
 * `W` (only with `T`) - PUT ends lines with CR LF instead of LF. GET accepts
   both, so W has no effect there.
 * Options may be given in any order, each once: `GET SPIRO.TEXT T`,
