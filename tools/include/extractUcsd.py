@@ -1,4 +1,4 @@
-"""UCSD Pascal file operations for extractFiles.py: list, add, extract and remove."""
+"""UCSD Pascal disk operations; menu options 7 and 10 use Dest. Path."""
 
 import sys
 from pathlib import Path
@@ -66,7 +66,7 @@ def openPascal(imagePath):
 
 def run(arguments):
     if not arguments.image and not (arguments.add or arguments.remove or arguments.extract):
-        return core.main(["extractFiles"])
+        return core.main(["extractFiles"], ucsdMode=True)
     try:
         volume = openPascal(arguments.image)
         if arguments.add:

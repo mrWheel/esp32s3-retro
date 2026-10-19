@@ -1,0 +1,29 @@
+PROGRAM LOANCALC;
+USES
+  (*$U :LOANBASE.CODE *)
+  LOANBASE,
+  (*$U :LOANRPT.CODE *)
+  LOANRPT;
+
+PROCEDURE MainMenu;
+VAR
+  c: CHAR;
+BEGIN
+  REPEAT
+    MainScrn;
+    c := MenuLine(
+      'LOANCALC: L(oans, D(ata, E(xtra, P(rint, Q(uit',
+      'LDEPQ');
+    CASE c OF
+      'L': LoanMenu;
+      'D': DataMenu;
+      'E': PayMenu;
+      'P': PrintRpt
+    END
+  UNTIL c = 'Q'
+END;
+
+BEGIN
+  Initialize;
+  MainMenu
+END.

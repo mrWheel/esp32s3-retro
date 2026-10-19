@@ -11,6 +11,7 @@ import datetime
 import fnmatch
 import os
 import sys
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +25,13 @@ DOS_IMAGE_SIZE = 143360
 
 #-- ProDOS block half (0..15 within a track) to DOS 3.3 logical sector
 PRODOS_TO_DOS_SECTOR = [0, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 15]
+DOS_SECTOR_OF_PHYSICAL = [0, 7, 14, 6, 13, 5, 12, 4, 11, 3, 10, 2, 9, 1, 8, 15]
+GCR_WRITE_TABLE = (
+  0x96, 0x97, 0x9A, 0x9B, 0x9D, 0x9E, 0x9F, 0xA6, 0xA7, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB2, 0xB3,
+  0xB4, 0xB5, 0xB6, 0xB7, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xCB, 0xCD, 0xCE, 0xCF, 0xD3,
+  0xD6, 0xD7, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF, 0xE5, 0xE6, 0xE7, 0xE9, 0xEA, 0xEB, 0xEC,
+  0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF,
+)
 
 PRODOS_TYPE_NAMES = {
   0x00: "NON", 0x01: "BAD", 0x04: "TXT", 0x06: "BIN", 0x0B: "PCD", 0x0C: "PTX",
@@ -77,7 +85,24 @@ class DiskImage:
     self.path = Path(path).expanduser()
     if not self.path.is_file():
       raise ToolError(f"image not found: {self.path}")
-    self.data = bytearray(self.path.read_bytes())
+    imageData = self.path.read_bytes()
+    self.wozData = None
+    self.wozSectorOffsets = None
+    self.wozWriteProtected = False
+    self.twoImgData = None
+    self.twoImgDataOffset = None
+    self.twoImgDataLength = None
+    self.twoImgWriteProtected = False
+    self.twoImgOrder = None
+    if imageData[:4] == b"2IMG":
+      (self.twoImgData, self.data, self.twoImgDataOffset, self.twoImgDataLength,
+       self.twoImgOrder, self.twoImgWriteProtected) = decodeTwoImg(imageData)
+      self.twoImgBaseData = bytes(self.data)
+    elif imageData[:4] in (b"WOZ1", b"WOZ2"):
+      self.wozData, self.data, self.wozSectorOffsets, self.wozWriteProtected = decodeWoz(imageData)
+      self.wozBaseData = bytes(self.data)
+    else:
+      self.data = bytearray(imageData)
     self.order = "prodos"
 
   @property
@@ -85,6 +110,8 @@ class DiskImage:
     return len(self.data) // BLOCK_SIZE
 
   def sectorOffset(self, track, dosSector):
+    if self.wozData is not None:
+      return (track * 16 + dosSector) * 256
     if self.order == "dos":
       return (track * 16 + dosSector) * 256
     return (track * 16 + PRODOS_TO_DOS_SECTOR.index(dosSector)) * 256
@@ -98,6 +125,13 @@ class DiskImage:
   def blockOffsets(self, block):
     if block < 0 or block >= self.blockCount:
       raise ToolError(f"block {block} outside image")
+    if self.wozData is not None and self.order == "prodos":
+      track = block // 8
+      half = (block % 8) * 2
+      return [
+        self.sectorOffset(track, PRODOS_TO_DOS_SECTOR[half]),
+        self.sectorOffset(track, PRODOS_TO_DOS_SECTOR[half + 1]),
+      ]
     if self.order == "prodos":
       return [block * BLOCK_SIZE]
     track = block // 8
@@ -121,7 +155,224 @@ class DiskImage:
       self.data[offsets[1]:offsets[1] + 256] = buf[256:]
 
   def save(self):
+    if self.twoImgData is not None:
+      if self.twoImgWriteProtected and bytes(self.data) != self.twoImgBaseData:
+        raise ToolError("2IMG image is marked write-protected")
+      imageData = bytearray(self.twoImgData)
+      start = self.twoImgDataOffset
+      imageData[start:start + self.twoImgDataLength] = self.data
+      self.path.write_bytes(imageData)
+      self.twoImgData = bytes(imageData)
+      self.twoImgBaseData = bytes(self.data)
+      return
+    if self.wozData is not None:
+      if self.wozWriteProtected and bytes(self.data) != self.wozBaseData:
+        raise ToolError("WOZ image is marked write-protected")
+      imageData = bytearray(self.wozData)
+      for track in range(35):
+        for dosSector in range(16):
+          sector = track * 16 + dosSector
+          start = sector * 256
+          current = bytes(self.data[start:start + 256])
+          original = self.wozBaseData[start:start + 256]
+          if current == original:
+            continue
+          bitOffset = self.wozSectorOffsets.get((track, dosSector))
+          if bitOffset is None:
+            raise ToolError(f"WOZ track {track} is missing sector {dosSector}; cannot save changes")
+          encoded = encodeWozSector(current)
+          for index, value in enumerate(encoded):
+            writeWozByte(imageData, bitOffset + index * 8, value)
+      imageData[8:12] = (zlib.crc32(imageData[12:]) & 0xFFFFFFFF).to_bytes(4, "little")
+      self.path.write_bytes(imageData)
+      self.wozData = bytes(imageData)
+      self.wozBaseData = bytes(self.data)
+      return
     self.path.write_bytes(bytes(self.data))
+
+
+def decodeTwoImg(imageData):
+  if len(imageData) < 64:
+    raise ToolError("invalid 2IMG header: header is shorter than 64 bytes")
+  headerSize = int.from_bytes(imageData[8:10], "little")
+  imageFormat = int.from_bytes(imageData[12:16], "little")
+  flags = int.from_bytes(imageData[16:20], "little")
+  blockCount = int.from_bytes(imageData[20:24], "little")
+  dataOffset = int.from_bytes(imageData[24:28], "little")
+  dataLength = int.from_bytes(imageData[28:32], "little")
+  if headerSize < 64 or dataOffset < headerSize or dataOffset + dataLength > len(imageData):
+    raise ToolError("invalid 2IMG header or data bounds")
+  if imageFormat not in (0, 1):
+    raise ToolError(f"unsupported 2IMG sector order {imageFormat}")
+  if dataLength == 0 or dataLength % BLOCK_SIZE:
+    raise ToolError("2IMG data length must contain whole 512-byte blocks")
+  if blockCount and blockCount != dataLength // BLOCK_SIZE:
+    raise ToolError("2IMG block count does not match its data length")
+  imageDataBytes = bytearray(imageData[dataOffset:dataOffset + dataLength])
+  return (bytes(imageData), imageDataBytes, dataOffset, dataLength, "dos" if imageFormat == 0 else "prodos",
+          bool(flags & 0x80000000))
+
+
+def readWozByte(data, bitOffset):
+  byteOffset, shift = divmod(bitOffset, 8)
+  if shift == 0:
+    return data[byteOffset]
+  return ((data[byteOffset] << 8 | data[(byteOffset + 1) % len(data)]) >> (8 - shift)) & 0xFF
+
+
+def writeWozByte(data, bitOffset, value):
+  for index in range(8):
+    bit = (value >> (7 - index)) & 1
+    position = bitOffset + index
+    offset, bitIndex = divmod(position, 8)
+    mask = 1 << (7 - bitIndex)
+    data[offset] = (data[offset] | mask) if bit else (data[offset] & ~mask)
+
+
+def decodeWozTrack(trackData, bitCount, expectedTrack, sectors, sectorOffsets, trackFileOffset):
+  prologues = []
+  window = 0
+  for bitOffset in range(bitCount):
+    byte = trackData[bitOffset >> 3]
+    bit = (byte >> (7 - (bitOffset & 7))) & 1
+    window = ((window << 1) | bit) & 0xFFFFFF
+    if bitOffset >= 23:
+      if window == 0xD5AA96:
+        prologues.append((bitOffset - 23, 0x96))
+      elif window == 0xD5AAAD:
+        prologues.append((bitOffset - 23, 0xAD))
+
+  dataPrologues = [position for position, kind in prologues if kind == 0xAD]
+  addressPrologues = [position for position, kind in prologues if kind == 0x96]
+  decodeTable = {value: index for index, value in enumerate(GCR_WRITE_TABLE)}
+  for addressOffset in addressPrologues:
+    headerOffset = addressOffset + 24
+    if headerOffset + 64 >= bitCount:
+      continue
+    header = [readWozByte(trackData, headerOffset + index * 8) for index in range(8)]
+    decoded = [((header[index] << 1) | 1) & header[index + 1] for index in (0, 2, 4, 6)]
+    volume, track, sector, checksum = decoded
+    if track != expectedTrack or sector >= 16 or checksum != (volume ^ track ^ sector):
+      continue
+    dataOffset = next(
+      (position for position in dataPrologues if headerOffset + 88 <= position < headerOffset + 800),
+      None,
+    )
+    if dataOffset is None:
+      continue
+    encoded = None
+    fieldOffset = None
+    for shift in range(24, 32):
+      if dataOffset + shift + 343 * 8 >= bitCount:
+        continue
+      candidate = bytes(readWozByte(trackData, dataOffset + shift + index * 8) for index in range(343))
+      if any(nibble not in decodeTable for nibble in candidate):
+        continue
+      previous = 0
+      values = []
+      for nibble in candidate[:342]:
+        previous = decodeTable[nibble] ^ previous
+        values.append(previous)
+      epilogue = dataOffset + shift + 343 * 8
+      if (decodeTable[candidate[342]] == previous and
+          readWozByte(trackData, epilogue) == 0xDE and
+          readWozByte(trackData, epilogue + 8) == 0xAA):
+        encoded = candidate
+        fieldOffset = dataOffset + shift
+        decodedValues = values
+        break
+    if encoded is None:
+      continue
+    sectorData = bytearray(256)
+    for index in range(256):
+      reversedLow = (decodedValues[index % 86] >> (2 * (index // 86))) & 3
+      low = ((reversedLow & 1) << 1) | (reversedLow >> 1)
+      sectorData[index] = (decodedValues[86 + index] << 2) | low
+    logicalSector = DOS_SECTOR_OF_PHYSICAL[sector]
+    sectorIndex = expectedTrack * 16 + logicalSector
+    start = sectorIndex * 256
+    sectors[start:start + 256] = sectorData
+    sectorOffsets[(expectedTrack, logicalSector)] = trackFileOffset * 8 + fieldOffset
+
+
+def decodeWoz(imageData):
+  if len(imageData) < 12 or imageData[4:8] != b"\xFF\x0A\x0D\x0A":
+    raise ToolError("invalid WOZ image header")
+  version = imageData[:4]
+  chunks = {}
+  offset = 12
+  while offset + 8 <= len(imageData):
+    tag = imageData[offset:offset + 4]
+    length = int.from_bytes(imageData[offset + 4:offset + 8], "little")
+    start = offset + 8
+    end = start + length
+    if end > len(imageData):
+      raise ToolError("truncated WOZ image chunk")
+    chunks[tag] = (start, end)
+    offset = end
+  if b"INFO" not in chunks or b"TMAP" not in chunks or b"TRKS" not in chunks:
+    raise ToolError("WOZ image is missing its INFO, TMAP or TRKS chunk")
+
+  infoStart, infoEnd = chunks[b"INFO"]
+  info = imageData[infoStart:infoEnd]
+  if len(info) != 60 or info[0] != int(version[-1:]):
+    raise ToolError("invalid WOZ INFO chunk")
+
+  tmapStart, tmapEnd = chunks[b"TMAP"]
+  tmap = imageData[tmapStart:tmapEnd]
+  if len(tmap) != 160:
+    raise ToolError("invalid WOZ TMAP chunk")
+  tracks = {}
+  tracksStart, tracksEnd = chunks[b"TRKS"]
+  if version == b"WOZ1":
+    recordSize = 6656
+    for index in range(min(160, (tracksEnd - tracksStart) // recordSize)):
+      record = tracksStart + index * recordSize
+      bytesUsed = int.from_bytes(imageData[record + 6646:record + 6648], "little")
+      bitCount = int.from_bytes(imageData[record + 6648:record + 6650], "little")
+      start = record
+      if bytesUsed and bytesUsed <= 6646 and bitCount and bitCount <= bytesUsed * 8:
+        tracks[index] = (imageData[start:start + bytesUsed], bitCount, start)
+  else:
+    if tracksEnd - tracksStart < 1280:
+      raise ToolError("invalid WOZ2 TRKS chunk")
+    for index in range(160):
+      descriptor = tracksStart + index * 8
+      startBlock = int.from_bytes(imageData[descriptor:descriptor + 2], "little")
+      blockCount = int.from_bytes(imageData[descriptor + 2:descriptor + 4], "little")
+      bitCount = int.from_bytes(imageData[descriptor + 4:descriptor + 8], "little")
+      size = (bitCount + 7) // 8
+      start = startBlock * 512
+      if startBlock >= 3 and blockCount and bitCount and size <= blockCount * 512 and start + size <= len(imageData):
+        tracks[index] = (imageData[start:start + size], bitCount, start)
+
+  sectors = bytearray(35 * 16 * 256)
+  sectorOffsets = {}
+  for track in range(35):
+    trackIndex = tmap[track * 4]
+    if trackIndex == 0xFF or trackIndex not in tracks:
+      continue
+    trackData, bitCount, trackFileOffset = tracks[trackIndex]
+    decodeWozTrack(trackData, min(bitCount, len(trackData) * 8), track, sectors, sectorOffsets, trackFileOffset)
+  if len(sectorOffsets) < 35 * 16:
+    raise ToolError("WOZ image does not contain a complete 35-track, 16-sector disk")
+  return bytes(imageData), sectors, sectorOffsets, bool(info[2])
+
+
+def encodeWozSector(data):
+  values = [0] * 342
+  for index, value in enumerate(data):
+    low = value & 3
+    reversedLow = ((low & 1) << 1) | (low >> 1)
+    values[index % 86] |= reversedLow << (2 * (index // 86))
+    values[86 + index] = value >> 2
+  encoded = bytearray()
+  previous = 0
+  for value in values:
+    encoded.append(GCR_WRITE_TABLE[value ^ previous])
+    previous = value
+  encoded.append(GCR_WRITE_TABLE[previous])
+  return bytes(encoded)
 
 
 def prodosDateText(dateWord, minute, hour):
@@ -629,7 +880,9 @@ class PascalVolume:
 #-- ---------------------------------------------------------------- program
 
 def openVolume(image):
-  if len(image.data) == DOS_IMAGE_SIZE:
+  if image.twoImgData is not None:
+    orders = [image.twoImgOrder]
+  elif len(image.data) == DOS_IMAGE_SIZE:
     suffix = image.path.suffix.lower()
     orders = ["prodos", "dos"] if suffix == ".po" else ["dos", "prodos"]
   else:
@@ -862,28 +1115,29 @@ def setupLineEditing():
 def promptPath(label, baseDir=""):
   global pathPromptActive, pathBaseDir
   pathPromptActive = True
-  pathBaseDir = baseDir
+  pathBaseDir = os.path.join(baseDir, "") if baseDir else ""
   try:
     text = input(label).strip()
   finally:
     pathPromptActive = False
     pathBaseDir = ""
   if text and baseDir and not text.startswith(("/", "~")):
-    text = baseDir + text
+    text = os.path.join(baseDir, text)
   return text
 
 
-def loadVolume(text, otherImage, baseDirectory=None):
+def loadVolume(text, otherImage, baseDirectory=None, opener=None):
   path = resolveImagePath(text, baseDirectory)
-  if otherImage is not None and otherImage.path.samefile(path):
-    image = otherImage
-  else:
-    image = DiskImage(path)
+  shared = otherImage if otherImage is not None and otherImage.path.samefile(path) else None
+  if opener is not None:
+    #-- other operating systems supply their own (path, shared image) -> (image, volume)
+    return opener(path, shared)
+  image = shared if shared is not None else DiskImage(path)
   return image, openVolume(image)
 
 
 class Session:
-  def __init__(self):
+  def __init__(self, ucsdMode=False, opener=None):
     self.sourceImage = None
     self.source = None
     self.destImage = None
@@ -892,10 +1146,12 @@ class Session:
     self.pathDestination = None
     self.extractToFolder = False
     self.copyFromFolder = False
+    self.ucsdMode = ucsdMode
+    self.opener = opener
 
   def showSource(self):
     label = "Copy File from Folder" if self.copyFromFolder else (self.sourceImage.path.name if self.sourceImage else '<empty>')
-    print(f"3 - Source disk [{label}]")
+    print(f"2 - Source disk [{label}]")
 
   def showDestination(self):
     label = "Extract File to Folder" if self.extractToFolder else (self.destImage.path.name if self.destImage else '<empty>')
@@ -907,7 +1163,7 @@ class Session:
 
   def showDestinationPath(self):
     path = displayDirectoryPath(self.pathDestination) if self.pathDestination else '<empty>'
-    print(f"2 - Dest. path [{path}]")
+    print(f"3 - Dest. path [{path}]")
 
   def setSourcePath(self, text):
     self.pathSource = resolveDirectoryPath(text)
@@ -915,8 +1171,13 @@ class Session:
   def setDestinationPath(self, text):
     self.pathDestination = resolveDirectoryPath(text)
 
+  def load(self, text, otherImage, baseDirectory):
+    if self.opener is None:
+      return loadVolume(text, otherImage, baseDirectory)
+    return loadVolume(text, otherImage, baseDirectory, self.opener)
+
   def setSource(self, text):
-    image, volume = loadVolume(text, self.destImage, self.pathSource)
+    image, volume = self.load(text, self.destImage, self.pathSource)
     self.sourceImage, self.source = image, volume
     self.copyFromFolder = False
 
@@ -927,15 +1188,15 @@ class Session:
     self.copyFromFolder = True
 
   def setDestination(self, text):
-    image, volume = loadVolume(text, self.sourceImage, self.pathDestination)
+    image, volume = self.load(text, self.sourceImage, self.pathDestination)
     if not volume.writable:
-      raise ToolError("dest must be a ProDOS or UCSD Pascal image")
+      raise ToolError("dest must be a writable disk image")
     self.destImage, self.dest = image, volume
     self.extractToFolder = False
 
   def setFolderDestination(self):
     if self.pathDestination is None:
-      raise ToolError("dest path is empty; select it with menu option 2")
+      raise ToolError("dest path is empty; select it with menu option 3")
     self.destImage, self.dest = None, None
     self.extractToFolder = True
 
@@ -943,7 +1204,7 @@ class Session:
     directory = self.pathSource if role == "source" else self.pathDestination
     if directory is None:
       pathName = "source" if role == "source" else "dest"
-      raise ToolError(f"{pathName} path is empty; select it with menu option {'1' if role == 'source' else '2'}")
+      raise ToolError(f"{pathName} path is empty; select it with menu option {'1' if role == 'source' else '3'}")
     try:
       files = sorted((path for path in directory.iterdir() if path.is_file()),
                      key=lambda path: path.name.casefold())
@@ -957,14 +1218,14 @@ class Session:
         raise ToolError("source path is empty; select it with menu option 1")
       return FolderSource(self.pathSource)
     if self.source is None:
-      raise ToolError("source disk is empty; select it with menu option 3")
+      raise ToolError("source disk is empty; select it with menu option 2")
     return self.source
 
   def requireDestination(self, forCopy=False):
     if self.extractToFolder:
       if forCopy:
         if self.pathDestination is None:
-          raise ToolError("dest path is empty; select it with menu option 2")
+          raise ToolError("dest path is empty; select it with menu option 3")
         return FolderDestination(self.pathDestination)
       raise ToolError("destination is a folder; select a disk image with menu option 4 to list or remove files")
     if self.dest is None:
@@ -1040,6 +1301,26 @@ def copyFromSource(session):
   copyFile(source, dest, nameIn, nameOut)
 
 
+def getOneFileFromSource(session):
+  source = session.requireSource()
+  targetPath = session.pathDestination
+  if targetPath is None:
+    raise ToolError("dest path is empty; select it with menu option 3")
+  entries = [entry for entry in source.listFiles() if not entry.isDir]
+  selected = chooseNumber(entries, "Select file number or enter a file name: ", allowName=True)
+  if selected is None:
+    return
+  entry = selected if isinstance(selected, Entry) else findEntry(source, selected)
+  nameOut = input(f"Name in destination [{Path(entry.path).name}]: ").strip() or Path(entry.path).name
+  exported = source.exportFile(entry)
+  if isinstance(source, PascalVolume) and exported.pascalKind == 3:
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "include"))
+    import extractUcsd
+    exported.data = extractUcsd.ucsdTextToHost(exported.data)
+  target = FolderDestination(targetPath).importFile(nameOut, exported)
+  print(f"extracted '{entry.path}' -> '{target}' ({len(exported.data)} bytes)")
+
+
 def removeFromDestination(session):
   dest = session.requireDestination()
   entries = [entry for entry in dest.listFiles() if not entry.isDir]
@@ -1052,7 +1333,12 @@ def removeFromDestination(session):
 
 def addHostFile(session):
   dest = session.requireDestination()
-  text = promptPath("Full path of file to add: ")
+  label = "Full path of file to add: "
+  baseDirectory = ""
+  if session.ucsdMode and session.pathDestination is not None:
+    label = f"Full path of file to add [Dest. Path: {session.pathDestination}]: "
+    baseDirectory = str(session.pathDestination)
+  text = promptPath(label, baseDirectory)
   hostPath = Path(text).expanduser()
   if not hostPath.is_file():
     raise ToolError(f"file not found: {hostPath}")
@@ -1060,7 +1346,7 @@ def addHostFile(session):
   data = hostPath.read_bytes()
   suffix = hostPath.suffix.upper()
   pascalKind = {".TEXT": 3, ".CODE": 2}.get(suffix, 5)
-  if isinstance(dest, PascalVolume) and pascalKind == 3:
+  if isinstance(dest, PascalVolume) and suffix == ".TEXT":
     sys.path.insert(0, str(Path(__file__).resolve().parent / "include"))
     import extractUcsd
     data = extractUcsd.hostTextToUcsd(data)
@@ -1090,23 +1376,24 @@ def listFilesOnDestination(session):
 def showMenu(session):
   print()
   session.showSourcePath()
-  session.showDestinationPath()
   session.showSource()
+  session.showDestinationPath()
   session.showDestination()
   print("5 - List files on Source (L)")
   print("6 - List files on Destination")
-  print("7 - Copy file from Source to Destination (C)")
-  print("8 - Remove file from Destination")
-  print("9 - Add one specific file (full path) to Destination (A)")
-  print("0 - Quit (Q)")
+  print("7 - Get one specific file From Source")
+  print("8 - Copy file from Source to Destination (C)")
+  print("9 - Remove file from Destination")
+  print("10 - Add one specific file (full path) to Destination (A)")
+  print("Q - Quit")
 
 
-def main(argv):
+def main(argv, ucsdMode=False, opener=None):
   if len(argv) != 1:
     print(__doc__)
     return 1
   setupLineEditing()
-  session = Session()
+  session = Session(ucsdMode, opener)
   while True:
     showMenu(session)
     try:
@@ -1120,23 +1407,25 @@ def main(argv):
       elif option == "1":
         setPath(session, "source")
       elif option == "2":
-        setPath(session, "destination")
-      elif option == "3":
         selectDisk(session, "source")
+      elif option == "3":
+        setPath(session, "destination")
       elif option == "4":
         selectDisk(session, "destination")
       elif option in ("5", "L"):
         listFilesOnSource(session)
       elif option == "6":
         listFilesOnDestination(session)
-      elif option in ("7", "C"):
+      elif option == "7":
+        getOneFileFromSource(session)
+      elif option in ("8", "C"):
         copyFromSource(session)
-      elif option == "8":
+      elif option == "9":
         removeFromDestination(session)
-      elif option in ("9", "A"):
+      elif option in ("10", "A"):
         addHostFile(session)
       else:
-        print("Select an option from 0 to 9, or L, C, A, or Q.")
+        print("Select an option from 1 to 10, or L, C, A, or Q.")
     except (ToolError, ValueError) as error:
       print(f"error: {error}")
     except EOFError:

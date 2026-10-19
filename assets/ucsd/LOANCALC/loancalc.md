@@ -295,10 +295,43 @@ VAR-parameters (STRING/record), WRITELN(textfile, ...), REAL-rekenwerk.
 - INTEGER max 32767.
 
 ## Compileren in de emulator
-Zie /tmp-script: F, P, WORK1:, Q, C, WORK1:LOANCALC, WORK1:LOANCALC.
-Aanroep: UCSD_STAGE_EXTRA="LOANCALC.TEXT=<pad>" apple2DiskTests
---pascal-script <boot.dsk> <rom> <tools.po> <work.po> HOST.PAS HOSTIO.ASM
-<script> <out.po>  (volgorde boot, rom, tools, work).
+Gebruik de Apple Pascal Filer op een kopie van de schrijfbare `WORK1:`-disk.
+Zet met optie 9 eerst `LOANBASE.TEXT`, `LOANRPT.TEXT` en `LOANCALC.TEXT`
+op die disk. `extractFiles.py --os ucsd` zet `.TEXT`-hostbestanden om naar
+Pascal TEXT met header en tekstpagina's.
+
+Stel in de Filer de prefix in op `WORK1:` (`P`, `WORK1:`, `Q`). Compileer
+vervolgens in deze volgorde; laat bij iedere compile de listingvraag leeg:
+
+1. `C`, source `LOANBASE`, codefile `LOANBASE`
+2. `C`, source `LOANRPT`, codefile `LOANRPT`
+3. `C`, source `LOANCALC`, codefile `LOANCALC`
+4. `L`, host `LOANCALC`, library `LOANBASE`, extra library `LOANRPT`,
+   daarna Return voor geen extra library en geen mapfile; output `LOANX`
+5. Execute `WORK1:LOANX`
+
+Compileer de units opnieuw als ze gewijzigd zijn, en compileer daarna ook
+`LOANCALC` opnieuw. De `USES`-regels verwijzen met `(*$U WORK1:... *)` naar
+de al gecompileerde `.CODE`-units. Een compile van `LOANCALC.TEXT` voordat
+`LOANBASE.CODE` en `LOANRPT.CODE` op `WORK1:` bestaan kan daarom op de
+`USES`-regel fout 187 geven; dat is geen syntaxfout op `USES`.
+
+### Vastgelegde emulatorstappen
+
+| Stap | Uitkomst |
+|---|---|
+| Omzetting van de drie hostbronnen met `extractFiles.py --os ucsd` | GEWERKT: alle drie zijn als Pascal TEXT op de tijdelijke `WORK1:` gezet. |
+| Compile `LOANBASE.TEXT` naar `LOANBASE.CODE` | GEWERKT: compiler meldde `1205 lines`, zonder fout. |
+| Compile `LOANRPT.TEXT` naar `LOANRPT.CODE` met `LOANBASE.CODE` beschikbaar | GEWERKT: compiler meldde `612 lines`, zonder fout. |
+| Compile `LOANCALC.TEXT` naar `LOANCALC.CODE` met beide units beschikbaar | GEWERKT: compiler meldde `121 lines`, zonder fout. De `USES`-syntax en `$U`-paden zijn hiermee bevestigd. |
+| Link `LOANCALC` met libraries `LOANBASE` en `LOANRPT` naar `LOANX` | GEWERKT: linker meldde `Linking LOANBASE # 7`, `LOANRPT # 8` en `LOANCALC # 1`; `LOANX.CODE` is aangemaakt. |
+| Execute van `LOANX` en functionele menutest | NIET BEVESTIGD: de eerste testsessie stopte op een verkeerde verwachte prompt (`Execute what codefile`; de Filer toont `Execute what file`). De gecorrigeerde poging meldde daarna `Required library files are not present`. Dus compile en link zijn bewezen, maar starten en werking nog niet; hier niet als geslaagd rapporteren. |
+| Gemelde `Line 2, error 187` op `USES` | GEREPRODUCEERD wanneer `USES HOST` geen `$U`-bibliotheekpad had: de compiler kon de unit niet vinden via zijn standaardbibliotheek. Dezelfde kleine test compileerde WEL met `(*$U WORK1:LOANBASE.CODE *)` vóór de unitnaam. De definitieve `LOANCALC.TEXT` met beide paden compileerde ook WEL, nadat beide units eerst gebouwd waren. Controleer dus pad, prefix en compileervolgorde; verander de `USES`-syntaxis niet opnieuw. |
+
+Emulator-scriptinterface voor geautomatiseerde tests:
+`UCSD_SKIP_STAGE=1 apple2DiskTests --pascal-script <boot.dsk> <rom>
+<tools.po> <work.po> HOST.PAS HOSTIO.ASM <script> <out.po>`.
+Volgorde van de vier media-argumenten: boot, ROM, tools, work.
 
 ## Open
 - Run-test in emulator en vergelijken met loancalc.py.

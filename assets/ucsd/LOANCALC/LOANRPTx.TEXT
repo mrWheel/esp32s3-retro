@@ -1,0 +1,531 @@
+(*$S+*)
+UNIT LOANRPT;
+INTERFACE
+(*$U :LOANBASE.CODE *)
+USES LOANBASE;
+
+TYPE
+  TextFTyp = TEXT;
+
+VAR
+  rptFile: TextFTyp;
+
+PROCEDURE PrintRpt;
+IMPLEMENTATION
+
+CONST
+  RptMax = 9999999.99;
+  RptMin = -999999.99;
+  RptFName = 'LOANREPORT.TEXT';
+
+VAR
+  rptDest: CHAR;
+  rptRow: INTEGER;
+  rptStop: BOOLEAN;
+  rl: LoanType;
+  rBeg, rEnd, rCur: DateType;
+  rBal, rWInt, rWReb, rEx: REAL;
+  rYInt, rYPrin, rYNet, rYEx, rYReb, rYBal: REAL;
+  rTInt, rTPrin, rTNet, rTEx, rTReb: REAL;
+  rYr: INTEGER;
+  rUsed: ARRAY[1..MaxExtra] OF BOOLEAN;
+  rFail, rHasRow: BOOLEAN;
+
+PROCEDURE RptEnd(lineLen: INTEGER);
+VAR
+  i: INTEGER;
+BEGIN
+  IF NOT rptStop THEN
+  BEGIN
+    FOR i := lineLen + 1 TO 78 DO
+      IF rptDest = 'P' THEN
+        WRITE(rptFile, ' ')
+      ELSE
+        WRITE(' ');
+    IF rptDest = 'P' THEN
+      WRITELN(rptFile, '')
+    ELSE
+    BEGIN
+      WRITELN;
+      rptRow := rptRow + 1
+    END
+  END
+END;
+
+PROCEDURE RptMoney(v: REAL);
+BEGIN
+  IF (v > RptMax) OR (v < RptMin) THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, '**********')
+    ELSE
+      WRITE('**********')
+  END
+  ELSE IF rptDest = 'P' THEN
+    WRITE(rptFile, v:10:2)
+  ELSE
+    WRITE(v:10:2)
+END;
+
+PROCEDURE RptSpace;
+BEGIN
+  IF rptDest = 'P' THEN
+    WRITE(rptFile, ' ')
+  ELSE
+    WRITE(' ')
+END;
+
+PROCEDURE RptTick;
+BEGIN
+  IF LENGTH(statText) >= 76 THEN
+    Status('Writing report');
+  Status(CONCAT(statText, '.'));
+END;
+
+PROCEDURE RptPos;
+VAR
+  c: CHAR;
+BEGIN
+  IF (rptDest = 'S') AND (rptRow > 22) AND
+     (NOT rptStop) THEN
+  BEGIN
+    Status('Any key for next page, Q to stop');
+    READ(KEYBOARD, c);
+    IF Upper(c) = 'Q' THEN
+      rptStop := TRUE
+    ELSE
+    BEGIN
+      ClrBelow(1);
+      rptRow := 1
+    END
+  END;
+  IF (rptDest = 'S') AND (NOT rptStop) THEN
+    GOTOXY(0, rptRow)
+END;
+
+PROCEDURE RptHead;
+VAR
+  dateText: STRING;
+BEGIN
+  IF rptDest = 'P' THEN REWRITE(rptFile, RptFName);
+  IF rptDest = 'S' THEN ClrBelow(0);
+  rptRow := 1;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'LOANCALC - LINEAR LOAN REPORT')
+    ELSE
+      WRITE('LOANCALC - LINEAR LOAN REPORT');
+    RptEnd(LENGTH('LOANCALC - LINEAR LOAN REPORT'))
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Loan: ', rl.name, '  ', rl.title)
+    ELSE
+      WRITE('Loan: ', rl.name, '  ', rl.title);
+    RptEnd(8 + LENGTH(rl.name) + LENGTH(rl.title))
+  END;
+  DateStr(rl.starts, dateText);
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN WRITE(rptFile, 'Start: ', dateText)
+    ELSE WRITE('Start: ', dateText);
+    RptEnd(LENGTH('Start: ') + LENGTH(dateText))
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Principal: ')
+    ELSE
+      WRITE('Principal: ');
+    RptMoney(rl.loanAmt);
+    RptEnd(LENGTH('Principal: ') + 10)
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Annual interest %: ', rl.rate:8:3)
+    ELSE
+      WRITE('Annual interest %: ', rl.rate:8:3);
+    RptEnd(LENGTH('Annual interest %: ') + 8)
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Annual rebate %: ', rl.rebate:8:3)
+    ELSE
+      WRITE('Annual rebate %: ', rl.rebate:8:3);
+    RptEnd(LENGTH('Annual rebate %: ') + 8)
+  END;
+  RptPos;
+  IF rl.freePay THEN
+  BEGIN
+    IF NOT rptStop THEN
+    BEGIN
+      IF rptDest = 'P' THEN
+        WRITE(rptFile, 'No repayment: regular principal is zero')
+      ELSE
+        WRITE('No repayment: regular principal is zero');
+      RptEnd(LENGTH('No repayment: regular principal is zero'))
+    END
+  END
+  ELSE IF rl.fixPay > 0.0 THEN
+  BEGIN
+    IF NOT rptStop THEN
+    BEGIN
+      IF rptDest = 'P' THEN
+        WRITE(rptFile, 'Fixed monthly payment: ')
+      ELSE
+        WRITE('Fixed monthly payment: ');
+      RptMoney(rl.fixPay);
+      RptEnd(LENGTH('Fixed monthly payment: ') + 10)
+    END
+  END
+  ELSE
+  BEGIN
+    IF NOT rptStop THEN
+    BEGIN
+      IF rptDest = 'P' THEN
+        WRITE(rptFile, 'Linear principal over ', rl.months:4, ' months')
+      ELSE
+        WRITE('Linear principal over ', rl.months:4, ' months');
+      RptEnd(LENGTH('Linear principal over ') + 4 +
+             LENGTH(' months'))
+    END
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Interest: annual rate / 12, weighted by days')
+    ELSE
+      WRITE('Interest: annual rate / 12, weighted by days');
+    RptEnd(LENGTH('Interest: annual rate / 12, weighted by days'))
+  END;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile,
+            'Month     Interest  Principal  Net princ.      Extra      ',
+            'Balance        Rebate    ')
+    ELSE
+      WRITE('Month   Interest   Principal  Net princ. Extra      ',
+            'Balance        Rebate    ');
+    RptEnd(73)
+  END
+END;
+
+PROCEDURE RptYear;
+BEGIN
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'Year ', rYr:4, ' ')
+    ELSE
+      WRITE('Year ', rYr:4, ' ');
+    RptMoney(rYInt);
+    RptSpace;
+    RptMoney(rYPrin);
+    RptSpace;
+    RptMoney(rYNet);
+    RptSpace;
+    RptMoney(rYEx);
+    RptSpace;
+    RptMoney(rYBal);
+    RptSpace;
+    RptMoney(rYReb);
+    RptEnd(75)
+  END;
+  rYInt := 0.0;
+  rYPrin := 0.0;
+  rYNet := 0.0;
+  rYEx := 0.0;
+  rYReb := 0.0
+END;
+
+PROCEDURE RptExtr;
+VAR
+  i: INTEGER;
+  found: BOOLEAN;
+  evtDate: DateType;
+  days, effAmt: REAL;
+BEGIN
+  REPEAT
+    found := FALSE;
+    evtDate := rEnd;
+    FOR i := 1 TO extCount DO
+      IF (NOT rUsed[i]) AND (extras[i].loanName = rl.name) AND
+         (NOT Later(rCur, extras[i].paid)) AND
+         Later(rEnd, extras[i].paid) AND
+         ((NOT found) OR Later(evtDate, extras[i].paid)) THEN
+      BEGIN
+        evtDate := extras[i].paid;
+        found := TRUE
+      END;
+    IF found THEN
+    BEGIN
+      days := Serial(evtDate) - Serial(rCur);
+      rWInt := rWInt + rBal * days;
+      rWReb := rWReb + rBal * days;
+      FOR i := 1 TO extCount DO
+        IF (extras[i].loanName = rl.name) AND
+           (NOT rUsed[i]) AND
+           SameDate(extras[i].paid, evtDate) THEN
+        BEGIN
+          rUsed[i] := TRUE;
+          effAmt := extras[i].amount;
+          IF effAmt > rBal THEN effAmt := rBal;
+          rEx := rEx + effAmt;
+          rBal := Money(rBal - effAmt)
+        END;
+      rCur := evtDate
+    END
+  UNTIL NOT found
+END;
+
+PROCEDURE RptPay(mNo: REAL; VAR intAmt, prAmt, rebAmt: REAL);
+VAR
+  i: INTEGER;
+  futExt: BOOLEAN;
+BEGIN
+  intAmt := Money(rWInt * rl.rate /
+                  (1200.0 * DaysMon(rBeg.yy, rBeg.mm)));
+  rebAmt := Money(rWReb * rl.rebate /
+                  (1200.0 * DaysMon(rBeg.yy, rBeg.mm)));
+  prAmt := 0.0;
+  IF rl.fixPay > 0.0 THEN
+  BEGIN
+    IF intAmt > rl.fixPay THEN
+    BEGIN
+      RptPos;
+      IF NOT rptStop THEN
+      BEGIN
+        IF rptDest = 'P' THEN
+          WRITE(rptFile, 'ERROR: fixed payment does not cover interest')
+        ELSE
+          WRITE('ERROR: fixed payment does not cover interest');
+        RptEnd(LENGTH('ERROR: fixed payment does not cover interest'))
+      END;
+      rFail := TRUE
+    END
+    ELSE
+    BEGIN
+      prAmt := rl.fixPay - intAmt;
+      IF prAmt > rBal THEN prAmt := rBal;
+      prAmt := Money(prAmt)
+    END
+  END
+  ELSE IF rl.freePay THEN
+    prAmt := 0.0
+  ELSE IF mNo = rl.months THEN
+    prAmt := rBal
+  ELSE
+  BEGIN
+    prAmt := Money(rl.loanAmt / rl.months);
+    IF prAmt > rBal THEN prAmt := rBal
+  END;
+  IF NOT rFail AND (rl.fixPay > 0.0) AND
+     (prAmt = 0.0) AND (rBal > 0.0) THEN
+  BEGIN
+    futExt := FALSE;
+    FOR i := 1 TO extCount DO
+      IF (extras[i].loanName = rl.name) AND
+         (NOT rUsed[i]) AND
+         (NOT Later(rEnd, extras[i].paid)) THEN
+        futExt := TRUE;
+    IF NOT futExt THEN
+    BEGIN
+      RptPos;
+      IF NOT rptStop THEN
+      BEGIN
+        IF rptDest = 'P' THEN
+          WRITE(rptFile, 'ERROR: fixed payment only covers interest')
+        ELSE
+          WRITE('ERROR: fixed payment only covers interest');
+        RptEnd(LENGTH('ERROR: fixed payment only covers interest'))
+      END;
+      rFail := TRUE
+    END
+  END
+END;
+
+PROCEDURE RptMonth(intAmt, prAmt, rebAmt: REAL);
+VAR
+  netAmt: REAL;
+  dateText: STRING;
+BEGIN
+  rBal := Money(rBal - prAmt);
+  netAmt := prAmt - rebAmt;
+  IF rHasRow AND (rBeg.yy <> rYr) THEN RptYear;
+  rYr := rBeg.yy;
+  rHasRow := TRUE;
+  MonthStr(rBeg, dateText);
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, dateText)
+    ELSE
+      WRITE(dateText);
+    RptSpace;
+    RptMoney(intAmt);
+    RptSpace;
+    RptMoney(prAmt);
+    RptSpace;
+    RptMoney(netAmt);
+    RptSpace;
+    RptMoney(rEx);
+    RptSpace;
+    RptMoney(rBal);
+    RptSpace;
+    RptMoney(rebAmt);
+    RptEnd(73)
+  END;
+  IF rptDest = 'P' THEN RptTick;
+  rYInt := rYInt + intAmt;
+  rYPrin := rYPrin + prAmt;
+  rYNet := rYNet + netAmt;
+  rYEx := rYEx + rEx;
+  rYReb := rYReb + rebAmt;
+  rYBal := rBal;
+  rTInt := rTInt + intAmt;
+  rTPrin := rTPrin + prAmt;
+  rTNet := rTNet + netAmt;
+  rTEx := rTEx + rEx;
+  rTReb := rTReb + rebAmt
+END;
+
+PROCEDURE RptTotal;
+BEGIN
+  RptYear;
+  RptPos;
+  IF NOT rptStop THEN
+  BEGIN
+    IF rptDest = 'P' THEN
+      WRITE(rptFile, 'TOTAL ')
+    ELSE
+      WRITE('TOTAL ');
+    RptMoney(rTInt);
+    RptSpace;
+    RptMoney(rTPrin);
+    RptSpace;
+    RptMoney(rTNet);
+    RptSpace;
+    RptMoney(rTEx);
+    RptSpace;
+    RptMoney(rBal);
+    RptSpace;
+    RptMoney(rTReb);
+    RptEnd(LENGTH('TOTAL ') + 65)
+  END
+END;
+
+PROCEDURE PrintRpt;
+VAR
+  intAmt, prAmt, rebAmt, days, mNo: REAL;
+  i: INTEGER;
+  c: CHAR;
+BEGIN
+  IF current = 0 THEN
+  BEGIN
+    Status('Select a loan first');
+    EXIT(PrintRpt)
+  END;
+  rl := loans[current];
+  IF (rl.loanAmt <= 0.0) OR (rl.months <= 0) THEN
+  BEGIN
+    Status('Complete loan data first');
+    EXIT(PrintRpt)
+  END;
+  IF (rl.rebate < 0.0) OR (rl.rebate > rl.rate) OR
+     (rl.rate > 100.0) OR (rl.months > MaxMonth) OR
+     ((rl.fixPay > 0.0) AND rl.freePay) THEN
+  BEGIN
+    Status('Check loan percentages and payment options');
+    EXIT(PrintRpt)
+  END;
+  c := MenuLine('Report: S(creen, P(rinter, Q(uit', 'SPQ');
+  IF c = 'Q' THEN EXIT(PrintRpt);
+  rptDest := c;
+  rptStop := FALSE;
+  Status('Writing report');
+  RptHead;
+  rBal := Money(rl.loanAmt);
+  mNo := 0;
+  rYInt := 0.0;
+  rYPrin := 0.0;
+  rYNet := 0.0;
+  rYEx := 0.0;
+  rYReb := 0.0;
+  rYBal := rBal;
+  rTInt := 0.0;
+  rTPrin := 0.0;
+  rTNet := 0.0;
+  rTEx := 0.0;
+  rTReb := 0.0;
+  rHasRow := FALSE;
+  rFail := FALSE;
+  FOR i := 1 TO extCount DO rUsed[i] := FALSE;
+  WHILE (rBal > 0.005) AND
+        (((rl.fixPay > 0.0) AND (mNo < MaxTerm(rl.starts))) OR
+         ((rl.fixPay <= 0.0) AND (mNo < rl.months))) AND
+        (NOT rFail) DO
+  BEGIN
+    MonthAt(rl.starts, mNo, rBeg);
+    MonthAt(rl.starts, mNo + 1, rEnd);
+    rCur := rBeg;
+    IF Later(rl.starts, rCur) THEN rCur := rl.starts;
+    rWInt := 0.0;
+    rWReb := 0.0;
+    rEx := 0.0;
+    mNo := mNo + 1;
+    RptExtr;
+    days := Serial(rEnd) - Serial(rCur);
+    rWInt := rWInt + rBal * days;
+    rWReb := rWReb + rBal * days;
+    RptPay(mNo, intAmt, prAmt, rebAmt);
+    IF NOT rFail THEN RptMonth(intAmt, prAmt, rebAmt)
+  END;
+  IF rHasRow THEN RptTotal;
+  IF (rBal > 0.005) AND (rl.fixPay > 0.0) AND
+     (mNo >= MaxTerm(rl.starts)) AND NOT rFail THEN
+  BEGIN
+    RptPos;
+    IF NOT rptStop THEN
+    BEGIN
+      IF rptDest = 'P' THEN
+        WRITE(rptFile, 'ERROR: loan was not paid before date limit')
+      ELSE
+        WRITE('ERROR: loan was not paid before date limit');
+      RptEnd(LENGTH('ERROR: loan was not paid before date limit'))
+    END;
+    rFail := TRUE
+  END;
+  IF rptDest = 'P' THEN CLOSE(rptFile, LOCK);
+  IF rptStop THEN
+    Status('Report stopped')
+  ELSE IF rptDest = 'S' THEN
+    IF rFail THEN
+      Status('Report displayed; contains a payment error')
+    ELSE
+    BEGIN
+      Status('Report displayed');
+      Status('Press a key ');
+      READ(KEYBOARD, c);
+    END
+  ELSE IF rFail THEN
+    Status('Report contains a payment error')
+  ELSE
+    Status('Report file saved: LOANREPORT.TEXT')
+END;
+
+END.
