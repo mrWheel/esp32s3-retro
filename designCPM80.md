@@ -211,12 +211,16 @@ The firmware loads optional SD-backed B:–F: images from `/retro/images/cpm80/d
 Provide `HOST.COM`, not a replacement named `PIP.COM`. Version 1 accepts:
 
 ```text
-A>HOST DIR
-A>HOST GET HELLO.C
-A>HOST PUT RESULT.TXT
-A>HOST GET *.C
-A>HOST PUT HELLO?.TXT
+A>HOST
+HOST> DIR
+HOST> GET HELLO.C
+HOST> PUT RESULT.TXT
+HOST> GET *.C
+HOST> PUT HELLO?.TXT
+HOST> QUIT
 ```
+
+Starting `HOST` without command-tail arguments enters the interactive `HOST>` prompt. Empty input or an unknown command prints this short command list and returns to the prompt. `QUIT` exits HOST. Existing one-shot command-tail invocations such as `A>HOST DIR` remain supported.
 
 `DIR` lists files in `/retro/exchange/cpm80/`. `GET` creates the named file on the current CP/M drive in USER 0; `PUT` sends that file. GET and PUT accept CP/M `*` and `?` wildcards and process each matching file; PUT collects up to 128 distinct matches before transferring so BDOS directory searches are not disturbed. `.HST` sidecar files are excluded from wildcard transfers. A local GET collision or a rejected PUT destination is reported and the remaining matches are attempted; a stream/checksum failure aborts the batch. The utility uses BDOS for every guest file operation. A: is read-only, so select a writable drive such as E: before `GET`, then run the utility from A: (for example `A:HOST GET HELLO.C`). `PUT` reads from the current drive, and HOST returns to the drive it was started from. `DIR` works in every user area, while `GET` and `PUT` clearly reject USER 1–15. WiFi is not required.
 
@@ -299,5 +303,6 @@ For every other issue append the full engineering-memory chain, evidence and reg
 | CPM80-VERIFY-014 | HOST WILDCARD TRANSFERS PASS; FIRMWARE BUILD PASS; HARDWARE NOT RUN | 2026-10-07, macOS host, ESP-IDF 6.0.2: aligned CP/M-80 `HOST.COM` user-visible GET/PUT behaviour with the CP/M-86 utility, including wildcard result lines, no-match/list-full handling, reserved `.HST` reporting, and completion wording while preserving CP/M-80-specific local-I/O text. The genuine CCP/BDOS test imports multiple exchange files with `HOST GET *.*`, handles an existing local target while continuing to the other match, exercises `HOST GET INP?T.BIN`, rejects a pre-existing `.HST` sidecar, selects local files for `HOST PUT *.BIN`, continues after a host destination collision, and checks exact bytes for the successful 257-byte transfer; `HOST PUT INP?T.BIN` also exercises single-character matching. `cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure` passed under ASan/UBSan; `PYTHONPATH=tools python3 -m unittest discover -s tests -p 'test_diskImage.py' -v` passed all 7 tests. Reassembled `HOST.COM` is 6,950 bytes; `system.dsk` is 256,256 bytes. ESP-IDF `build` passed (`retroHost.bin` 0xE8410 bytes). No board, SD card or terminal was used; nothing was flashed |
 | CPM80-VERIFY-015 | LARGE A: HOST PASS; FIRMWARE BUILD PASS; HARDWARE NOT RUN | 2026-10-08, macOS host, ESP-IDF 6.0.2: `tools/createSystemDsk.py --os cpm80 --profile LARGE` image (512,512 bytes) boots as A: on the host guest to `A>`, `DIR` lists HOST/ASM/ZSID/WELCOME and `TYPE WELCOME.TXT` works. A:'s profile is detected from the file size (256,256 / 512,512; other sizes are rejected with an error and A: is not mounted). `ctest` hostCore passes; `idf.py build` passes (not flashed). |
 | CPM80-VERIFY-016 | LARGE-FILE HOST / ON-EMULATOR BUILD PASS; HARDWARE NOT RUN | 2026-10-08, macOS host: HOST now reports `disk full` / `directory full` instead of a generic transfer error when the CP/M drive fills up, prints a dot per 16 records during GET and PUT, and accepts `O` on PUT (exchange command 4). `guest/cpm80/host/HOST.ASM` was rewritten as CR+LF 8080 source for the standard `ASM.COM` + `LOAD.COM`; `hostTests` assembles it inside the emulated CP/M-80 (`A:ASM HOST`, `A:LOAD HOST`, no assembler errors) and requires the result to be byte-identical to `bootDisks/cpm80/systemDsk/HOST.COM` (5,760 bytes). Host tests pass, including a 70,000-byte GET/PUT round trip on a BIG drive and the disk-full case on a SYSTEM drive. Nothing flashed. |
+| CPM80-VERIFY-017 | HOST PASS; FIRMWARE BUILD AND HARDWARE NOT RUN | 2026-10-20, macOS host: rebuilt `HOST.COM` from its CR+LF assembly source using CP/M `ASM.COM` and `LOAD.COM`, regenerated the 512,512-byte LARGE `system.dsk`, and passed the host test executable under ASan/UBSan. Genuine guest coverage includes the interactive `HOST>` prompt, help after blank and invalid input, `DIR`, exact-byte GET/PUT, `QUIT`, and the existing one-shot command-tail form. No ESP-IDF firmware build, board, SD card or terminal was used; nothing was flashed. |
 
 Development references: [superzazu/z80](https://github.com/superzazu/z80), [z80pack reference system](https://github.com/udo-munk/z80pack). Record the actual reference commit before reproducing its behavior.

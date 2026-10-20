@@ -4284,14 +4284,35 @@ static void runCpm80TransferCase(cpm80DiskProfile transferProfile, size_t transf
   runCpm80Command(&guest, &fixture, "", "A>", limit);
   runCpm80Command(&guest, &fixture, "E:\r", "E>", limit);
 
+  runCpm80Command(&guest, &fixture, "A:HOST\r", "HOST> ", limit);
+  assert(countOccurrences(fixture.output, "HOST> ") == 1);
+  runCpm80Command(&guest, &fixture, "\r", "HOST> ", limit);
+  assert(!fixture.outputOverflow);
+  assert(countOccurrences(fixture.output, "Commands:") == 1);
+  assert(strstr(fixture.output, "  GET name.ext [O]") != NULL);
+  assert(strstr(fixture.output, "  PUT name.ext [O]") != NULL);
+  assert(strstr(fixture.output, "  QUIT") != NULL);
+  runCpm80Command(&guest, &fixture, "UNKNOWN\r", "HOST> ", limit);
+  assert(countOccurrences(fixture.output, "Commands:") == 1);
+  assert(strstr(fixture.output, "  GET name.ext [O]") != NULL);
+  assert(strstr(fixture.output, "  PUT name.ext [O]") != NULL);
+  runCpm80Command(&guest, &fixture, "DIR\r", "HOST> ", limit);
+  assert(strstr(fixture.output, "BIGFILE.BIN") != NULL);
+  runCpm80Command(&guest, &fixture, "QUIT\r", "E>", limit);
+  assert(strstr(fixture.output, "E>") != NULL);
+
   //-- One dot per 16 records (2 KiB) between the "GET name: " prefix and the final message.
   size_t expectedDots = transferBytes / 2048;
-  runCpm80Command(&guest, &fixture, "A:HOST GET BIGFILE.BIN\r", "E>", limit);
+  runCpm80Command(&guest, &fixture, "A:HOST\r", "HOST> ", limit);
+  runCpm80Command(&guest, &fixture, "GET BIGFILE.BIN\r", "HOST> ", limit);
   assert(!fixture.outputOverflow);
+  assert(countOccurrences(fixture.output, "HOST> ") == 1);
   if (fullDisk)
   {
     assert(strstr(fixture.output, "disk full") != NULL);
     assert(strstr(fixture.output, "complete") == NULL);
+    runCpm80Command(&guest, &fixture, "QUIT\r", "E>", limit);
+    assert(strstr(fixture.output, "E>") != NULL);
     runCpm80Command(&guest, &fixture, "DIR\r", "E>", limit);
     assert(strstr(fixture.output, "BIGFILE") == NULL);
     goto finished;
@@ -4300,6 +4321,8 @@ static void runCpm80TransferCase(cpm80DiskProfile transferProfile, size_t transf
   assert(strstr(fixture.output, "GET complete.") != NULL);
   assert(countOccurrences(fixture.output, ".") >= expectedDots);
   assert(strstr(fixture.output, "...") != NULL || expectedDots < 3);
+  runCpm80Command(&guest, &fixture, "QUIT\r", "E>", limit);
+  assert(strstr(fixture.output, "E>") != NULL);
   runCpm80Command(&guest, &fixture, "DIR\r", "E>", limit);
   assert(strstr(fixture.output, "BIGFILE  BIN") != NULL && strstr(fixture.output, "BIGFILE  HST") != NULL);
 
@@ -4310,10 +4333,14 @@ static void runCpm80TransferCase(cpm80DiskProfile transferProfile, size_t transf
   assert(exchangeFile != NULL);
   assert(fwrite("old", 1, 3, exchangeFile) == 3);
   assert(fclose(exchangeFile) == 0);
-  runCpm80Command(&guest, &fixture, "A:HOST PUT BIGFILE.BIN O\r", "E>", limit);
+  runCpm80Command(&guest, &fixture, "A:HOST\r", "HOST> ", limit);
+  runCpm80Command(&guest, &fixture, "PUT BIGFILE.BIN O\r", "HOST> ", limit);
+  assert(countOccurrences(fixture.output, "HOST> ") == 1);
   assert(strstr(fixture.output, "PUT BIGFILE.BIN: ") != NULL);
   assert(strstr(fixture.output, "PUT complete.") != NULL);
   assert(countOccurrences(fixture.output, ".") >= expectedDots);
+  runCpm80Command(&guest, &fixture, "QUIT\r", "E>", limit);
+  assert(strstr(fixture.output, "E>") != NULL);
   exchangeFile = fopen(exchangeFilePath, "rb");
   assert(exchangeFile != NULL);
   size_t actualBytes = fread(actual, 1, transferBytes + 1, exchangeFile);

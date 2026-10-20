@@ -33,11 +33,23 @@ start:
         sta workCreated
         sta sidecarOpen
         sta sidecarCreated
+        lda tailLength
+        ora a
+        jnz parseStartupCommand
+        mvi a,1
+        sta interactiveMode
+        jmp commandPrompt
+parseStartupCommand:
         call parseCommand
         jc badCommand
+        jmp processCommand
+
+processCommand:
         lda commandKind
         cpi 1
         jz commandDir
+        cpi 4
+        jz exitProgram
         mvi e,0ffh
         mvi c,32
         call bdos
@@ -113,6 +125,8 @@ parseAction:
         jz parseGetToken
         cpi 'P'
         jz parsePutToken
+        cpi 'Q'
+        jz parseQuitToken
         jmp parseBad
 parseDirToken:
         inx h
@@ -177,9 +191,58 @@ parsePutToken:
 parseGood:
         ora a
         ret
+parseQuitToken:
+        inx h
+        mov a,m
+        call uppercaseCharacter
+        cpi 'U'
+        jnz parseBad
+        inx h
+        mov a,m
+        call uppercaseCharacter
+        cpi 'I'
+        jnz parseBad
+        inx h
+        mov a,m
+        call uppercaseCharacter
+        cpi 'T'
+        jnz parseBad
+        inx h
+        mvi a,4
+        sta commandKind
+        call checkTokenBoundary
+        jc parseBad
+        call skipSpaces
+        jnc parseBad
+        jmp parseGood
 parseBad:
         stc
         ret
+
+commandPrompt:
+        lxi d,msgPrompt
+        call printString
+        mvi c,10
+        lxi d,inputBuffer
+        call bdos
+        call printCrLf
+        lda inputBuffer+1
+        sta tailLength
+        ora a
+        jz badCommand
+        mov b,a
+        lxi h,inputBuffer+2
+        lxi d,tailText
+copyInputLine:
+        mov a,m
+        stax d
+        inx h
+        inx d
+        dcr b
+        jnz copyInputLine
+        call parseCommand
+        jc badCommand
+        jmp processCommand
 
 uppercaseCharacter:
         cpi 'a'
@@ -234,6 +297,7 @@ checkFilenameArgument:
         mov a,m
         cpi ' '
         jz filenameArgumentBad
+        shld filenameStartPtr
 filenameScan:
         xchg
         lhld tailEndPtr
@@ -282,18 +346,85 @@ clearWorkFcb:
         inx h
         dcr b
         jnz clearWorkFcb
-        lda ccpFcb+16
-        sta workFcb
-        lxi h,ccpFcb+17
-        lxi d,workFcb+1
+        lxi h,workFcb+1
         mvi b,11
-copyCcpName:
-        mov a,m
-        stax d
+        mvi a,' '
+fillWorkFilename:
+        mov m,a
         inx h
+        dcr b
+        jnz fillWorkFilename
+        lhld filenameStartPtr
+        call checkFcbInputEnd
+        jz fcbNameComplete
+        mov a,m
+        call uppercaseCharacter
+        cpi 'A'
+        jc fcbBaseStart
+        cpi 'Q'
+        jnc fcbBaseStart
+        sta charValue
+        inx h
+        call checkFcbInputEnd
+        jz fcbNoDrivePrefix
+        mov a,m
+        cpi ':'
+        jnz fcbNoDrivePrefix
+        lda charValue
+        sui 'A'-1
+        sta workFcb
+        inx h
+        jmp fcbBaseStart
+fcbNoDrivePrefix:
+        lhld filenameStartPtr
+fcbBaseStart:
+        lxi d,workFcb+1
+        mvi b,8
+copyBaseName:
+        call checkFcbInputEnd
+        jz fcbNameComplete
+        mov a,m
+        cpi ' '
+        jz fcbNameComplete
+        cpi '.'
+        jz copyExtensionName
+        call uppercaseCharacter
+        mov c,a
+        mov a,b
+        ora a
+        jz copyBaseNameNext
+        mov a,c
+        stax d
         inx d
         dcr b
-        jnz copyCcpName
+copyBaseNameNext:
+        inx h
+        jmp copyBaseName
+copyExtensionName:
+        inx h
+        lxi d,workFcb+9
+        mvi b,3
+copyExtensionNameNext:
+        call checkFcbInputEnd
+        jz fcbNameComplete
+        mov a,m
+        cpi ' '
+        jz fcbNameComplete
+        cpi '.'
+        jz fcbNameComplete
+        call uppercaseCharacter
+        mov c,a
+        mov a,b
+        ora a
+        jz copyExtensionSkipStore
+        mov a,c
+        stax d
+        inx d
+        dcr b
+copyExtensionSkipStore:
+        inx h
+        jmp copyExtensionNameNext
+fcbNameComplete:
         call normalizeWildcards
         xra a
         sta wildcardActive
@@ -373,6 +504,17 @@ copyInitSideFcb:
         ret
 invalidFcb:
         stc
+        ret
+
+checkFcbInputEnd:
+        push b
+        push d
+        xchg
+        lhld tailEndPtr
+        xchg
+        call compareHlDe
+        pop d
+        pop b
         ret
 
 normalizeWildcards:
@@ -2195,7 +2337,10 @@ showHostError:
 badCommand:
         lxi d,msgUsage
         call printString
-        jmp terminate
+        lda interactiveMode
+        ora a
+        jnz commandPrompt
+        jmp exitProgram
 
 printFileStart:
         lda commandKind
@@ -2411,6 +2556,10 @@ printCrLf:
         ret
 
 terminate:
+        lda interactiveMode
+        ora a
+        jnz commandPrompt
+exitProgram:
         mvi c,0
         call bdos
         jmp terminate
@@ -2435,8 +2584,14 @@ copyBlockLoop:
         jnz copyBlockLoop
         pop psw
         ret
+msgPrompt:
+        db 'HOST> ','$'
 msgUsage:
-        db 'Usage: HOST DIR | HOST GET name.ext [O] | HOST PUT name.ext [O]',13,10,'$'
+        db 'Commands:',13,10
+        db '  DIR',13,10
+        db '  GET name.ext [O]',13,10
+        db '  PUT name.ext [O]',13,10
+        db '  QUIT',13,10,'$'
 msgFilename:
         db 'Invalid or reserved filename.',13,10,'$'
 msgUserArea:
@@ -2499,6 +2654,8 @@ metadataMagic:
         db 'HST1'
 
 commandKind:
+        db 0
+interactiveMode:
         db 0
 wildcardActive:
         db 0
@@ -2566,6 +2723,12 @@ crcDataPointer:
         dw 0
 streamPointer:
         dw 0
+filenameStartPtr:
+        dw 0
+
+inputBuffer:
+        db 127,0
+        ds 127
 
 getLength:
         db 0,0,0,0
