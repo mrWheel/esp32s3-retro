@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 
+extern const char* PROG_VERSION;
+
 static menuLine inputLine;
 
 typedef enum
@@ -23,7 +25,13 @@ static void showMenu(void)
   //— Terminal test string: plain text followed by red text (ANSI SGR 31) and reset
   //-tst- hostConsoleWrite("\x1b[2J\x1b[HANSI cursor test\r\n");
   //-tst- hostConsoleWrite("HELLO\r\nWORLD\r\n\x1b[31mRED\x1b[0m\r\n");
-  puts("\nESP32-S3 Retro Computer\n=======================");
+  int titleLength = printf("\nESP32-S3 Retro Computer Version [%s]\n", PROG_VERSION) - 2;
+  printf("By Willem Aandewiel\n");
+  for (int index = 0; index < titleLength; ++index)
+  {
+    putchar('=');
+  }
+  printf("=====\n");
   printf("SD: %s\n\n", storageStatus());
   for (size_t index = 0; index < machineCount(); ++index)
   {

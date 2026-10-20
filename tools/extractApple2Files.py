@@ -1338,7 +1338,16 @@ def addHostFile(session):
   if session.ucsdMode and session.pathDestination is not None:
     label = f"Full path of file to add [Dest. Path: {session.pathDestination}]: "
     baseDirectory = str(session.pathDestination)
-  text = promptPath(label, baseDirectory)
+  if session.ucsdMode and session.pathSource is not None and session.source is None:
+    #-- no source disk: pick from the loose files in Source path (or type a path)
+    chosen = chooseNumber(session.listPathFiles("source"), "Select file number (or type a full path): ", allowName=True)
+    if chosen is None:
+      return
+    text = str(session.pathSource / chosen) if isinstance(chosen, Path) else chosen
+    if not isinstance(chosen, Path) and baseDirectory and not text.startswith(("/", "~")):
+      text = os.path.join(baseDirectory, text)
+  else:
+    text = promptPath(label, baseDirectory)
   hostPath = Path(text).expanduser()
   if not hostPath.is_file():
     raise ToolError(f"file not found: {hostPath}")
@@ -1366,7 +1375,16 @@ def showVolumeFiles(volume):
 
 
 def listFilesOnSource(session):
-  showVolumeFiles(session.requireSource())
+  folderMode = session.copyFromFolder
+  if session.pathSource is None or folderMode:
+    showVolumeFiles(session.requireSource())
+    return
+  if session.source is not None:
+    print(f"Files on disk {session.sourceImage.path.name}:")
+    showVolumeFiles(session.source)
+    print()
+  print(f"Files in Source path {session.pathSource}:")
+  showVolumeFiles(FolderSource(session.pathSource))
 
 
 def listFilesOnDestination(session):
