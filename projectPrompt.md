@@ -39,7 +39,7 @@ This snapshot describes repository status, not a change to the machine-specific 
 
 | System | Current status |
 | --- | --- |
-| CP/M-80 | Firmware machine integration and host-side guest tests are present. The CP/M-80 design log records a user report of booting and running commands on an ESP32-S3; independent hardware, SD-drive and broader compatibility acceptance remains outstanding. |
+| CP/M-80 | Firmware integration and host-side guest tests are present. The user reports CP/M boot, SD-drive operation, BIG-profile behavior, BIOS/PIP behavior and HOST transfers working on the ESP32-S3 setup; detailed reproducible hardware evidence and broad compatibility acceptance remain outstanding. |
 | CP/M-86 | Firmware machine integration, genuine guest boot tests on the host and an ESP-IDF build are present. The firmware has not been flashed; hardware boot, performance and broad compatibility remain unverified. |
 | UCSD Pascal | Menu option 3 selects the sibling `/littlefs/ucsd/` and `/retro/images/ucsd/` profile and runs the shared Apple II 6502 emulator. Pascal 1.3 128K boot is host-tested. A prior fixture listed three volumes and opened a `.TEXT` file, but the current modified image set fails the `DATA3:` guest-test assertion; compiler, writes and ESP32-S3 behavior remain unverified. |
 | Apple II | Motherboard implementation, a host-tested slot-0 16 KiB Language Card, and a Videx-compatible slot-3 80×24 text-card model with project-authored firmware are integrated. Host tests cover Language Card switching, complete Applesoft `LIST` keywords, clean `PR#0`/`PR#3` screen transitions, cursor bounds, and the 80-column path and scrolling; primary hardware-reference comparison, guest Language Card use, hardware acceptance and system-ROM redistribution rights remain unverified. |
@@ -137,6 +137,8 @@ void hostConsoleWrite(const char *text);
 
 The USB connection may serve flashing/monitor, menu, and emulator terminal I/O.
 
+The common emulator terminal personality is VT100/ANSI at 80×24. The firmware console is a byte-stream transport, not a general-purpose terminal emulator: guest output bytes, including terminal control sequences, pass through to the connected terminal program, which interprets them. Do not add generic VT100/ANSI rendering or control-sequence generation to the host console. Verify the default terminal workflow with Minicom on macOS; machine-specific video devices may have their own explicitly documented behavior.
+
 ## 7. Main menu
 
 Initial menu:
@@ -204,10 +206,10 @@ Useful internal states include:
 
 The first host milestone contains no CPU emulator implementation.
 
-For example, 1<ENTER> prints:
+For example, 5<ENTER> prints:
 
 ```text
-CP/M-80
+SWTPC
 ========
 
 Not implemented yet.
@@ -215,7 +217,7 @@ Not implemented yet.
 Press ENTER to return to the main menu.
 ```
 
-Equivalent placeholders exist for UCSD, Apple II, MP/M and SWTPC.
+Equivalent placeholders exist for CP/M-80, CP/M-86, UCSD, Apple II and SWTPC.
 
 Once an emulator is implemented, its design file defines runtime/exit behaviour; current designs normally use physical RESET.
 
@@ -348,34 +350,53 @@ These are separate destinations on the same physical SD card; disk images are no
 
 ## 15. Guest transfer contract
 
-Each emulator may have a small native guest utility. CP/M-80 could for example provide:
+Each machine may provide a small native guest utility, referred to here
+generically as the `HOST` utility. Its purpose is to copy files between the
+guest operating system's own filesystem and that machine's directory under
+`/retro/exchange/<machine>/`. It is not the browser File Transfer server,
+does not start WiFi, and does not access a guest disk image as a host-side
+filesystem.
+
+The guest-side utility uses the machine's native file APIs to create/read
+guest files. The common host supplies an emulator-neutral exchange service;
+the machine-specific adapter transports the service operations while the
+guest utility handles guest filenames, files, and record-oriented length
+rules. The host must not edit guest filesystem directory structures to
+implement individual file transfers.
+
+The common command model is:
 
 ```text
-HOST DIR
-HOST GET HELLO.C
-HOST PUT RESULT.TXT
+HOST
+HOST> DIR
+HOST> GET <file> <options>
+HOST> PUT <file>
+HOST> QUIT
 ```
 
-Prefered User Interface:
+Invoking `HOST` without arguments may start an interactive prompt. A guest
+utility may also support one-shot command-tail forms such as `HOST DIR`.
+`DIR` lists permitted exchange files, `GET` copies a host exchange file into
+the guest filesystem, `PUT` copies a guest file to the host exchange
+directory, and `QUIT` returns to the guest operating system. Exact command
+syntax, wildcard support, overwrite options, and user-area restrictions are
+machine-specific and belong in that machine's design document.
 
-```
-Start "HOST" programma
+The common protocol operations are `QUERY`, `DIR`, `GET`, `PUT`, `QUIT`,
+and `ABORT`. `QUERY` negotiates the protocol version and capability bits
+before other operations. Transfers use a 32-bit exact byte length and
+CRC-32, and must be streamed rather than buffered as complete files.
+`GET` reports a final status after data and checksum. `PUT` carries the
+expected checksum, writes to a temporary file, verifies the received length
+and checksum, and publishes the final file only on success. Existing host
+targets are never overwritten implicitly. The adapter validates guest
+filenames and confines access to that machine's exchange directory. Missing
+media, invalid names, existing targets, I/O/checksum failures, and
+cancellation must have distinguishable results for the guest.
 
-HOST> {DIR | GET <file> [O] | PUT <file> [O] | QUIT}
-```
-Example:                                                                            
-```
-HOST <Enter>
-HOST> _
-HOST GET testFile [O]
-Get testFile ... "Done"
-```
-
-Equivalent utilities/protocols are defined in each machine design.
-
-The common host supplies an emulator-neutral exchange service. Prefer having the guest OS create/read its own guest files. For example, CP/M HOST.COM should receive/send bytes through a virtual host interface and use BDOS for its CP/M file operations. The host should not edit CP/M directory structures merely to transfer an individual file.
-
-The common exchange operations are `QUERY`, `DIR`, `GET`, `PUT`, `QUIT` and `ABORT`. QUERY negotiates a protocol version and capability bits before other operations. Transfers are streamed with a 32-bit exact byte length and CRC-32; implementations must not load a whole file into RAM. `GET` reports a final status after its data and checksum. `PUT` carries the expected checksum, writes to a temporary file, verifies length/checksum, and publishes the final file only on success. Existing targets are never overwritten implicitly. Names are validated by the machine adapter and may not escape that machine's exchange directory. Missing media, invalid names, existing targets, I/O/checksum failures and cancellation must be distinguishable to the guest. Each machine design defines how these operations are transported and how guest record-oriented file sizes preserve exact byte lengths.
+Each machine design specifies its concrete guest utility, transport,
+filename rules, status mapping, record-length handling, overwrite behavior,
+and tests. CP/M-80's implementation is specified in `designCPM80.md`.
 
 ## 16. File Transfer menu mode
 
@@ -759,7 +780,49 @@ esp32s3-retro/
 
 This is a responsibility guide; do not create meaningless empty files solely to match it.
 
-## 31. Definition of done — common host
+## 31. Host-side tools and utilities
+
+Programs under `tools/` run on the development computer. They prepare SD
+layouts and disk images, generate firmware inputs, inspect/extract image
+files, or test a running device; they are not ESP32 runtime services.
+Detailed options and current examples are maintained in [`tools/README.md`](tools/README.md).
+
+| Program | Purpose and usage |
+|---|---|
+| `tools/diskImage.py` | Create, populate, list/validate, and extract files from supported CP/M disk images. Select a machine with `--os`; `--help` shows supported commands and profiles. |
+| `tools/buildDiskImage.py` | Build an OS-specific data or system image through the registered machine builder. Use `--os`, optional profile/source options, and `--output` or `--sd-root` as shown by `--help`. |
+| `tools/createSystemDsk.py` | Compose a machine system disk from its checked-in resources and optional source directory. Use `--os`, `--profile`, and optional `--source-dir` / `--output`; the selected image is replaced when the build succeeds. |
+| `tools/prepareSd.py` | Prepare the Retro directory tree and marker on an already formatted FAT32 volume, optionally for one `--os`. It does not format the card, remove files, create disk images, or overwrite existing drive configuration. |
+| `tools/extractFiles.py` | List, add, extract, or remove files through the operating-system-specific image adapters. Choose the target with `--os`; available actions differ by filesystem. |
+| `tools/extractApple2Files.py` | Interactively browse Apple II disk images and copy/remove files between disk images and host folders. |
+| `tools/fetchCpm80Software.py` | Optional CP/M-80 resource importer. Lists archive links and imports only explicitly selected files or ZIP members; the user must supply rights evidence, which the program does not verify. See `designCPM80.md` for CP/M-80 profiles and resource rules. |
+| `tools/buildApple2DiskBootRom.py` | Generate the project-authored Apple II Disk II boot-ROM header used by the firmware. |
+| `tools/buildApple2PascalCardRom.py` | Generate the project-authored Apple Pascal-compatible slot-3 80-column card firmware header used by the Apple II implementation. |
+| `tools/buildApple2TestRom.py` | Generate the minimal Apple II diagnostic ROM fixture for host tests; test-only. |
+| `tools/transferTest.py` | Exercise File Transfer on a deliberately selected running device; creates and removes uniquely named test files. Do not run during ordinary manual transfers. |
+
+`tools/include/` contains internal per-OS disk builders, image-format
+implementations, extraction adapters, shared helpers, and the OS registry.
+These modules are imported by the top-level command-line tools and are not
+normally invoked directly. `tools/cpm86/diskdefs` provides optional
+definitions for external CP/M-86 image tools. The host-side CP/M-80-specific
+modules and their profiles are documented in `designCPM80.md`.
+
+Typical preparation commands:
+
+```sh
+python3 tools/prepareSd.py --help
+python3 tools/diskImage.py create --os cpm80 --help
+python3 tools/buildDiskImage.py --os cpm80 --help
+```
+
+The help commands are safe to run and show the exact arguments before
+preparing media. Image-building commands may replace their destination when
+successful; review the selected output path before running them. These host
+tools do not flash firmware or copy files to a physical card unless a command
+is explicitly given a destination on that mounted volume.
+
+## 32. Definition of done — common host
 
 The host is ready for CP/M development only when:
 
