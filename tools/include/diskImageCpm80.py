@@ -67,6 +67,7 @@ PROFILES = {
         "directory_entries": BIG_DIRECTORY_ENTRIES,
         "directory_offset": BIG_DIRECTORY_OFFSET,
         "max_block_number": BIG_DSM,
+        "first_data_block": 1,
         "block_pointer_size": 2,
         "exm": BIG_EXM,
     },

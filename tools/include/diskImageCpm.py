@@ -65,6 +65,7 @@ def inspect_image(image, profiles):
     directory_offset = profile["directory_offset"]
     directory_entries = profile["directory_entries"]
     max_block_number = profile["max_block_number"]
+    first_data_block = profile.get("first_data_block", 2)
     pointer_size, entry_records = _entry_geometry(profile)
     exm = profile.get("exm", 0)
 
@@ -97,7 +98,7 @@ def inspect_image(image, profiles):
         else:
             blocks = entry[16 : 16 + block_count]
         for block in blocks:
-            if block < 2 or block > max_block_number:
+            if block < first_data_block or block > max_block_number:
                 raise DiskImageError(f"Invalid allocation block {block} in directory entry {slot}")
             if block in used_blocks:
                 raise DiskImageError(f"Allocation block {block} is used more than once")
@@ -133,7 +134,7 @@ def _add_file(image, source_name, data, free_slots, used_blocks, existing_names,
     block_size = profile["block_size"]
     directory_offset = profile["directory_offset"]
     blocks_needed = (len(record_data) + block_size - 1) // block_size
-    free_blocks = [block for block in range(2, profile["max_block_number"] + 1) if block not in used_blocks]
+    free_blocks = [block for block in range(profile.get("first_data_block", 2), profile["max_block_number"] + 1) if block not in used_blocks]
     if blocks_needed > len(free_blocks):
         raise DiskImageError(f"CP/M disk is full while adding {filename}")
 

@@ -48,7 +48,7 @@ class CpmVolume:
 
     def description(self):
         _, _, usedBlocks = self.scan()
-        total = self.profile["max_block_number"] - 1
+        total = self.profile["max_block_number"] - self.profile.get("first_data_block", 2) + 1
         return f"CP/M disk {self.image.path.name}, {total} blocks of {self.profile['block_size']} bytes, {total - len(usedBlocks)} free"
 
     def scan(self):
