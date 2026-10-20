@@ -6,11 +6,11 @@
 #include "esp_log.h"
 #include <stdio.h>
 
-//-- never remove or change this line, 
+//-- never remove or change this line,
 //-- it indicates the program version
-const char* PROG_VERSION = "v0.1.1";
+const char* PROG_VERSION = "v0.2.0";
 
-static const char *tag = "main";
+static const char* tag = "main";
 
 void app_main(void)
 {
