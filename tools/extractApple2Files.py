@@ -1331,6 +1331,9 @@ def removeFromDestination(session):
   removeFiles(dest, name)
 
 
+DISK_IMAGE_SUFFIXES = (".dsk", ".do", ".po", ".2mg", ".2img", ".nib", ".woz", ".hdv", ".img", ".imd", ".td0")
+
+
 def addHostFile(session):
   dest = session.requireDestination()
   label = "Full path of file to add: "
@@ -1344,14 +1347,26 @@ def addHostFile(session):
     if chosen is None:
       return
     text = str(session.pathSource / chosen) if isinstance(chosen, Path) else chosen
-    if not isinstance(chosen, Path) and baseDirectory and not text.startswith(("/", "~")):
-      text = os.path.join(baseDirectory, text)
+    if not isinstance(chosen, Path) and not text.startswith(("/", "~")):
+      #-- a wildcard without a directory refers to the files listed from Source path
+      wildcardBase = str(session.pathSource) if any(c in text for c in "*?[") else baseDirectory
+      if wildcardBase:
+        text = os.path.join(wildcardBase, text)
   else:
     text = promptPath(label, baseDirectory)
   hostPath = Path(text).expanduser()
+  if any(c in hostPath.name for c in "*?["):
+    addHostFiles(dest, hostPath)
+    return
   if not hostPath.is_file():
     raise ToolError(f"file not found: {hostPath}")
   nameOut = input(f"Name on disk [{hostPath.name}]: ").strip() or hostPath.name
+  stored, size = addHostFileToDestination(dest, hostPath, nameOut)
+  dest.image.save()
+  print(f"added '{hostPath}' -> '{stored}' ({size} bytes)")
+
+
+def addHostFileToDestination(dest, hostPath, nameOut):
   data = hostPath.read_bytes()
   suffix = hostPath.suffix.upper()
   pascalKind = {".TEXT": 3, ".CODE": 2}.get(suffix, 5)
@@ -1361,8 +1376,39 @@ def addHostFile(session):
     data = extractUcsd.hostTextToUcsd(data)
   prodosType = 0x04 if suffix in (".TXT", ".TEXT") else 0x06
   stored = dest.importFile(nameOut, Exported(data, prodosType, 0, pascalKind))
-  dest.image.save()
-  print(f"added '{hostPath}' -> '{stored}' ({len(data)} bytes)")
+  return stored, len(data)
+
+
+def addHostFiles(dest, patternPath):
+  directory = patternPath.parent
+  pattern = patternPath.name.upper()
+  try:
+    candidates = sorted((path for path in directory.iterdir() if path.is_file()),
+                        key=lambda path: path.name.casefold())
+  except OSError as error:
+    raise ToolError(f"cannot list '{directory}': {error}") from error
+  matches = [path for path in candidates if fnmatch.fnmatchcase(path.name.upper(), pattern)]
+  if not matches:
+    raise ToolError(f"no files match '{patternPath}'")
+  destinationImage = dest.image.path
+  added = 0
+  considered = 0
+  for path in matches:
+    #-- disk images, hidden files and the destination image itself are never added
+    if path.suffix.lower() in DISK_IMAGE_SUFFIXES or path.name.startswith("."):
+      continue
+    if path.resolve() == destinationImage.resolve():
+      continue
+    considered += 1
+    try:
+      stored, size = addHostFileToDestination(dest, path, path.name)
+      print(f"added '{path}' -> '{stored}' ({size} bytes)")
+      added += 1
+    except ToolError as error:
+      print(f"skipped '{path.name}': {error}")
+  if added:
+    dest.image.save()
+  print(f"{added} of {considered} files added")
 
 
 def showVolumeFiles(volume):
@@ -1402,7 +1448,7 @@ def showMenu(session):
   print("7 - Get one specific file From Source")
   print("8 - Copy file from Source to Destination (C)")
   print("9 - Remove file from Destination")
-  print("10 - Add one specific file (full path) to Destination (A)")
+  print("10 - Add one specific file (full path, or wildcard such as *) to Destination (A)")
   print("Q - Quit")
 
 

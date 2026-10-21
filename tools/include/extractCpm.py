@@ -91,12 +91,24 @@ class CpmVolume:
     def importFile(self, outPath, exported):
         if "/" in outPath:
             raise core.ToolError("CP/M volumes have no directories; '/' is not allowed in the name")
+        backup = bytes(self.image.data)
         try:
             name = diskImageCpm.parse_filename(outPath)
             entries, freeSlots, usedBlocks = self.scan()
+            oldSlots = [entry["slot"] for entry in entries if entry["user"] == 0 and entry["filename"] == name]
+            if oldSlots:
+                if not core.askYesNo(f"Overwrite {name} y/N? "):
+                    raise core.ToolError(f"{name} not overwritten")
+                directoryOffset = self.profile["directory_offset"]
+                for slot in oldSlots:
+                    self.image.data[directoryOffset + slot * 32] = diskImageCpm.EMPTY
+                entries, freeSlots, usedBlocks = self.scan()
             existing = {(entry["user"], entry["filename"]) for entry in entries}
             diskImageCpm._add_file(self.image.data, name, exported.data, freeSlots, usedBlocks, existing, self.profile)
-        except diskImageCpm.DiskImageError as error:
+        except (diskImageCpm.DiskImageError, core.ToolError) as error:
+            self.image.data[:] = backup
+            if isinstance(error, core.ToolError):
+                raise
             raise core.ToolError(str(error)) from error
         return name
 
@@ -136,6 +148,9 @@ def run(arguments):
         elif arguments.extract:
             entry = core.findEntry(volume, arguments.extract)
             target = Path(arguments.dest or ".").expanduser() / entry.path
+            if target.exists() and not core.askYesNo(f"Overwrite {target} y/N? "):
+                print(f"Not overwritten: {target}")
+                return 0
             target.write_bytes(volume.exportFile(entry).data)
             print(f"Extracted {entry.path} to {target}")
         else:
