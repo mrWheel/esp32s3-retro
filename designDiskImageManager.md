@@ -1,6 +1,6 @@
 # designDiskImageManager.md — Native SD Disk Image File Manager
 
-Revision: 2026-10-21 (revision 4: SPA function selection, transfer matrix and manager access to RO-mapped SD images)
+Revision: 2026-10-22 (revision 5: drag & drop input and mandatory pre-commit transfer preview list; earlier revision 4: SPA function selection, transfer matrix and manager access to RO-mapped SD images)
 Status: implementation specification and autonomous coding assignment
 Repository: https://github.com/mrWheel/esp32s3-retro
 
@@ -137,13 +137,38 @@ Fail closed for guest writes. Whole-image operations remain available. No fabric
 Implement host-local interaction using standard HTML browser primitives and progressive enhancement:
 
 	●	For uploads from macOS Finder, Windows File Explorer or Linux desktop file managers, invoke the OS-backed chooser using <input type="file"> (multiple for multiple guest files). The browser exposes only user-selected file handles/content; do not request or assume arbitrary host paths.
+	●	Additionally offer drag & drop as a second, equivalent way to select host files (see §6.1.1). Drag & drop never replaces the file chooser: the chooser remains the baseline that works on every supported browser and device.
 	●	For downloads to the host, return an HTTP attachment with sanitized Content-Disposition filename and correct MIME type; the browser will download to its configured location or display a Save As dialog depending on browser/user settings. A web application cannot guarantee a native Save As dialog on every browser; do not claim otherwise.
 	●	Where supported (e.g. compatible Chromium browsers), optionally offer showSaveFilePicker() / File System Access API behind a feature check and user gesture, with graceful fallback to regular downloads. Safari/Firefox must work without that API. Never require browser extensions, native apps or Python.
-	●	For multiple guest files, offer a ZIP download (streaming if feasible) with a manifest or sidecar metadata when needed; if streaming ZIP is impractical on ESP32, provide sequential individual downloads initiated by user action or another robust documented fallback, without relying on automatic popup permissions.
+	●	For multiple guest files, offer a ZIP download (streaming if feasible) with a manifest or sidecar metadata when needed; if streaming ZIP is impractical on ESP32, provide sequential individual downloads initiated by user action or another robust documented fallback, without relying on automatic popup permissions. Implemented for Function 3 (guest files → Computer): when several files are selected, the browser reads each file from the ESP32 and packs them into one uncompressed (stored) ZIP file, so the browser asks for a destination only once; files of different user areas go in folders user0 … user15. The ESP32 does not build the ZIP. A checkbox switches back to separate downloads. Dragging files out of the browser onto the desktop is not possible with a plain http page, so there is no drag & drop on download screens.
 	●	Make the direction explicit in GUI labels: Computer → Disk Image, Disk Image → Computer, Disk Image → Disk Image, Computer → SD (whole image), SD → Computer (whole image), SD → SD (whole image).
 	●	Show source/destination names, file count, sizes, progress, errors and confirmation for overwrite/delete. For uploaded host files, never pretend the browser can read their full original local path. Browser file names may need OS-specific normalization/guest-name mapping; display mapping and collisions before commit.
 	●	Implement HTTP upload as chunked/bounded processing. Avoid buffering a whole selected host file, ZIP or image in RAM. Handle browser cancellation, disconnect, upload interruption and retries safely.
 	●	Verify Chrome, Safari and Firefox where possible on macOS; Edge/Chrome on Windows; Firefox/Chrome on Linux. Test picker invocation and download behavior manually where automation cannot access OS dialogs. Browser-origin/CORS behavior must remain compatible with the existing File Transfer server.
+
+### 6.1.1 Drag & drop and transfer preview list
+
+Purpose: the user must not have to browse through many folders in the OS file dialog for every upload, which invites mistakes. The user can keep a Finder, File Explorer or Linux file-manager window open on the correct folder and drag files from it onto the page, and always sees exactly what will be written where before anything is committed.
+
+Drag & drop rules:
+
+	1.	Every screen whose source is Computer shows a clearly marked drop zone next to the `Select files...` button. Both inputs add to the same pending list. A screen whose source is not Computer shows no drop zone.
+	2.	Use standard HTML5 drag events (`dragenter`, `dragover`, `dragleave`, `drop`) and the dropped `File` objects. It needs no secure context, no File System Access API, no extension and works over the plain-HTTP File Transfer server. Show visual feedback while a drag is over the zone.
+	3.	Dropping must never start a transfer. A drop only fills or extends the pending list; the transfer starts only when the user presses the explicit start button after reviewing the preview (§6.1.1 preview rules).
+	4.	Suppress the browser default for drops outside the drop zone (`preventDefault` on `dragover` and `drop` at window level). Otherwise a mis-aimed drop makes the browser open the file and leave the SPA.
+	5.	Dropped folders: only the top-level files of a dropped folder are added; nested subfolders are not expanded and are reported in the status message, so nothing is flattened silently. The behavior is documented in the Help popup.
+	6.	Where the browser does not support drag & drop of files (some touch devices, for example iPad Safari from other apps), hide the drop zone or show it disabled with an explanation; the file chooser still works.
+	7.	Only files the user dropped or selected are used. As in §6.1, never claim to know or display the original local path of a dropped file; show the browser file name only.
+
+Transfer preview list rules (apply to drag & drop and to the file chooser, and also to selected SD files, selected guest files and whole images in copy/move/delete operations, so every multi-item operation uses the same review step):
+
+	1.	Before the first byte is written, show a preview list with one row per item: browser/source name; size; destination name after guest-name mapping/normalization; full destination (OS profile, image path or SD directory, CP/M user area or ProDOS directory); and a status.
+	2.	Status values are at least: New; Exists - will be skipped; Exists - will be overwritten; Invalid name; Duplicate name in this list; Name collision after mapping; Too large for destination; Unsupported type/metadata. Skip is the default conflict policy; Overwrite must be explicitly chosen or confirmed (§7 item 7).
+	3.	Show a header with the full destination and totals: item count, total bytes, free space at the destination, and the number of items that will actually be written, skipped and rejected. Block the start button while the total exceeds the free space or while any selected item needs a decision.
+	4.	Each row can be removed from the pending list individually; a `Clear` control empties the list. Editing the destination or conflict policy refreshes the statuses.
+	5.	The browser computes the preview from data the firmware already provides: the SD directory listing (existing names, mapped flag), the destination image's directory, free bytes and name rule (`/api/list`, `/api/guest/files`). No separate preview endpoint is required. Free space is shown where the firmware reports it (guest images); the current firmware does not report SD card free space, so whole-image uploads show no free-space figure and FAT32 capacity errors are reported per file at commit time.
+	6.	The preview is advisory. The firmware revalidates every item at commit time and returns per-file results; a changed state between preview and commit must produce an explicit per-file error, never a silent overwrite. Items stored successfully leave the list; skipped, rejected and failed items stay visible.
+	7.	After the transfer, keep the list visible with per-file outcome (written, skipped, failed with reason) and progress while running.
 
 ### 6.2 Firmware language versus browser language
 
@@ -203,7 +228,7 @@ GUI requirements (mandatory interaction model; supersedes earlier separate-panel
 	3.	When Copy From = an image, show its real guest-directory contents and allow multi-selection of guest files; additionally allow a clearly distinct whole disk-image selection/action.
 	4.	When Copy From = None, show the ordinary files actually present directly in Source Path in a multi-select file list (including complete disk-image files). Do not show a guest directory or fabricate a list. Directories may be navigated; define and test whether recursive selection is supported.
 	5.	Present a symmetrical Destination Path followed by a Copy To drop-down of destination disk-images plus None. Copy To = image means insert guest files inside that image; Copy To = None means write ordinary files to the selected physical SD directory. Make the target of whole-image copies unambiguous: a whole image is a regular SD file and must not be inserted as a guest file merely because Copy To selects an image.
-	6.	Provide a Host Computer source/destination choice in addition to the SD Source/Destination Path controls. Host-to-device selection must invoke the browser’s native OS file picker (<input type="file" multiple> or equivalent) from a user gesture. The browser cannot directly enumerate host directories or receive an unrestricted host path. Host downloads use the browser’s native download/save behavior; where available, the File System Access API may offer a user-initiated Save As picker with a safe fallback. Do not promise a Save As popup on every browser.
+	6.	Provide a Host Computer source/destination choice in addition to the SD Source/Destination Path controls. Host-to-device selection must invoke the browser’s native OS file picker (<input type="file" multiple> or equivalent) from a user gesture, and must also accept files dropped on a drop zone (§6.1.1); both feed the same pending list and the same preview list before any transfer starts. The browser cannot directly enumerate host directories or receive an unrestricted host path. Host downloads use the browser’s native download/save behavior; where available, the File System Access API may offer a user-initiated Save As picker with a safe fallback. Do not promise a Save As popup on every browser.
 	7.	Use one consistent Copy/Move/Delete/Overwrite workflow for guest files, SD files and whole disk-images, with capability-aware controls and per-file status. Copy preserves source. Move deletes source only after verified destination commit, and is disallowed when rollback cannot be made safe. Overwrite must be explicitly selected or confirmed; default Skip. Delete uses multi-select and confirmation. No silent format conversion.
 	8.	The source/destination combination determines the action. Support: SD ordinary file ↔ SD ordinary file; SD ordinary file ↔ guest file in SD image; guest file ↔ guest file (including cross-OS when valid); host file ↔ SD ordinary file; host file ↔ guest file; whole image SD ↔ host; whole image SD ↔ SD; host whole image → SD. Distinguish an image’s container file from its guest files in the UI.
 	9.	The OS selection is for filesystem interpretation and conversion; the image drop-down is populated from the actual directory, not a hard-coded OS list. A detected incompatible/unknown image may be copied as a whole file but must not expose unsafe guest mutations.
@@ -213,7 +238,7 @@ Additional UI details:
 
 	●	OS selector; image selector with assigned drive labels and unassigned images; format indicator and a clear distinction between emulator `RO` mapping and the manager's ability to edit an SD image while the emulator is stopped.
 	●	Directory browser (including CP/M user-area selector and ProDOS navigation as applicable), file size/type, free space.
-	●	Explicit Computer → Image upload with native OS file picker, multi-file selection, Skip/Overwrite control, per-file outcomes.
+	●	Explicit Computer → Image upload with native OS file picker or drag & drop, multi-file selection, transfer preview list (§6.1.1), Skip/Overwrite control, per-file outcomes.
 	●	Explicit Image → Computer download using browser save/download handling; clear destination behavior.
 	●	Image → Image guest-file copy panel with separate source and destination OS/image selectors and conflict/metadata handling.
 	●	Guest file download, delete with confirmation, optional supported rename.
@@ -328,6 +353,10 @@ Do not overwrite local configuration or user modifications without inspecting th
 	5.	Copy whole images between SD directories; verify byte-for-byte equality, collision policy, mapping warnings and successful operation on images mapped `RO`.
 	6.	Verify Safari/Firefox fallback without File System Access API; never require a guaranteed Save As popup or access to arbitrary local paths.
 	7.	Verify upload/download does not create or use /retro/exchange/, requires no host Python utility, and remains bounded in ESP32 RAM.
+	8.	Drag & drop: drop several files from Finder/File Explorer/Linux file manager on the drop zone in Chrome, Safari and Firefox; verify the preview list is filled, no transfer starts before the start button, and the resulting bytes equal the chooser-based upload. Verify a drop outside the drop zone does not navigate away from the SPA, a dropped folder follows the documented behavior, and a disabled drop zone on unsupported touch browsers leaves the chooser working.
+	9.	Preview list: verify statuses (New, Exists with Skip/Overwrite, Invalid name, duplicate name in list, collision after mapping, too large), totals and free-space blocking for each supported filesystem; verify the preview itself never writes anything (compare image bytes before and after), and that a state change between preview and commit yields a per-file error.
+	10.	Verify the same preview step appears for SD → SD, image → image, move and delete operations, and that deleting or overwriting is impossible without it.
+	11.	Implementation status: drag & drop and the preview list are implemented for Function 1 (whole images, Computer → SD) and Function 2 (Computer files → guest image) in `main/web.html`. The other functions still use their existing selection and confirmation dialogs; extending the preview list to them is open work. None of this has been tested in a browser against the device yet.
 
 ## 12. Acceptance criteria
 
@@ -338,6 +367,7 @@ Implementation is complete only when:
 		Functions / Selection offers the five requested PC/SD/image copy directions and the other valid SD ordinary-file, guest-file, image, move/rename and delete combinations.
 		Each operation uses the applicable Source Path, Copy From, Destination Path and Copy To controls; image choices reflect actual SD contents and `None` selects ordinary-file mode.
 		Browser can select OS and mapped or unassigned image.
+		Host files can be added by native chooser or by drag & drop, and every multi-item operation shows the firmware-validated transfer preview list before anything is written.
 		Guest directories are real, correct, and navigable where supported.
 		Host-computer → guest-image multi-file upload (native macOS/Windows/Linux chooser), Skip, Overwrite, guest-image → host download, and Delete work and survive reboot.
 		Guest files can be copied directly between two SD disk-images, with safe same-OS and supported cross-OS conversion.

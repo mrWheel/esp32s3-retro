@@ -106,6 +106,17 @@ a
 {
   color: #90ddcf;
 }
+.dropZone
+{
+  border: 2px dashed #53616d;
+  text-align: center;
+  margin: .75rem 0;
+}
+.dropZone.dragActive
+{
+  border-color: #90ddcf;
+  background: #26414a;
+}
 table
 {
   width: 100%;
@@ -303,6 +314,10 @@ const navigation = document.getElementById("navigation");
 const helpDialog = document.getElementById("helpDialog");
 const element = (id) => document.getElementById(id);
 const directoryDatabaseName = "retroDiskImageManager";
+let guestUploadPending = [];
+let guestUploadBusy = false;
+let imageUploadBusy = false;
+let imagePreviewToken = 0;
 
 function escapeHtml(value)
 {
@@ -481,8 +496,126 @@ function updateHostFolderLabel(machine, message)
   {
     return;
   }
+  const pending = hostFiles.get(machine);
   label.textContent = message || hostDirectoryNames.get(hostDirectoryKey("upload", machine)) ||
-    "No Computer directory selected.";
+    (pending && pending.length ? `${pending.length} Computer file(s) ready.` : "No Computer directory selected.");
+}
+
+function fileKey(file)
+{
+  return `${file.name}|${file.size}|${file.lastModified}`;
+}
+
+function mergeFiles(existing, added)
+{
+  const keys = new Set(existing.map(fileKey));
+  const merged = existing.slice();
+  for (const file of added)
+  {
+    if (!keys.has(fileKey(file)))
+    {
+      keys.add(fileKey(file));
+      merged.push(file);
+    }
+  }
+  return merged;
+}
+
+function dragHasFiles(event)
+{
+  return Boolean(event.dataTransfer) && Array.from(event.dataTransfer.types || []).includes("Files");
+}
+
+function readAllDirectoryEntries(directoryEntry)
+{
+  const reader = directoryEntry.createReader();
+  const entries = [];
+  const readBatch = () => new Promise((resolve, reject) =>
+  {
+    reader.readEntries(async (batch) =>
+    {
+      if (batch.length === 0)
+      {
+        resolve(entries);
+        return;
+      }
+      entries.push(...batch);
+      try
+      {
+        resolve(await readBatch());
+      }
+      catch (error)
+      {
+        reject(error);
+      }
+    }, reject);
+  });
+  return readBatch();
+}
+
+async function collectDroppedFiles(dataTransfer)
+{
+  const plainFiles = Array.from(dataTransfer.files);
+  const entries = Array.from(dataTransfer.items || [])
+    .filter((item) => item.kind === "file")
+    .map((item) => typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null);
+  const result = {files: [], notes: []};
+  if (entries.length !== plainFiles.length || entries.some((entry) => !entry))
+  {
+    result.files = plainFiles;
+    return result;
+  }
+  for (const entry of entries)
+  {
+    if (entry.isFile)
+    {
+      result.files.push(await new Promise((resolve, reject) => entry.file(resolve, reject)));
+    }
+    else
+    {
+      let taken = 0;
+      let nested = 0;
+      for (const child of await readAllDirectoryEntries(entry))
+      {
+        if (child.isFile)
+        {
+          result.files.push(await new Promise((resolve, reject) => child.file(resolve, reject)));
+          taken++;
+        }
+        else
+        {
+          nested++;
+        }
+      }
+      result.notes.push(`Folder ${entry.name}: ${taken} file(s) taken from its top level` +
+        (nested ? `; ${nested} nested folder(s) ignored.` : "."));
+    }
+  }
+  return result;
+}
+
+function applyDroppedFiles(kind, collected)
+{
+  if (collected.files.length === 0)
+  {
+    showStatus(["No files were found in the drop.", ...collected.notes].join("\n"));
+    return;
+  }
+  if (kind === "images")
+  {
+    const machine = element("uploadMachine").value;
+    hostFiles.set(machine, mergeFiles(hostFiles.get(machine) || [], collected.files));
+    hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
+    updateHostFolderLabel(machine);
+    refreshImageUploadPreview();
+  }
+  else if (kind === "guest")
+  {
+    guestUploadPending = mergeFiles(guestUploadPending, collected.files);
+    refreshGuestUploadPreview();
+  }
+  showStatus([`Added ${collected.files.length} file(s) to the list. Nothing is copied until you press the Copy button.`,
+    ...collected.notes].join("\n"));
 }
 
 function supportedImageFiles(files)
@@ -542,6 +675,7 @@ async function selectHostDirectory()
   hostFiles.set(machine, files);
   updateHostFolderLabel(machine,
     `${handle.name}: ${files.length} supported disk image(s) selected.`);
+  refreshImageUploadPreview();
   if (files.length === 0)
   {
     showStatus(`No supported disk images were found directly inside ${handle.name}.`);
@@ -576,6 +710,7 @@ async function reuseHostDirectory()
   hostFiles.set(machine, files);
   updateHostFolderLabel(machine,
     `${handle.name}: ${files.length} supported disk image(s) selected.`);
+  refreshImageUploadPreview();
   if (files.length === 0)
   {
     showStatus(`No supported disk images were found directly inside ${handle.name}.`);
@@ -595,11 +730,11 @@ function helpContent()
   const title = selected ? selected.title : "SD image manager";
   const details =
   {
-    "computer-image-upload": "<p>Select the destination OS (images are always written to /retro/images/&lt;OS&gt;/ on the SD card), then choose a Computer folder or individual image files. Supported secure browsers can remember an authorized source folder per selected machine in browser IndexedDB; permission can expire. On ordinary HTTP from the ESP32, use the native directory picker fallback. The browser controls its starting location. LittleFS is on the ESP32 and cannot store a Computer path. Only supported disk images directly inside the selected folder are uploaded. Choose “drives.cfg” in Copy From to copy a single drive-configuration file instead: it is stored as /retro/images/&lt;OS&gt;/drives.cfg, replacing the existing one after confirmation. Existing SD destinations are skipped unless OVERWRITE is checked and confirmed. FAT32 limits one file to less than 4 GiB.</p>",
+    "computer-image-upload": "<p>Select the destination OS (images are always written to /retro/images/&lt;OS&gt;/ on the SD card), then choose a Computer folder or individual image files. Supported secure browsers can remember an authorized source folder per selected machine in browser IndexedDB; permission can expire. On ordinary HTTP from the ESP32, use the native directory picker fallback. The browser controls its starting location. LittleFS is on the ESP32 and cannot store a Computer path. Only supported disk images directly inside the selected folder are uploaded. You can also drag image files, or a folder with images, from Finder / File Explorer onto the drop zone; this works in every browser and needs no remembered folder. Dropped and chosen files are added to the Preview list, which shows the full SD destination and whether each file is new, will be skipped, will be overwritten or is rejected. Use Remove or Clear list to correct the list; nothing is copied until you press the Copy button. Choose “drives.cfg” in Copy From to copy a single drive-configuration file instead: it is stored as /retro/images/&lt;OS&gt;/drives.cfg, replacing the existing one after confirmation. Existing SD destinations are skipped unless OVERWRITE is checked and confirmed. FAT32 limits one file to less than 4 GiB.</p>",
     "image-computer-download": "<p>Select the source OS and choose a whole image to download. On browsers with the secure File System Access save picker, the destination is selected when you start the download. Otherwise the browser uses its normal download behavior; enable “Ask where to save each file” in browser settings if you want a destination picker. No separate Computer destination directory is needed. This downloads the complete image container byte-for-byte, not guest files inside it. The first list entry, drives.cfg, always appears and downloads the drive configuration of the selected OS (an error is shown if it does not exist on the SD card).</p>",
     "image-image-copy": "<p>Select the source OS and image, then a destination OS and new image filename. The firmware copies in bounded chunks and verifies bytes before commit. Source remains unchanged. OVERWRITE requires confirmation and preserves the prior destination during commit. A mapped RO image is still eligible; its drives.cfg reference is not rewritten.</p>",
-    "computer-guest-upload": "<p>Choose the destination OS, disk image and user area, then select Computer files. The preview shows the uppercase name each file will get under the rules of the destination file system (8.3 for CP/M), flags invalid or duplicate names and shows which names already exist. Existing files are skipped unless OVERWRITE is checked and confirmed. Empty files cannot be stored. Data is written to free blocks first and the directory is updated last through an undo journal, so a power loss leaves either the old or the new state. Overwriting needs free room for both copies. The emulators and this manager are mutually exclusive.</p>",
-    "guest-computer-download": "<p>Choose an OS, image and user area filter, tick one or more files and download them. One file uses the browser's save picker when available; several files use the normal browser download behavior. Damaged files (broken extent chains) are shown but cannot be downloaded.</p>",
+    "computer-guest-upload": "<p>Choose the destination OS, disk image and user area, then select Computer files or drag them (or a folder; only its top-level files are used) from Finder / File Explorer onto the drop zone. Files are added to the Preview list; use Remove or Clear list to correct it. Nothing is stored until you press the Copy button. The preview shows the uppercase name each file will get under the rules of the destination file system (8.3 for CP/M), flags invalid or duplicate names and shows which names already exist. Existing files are skipped unless OVERWRITE is checked and confirmed. Empty files cannot be stored. Data is written to free blocks first and the directory is updated last through an undo journal, so a power loss leaves either the old or the new state. Overwriting needs free room for both copies. The emulators and this manager are mutually exclusive.</p>",
+    "guest-computer-download": "<p>Choose an OS, image and user area filter, tick one or more files and download them. One file is downloaded as it is. Several files are packed into one ZIP file (default), so the browser asks where to save only once; untick the box to download them separately. Damaged files (broken extent chains) are shown but cannot be downloaded.</p>",
     "guest-image-copy": "<p>Pick the source image and tick files, then pick a destination image and user area. The source may be the same image (copy to another user area). The source is never changed. Existing destination files are skipped unless OVERWRITE is checked and confirmed. Copies stream in small chunks and cross-OS copies are allowed (for example CP/M-80 to CP/M-86, or ProDOS to UCSD Pascal, where file type and Pascal kind are mapped; DOS 3.3 headers are stripped on read and rebuilt on write). ProDOS subdirectories are listed but cannot be opened, and the user area is hidden for file systems without user areas.</p>",
     "file-guest-copy": "<p>Top: copy an ordinary SD file (not a disk image) from /retro/images/&lt;OS&gt;/ into a guest image; the guest name is converted to the name rule of the destination file system (8.3 for CP/M). Bottom: copy ticked guest files out to /retro/images/&lt;OS&gt;/ as ordinary SD files. The SD file is written to a temporary file and committed atomically; an existing SD file is replaced only after confirmation. SD names cannot contain characters such as $ that FAT file names handled by this manager reject.</p>",
     "guest-file-manage": "<p>Tick files to delete them (confirmation required) or tick exactly one file to rename it. Delete only frees the directory entries; renaming refuses an existing name and keeps the user area. Both are journaled, so an interrupted operation is rolled back the next time the manager touches that OS directory.</p>",
@@ -673,12 +808,26 @@ function renderImageUpload()
       </div>
       <p class="muted">${folderAccessNote} Suggested organization: ~/Downloads/images/&lt;machine&gt; on macOS/Linux or %USERPROFILE%\\Downloads\\images\\&lt;machine&gt; on Windows; create/select it yourself.</p>
     </div>
+    <div id="imageDropZone" class="card dropZone" data-dropzone="images">
+      <h3>Drop disk images here</h3>
+      <p class="muted">Drag disk image files, or a folder containing them, from Finder / File Explorer onto this box. Nothing is copied until you press the Copy button.</p>
+    </div>
     <form id="imageUploadForm">
       <label class="field">Or select individual disk image file(s)
         <input id="imageFiles" type="file" multiple accept=".dsk,.img,.po,.woz,.2mg">
       </label>
+      <h3>Preview</h3>
+      <p id="imageUploadHeader" class="muted"></p>
+      <table>
+        <thead><tr><th>Computer file</th><th>Destination on SD</th><th>Bytes</th><th>Result</th><th></th></tr></thead>
+        <tbody id="imageUploadPreview"></tbody>
+      </table>
+      <p id="imageUploadTotals" class="muted"></p>
       <label><input id="overwrite" type="checkbox"> OVERWRITE existing image(s)</label>
-      <button id="uploadButton" type="submit">Copy disk image(s) to SD</button>
+      <div class="actions">
+        <button id="uploadButton" type="submit">Copy disk image(s) to SD</button>
+        <button id="imageUploadClear" type="button">Clear list</button>
+      </div>
     </form>
     <p class="muted">RO/RW drive mappings do not block manager access. Replacing a mapped image affects the image used on its next emulator mount.</p>
     </div>
@@ -808,6 +957,7 @@ function render()
   if (state.functionId === "computer-image-upload")
   {
     updateHostFolderLabel(element("uploadMachine").value);
+    refreshImageUploadPreview();
   }
 }
 
@@ -976,6 +1126,159 @@ function transferUpload(area, path, file, overwrite, progressLabel)
     request.onabort = () => reject(new Error("Transfer cancelled."));
     request.send(file);
   });
+}
+
+async function imageUploadPlan(machine)
+{
+  const files = hostFiles.get(machine) || [];
+  if (files.length === 0)
+  {
+    return [];
+  }
+  const entries = await listPath("images", machine);
+  const existing = new Map(entries.filter((entry) => !entry.directory).map((entry) => [entry.name.toLowerCase(), entry]));
+  const overwrite = element("overwrite").checked;
+  const seen = new Set();
+  return files.map((file) =>
+  {
+    const lowerName = file.name.toLowerCase();
+    const current = existing.get(lowerName);
+    let result = "New";
+    let accepted = true;
+    if (!/\.(dsk|img|po|woz|2mg)$/i.test(file.name))
+    {
+      result = "Not a disk image name (.dsk .img .po .woz .2mg)";
+      accepted = false;
+    }
+    else if (file.size > 4294967294)
+    {
+      result = "Larger than 4 GiB minus 2 bytes";
+      accepted = false;
+    }
+    else if (seen.has(lowerName))
+    {
+      result = "Duplicate name in this list";
+      accepted = false;
+    }
+    else if (current)
+    {
+      const mapped = current.mapped ? " (mapped in drives.cfg)" : "";
+      result = overwrite ? `Exists: will be OVERWRITTEN${mapped}` : "Exists: will be skipped";
+      accepted = overwrite;
+    }
+    seen.add(lowerName);
+    return {file, destination: `/retro/images/${machine}/${file.name}`, result, accepted, exists: Boolean(current)};
+  });
+}
+
+async function refreshImageUploadPreview()
+{
+  const body = element("imageUploadPreview");
+  if (!body)
+  {
+    return;
+  }
+  const token = ++imagePreviewToken;
+  const machine = element("uploadMachine").value;
+  let plan;
+  try
+  {
+    plan = await imageUploadPlan(machine);
+  }
+  catch (error)
+  {
+    if (token === imagePreviewToken)
+    {
+      showStatus(error.message || "Could not read the SD directory for the preview.");
+    }
+    return;
+  }
+  if (token !== imagePreviewToken || !element("imageUploadPreview"))
+  {
+    return;
+  }
+  body.replaceChildren();
+  plan.forEach((item, index) =>
+  {
+    const row = document.createElement("tr");
+    for (const text of [item.file.name, item.destination, String(item.file.size), item.result])
+    {
+      const cell = document.createElement("td");
+      cell.textContent = text;
+      row.append(cell);
+    }
+    const removeCell = document.createElement("td");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.dataset.pendingRemove = "images";
+    remove.dataset.index = String(index);
+    removeCell.append(remove);
+    row.append(removeCell);
+    body.append(row);
+  });
+  const todo = plan.filter((item) => item.accepted);
+  const skipped = plan.filter((item) => item.result === "Exists: will be skipped").length;
+  const rejected = plan.length - todo.length - skipped;
+  element("imageUploadHeader").textContent = `Destination: /retro/images/${machine}/ on the SD card.`;
+  element("imageUploadTotals").textContent = plan.length === 0 ? "No files in the list." :
+    `${plan.length} file(s): ${todo.length} will be written (${formatBytes(todo.reduce((sum, item) => sum + item.file.size, 0))}), ` +
+    `${skipped} skipped, ${rejected} rejected.`;
+  element("uploadButton").disabled = imageUploadBusy || (plan.length > 0 && todo.length === 0);
+}
+
+async function submitImageUpload()
+{
+  const machine = element("uploadMachine").value;
+  const plan = await imageUploadPlan(machine);
+  if (plan.length === 0)
+  {
+    throw new Error("Drop disk image files here, choose a Computer folder or select individual image files first.");
+  }
+  const todo = plan.filter((item) => item.accepted);
+  if (todo.length === 0)
+  {
+    throw new Error("Nothing can be copied: " + plan.map((item) => `${item.file.name}: ${item.result}`).join("; "));
+  }
+  const overwrite = element("overwrite").checked;
+  if (overwrite && todo.some((item) => item.exists) &&
+      !confirm("OVERWRITE is enabled. Existing images may be mapped in drives.cfg, including as RO. Mappings will not be changed. Continue?"))
+  {
+    return;
+  }
+  imageUploadBusy = true;
+  element("uploadButton").disabled = true;
+  const lines = plan.filter((item) => !item.accepted).map((item) => `${item.file.name}: not copied (${item.result})`);
+  const stored = new Set();
+  try
+  {
+    for (const item of todo)
+    {
+      showStatus(`Uploading ${item.file.name} (${stored.size + 1}/${todo.length})...`);
+      try
+      {
+        await transferUpload("images", imagePath(machine, item.file.name), item.file, overwrite, `Uploading ${item.file.name}`);
+        stored.add(item.file);
+        lines.push(`${item.file.name}: stored`);
+      }
+      catch (error)
+      {
+        lines.push(`${item.file.name}: FAILED - ${error.message}`);
+        lines.push(...todo.slice(todo.indexOf(item) + 1).map((rest) => `${rest.file.name}: not attempted`));
+        break;
+      }
+    }
+  }
+  finally
+  {
+    imageUploadBusy = false;
+    hideProgress();
+    hostFiles.set(machine, (hostFiles.get(machine) || []).filter((file) => !stored.has(file)));
+    hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
+    updateHostFolderLabel(machine);
+    await refreshImageUploadPreview();
+  }
+  showStatus(`${lines.join("\n")}\nUploaded ${stored.size} whole image(s) to /retro/images/${machine}/.`);
 }
 
 async function refreshManager()
@@ -1304,10 +1607,15 @@ function guestFileDownloadUrl(image, entry)
 
 function renderGuestUpload()
 {
+  guestUploadPending = [];
   return `<h2>${escapeHtml(functions[1].title)}</h2>
     ${guestPicker("guestB", "Destination disk image", {allUsers: false, selectable: false})}
+    <div id="guestDropZone" class="card dropZone" data-dropzone="guest">
+      <h3>Drop Computer files here</h3>
+      <p class="muted">Drag one or more files, or a folder (its top-level files are used), from Finder / File Explorer onto this box. Nothing is copied until you press the Copy button.</p>
+    </div>
     <form id="guestUploadForm">
-      <label class="field">Computer file(s) to store as guest files
+      <label class="field">Or select Computer file(s) to store as guest files
         <input id="guestUploadFiles" type="file" multiple>
       </label>
       <label><input id="guestUploadOverwrite" type="checkbox"> OVERWRITE existing guest files</label>
@@ -1319,20 +1627,24 @@ function renderGuestUpload()
           <input id="guestUploadAux" size="6" maxlength="4" placeholder="0">
         </label>
       </div>
+      <h3>Preview</h3>
+      <p id="guestUploadHeader" class="muted"></p>
       <table>
-        <thead><tr><th>Computer file</th><th>Guest name</th><th>Bytes</th><th>Result</th></tr></thead>
+        <thead><tr><th>Computer file</th><th>Guest name</th><th>Bytes</th><th>Result</th><th></th></tr></thead>
         <tbody id="guestUploadPreview"></tbody>
       </table>
       <p id="guestUploadTotals" class="muted"></p>
-      <button id="guestUploadButton" type="submit">Copy file(s) into the disk image</button>
+      <div class="actions">
+        <button id="guestUploadButton" type="submit">Copy file(s) into the disk image</button>
+        <button id="guestUploadClear" type="button">Clear list</button>
+      </div>
     </form>
     <p class="muted">Names are converted to uppercase and must follow the rule of the destination file system (CP/M 8.3, ProDOS, UCSD Pascal or DOS 3.3). Without an Apple file type the type follows the name suffix (.TXT, .BIN, .SYS, .BAS for ProDOS; .TEXT, .CODE, .DATA for UCSD Pascal; text for DOS 3.3). Empty files cannot be stored. The preview is advisory; the firmware validates every name and checks free space.</p>`;
 }
 
 function guestUploadPlan()
 {
-  const input = element("guestUploadFiles");
-  const files = input ? Array.from(input.files) : [];
+  const files = guestUploadPending;
   const existing = new Set(guestSlots.guestB.files.filter((entry) => entry.user === Number(element("guestBUser").value))
     .map((entry) => entry.name));
   const overwrite = element("guestUploadOverwrite").checked;
@@ -1379,7 +1691,7 @@ function refreshGuestUploadPreview()
   }
   body.replaceChildren();
   const plan = guestUploadPlan();
-  for (const item of plan)
+  plan.forEach((item, index) =>
   {
     const row = document.createElement("tr");
     for (const text of [item.file.name, item.guestName || "-", String(item.file.size), item.result])
@@ -1388,12 +1700,29 @@ function refreshGuestUploadPreview()
       cell.textContent = text;
       row.append(cell);
     }
+    const removeCell = document.createElement("td");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.dataset.pendingRemove = "guest";
+    remove.dataset.index = String(index);
+    removeCell.append(remove);
+    row.append(removeCell);
     body.append(row);
-  }
-  const total = plan.filter((item) => item.accepted).reduce((sum, item) => sum + item.file.size, 0);
+  });
+  const todo = plan.filter((item) => item.accepted);
+  const total = todo.reduce((sum, item) => sum + item.file.size, 0);
   const free = guestSlots.guestB.info ? guestSlots.guestB.info.freeBytes : null;
-  element("guestUploadTotals").textContent = `To store: ${formatBytes(total)}` +
-    (free === null ? "" : `; free in image: ${formatBytes(free)}${total > free ? " — NOT ENOUGH SPACE" : ""}`);
+  const image = element("guestBImage").value;
+  const userSelect = element("guestBUser");
+  element("guestUploadHeader").textContent = image ?
+    `Destination: ${image}${userSelect.closest("label").hidden ? "" : `, user area ${userSelect.value}`}.` :
+    "Destination: no disk image selected yet.";
+  element("guestUploadTotals").textContent = plan.length === 0 ? "No files in the list." :
+    `${plan.length} file(s): ${todo.length} will be stored (${formatBytes(total)}), ${plan.length - todo.length} skipped or rejected` +
+    (free === null ? "." : `; free in image: ${formatBytes(free)}${total > free ? " — NOT ENOUGH SPACE" : ""}.`);
+  element("guestUploadButton").disabled = guestUploadBusy || (plan.length > 0 && todo.length === 0) ||
+    (free !== null && total > free);
 }
 
 function transferGuestUpload(url, file, label)
@@ -1455,8 +1784,10 @@ async function submitGuestUpload()
   {
     return;
   }
+  guestUploadBusy = true;
   element("guestUploadButton").disabled = true;
   const lines = plan.filter((item) => !item.accepted).map((item) => `${item.file.name}: skipped (${item.result})`);
+  const stored = new Set();
   try
   {
     for (const item of todo)
@@ -1474,6 +1805,7 @@ async function submitGuestUpload()
       try
       {
         await transferGuestUpload(url, item.file, `Storing ${item.guestName}`);
+        stored.add(item.file);
         lines.push(`${item.file.name} -> ${item.guestName}: stored`);
       }
       catch (error)
@@ -1485,19 +1817,149 @@ async function submitGuestUpload()
   }
   finally
   {
-    element("guestUploadButton").disabled = false;
+    guestUploadBusy = false;
+    guestUploadPending = guestUploadPending.filter((file) => !stored.has(file));
     hideProgress();
   }
   showStatus(lines.join("\n"));
   await loadGuestListing("guestB");
+  refreshGuestUploadPreview();
 }
 
 function renderGuestDownload()
 {
   return `<h2>${escapeHtml(functions[3].title)}</h2>
     ${guestPicker("guestA", "Source disk image", {allUsers: true, selectable: true})}
+    <label><input id="guestDownloadZip" type="checkbox" checked> Put several files in one ZIP file (one save dialog instead of one per file)</label>
     <button type="button" id="guestDownloadButton">Download selected file(s)</button>
-    <p class="muted">A single file uses the browser's save picker when available. Several files are downloaded one after another through the browser's normal download behavior. Damaged files cannot be read.</p>`;
+    <p class="muted">A single file is downloaded as it is. Several files are packed into one ZIP file, so the browser asks where to save only once; files of different user areas go in folders user0, user1, ... Untick the box to download every file separately (the browser may then ask for a destination per file). Damaged files cannot be read.</p>`;
+}
+
+let crc32Table = null;
+
+function crc32(bytes)
+{
+  if (crc32Table === null)
+  {
+    crc32Table = new Uint32Array(256);
+    for (let index = 0; index < 256; index++)
+    {
+      let value = index;
+      for (let bit = 0; bit < 8; bit++)
+      {
+        value = (value & 1) ? (0xEDB88320 ^ (value >>> 1)) : (value >>> 1);
+      }
+      crc32Table[index] = value >>> 0;
+    }
+  }
+  let crc = 0xFFFFFFFF;
+  for (let index = 0; index < bytes.length; index++)
+  {
+    crc = crc32Table[(crc ^ bytes[index]) & 0xFF] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function buildZipBlob(entries)
+{
+  const encoder = new TextEncoder();
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const dosDate = (Math.max(now.getFullYear() - 1980, 0) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const entry of entries)
+  {
+    const nameBytes = encoder.encode(entry.name);
+    const crc = crc32(entry.data);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034B50, true);
+    local.setUint16(4, 20, true);
+    local.setUint16(6, 0x0800, true);
+    local.setUint16(8, 0, true);
+    local.setUint16(10, dosTime, true);
+    local.setUint16(12, dosDate, true);
+    local.setUint32(14, crc, true);
+    local.setUint32(18, entry.data.length, true);
+    local.setUint32(22, entry.data.length, true);
+    local.setUint16(26, nameBytes.length, true);
+    local.setUint16(28, 0, true);
+    parts.push(local, nameBytes, entry.data);
+    const header = new DataView(new ArrayBuffer(46));
+    header.setUint32(0, 0x02014B50, true);
+    header.setUint16(4, 20, true);
+    header.setUint16(6, 20, true);
+    header.setUint16(8, 0x0800, true);
+    header.setUint16(10, 0, true);
+    header.setUint16(12, dosTime, true);
+    header.setUint16(14, dosDate, true);
+    header.setUint32(16, crc, true);
+    header.setUint32(20, entry.data.length, true);
+    header.setUint32(24, entry.data.length, true);
+    header.setUint16(28, nameBytes.length, true);
+    header.setUint32(42, offset, true);
+    central.push(header, nameBytes);
+    offset += 30 + nameBytes.length + entry.data.length;
+  }
+  let centralSize = 0;
+  for (const piece of central)
+  {
+    centralSize += piece.byteLength;
+  }
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054B50, true);
+  end.setUint16(8, entries.length, true);
+  end.setUint16(10, entries.length, true);
+  end.setUint32(12, centralSize, true);
+  end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end], {type: "application/zip"});
+}
+
+async function downloadGuestFilesAsZip(image, selected)
+{
+  const entries = [];
+  const lines = [];
+  const usedNames = new Set();
+  const multipleUsers = new Set(selected.map((entry) => entry.user)).size > 1;
+  for (const entry of selected)
+  {
+    try
+    {
+      showStatus(`Reading ${entry.name} (${entries.length + 1} of ${selected.length})...`);
+      const response = await api(guestFileDownloadUrl(image, entry));
+      const data = new Uint8Array(await response.arrayBuffer());
+      const safeName = entry.name.replace(/[\\/:*?"<>|]/g, "_");
+      let zipName = multipleUsers ? `user${entry.user}/${safeName}` : safeName;
+      if (usedNames.has(zipName.toLowerCase()))
+      {
+        zipName = `${zipName}_${entries.length + 1}`;
+      }
+      usedNames.add(zipName.toLowerCase());
+      entries.push({name: zipName, data});
+      lines.push(`${entry.name}: added to the ZIP`);
+    }
+    catch (error)
+    {
+      lines.push(`${entry.name}: FAILED - ${error.message}`);
+    }
+  }
+  if (entries.length === 0)
+  {
+    showStatus(lines.join("\n"));
+    return;
+  }
+  const imageName = image.split("/").pop().replace(/\.[^.]*$/, "");
+  const zipFileName = `${imageName || "guestFiles"}.zip`;
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(buildZipBlob(entries));
+  link.download = zipFileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+  lines.push(`${zipFileName}: ${entries.length} file(s) downloaded as one ZIP file.`);
+  showStatus(lines.join("\n"));
 }
 
 async function downloadGuestFiles()
@@ -1511,6 +1973,11 @@ async function downloadGuestFiles()
   if (selected.length === 1)
   {
     await downloadToComputer(guestFileDownloadUrl(image, selected[0]), selected[0].name);
+    return;
+  }
+  if (element("guestDownloadZip").checked)
+  {
+    await downloadGuestFilesAsZip(image, selected);
     return;
   }
   const lines = [];
@@ -2056,6 +2523,7 @@ element("computerFolderInput").addEventListener("change", (event) =>
   hostDirectoryNames.set(hostDirectoryKey("upload", machine),
     `${folderName}: ${images.length} supported disk image(s) selected.`);
   updateHostFolderLabel(machine);
+  refreshImageUploadPreview();
   if (files.length !== images.length)
   {
     showStatus(`${files.length - images.length} nested or non-image file(s) in the selected Computer folder will be ignored.`);
@@ -2090,9 +2558,19 @@ element("app").addEventListener("change", (event) =>
       refreshGuestUploadPreview();
     }
   }
-  if (id === "guestUploadFiles" || id === "guestUploadOverwrite")
+  if (id === "guestUploadFiles")
+  {
+    guestUploadPending = mergeFiles(guestUploadPending, Array.from(event.target.files));
+    event.target.value = "";
+    refreshGuestUploadPreview();
+  }
+  if (id === "guestUploadOverwrite")
   {
     refreshGuestUploadPreview();
+  }
+  if (id === "overwrite")
+  {
+    refreshImageUploadPreview();
   }
   if (id === "sdSourceMachine")
   {
@@ -2111,6 +2589,7 @@ element("app").addEventListener("change", (event) =>
     element("uploadMachineLabel").textContent = event.target.value;
     element("configTargetLabel").textContent = event.target.value;
     updateHostFolderLabel(event.target.value);
+    refreshImageUploadPreview();
   }
   if (id === "uploadKind")
   {
@@ -2130,10 +2609,11 @@ element("app").addEventListener("change", (event) =>
   {
     const files = Array.from(event.target.files);
     const machine = element("uploadMachine").value;
-    hostFiles.delete(machine);
+    hostFiles.set(machine, mergeFiles(hostFiles.get(machine) || [], files));
     hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
-    updateHostFolderLabel(machine,
-      files.length ? `${files.length} individual Computer file(s) selected.` : "No Computer directory selected.");
+    event.target.value = "";
+    updateHostFolderLabel(machine);
+    refreshImageUploadPreview();
   }
 });
 element("app").addEventListener("click", (event) =>
@@ -2179,6 +2659,37 @@ element("app").addEventListener("click", (event) =>
   if (event.target.id === "managerRefresh")
   {
     run(refreshManager);
+  }
+  const pendingRemove = event.target.closest("[data-pending-remove]");
+  if (pendingRemove)
+  {
+    const index = Number(pendingRemove.dataset.index);
+    if (pendingRemove.dataset.pendingRemove === "images")
+    {
+      const machine = element("uploadMachine").value;
+      hostFiles.set(machine, (hostFiles.get(machine) || []).filter((file, position) => position !== index));
+      hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
+      updateHostFolderLabel(machine);
+      refreshImageUploadPreview();
+    }
+    else
+    {
+      guestUploadPending = guestUploadPending.filter((file, position) => position !== index);
+      refreshGuestUploadPreview();
+    }
+  }
+  if (event.target.id === "imageUploadClear")
+  {
+    const machine = element("uploadMachine").value;
+    hostFiles.delete(machine);
+    hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
+    updateHostFolderLabel(machine);
+    refreshImageUploadPreview();
+  }
+  if (event.target.id === "guestUploadClear")
+  {
+    guestUploadPending = [];
+    refreshGuestUploadPreview();
   }
   if (event.target.id === "chooseUploadFolder")
   {
@@ -2286,56 +2797,47 @@ element("app").addEventListener("submit", (event) =>
   if (event.target.id === "imageUploadForm")
   {
     event.preventDefault();
-    run(async () =>
-    {
-      const machine = element("uploadMachine").value;
-      const files = hostFiles.has(machine) ? hostFiles.get(machine) : Array.from(element("imageFiles").files);
-      if (files.length === 0)
-      {
-        throw new Error("Choose a Computer folder containing disk images or select individual image files first.");
-      }
-      const fileNames = new Set();
-      for (const file of files)
-      {
-        if (!/\.(dsk|img|po|woz|2mg)$/i.test(file.name))
-        {
-          throw new Error(`Not a recognized whole-image filename: ${file.name}`);
-        }
-        if (fileNames.has(file.name.toLowerCase()))
-        {
-          throw new Error(`The selected Computer folder contains duplicate image filenames: ${file.name}. Select files from one directory or rename duplicates first.`);
-        }
-        fileNames.add(file.name.toLowerCase());
-      }
-      const overwrite = element("overwrite").checked;
-      if (overwrite && !confirm("OVERWRITE is enabled. Existing images may be mapped in drives.cfg, including as RO. Mappings will not be changed. Continue?"))
-      {
-        return;
-      }
-      element("uploadButton").disabled = true;
-      let completed = 0;
-      try
-      {
-        for (const file of files)
-        {
-          const path = imagePath(machine, file.name);
-          showStatus(`Uploading ${file.name} (${completed + 1}/${files.length})...`);
-          await transferUpload("images", path, file, overwrite, `Uploading ${file.name}`);
-          completed++;
-        }
-        element("imageFiles").value = "";
-        hostFiles.delete(machine);
-        hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
-        updateHostFolderLabel(machine, "Upload complete. Select another Computer folder or files to continue.");
-        showStatus(`Uploaded ${completed} whole image(s) to /retro/images/${machine}/.`);
-      }
-      finally
-      {
-        element("uploadButton").disabled = false;
-        hideProgress();
-      }
-    });
+    run(submitImageUpload);
   }
+});
+window.addEventListener("dragover", (event) =>
+{
+  if (!dragHasFiles(event))
+  {
+    return;
+  }
+  event.preventDefault();
+  const zone = event.target instanceof Element ? event.target.closest("[data-dropzone]") : null;
+  event.dataTransfer.dropEffect = zone ? "copy" : "none";
+  if (zone)
+  {
+    zone.classList.add("dragActive");
+  }
+});
+window.addEventListener("dragleave", (event) =>
+{
+  const zone = event.target instanceof Element ? event.target.closest("[data-dropzone]") : null;
+  if (zone)
+  {
+    zone.classList.remove("dragActive");
+  }
+});
+window.addEventListener("drop", (event) =>
+{
+  if (!dragHasFiles(event))
+  {
+    return;
+  }
+  event.preventDefault();
+  document.querySelectorAll(".dragActive").forEach((zone) => zone.classList.remove("dragActive"));
+  const zone = event.target instanceof Element ? event.target.closest("[data-dropzone]") : null;
+  if (!zone)
+  {
+    showStatus("Drop the files on the marked drop zone.");
+    return;
+  }
+  const collecting = collectDroppedFiles(event.dataTransfer);
+  run(async () => applyDroppedFiles(zone.dataset.dropzone, await collecting));
 });
 window.addEventListener("popstate", (event) =>
 {
