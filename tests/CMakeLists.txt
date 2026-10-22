@@ -118,22 +118,39 @@ add_test(NAME apple2ProdosAutostart80Columns COMMAND apple2DiskTests --prodos-80
 add_test(NAME apple2ProdosSmartPort COMMAND apple2DiskTests --prodos-smartport-boot
   "${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2Downloads/appleDisks/ProDOS 2.4.2.dsk" ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po)
 set_tests_properties(apple2ProdosAutostart apple2ProdosAutostart80Columns apple2ProdosSmartPort PROPERTIES FIXTURES_REQUIRED prodosImages)
-add_executable(
-  guestFsTests
-  guestFsTests.c
+set(guestFsSources
   ../components/guestFs/guestFs.c
   ../components/guestFs/guestFsCpm.c
+  ../components/guestFs/guestFsApple.c
+  ../components/guestFs/guestFsProdos.c
+  ../components/guestFs/guestFsPascal.c
+  ../components/guestFs/guestFsDos33.c
   ../main/guestFsImage.c
   ../main/imageFile.c
 )
-target_include_directories(guestFsTests PRIVATE ../components/guestFs/include ../components/guestFs ../main)
-target_compile_options(guestFsTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
-target_compile_definitions(guestFsTests PRIVATE _DEFAULT_SOURCE GUESTFS_FAULT_INJECTION)
-if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
-  target_compile_options(guestFsTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
-  target_link_options(guestFsTests PRIVATE -fsanitize=address,undefined)
-endif()
+function(addGuestFsExecutable targetName sourceFile)
+  add_executable(${targetName} ${sourceFile} ${guestFsSources})
+  target_include_directories(${targetName} PRIVATE ../components/guestFs/include ../components/guestFs ../main)
+  target_compile_options(${targetName} PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
+  target_compile_definitions(${targetName} PRIVATE _DEFAULT_SOURCE GUESTFS_FAULT_INJECTION)
+  if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(${targetName} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(${targetName} PRIVATE -fsanitize=address,undefined)
+  endif()
+endfunction()
 set(guestFsWork ${CMAKE_CURRENT_BINARY_DIR}/guestFsWork)
+#-- Registers <prefix>Fixtures (python builds images), <prefix> (C test) and <prefix>PythonVerify (python checks C output).
+function(addGuestFsSuite prefix targetName fixtureScript)
+  set(work ${CMAKE_CURRENT_BINARY_DIR}/${prefix}Work)
+  add_test(NAME ${prefix}Fixtures COMMAND sh -c
+    "rm -rf '${work}' && mkdir -p '${work}/fixtures' '${work}/out' && python3 '${CMAKE_CURRENT_SOURCE_DIR}/${fixtureScript}' build '${work}/fixtures' && python3 '${CMAKE_CURRENT_SOURCE_DIR}/${fixtureScript}' real '${work}/fixtures'")
+  set_tests_properties(${prefix}Fixtures PROPERTIES FIXTURES_SETUP ${prefix}Fixtures)
+  add_test(NAME ${prefix} COMMAND ${targetName} ${work}/fixtures ${work}/out ${CMAKE_CURRENT_SOURCE_DIR}/..)
+  set_tests_properties(${prefix} PROPERTIES FIXTURES_REQUIRED ${prefix}Fixtures FIXTURES_SETUP ${prefix}Output)
+  add_test(NAME ${prefix}PythonVerify COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/${fixtureScript} verify ${work}/out)
+  set_tests_properties(${prefix}PythonVerify PROPERTIES FIXTURES_REQUIRED ${prefix}Output)
+endfunction()
+addGuestFsExecutable(guestFsTests guestFsTests.c)
 add_test(NAME guestFsFixtures COMMAND sh -c
   "rm -rf '${guestFsWork}' && mkdir -p '${guestFsWork}/fixtures' '${guestFsWork}/out' && python3 '${CMAKE_CURRENT_SOURCE_DIR}/guestFsFixture.py' build '${guestFsWork}/fixtures' && python3 '${CMAKE_CURRENT_SOURCE_DIR}/guestFsFixture.py' real '${guestFsWork}/fixtures'")
 set_tests_properties(guestFsFixtures PROPERTIES FIXTURES_SETUP guestFsFixtures)
@@ -141,3 +158,18 @@ add_test(NAME guestFsCpm COMMAND guestFsTests ${guestFsWork}/fixtures ${guestFsW
 set_tests_properties(guestFsCpm PROPERTIES FIXTURES_REQUIRED guestFsFixtures FIXTURES_SETUP guestFsOutput)
 add_test(NAME guestFsPythonVerify COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/guestFsFixture.py verify ${guestFsWork}/out)
 set_tests_properties(guestFsPythonVerify PROPERTIES FIXTURES_REQUIRED guestFsOutput)
+addGuestFsExecutable(guestFsProdosTests guestFsProdosTests.c)
+addGuestFsSuite(guestFsProdos guestFsProdosTests guestFsProdosFixture.py)
+addGuestFsExecutable(guestFsPascalTests guestFsPascalTests.c)
+addGuestFsSuite(guestFsPascal guestFsPascalTests guestFsPascalFixture.py)
+addGuestFsExecutable(guestFsDos33Tests guestFsDos33Tests.c)
+addGuestFsSuite(guestFsDos33 guestFsDos33Tests guestFsDos33Fixture.py)
+add_executable(guestFsAppleOrderTests guestFsAppleOrderTests.c ${guestFsSources} ../main/apple2DiskImage.c)
+target_include_directories(guestFsAppleOrderTests PRIVATE ../components/guestFs/include ../components/guestFs ../main)
+target_compile_options(guestFsAppleOrderTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
+target_compile_definitions(guestFsAppleOrderTests PRIVATE _DEFAULT_SOURCE)
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(guestFsAppleOrderTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(guestFsAppleOrderTests PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME guestFsAppleOrder COMMAND guestFsAppleOrderTests ${CMAKE_CURRENT_SOURCE_DIR}/..)

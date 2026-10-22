@@ -496,6 +496,7 @@ static void cpmInfo(const guestFsVolume* base, guestFsInfo* info)
   info->directoryEntries = profile->directoryEntries;
   info->freeDirectoryEntries = volume->freeSlots;
   info->maxUser = guestFsMaxUser;
+  info->nameRule = "cpm";
 }
 
 static guestFsStatus cpmList(guestFsVolume* base, guestFsListFn callback, void* context)
@@ -789,9 +790,11 @@ static void buildEntry(const cpmProfile* profile, uint8_t* entry, uint8_t user,
 }
 
 static guestFsStatus cpmWrite(guestFsVolume* base, uint8_t user, const char* name, uint32_t length,
-                              guestFsSourceFn source, void* context, bool overwrite)
+                              guestFsSourceFn source, void* context, bool overwrite,
+                              const guestFsAttributes* attributes)
 {
   cpmVolume* volume = (cpmVolume*)base;
+  (void)attributes;
   const cpmProfile* profile = volume->profile;
   uint8_t packed[11];
   char canonical[nameStorage];

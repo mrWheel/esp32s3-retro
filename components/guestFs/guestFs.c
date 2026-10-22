@@ -10,7 +10,10 @@
 bool (*guestFsFaultHook)(const char* stage) = NULL;
 #endif
 
-static const guestFsOps* const adapters[] = {&guestFsCpmOps};
+//-- Adapters are tried in order; an adapter returns guestFsErrUnsupported when the image is not its
+//kind.
+static const guestFsOps* const adapters[] = {&guestFsCpmOps, &guestFsProdosOps, &guestFsPascalOps,
+                                             &guestFsDos33Ops};
 static const size_t adapterCount = sizeof(adapters) / sizeof(adapters[0]);
 
 enum
@@ -518,12 +521,20 @@ guestFsStatus guestFsReadAt(guestFsVolume* volume, uint8_t user, const char* nam
              : volume->ops->readAt(volume, user, name, offset, buffer, length, got);
 }
 
-guestFsStatus guestFsWrite(guestFsVolume* volume, uint8_t user, const char* name, uint32_t length,
-                           guestFsSourceFn source, void* context, bool overwrite)
+guestFsStatus guestFsWriteEx(guestFsVolume* volume, uint8_t user, const char* name, uint32_t length,
+                             guestFsSourceFn source, void* context, bool overwrite,
+                             const guestFsAttributes* attributes)
 {
   return volume == NULL || name == NULL || source == NULL
              ? guestFsErrInvalidArgument
-             : volume->ops->write(volume, user, name, length, source, context, overwrite);
+             : volume->ops->write(volume, user, name, length, source, context, overwrite,
+                                  attributes);
+}
+
+guestFsStatus guestFsWrite(guestFsVolume* volume, uint8_t user, const char* name, uint32_t length,
+                           guestFsSourceFn source, void* context, bool overwrite)
+{
+  return guestFsWriteEx(volume, user, name, length, source, context, overwrite, NULL);
 }
 
 guestFsStatus guestFsRemove(guestFsVolume* volume, uint8_t user, const char* name)
@@ -606,8 +617,8 @@ guestFsStatus guestFsCopy(guestFsVolume* source, uint8_t sourceUser, const char*
     return guestFsErrInvalidArgument;
   }
   copySource reader = {source, sourceUser, sourceName, 0, poll, pollContext, guestFsOk};
-  status = guestFsWrite(destination, destinationUser, destinationName, entry.size, copySourceRead,
-                        &reader, overwrite);
+  status = guestFsWriteEx(destination, destinationUser, destinationName, entry.size, copySourceRead,
+                          &reader, overwrite, entry.hasAttributes ? &entry.attributes : NULL);
   if (status != guestFsOk && reader.status != guestFsOk)
   {
     return reader.status;

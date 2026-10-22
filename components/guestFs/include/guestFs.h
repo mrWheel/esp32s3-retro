@@ -6,9 +6,10 @@
 
 enum
 {
-  guestFsNameCapacity = 24,
+  guestFsNameCapacity = 32,
   guestFsDetailCapacity = 96,
-  guestFsMaxUser = 15
+  guestFsMaxUser = 15,
+  guestFsTypeLabelCapacity = 8
 };
 
 typedef enum
@@ -42,6 +43,18 @@ typedef struct
   bool readOnly;
 } guestFsIo;
 
+//-- Interchange attributes used when a file moves between file systems. The ProDOS file type and
+//aux type
+//-- are the common currency (the same as tools/extractApple2Files.py Exported); pascalKind is the
+//UCSD kind.
+typedef struct
+{
+  uint16_t prodosType;
+  uint16_t auxType;
+  uint8_t pascalKind;
+  bool locked;
+} guestFsAttributes;
+
 typedef struct
 {
   char name[guestFsNameCapacity];
@@ -51,6 +64,12 @@ typedef struct
   bool readOnlyAttribute;
   bool systemAttribute;
   bool damaged;
+  //-- Directories (ProDOS) are listed but cannot be read, copied, renamed or deleted.
+  bool directory;
+  //-- Short native type label for display ("BIN", "TXT", "CODE", "B", ...); empty for CP/M.
+  char typeLabel[guestFsTypeLabelCapacity];
+  bool hasAttributes;
+  guestFsAttributes attributes;
 } guestFsEntry;
 
 typedef struct
@@ -63,6 +82,8 @@ typedef struct
   uint32_t directoryEntries;
   uint32_t freeDirectoryEntries;
   uint8_t maxUser;
+  //-- File name rule of the file system: "cpm", "prodos", "pascal" or "dos33".
+  const char* nameRule;
 } guestFsInfo;
 
 typedef struct guestFsVolume guestFsVolume;
@@ -88,7 +109,8 @@ typedef struct guestFsOps
   guestFsStatus (*readAt)(guestFsVolume* volume, uint8_t user, const char* name, uint32_t offset,
                           void* buffer, size_t length, size_t* got);
   guestFsStatus (*write)(guestFsVolume* volume, uint8_t user, const char* name, uint32_t length,
-                         guestFsSourceFn source, void* context, bool overwrite);
+                         guestFsSourceFn source, void* context, bool overwrite,
+                         const guestFsAttributes* attributes);
   guestFsStatus (*remove)(guestFsVolume* volume, uint8_t user, const char* name);
   guestFsStatus (*rename)(guestFsVolume* volume, uint8_t user, const char* name,
                           const char* newName);
@@ -112,6 +134,10 @@ guestFsStatus guestFsReadAt(guestFsVolume* volume, uint8_t user, const char* nam
                             void* buffer, size_t length, size_t* got);
 guestFsStatus guestFsWrite(guestFsVolume* volume, uint8_t user, const char* name, uint32_t length,
                            guestFsSourceFn source, void* context, bool overwrite);
+//-- attributes may be NULL: the file system then derives type information from the file name.
+guestFsStatus guestFsWriteEx(guestFsVolume* volume, uint8_t user, const char* name, uint32_t length,
+                             guestFsSourceFn source, void* context, bool overwrite,
+                             const guestFsAttributes* attributes);
 guestFsStatus guestFsRemove(guestFsVolume* volume, uint8_t user, const char* name);
 guestFsStatus guestFsRename(guestFsVolume* volume, uint8_t user, const char* name,
                             const char* newName);

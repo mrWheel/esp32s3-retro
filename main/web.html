@@ -509,7 +509,7 @@ function helpContent()
   if (state.screen === "home")
   {
     return ["Functions / Selection",
-      "<p>Choose a transfer direction. Whole-image functions operate on SD image files; guest-file functions operate on single files inside CP/M-80 and CP/M-86 images (other operating systems are not yet supported).</p>" +
+      "<p>Choose a transfer direction. Whole-image functions operate on SD image files; guest-file functions operate on single files inside CP/M-80, CP/M-86, Apple II (ProDOS and DOS 3.3) and UCSD Pascal images (SWTPC 6800 is not yet supported).</p>" +
       "<p>Computer access uses browser-authorized file selection and standard browser downloads. The browser/OS controls download destination and may show its save picker according to browser settings.</p>" +
       "<p>Every SD image is managed regardless of whether its emulator drive is marked RO or RW in drives.cfg. Destructive actions warn about existing drive mappings; configuration files themselves remain protected.</p>"];
   }
@@ -520,10 +520,10 @@ function helpContent()
     "computer-image-upload": "<p>Select the destination OS (images are always written to /retro/images/&lt;OS&gt;/ on the SD card), then choose a Computer folder or individual image files. Supported secure browsers can remember an authorized source folder per selected machine in browser IndexedDB; permission can expire. On ordinary HTTP from the ESP32, use the native directory picker fallback. The browser controls its starting location. LittleFS is on the ESP32 and cannot store a Computer path. Only supported disk images directly inside the selected folder are uploaded. Existing SD destinations are skipped unless OVERWRITE is checked and confirmed. FAT32 limits one file to less than 4 GiB.</p>",
     "image-computer-download": "<p>Select the source OS and choose a whole image to download. On browsers with the secure File System Access save picker, the destination is selected when you start the download. Otherwise the browser uses its normal download behavior; enable “Ask where to save each file” in browser settings if you want a destination picker. No separate Computer destination directory is needed. This downloads the complete image container byte-for-byte, not guest files inside it.</p>",
     "image-image-copy": "<p>Select the source OS and image, then a destination OS and new image filename. The firmware copies in bounded chunks and verifies bytes before commit. Source remains unchanged. OVERWRITE requires confirmation and preserves the prior destination during commit. A mapped RO image is still eligible; its drives.cfg reference is not rewritten.</p>",
-    "computer-guest-upload": "<p>Choose the destination OS, disk image and user area, then select Computer files. The preview shows the uppercase 8.3 CP/M name each file will get, flags invalid or duplicate names and shows which names already exist. Existing files are skipped unless OVERWRITE is checked and confirmed. Empty files cannot be stored. Data is written to free blocks first and the directory is updated last through an undo journal, so a power loss leaves either the old or the new state. Overwriting needs free room for both copies. The emulators and this manager are mutually exclusive.</p>",
+    "computer-guest-upload": "<p>Choose the destination OS, disk image and user area, then select Computer files. The preview shows the uppercase name each file will get under the rules of the destination file system (8.3 for CP/M), flags invalid or duplicate names and shows which names already exist. Existing files are skipped unless OVERWRITE is checked and confirmed. Empty files cannot be stored. Data is written to free blocks first and the directory is updated last through an undo journal, so a power loss leaves either the old or the new state. Overwriting needs free room for both copies. The emulators and this manager are mutually exclusive.</p>",
     "guest-computer-download": "<p>Choose an OS, image and user area filter, tick one or more files and download them. One file uses the browser's save picker when available; several files use the normal browser download behavior. Damaged files (broken extent chains) are shown but cannot be downloaded.</p>",
-    "guest-image-copy": "<p>Pick the source image and tick files, then pick a destination image and user area. The source may be the same image (copy to another user area). The source is never changed. Existing destination files are skipped unless OVERWRITE is checked and confirmed. Copies stream in small chunks and cross-OS copies (CP/M-80 to CP/M-86) are allowed.</p>",
-    "file-guest-copy": "<p>Top: copy an ordinary SD file (not a disk image) from /retro/images/&lt;OS&gt;/ into a guest image; the guest name is converted to a CP/M 8.3 name. Bottom: copy ticked guest files out to /retro/images/&lt;OS&gt;/ as ordinary SD files. The SD file is written to a temporary file and committed atomically; an existing SD file is replaced only after confirmation. SD names cannot contain characters such as $ that FAT file names handled by this manager reject.</p>",
+    "guest-image-copy": "<p>Pick the source image and tick files, then pick a destination image and user area. The source may be the same image (copy to another user area). The source is never changed. Existing destination files are skipped unless OVERWRITE is checked and confirmed. Copies stream in small chunks and cross-OS copies are allowed (for example CP/M-80 to CP/M-86, or ProDOS to UCSD Pascal, where file type and Pascal kind are mapped; DOS 3.3 headers are stripped on read and rebuilt on write). ProDOS subdirectories are listed but cannot be opened, and the user area is hidden for file systems without user areas.</p>",
+    "file-guest-copy": "<p>Top: copy an ordinary SD file (not a disk image) from /retro/images/&lt;OS&gt;/ into a guest image; the guest name is converted to the name rule of the destination file system (8.3 for CP/M). Bottom: copy ticked guest files out to /retro/images/&lt;OS&gt;/ as ordinary SD files. The SD file is written to a temporary file and committed atomically; an existing SD file is replaced only after confirmation. SD names cannot contain characters such as $ that FAT file names handled by this manager reject.</p>",
     "guest-file-manage": "<p>Tick files to delete them (confirmation required) or tick exactly one file to rename it. Delete only frees the directory entries; renaming refuses an existing name and keeps the user area. Both are journaled, so an interrupted operation is rolled back the next time the manager touches that OS directory.</p>",
     "manage-images": "<p>Select an OS to list its image files in /retro/images/&lt;OS&gt;/ (there are no sub-directories). Download files, copy or rename whole disk images, and delete regular files. Image operations are allowed regardless of drives.cfg RO/RW mapping. Deleting or renaming a mapped image can break a drive reference; review the warning and confirm deliberately. drives.cfg and config.cfg cannot be deleted or replaced here.</p>",
   };
@@ -554,7 +554,7 @@ function navigate(screen, functionId = state.functionId, addHistory = true)
 function renderHome()
 {
   return `<h2>Functions / Selection</h2>
-    <p class="notice">Whole-image operations are available. Guest files can be listed, copied, renamed and deleted inside CP/M-80 and CP/M-86 images; other operating systems follow in later releases.</p>
+    <p class="notice">Whole-image operations are available. Guest files can be listed, copied, renamed and deleted inside CP/M-80, CP/M-86, ProDOS, DOS 3.3 and UCSD Pascal images (140K, 640K and 800K Apple images, either sector order); SWTPC 6800 follows in a later release.</p>
     <div class="card-grid">${functions.map((item) =>
     {
       const status = item.available ? "Available" : `Not implemented — ${item.reason}`;
@@ -965,7 +965,7 @@ async function refreshManager()
   }
 }
 
-const guestMachineIds = ["cpm80", "cpm86"];
+const guestMachineIds = ["cpm80", "cpm86", "apple2", "ucsd"];
 const guestImagePattern = /\.(dsk|img|po|woz|2mg)$/i;
 const guestSlots = {guestA: {image: "", info: null, files: []}, guestB: {image: "", info: null, files: []}};
 
@@ -974,9 +974,21 @@ function guestQuery(parameters)
   return Object.entries(parameters).map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join("&");
 }
 
-function guestNamePreview(fileName)
+function guestNamePreview(fileName, rule)
 {
   const upper = fileName.toUpperCase();
+  if (rule === "prodos")
+  {
+    return /^[A-Z][A-Z0-9.]{0,14}$/.test(upper) ? upper : null;
+  }
+  if (rule === "pascal")
+  {
+    return upper.length >= 1 && upper.length <= 15 && /^[\x21-\x7e]+$/.test(upper) && !/[$=?,[#:\/]/.test(upper) ? upper : null;
+  }
+  if (rule === "dos33")
+  {
+    return upper.length >= 1 && upper.length <= 30 && /^[\x20-\x5f]+$/.test(upper) && !upper.includes(",") ? upper : null;
+  }
   const dot = upper.indexOf(".");
   const base = dot < 0 ? upper : upper.slice(0, dot);
   const extension = dot < 0 ? "" : upper.slice(dot + 1);
@@ -986,6 +998,20 @@ function guestNamePreview(fileName)
     return null;
   }
   return extension ? `${base}.${extension}` : base;
+}
+
+function guestRule(slot)
+{
+  return guestSlots[slot].info ? guestSlots[slot].info.nameRule : "cpm";
+}
+
+function guestRuleHelp(rule)
+{
+  return {
+    prodos: "1-15 characters, a letter first, then letters, digits or dots",
+    pascal: "1-15 printable characters without space or any of $ = ? , [ # : /",
+    dos33: "1-30 characters from space to underscore, no comma"
+  }[rule] || "1-8 characters, optional .1-3; letters, digits, _ $ -";
 }
 
 function formatBytes(bytes)
@@ -1015,7 +1041,7 @@ function guestPicker(slot, title, options)
     </div>
     <p id="${slot}Info" class="muted">Select an image.</p>
     <table>
-      <thead><tr>${options.selectable ? "<th>Select</th>" : ""}<th>Name</th><th>User</th><th>Bytes</th><th>Flags</th></tr></thead>
+      <thead><tr>${options.selectable ? "<th>Select</th>" : ""}<th>Name</th><th>Type</th><th>User</th><th>Bytes</th><th>Flags</th></tr></thead>
       <tbody id="${slot}Table"></tbody>
     </table>
   </section>`;
@@ -1048,13 +1074,13 @@ function renderGuestTable(slot)
       const box = document.createElement("input");
       box.type = "checkbox";
       box.dataset.guestIndex = String(index);
-      box.disabled = entry.damaged;
+      box.disabled = entry.damaged || entry.directory;
       cell.append(box);
       row.append(cell);
     }
-    const flags = [entry.readOnly ? "R/O" : "", entry.system ? "SYS" : "", entry.damaged ? "DAMAGED (cannot be read)" : ""]
-      .filter(Boolean).join(" ");
-    for (const text of [entry.name, String(entry.user), String(entry.size), flags])
+    const flags = [entry.readOnly ? "R/O" : "", entry.system ? "SYS" : "", entry.directory ? "DIRECTORY (not accessible)" : "",
+      entry.damaged ? "DAMAGED (cannot be read)" : ""].filter(Boolean).join(" ");
+    for (const text of [entry.name, entry.type || "", String(entry.user), String(entry.size), flags])
     {
       const cell = document.createElement("td");
       cell.textContent = text;
@@ -1093,6 +1119,12 @@ async function loadGuestListing(slot)
     slotState.files = data.files;
     info.textContent = `${data.fs} (${data.profile}): ${data.files.length} file(s); free ${formatBytes(data.freeBytes)} in ` +
       `${data.freeBlocks} block(s) of ${data.blockSize} bytes; ${data.freeDirectoryEntries} of ${data.directoryEntries} directory entries free.`;
+    const userSelect = element(`${slot}User`);
+    userSelect.closest("label").hidden = data.maxUser === 0;
+    if (data.maxUser === 0)
+    {
+      userSelect.value = userSelect.querySelector('option[value="all"]') ? "all" : "0";
+    }
     renderGuestTable(slot);
   }
   catch (error)
@@ -1139,6 +1171,14 @@ function renderGuestUpload()
         <input id="guestUploadFiles" type="file" multiple>
       </label>
       <label><input id="guestUploadOverwrite" type="checkbox"> OVERWRITE existing guest files</label>
+      <div class="row">
+        <label class="field">Apple file type, hex (optional, ProDOS and DOS 3.3: 04 TXT, 06 BIN, FC BAS, FA INT)
+          <input id="guestUploadType" size="4" maxlength="2" placeholder="auto">
+        </label>
+        <label class="field">Aux type / load address, hex (optional)
+          <input id="guestUploadAux" size="6" maxlength="4" placeholder="0">
+        </label>
+      </div>
       <table>
         <thead><tr><th>Computer file</th><th>Guest name</th><th>Bytes</th><th>Result</th></tr></thead>
         <tbody id="guestUploadPreview"></tbody>
@@ -1146,7 +1186,7 @@ function renderGuestUpload()
       <p id="guestUploadTotals" class="muted"></p>
       <button id="guestUploadButton" type="submit">Copy file(s) into the disk image</button>
     </form>
-    <p class="muted">Names are converted to uppercase 8.3 CP/M names. Empty files cannot be stored. The preview is advisory; the firmware validates every name and checks free space.</p>`;
+    <p class="muted">Names are converted to uppercase and must follow the rule of the destination file system (CP/M 8.3, ProDOS, UCSD Pascal or DOS 3.3). Without an Apple file type the type follows the name suffix (.TXT, .BIN, .SYS, .BAS for ProDOS; .TEXT, .CODE, .DATA for UCSD Pascal; text for DOS 3.3). Empty files cannot be stored. The preview is advisory; the firmware validates every name and checks free space.</p>`;
 }
 
 function guestUploadPlan()
@@ -1159,12 +1199,12 @@ function guestUploadPlan()
   const seen = new Set();
   return files.map((file) =>
   {
-    const guestName = guestNamePreview(file.name);
+    const guestName = guestNamePreview(file.name, guestRule("guestB"));
     let result = "OK";
     let accepted = true;
     if (!guestName)
     {
-      result = "Invalid CP/M name (use 1-8 characters, optional .1-3; letters, digits, _ $ -)";
+      result = `Invalid name (${guestRuleHelp(guestRule("guestB"))})`;
       accepted = false;
     }
     else if (file.size === 0)
@@ -1253,6 +1293,12 @@ async function submitGuestUpload()
   }
   const user = element("guestBUser").value;
   const overwrite = element("guestUploadOverwrite").checked;
+  const typeText = element("guestUploadType").value.trim();
+  const auxText = element("guestUploadAux").value.trim();
+  if (!/^([0-9a-f]{1,2})?$/i.test(typeText) || !/^([0-9a-f]{1,4})?$/i.test(auxText))
+  {
+    throw new Error("The Apple file type must be 1-2 hex digits and the aux type 1-4 hex digits.");
+  }
   const plan = guestUploadPlan();
   if (plan.length === 0)
   {
@@ -1275,7 +1321,16 @@ async function submitGuestUpload()
   {
     for (const item of todo)
     {
-      const url = `/api/guest/upload?${guestQuery({image, user, name: item.guestName, overwrite: overwrite ? "1" : "0"})}`;
+      const parameters = {image, user, name: item.guestName, overwrite: overwrite ? "1" : "0"};
+      if (typeText)
+      {
+        parameters.ptype = typeText;
+      }
+      if (auxText)
+      {
+        parameters.aux = auxText;
+      }
+      const url = `/api/guest/upload?${guestQuery(parameters)}`;
       try
       {
         await transferGuestUpload(url, item.file, `Storing ${item.guestName}`);
@@ -1479,10 +1534,10 @@ async function copySdFileToGuest()
   }
   const user = Number(element("guestBUser").value);
   const typed = element("sdToGuestName").value.trim();
-  const guestName = guestNamePreview(typed || file.split("/").pop());
+  const guestName = guestNamePreview(typed || file.split("/").pop(), guestRule("guestB"));
   if (!guestName)
   {
-    throw new Error("The guest file name is not a valid CP/M name (1-8 characters, optional .1-3).");
+    throw new Error(`The guest file name is not valid (${guestRuleHelp(guestRule("guestB"))}).`);
   }
   const overwrite = element("fileGuestOverwrite").checked;
   const exists = guestSlots.guestB.files.some((entry) => entry.user === user && entry.name === guestName);
@@ -1566,10 +1621,10 @@ async function renameGuestFile()
   {
     return;
   }
-  const guestName = guestNamePreview(newName.trim());
+  const guestName = guestNamePreview(newName.trim(), guestRule("guestA"));
   if (!guestName)
   {
-    throw new Error("The new name is not a valid CP/M name (1-8 characters, optional .1-3).");
+    throw new Error(`The new name is not valid (${guestRuleHelp(guestRule("guestA"))}).`);
   }
   if (guestName === entry.name)
   {

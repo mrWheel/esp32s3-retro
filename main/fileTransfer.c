@@ -1208,7 +1208,7 @@ static bool guestQueryPresent(const char* query, const char* key)
 }
 
 //-- Decode a guest file name: any printable text except path separators; the file system validates
-//it.
+// it.
 static bool guestQueryText(const char* query, const char* key, char* decoded, size_t capacity)
 {
   char encoded[relativePathCapacity];
@@ -1279,6 +1279,64 @@ static bool guestQueryFlag(const char* query, const char* key)
 {
   char text[4];
   return httpd_query_key_value(query, key, text, sizeof(text)) == ESP_OK && strcmp(text, "1") == 0;
+}
+
+//-- Optional numeric query value (hexadecimal or decimal). Returns false when present but
+//malformed.
+static bool guestQueryNumber(const char* query, const char* key, unsigned base, unsigned maximum,
+                             unsigned* value, bool* present)
+{
+  char text[8];
+  *present = false;
+  if (!guestQueryPresent(query, key))
+  {
+    return true;
+  }
+  if (httpd_query_key_value(query, key, text, sizeof(text)) != ESP_OK || text[0] == '\0')
+  {
+    return false;
+  }
+  unsigned number = 0;
+  for (const char* digit = text; *digit != '\0'; ++digit)
+  {
+    int digitValue = guestHexValue(*digit);
+    if (digitValue < 0 || (unsigned)digitValue >= base)
+    {
+      return false;
+    }
+    number = number * base + (unsigned)digitValue;
+    if (number > maximum)
+    {
+      return false;
+    }
+  }
+  *value = number;
+  *present = true;
+  return true;
+}
+
+//-- Optional ptype (hex), aux (hex) and kind (decimal) query values become interchange attributes.
+static bool guestQueryAttributes(const char* query, guestFsAttributes* attributes, bool* present)
+{
+  unsigned typeValue = 0;
+  unsigned auxValue = 0;
+  unsigned kindValue = 0;
+  bool typePresent = false;
+  bool auxPresent = false;
+  bool kindPresent = false;
+  *present = false;
+  if (!guestQueryNumber(query, "ptype", 16, 0xff, &typeValue, &typePresent) ||
+      !guestQueryNumber(query, "aux", 16, 0xffff, &auxValue, &auxPresent) ||
+      !guestQueryNumber(query, "kind", 10, 15, &kindValue, &kindPresent))
+  {
+    return false;
+  }
+  memset(attributes, 0, sizeof(*attributes));
+  attributes->prodosType = (uint16_t)typeValue;
+  attributes->auxType = (uint16_t)auxValue;
+  attributes->pascalKind = (uint8_t)kindValue;
+  *present = typePresent || auxPresent || kindPresent;
+  return true;
 }
 
 //-- Resolve a pending undo journal of an OS directory before any other guest operation.
@@ -1460,15 +1518,27 @@ static bool guestListEntry(void* context, const guestFsEntry* entry)
 {
   guestListState* state = context;
   char escaped[guestFsNameCapacity * 6 + 1];
-  char row[256];
+  char row[448];
   jsonEscapeInto(escaped, sizeof(escaped), entry->name);
-  snprintf(
+  int used = snprintf(
       row, sizeof(row),
       "%s{\"user\":%u,\"name\":\"%s\",\"size\":%lu,\"allocated\":%lu,\"readOnly\":%s,\"system\":%s,"
-      "\"damaged\":%s}",
+      "\"damaged\":%s,\"directory\":%s,\"type\":\"%s\"",
       state->first ? "" : ",", (unsigned)entry->user, escaped, (unsigned long)entry->size,
       (unsigned long)entry->allocatedBytes, entry->readOnlyAttribute ? "true" : "false",
-      entry->systemAttribute ? "true" : "false", entry->damaged ? "true" : "false");
+      entry->systemAttribute ? "true" : "false", entry->damaged ? "true" : "false",
+      entry->directory ? "true" : "false", entry->typeLabel);
+  if (entry->hasAttributes && used > 0 && (size_t)used < sizeof(row))
+  {
+    snprintf(row + used, sizeof(row) - (size_t)used,
+             ",\"prodosType\":%u,\"auxType\":%u,\"pascalKind\":%u}",
+             (unsigned)entry->attributes.prodosType, (unsigned)entry->attributes.auxType,
+             (unsigned)entry->attributes.pascalKind);
+  }
+  else if (used > 0 && (size_t)used < sizeof(row))
+  {
+    snprintf(row + used, sizeof(row) - (size_t)used, "}");
+  }
   state->first = false;
   state->result = httpd_resp_sendstr_chunk(state->request, row);
   vTaskDelay(1);
@@ -1500,16 +1570,16 @@ static esp_err_t guestFilesHandler(httpd_req_t* request)
   }
   guestFsInfo info;
   guestFsInfoGet(session.volume, &info);
-  char header[448];
+  char header[512];
   snprintf(
       header, sizeof(header),
       "{\"image\":\"%s\",\"fs\":\"%s\",\"profile\":\"%s\",\"blockSize\":%lu,\"totalBlocks\":%lu,"
       "\"freeBlocks\":%lu,\"freeBytes\":%llu,\"directoryEntries\":%lu,\"freeDirectoryEntries\":%lu,"
-      "\"maxUser\":%u,\"files\":[",
+      "\"maxUser\":%u,\"nameRule\":\"%s\",\"files\":[",
       session.relative, info.fsName, info.profileName, (unsigned long)info.blockSize,
       (unsigned long)info.totalBlocks, (unsigned long)info.freeBlocks,
       (unsigned long long)info.freeBlocks * info.blockSize, (unsigned long)info.directoryEntries,
-      (unsigned long)info.freeDirectoryEntries, (unsigned)info.maxUser);
+      (unsigned long)info.freeDirectoryEntries, (unsigned)info.maxUser, info.nameRule);
   httpd_resp_set_type(request, "application/json");
   httpd_resp_set_hdr(request, "Cache-Control", "no-store");
   guestListState state = {request, httpd_resp_sendstr_chunk(request, header), true};
@@ -1679,6 +1749,13 @@ static esp_err_t guestUploadHandler(httpd_req_t* request)
     return ESP_OK;
   }
   bool overwrite = guestQueryFlag(query, "overwrite");
+  guestFsAttributes attributes;
+  bool attributesPresent = false;
+  if (!guestQueryAttributes(query, &attributes, &attributesPresent))
+  {
+    httpd_resp_set_hdr(request, "Connection", "close");
+    return respond(request, "400 Bad Request", "Invalid ptype, aux or kind parameter");
+  }
   if (!guestLockAcquire(request))
   {
     return ESP_OK;
@@ -1692,8 +1769,9 @@ static esp_err_t guestUploadHandler(httpd_req_t* request)
     return respond(request, failure, message);
   }
   guestUploadState state = {request, request->content_len};
-  guestFsStatus status = guestFsWrite(session.volume, user, name, (uint32_t)request->content_len,
-                                      guestUploadSource, &state, overwrite);
+  guestFsStatus status =
+      guestFsWriteEx(session.volume, user, name, (uint32_t)request->content_len, guestUploadSource,
+                     &state, overwrite, attributesPresent ? &attributes : NULL);
   guestSessionClose(&session);
   atomic_flag_clear(&imageOperationActive);
   if (status != guestFsOk)
@@ -1777,7 +1855,7 @@ static esp_err_t guestRenameHandler(httpd_req_t* request)
 }
 
 //-- An ordinary SD file lives directly in /retro/images/<OS>/ and is never a disk image or manager
-//metadata.
+// metadata.
 static bool guestResolveSdFile(const char* query, const char* key, char* relative,
                                size_t relativeCapacity, char* absolute, size_t absoluteCapacity)
 {
@@ -1801,7 +1879,7 @@ static bool guestResolveSdFile(const char* query, const char* key, char* relativ
 }
 
 //-- Commit the temporary file over the destination, keeping the old file until the new one is in
-//place.
+// place.
 static bool guestCommitSdFile(const char* destination, bool destinationExists)
 {
   char backup[absolutePathCapacity];

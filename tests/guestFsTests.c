@@ -1229,7 +1229,7 @@ int main(int argc, char** argv)
   projectRoot = argv[3];
   mkdir(outputDirectory, 0755);
 
-  check(guestFsSupportsOs("cpm80") && guestFsSupportsOs("cpm86") && !guestFsSupportsOs("apple2"));
+  check(guestFsSupportsOs("cpm80") && guestFsSupportsOs("cpm86") && !guestFsSupportsOs("swtpc"));
   for (size_t index = 0; index < sizeof(stems) / sizeof(stems[0]); ++index)
   {
     testBaseAndPythonParity(stems[index]);
