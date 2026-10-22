@@ -7,10 +7,10 @@
 <style>
 :root
 {
-  color-scheme: dark;
+  color-scheme: light;
   font: 16px system-ui, sans-serif;
-  color: #edf3f7;
-  background: #15212b;
+  color: #1d1d1f;
+  background: #f5f5f7;
 }
 *
 {
@@ -24,27 +24,149 @@ body
 }
 header
 {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  border-bottom: 1px solid #53616d;
+  flex-wrap: wrap;
+  gap: .1rem;
+  background: #d9dadc;
+  color: #1d1d1f;
+  border-radius: .5rem;
+  padding: .2rem .5rem;
   margin-bottom: 1.25rem;
+  font-size: .95rem;
+  user-select: none;
+}
+header .menuTitle
+{
+  font-weight: 700;
+  padding: .2rem .7rem;
+}
+header .menuSpacer
+{
+  flex: 1 1 auto;
+}
+header .menuWrap
+{
+  position: relative;
+}
+header .menuButton
+{
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-radius: .45rem;
+  padding: .2rem .7rem;
+  margin: 0;
+}
+header .menuButton:hover, header .menuButton.open, header .menuButton:focus-visible
+{
+  background: #b9bbbf;
+}
+header .dropdown
+{
+  position: absolute;
+  top: calc(100% + .35rem);
+  left: 0;
+  z-index: 20;
+  min-width: 22rem;
+  padding: .35rem;
+  background: #ececee;
+  border: 1px solid #c3c4c8;
+  border-radius: .7rem;
+  box-shadow: 0 .6rem 1.6rem rgba(0, 0, 0, .45);
+}
+header .dropdown[hidden]
+{
+  display: none;
+}
+header .menuWrap.right .dropdown
+{
+  left: auto;
+  right: 0;
+}
+header .dropdown button
+{
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: #1d1d1f;
+  border: 0;
+  border-radius: .35rem;
+  padding: .25rem .8rem;
+  margin: 0;
+}
+header .dropdown button:hover:not(:disabled), header .dropdown button:focus-visible
+{
+  background: #0a62d9;
+  color: #fff;
+}
+header .dropdown button:disabled
+{
+  color: #9a9a9f;
+  cursor: default;
+}
+header .dropdown hr
+{
+  border: 0;
+  border-top: 1px solid #c8c8cc;
+  margin: .3rem .4rem;
 }
 button, input, select
 {
-  padding: .65rem;
+  padding: .4rem .8rem;
   margin: .25rem 0;
   font: inherit;
+  color: #1d1d1f;
 }
 button
 {
   cursor: pointer;
+  background: linear-gradient(#ffffff, #ececee);
+  border: 1px solid #b8b9bd;
+  border-bottom-color: #9d9ea3;
+  border-radius: .55rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .22), inset 0 1px 0 #fff;
+}
+button:hover:not(:disabled)
+{
+  background: linear-gradient(#ffffff, #e2e3e6);
+}
+button:active:not(:disabled)
+{
+  background: linear-gradient(#0a84ff, #0a62d9);
+  border-color: #0953b8;
+  color: #fff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .3);
+}
+button[type="submit"]:not(:disabled)
+{
+  background: linear-gradient(#3d9bff, #0a62d9);
+  border-color: #0953b8;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3), inset 0 1px 0 rgba(255, 255, 255, .35);
+}
+button:focus-visible, input:focus-visible, select:focus-visible
+{
+  outline: 3px solid rgba(10, 98, 217, .45);
+  outline-offset: 1px;
 }
 button:disabled
 {
   cursor: not-allowed;
-  opacity: .6;
+  opacity: .5;
+}
+input, select
+{
+  background: #fff;
+  border: 1px solid #b8b9bd;
+  border-radius: .5rem;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .14);
+}
+input[type="checkbox"]
+{
+  accent-color: #0a62d9;
 }
 button, select, input
 {
@@ -83,10 +205,11 @@ button, select, input
 }
 .card
 {
-  border: 1px solid #53616d;
-  border-radius: .5rem;
+  border: 1px solid #c3c4c8;
+  border-radius: .8rem;
   padding: 1rem;
-  background: #1d2c38;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .15), 0 4px 12px rgba(0, 0, 0, .06);
 }
 .card h3
 {
@@ -94,28 +217,28 @@ button, select, input
 }
 .muted
 {
-  color: #bac8d2;
+  color: #5c5c63;
 }
 .notice
 {
-  border-left: 4px solid #e3b354;
+  border-left: 4px solid #d99a1c;
   padding: .6rem .8rem;
-  background: #26313a;
+  background: #fff4d6;
 }
 a
 {
-  color: #90ddcf;
+  color: #0a62d9;
 }
 .dropZone
 {
-  border: 2px dashed #53616d;
+  border: 2px dashed #c3c4c8;
   text-align: center;
   margin: .75rem 0;
 }
 .dropZone.dragActive
 {
-  border-color: #90ddcf;
-  background: #26414a;
+  border-color: #0a62d9;
+  background: #e4eefc;
 }
 table
 {
@@ -125,7 +248,7 @@ table
 td, th
 {
   padding: .65rem;
-  border-bottom: 1px solid #53616d;
+  border-bottom: 1px solid #c3c4c8;
   text-align: left;
   overflow-wrap: anywhere;
 }
@@ -142,14 +265,37 @@ progress
 dialog
 {
   max-width: min(42rem, calc(100vw - 2rem));
-  color: #edf3f7;
-  background: #1d2c38;
-  border: 1px solid #90ddcf;
+  max-height: 85vh;
+  color: #1d1d1f;
+  background: #ffffff;
+  border: 1px solid #c3c4c8;
+  border-radius: .9rem;
+  box-shadow: 0 1rem 3rem rgba(0, 0, 0, .35);
+}
+#readBody
+{
+  max-height: 65vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  font: .9rem ui-monospace, Menlo, monospace;
+  background: #f5f5f7;
+  border: 1px solid #c3c4c8;
   border-radius: .5rem;
+  padding: .6rem;
+}
+#helpBody
+{
+  max-height: 65vh;
+  overflow-y: auto;
+  line-height: 1.45;
+}
+#helpBody h3
+{
+  margin: 1rem 0 .3rem;
 }
 dialog::backdrop
 {
-  background: #000b;
+  background: #0007;
 }
 .dialog-actions
 {
@@ -173,7 +319,7 @@ dialog::backdrop
 }
 #selectDialogList button[aria-selected="true"]
 {
-  border-color: #90ddcf;
+  border-color: #0a62d9;
   font-weight: bold;
 }
 details.fileList
@@ -189,12 +335,12 @@ details.fileList .fileListScroll thead th
 {
   position: sticky;
   top: 0;
-  background: #1d2c38;
+  background: #ffffff;
 }
 details.fileList summary
 {
   cursor: pointer;
-  color: #90ddcf;
+  color: #0a62d9;
 }
 #guestFilesDialog
 {
@@ -211,7 +357,7 @@ details.fileList summary
 {
   position: sticky;
   top: 0;
-  background: #1d2c38;
+  background: #ffffff;
 }
 #guestFilesBody tr
 {
@@ -239,20 +385,19 @@ details.fileList summary
 </style>
 </head>
 <body>
-<header>
-  <div>
-    <h1>Retro SD Disk Image Manager</h1>
-  </div>
-  <button id="helpButton" type="button" aria-haspopup="dialog">[Help]</button>
-</header>
-<nav id="navigation" class="toolbar" aria-label="Application navigation"></nav>
+<header id="menuBar" role="menubar" aria-label="Application menu"></header>
 <main id="app" aria-live="polite"></main>
 <progress id="progress" max="100" value="0" hidden></progress>
 <p id="progressText" aria-live="polite"></p>
 <p id="status" role="status" aria-live="polite"></p>
 <dialog id="helpDialog">
   <h2 id="helpTitle">Help</h2>
-  <div id="helpBody"></div>
+  <div id="helpBody" class="helpBody"></div>
+  <form method="dialog" class="dialog-actions"><button>Close</button></form>
+</dialog>
+<dialog id="readDialog">
+  <h2 id="readTitle">Read</h2>
+  <pre id="readBody"></pre>
   <form method="dialog" class="dialog-actions"><button>Close</button></form>
 </dialog>
 <dialog id="selectDialog">
@@ -263,12 +408,12 @@ details.fileList summary
 <dialog id="guestFilesDialog">
   <h2 id="guestFilesTitle">Select files</h2>
   <div class="actions">
-    <button id="guestFilesSelectAll" type="button">[Select All]</button>
+    <button id="guestFilesSelectAll" type="button">Select All</button>
     <span id="guestFilesCount" class="muted"></span>
   </div>
   <div id="guestFilesScroll">
     <table>
-      <thead><tr><th>Select</th><th>Name</th><th>Type</th><th>User</th><th>Bytes</th><th>Flags</th></tr></thead>
+      <thead><tr><th>Select</th><th>Name</th><th>Type</th><th>User</th><th>Bytes</th><th>Flags</th><th></th></tr></thead>
       <tbody id="guestFilesBody"></tbody>
     </table>
   </div>
@@ -287,17 +432,17 @@ const machines =
 ];
 const functions =
 [
-  {id: "computer-image-upload", number: "1", title: "Copy disk images from Computer to SD", available: true},
-  {id: "computer-guest-upload", number: "2", title: "Copy single files from Computer to an SD disk image", available: true},
-  {id: "image-computer-download", number: "3", title: "Copy disk images from SD to Computer", available: true},
-  {id: "guest-computer-download", number: "4", title: "Copy single files from an SD disk image to Computer", available: true},
-  {id: "guest-image-copy", number: "5", title: "Copy single files from disk image to disk image", available: true},
-  {id: "image-image-copy", number: "6", title: "Copy whole disk images from SD to SD", available: true},
-  {id: "manage-images", number: "7", title: "Browse and manage SD image files", available: true},
-  {id: "sd-files-copy", number: "8", title: "Copy ordinary files between SD directories", available: false, reason: "ordinary SD-file copy is not implemented"},
-  {id: "file-guest-copy", number: "9", title: "Copy ordinary SD files to or from guest images", available: true},
-  {id: "computer-sd-files", number: "10", title: "Copy ordinary files between Computer and SD", available: false, reason: "ordinary SD-file transfer is not implemented"},
-  {id: "guest-file-manage", number: "11", title: "Rename or delete guest files", available: true}
+  {id: "computer-image-upload", number: "1", menu: "Computer → SD images", title: "Copy disk images from Computer to SD", available: true},
+  {id: "computer-guest-upload", number: "2", menu: "Computer → Image files", title: "Copy single files from Computer to an SD disk image", available: true},
+  {id: "image-computer-download", number: "3", menu: "SD → Computer images", title: "Copy disk images from SD to Computer", available: true},
+  {id: "guest-computer-download", number: "4", menu: "Image → Computer files", title: "Copy single files from an SD disk image to Computer", available: true},
+  {id: "guest-image-copy", number: "5", menu: "Image → Image files", title: "Copy single files from disk image to disk image", available: true},
+  {id: "image-image-copy", number: "6", menu: "SD → SD images", title: "Copy whole disk images from SD to SD", available: true},
+  {id: "manage-images", number: "7", menu: "Manage images", title: "Browse and manage SD image files", available: true},
+  {id: "sd-files-copy", number: "8", menu: "SD → SD files", title: "Copy ordinary files between SD directories", available: false, reason: "ordinary SD-file copy is not implemented"},
+  {id: "file-guest-copy", number: "9", menu: "SD files ⇄ Image", title: "Copy ordinary SD files to or from guest images", available: true},
+  {id: "computer-sd-files", number: "10", menu: "Computer ⇄ SD files", title: "Copy ordinary files between Computer and SD", available: false, reason: "ordinary SD-file transfer is not implemented"},
+  {id: "guest-file-manage", number: "11", menu: "Rename / Delete", title: "Rename or delete guest files", available: true}
 ];
 const state =
 {
@@ -310,7 +455,7 @@ const hostDirectories = new Map();
 const hostFiles = new Map();
 const hostDirectoryNames = new Map();
 const app = document.getElementById("app");
-const navigation = document.getElementById("navigation");
+const menuBar = document.getElementById("menuBar");
 const helpDialog = document.getElementById("helpDialog");
 const element = (id) => document.getElementById(id);
 const directoryDatabaseName = "retroDiskImageManager";
@@ -721,33 +866,167 @@ function helpContent()
 {
   if (state.screen === "home")
   {
-    return ["Functions / Selection",
-      "<p>Choose a transfer direction. Whole-image functions operate on SD image files; guest-file functions operate on single files inside CP/M-80, CP/M-86, Apple II (ProDOS and DOS 3.3) and UCSD Pascal images (SWTPC 6800 is not yet supported).</p>" +
-      "<p>Computer access uses browser-authorized file selection and standard browser downloads. The browser/OS controls download destination and may show its save picker according to browser settings.</p>" +
-      "<p>Every SD image is managed regardless of whether its emulator drive is marked RO or RW in drives.cfg. Destructive actions warn about existing drive mappings; configuration files themselves remain protected.</p>"];
+    return ["Retro Disk Manager",
+      "<h3>What is this?</h3>" +
+      "<p>Retro Disk Manager lets you work with the disk images on the SD card of the ESP32 retro computer from your web browser. You do not need any extra program on your Mac, Windows or Linux computer, and no emulator has to be running.</p>" +
+      "<h3>The menu bar</h3>" +
+      "<ul>" +
+      "<li><b>Computer → SD</b>: bring things from your computer onto the SD card, either complete disk images or single files that are placed inside a disk image.</li>" +
+      "<li><b>SD → Computer</b>: take things from the SD card to your computer, either complete disk images or single files from inside a disk image.</li>" +
+      "<li><b>SD → SD</b>: copy inside the SD card, either whole disk images or single files from one disk image to another.</li>" +
+      "<li><b>Manage</b>: browse the images on the SD card, copy, rename or delete them, and rename or delete single files inside a disk image.</li>" +
+      "<li><b>Help</b>: this text. Every function has its own Help with more detail.</li>" +
+      "</ul>" +
+      "<p>Click a menu title to open the menu, then click an item. Items that are greyed out are not implemented yet. When a function is open, the menu bar shows its name, <b>Back to Main</b> and <b>Help</b>.</p>" +
+      "<h3>Terms</h3>" +
+      "<ul>" +
+      "<li><b>Disk image</b>: one file on the SD card (for example .dsk, .po, .img) that contains a complete floppy disk of an emulated machine. Images live in /retro/images/&lt;OS&gt;/ on the SD card.</li>" +
+      "<li><b>Guest file</b>: a single file inside a disk image, as the emulated computer sees it.</li>" +
+      "<li><b>OS</b>: the emulated machine: CP/M-80, CP/M-86, UCSD Pascal, Apple II or SWTPC 6800. Each has its own image directory.</li>" +
+      "<li><b>drives.cfg</b>: the file per OS that tells the emulator which image is in which drive (RO or RW).</li>" +
+      "</ul>" +
+      "<h3>Supported file systems</h3>" +
+      "<p>Single files can be listed, copied, renamed and deleted inside CP/M-80, CP/M-86, Apple II (ProDOS and DOS 3.3) and UCSD Pascal images (140K, 640K and 800K Apple images, either sector order). SWTPC 6800 is not yet supported for single files; whole images work for every OS.</p>" +
+      "<h3>Good to know</h3>" +
+      "<ul>" +
+      "<li>This manager runs only from the Retro menu system, and the web server cannot be started while an emulator is active. So no emulator can have an image open while you change it; the changed images are used the next time you start an emulator.</li>" +
+      "<li>Every image can be managed, whether its drive is marked RO or RW in drives.cfg. Actions that could break a drive mapping show a warning and ask for confirmation.</li>" +
+      "<li>drives.cfg can only be replaced through Computer → SD (Copy From = drives.cfg). config.cfg is protected and cannot be changed here.</li>" +
+      "<li>The browser, not this page, decides where downloads are saved. Enable “Ask where to save each file” in your browser if you want a save dialog.</li>" +
+      "<li>FAT32 on the SD card limits one file to less than 4 GiB.</li>" +
+      "<li>Progress and results of an action are shown below the form.</li>" +
+      "</ul>"];
   }
   const selected = functions.find((item) => item.id === state.functionId);
   const title = selected ? selected.title : "SD image manager";
   const details =
   {
-    "computer-image-upload": "<p>Select the destination OS (images are always written to /retro/images/&lt;OS&gt;/ on the SD card), then choose a Computer folder or individual image files. Supported secure browsers can remember an authorized source folder per selected machine in browser IndexedDB; permission can expire. On ordinary HTTP from the ESP32, use the native directory picker fallback. The browser controls its starting location. LittleFS is on the ESP32 and cannot store a Computer path. Only supported disk images directly inside the selected folder are uploaded. You can also drag image files, or a folder with images, from Finder / File Explorer onto the drop zone; this works in every browser and needs no remembered folder. Dropped and chosen files are added to the Preview list, which shows the full SD destination and whether each file is new, will be skipped, will be overwritten or is rejected. Use Remove or Clear list to correct the list; nothing is copied until you press the Copy button. Choose “drives.cfg” in Copy From to copy a single drive-configuration file instead: it is stored as /retro/images/&lt;OS&gt;/drives.cfg, replacing the existing one after confirmation. Existing SD destinations are skipped unless OVERWRITE is checked and confirmed. FAT32 limits one file to less than 4 GiB.</p>",
-    "image-computer-download": "<p>Select the source OS and choose a whole image to download. On browsers with the secure File System Access save picker, the destination is selected when you start the download. Otherwise the browser uses its normal download behavior; enable “Ask where to save each file” in browser settings if you want a destination picker. No separate Computer destination directory is needed. This downloads the complete image container byte-for-byte, not guest files inside it. The first list entry, drives.cfg, always appears and downloads the drive configuration of the selected OS (an error is shown if it does not exist on the SD card).</p>",
-    "image-image-copy": "<p>Select the source OS and image, then a destination OS and new image filename. The firmware copies in bounded chunks and verifies bytes before commit. Source remains unchanged. OVERWRITE requires confirmation and preserves the prior destination during commit. A mapped RO image is still eligible; its drives.cfg reference is not rewritten.</p>",
-    "computer-guest-upload": "<p>Choose the destination OS, disk image and user area, then select Computer files or drag them (or a folder; only its top-level files are used) from Finder / File Explorer onto the drop zone. Files are added to the Preview list; use Remove or Clear list to correct it. Nothing is stored until you press the Copy button. The preview shows the uppercase name each file will get under the rules of the destination file system (8.3 for CP/M), flags invalid or duplicate names and shows which names already exist. Existing files are skipped unless OVERWRITE is checked and confirmed. Empty files cannot be stored. Data is written to free blocks first and the directory is updated last through an undo journal, so a power loss leaves either the old or the new state. Overwriting needs free room for both copies. The emulators and this manager are mutually exclusive.</p>",
-    "guest-computer-download": "<p>Choose an OS, image and user area filter, tick one or more files and download them. One file is downloaded as it is. Several files are packed into one ZIP file (default), so the browser asks where to save only once; untick the box to download them separately. Damaged files (broken extent chains) are shown but cannot be downloaded.</p>",
-    "guest-image-copy": "<p>Pick the source image and tick files, then pick a destination image and user area. The source may be the same image (copy to another user area). The source is never changed. Existing destination files are skipped unless OVERWRITE is checked and confirmed. Copies stream in small chunks and cross-OS copies are allowed (for example CP/M-80 to CP/M-86, or ProDOS to UCSD Pascal, where file type and Pascal kind are mapped; DOS 3.3 headers are stripped on read and rebuilt on write). ProDOS subdirectories are listed but cannot be opened, and the user area is hidden for file systems without user areas.</p>",
-    "file-guest-copy": "<p>Top: copy an ordinary SD file (not a disk image) from /retro/images/&lt;OS&gt;/ into a guest image; the guest name is converted to the name rule of the destination file system (8.3 for CP/M). Bottom: copy ticked guest files out to /retro/images/&lt;OS&gt;/ as ordinary SD files. The SD file is written to a temporary file and committed atomically; an existing SD file is replaced only after confirmation. SD names cannot contain characters such as $ that FAT file names handled by this manager reject.</p>",
-    "guest-file-manage": "<p>Tick files to delete them (confirmation required) or tick exactly one file to rename it. Delete only frees the directory entries; renaming refuses an existing name and keeps the user area. Both are journaled, so an interrupted operation is rolled back the next time the manager touches that OS directory.</p>",
-    "manage-images": "<p>Select an OS to list its image files in /retro/images/&lt;OS&gt;/ (there are no sub-directories). Download files, copy or rename whole disk images, and delete regular files. Image operations are allowed regardless of drives.cfg RO/RW mapping. Deleting or renaming a mapped image can break a drive reference; review the warning and confirm deliberately. drives.cfg can be replaced only through function 1 (Copy From = drives.cfg); neither it nor config.cfg can be deleted here, and config.cfg cannot be replaced.</p>",
+    "computer-image-upload":
+      "<h3>Purpose</h3><p>Copy complete disk images from your computer to the SD card, or replace the drive configuration drives.cfg of one OS.</p>" +
+      "<h3>Steps</h3><ol>" +
+      "<li>Choose the <b>Destination OS directory</b>. Images are always written to /retro/images/&lt;OS&gt;/ on the SD card; the target is shown next to the selection.</li>" +
+      "<li>Choose <b>Copy From</b>: “Disk images” or “drives.cfg”.</li>" +
+      "<li>For disk images, add files in any of three ways: press <b>Choose Computer folder</b> (all supported images directly inside that folder are added), drag image files or a folder from Finder / File Explorer onto the drop zone, or use the file picker for individual files.</li>" +
+      "<li>Check the <b>Preview</b> list. It shows for every file the full destination on the SD card and its result: new, will be skipped, will be overwritten or rejected. Use <b>Remove</b> or <b>Clear list</b> to correct the list.</li>" +
+      "<li>Tick <b>OVERWRITE</b> only if existing images may be replaced (you must confirm). Without it, existing images are skipped.</li>" +
+      "<li>Press <b>Copy disk image(s) to SD</b>. Nothing is copied before this moment.</li></ol>" +
+      "<h3>Details</h3><ul>" +
+      "<li>Only the files directly inside a chosen or dropped folder are used; subfolders are ignored and reported.</li>" +
+      "<li>Supported secure (HTTPS) browsers can remember the authorized folder per OS; the permission can expire. On plain HTTP from the ESP32 the native folder picker is used and nothing is remembered. A website can never read or force an absolute path on your computer.</li>" +
+      "<li>Replacing an image that is mapped in drives.cfg affects the image the next time the emulator starts.</li>" +
+      "<li>For drives.cfg: choose the file on your computer (any file name). It is stored as /retro/images/&lt;OS&gt;/drives.cfg after confirmation. It must be plain text, at most 16384 bytes with lines of at most 254 characters. A failed upload leaves the old file unchanged.</li></ul>",
+    "computer-guest-upload":
+      "<h3>Purpose</h3><p>Put single files from your computer inside an existing disk image on the SD card.</p>" +
+      "<h3>Steps</h3><ol>" +
+      "<li>Choose the <b>OS</b>, the <b>disk image</b> and, for CP/M, the <b>user area</b> (the selector is hidden for file systems without user areas).</li>" +
+      "<li>Add files by selecting them or by dragging them (or a folder; only its top-level files are used) onto the drop zone.</li>" +
+      "<li>Check the <b>Preview</b>: it shows the name each file gets in the image, flags invalid or duplicate names and shows which names already exist. Use <b>Remove</b> or <b>Clear list</b> to correct it.</li>" +
+      "<li>Tick <b>OVERWRITE</b> only if existing files may be replaced (confirmation required).</li>" +
+      "<li>Press <b>Copy</b>. Nothing is stored before this.</li></ol>" +
+      "<h3>Details</h3><ul>" +
+      "<li>Names are converted to the rule of the destination file system, in uppercase (8.3 for CP/M).</li>" +
+      "<li>Empty files cannot be stored. Overwriting needs free room for the old and the new copy at the same time.</li>" +
+      "<li>Data goes to free blocks first and the directory is updated last through an undo journal, so a power loss leaves either the old or the new state, never a half file.</li>" +
+      "<li>The list of files already in the image can be opened under “Files already in this image”.</li></ul>",
+    "image-computer-download":
+      "<h3>Purpose</h3><p>Download a complete disk image (or drives.cfg) from the SD card to your computer.</p>" +
+      "<h3>Steps</h3><ol>" +
+      "<li>Choose the <b>Source OS directory</b> and press <b>List images</b> if the list is not filled yet.</li>" +
+      "<li>Choose the item in <b>Copy From</b>. The first entry, drives.cfg, is always present; an error is shown if it does not exist on the SD card.</li>" +
+      "<li>Press <b>Download selected item</b>.</li></ol>" +
+      "<h3>Details</h3><ul>" +
+      "<li>The complete image container is downloaded byte for byte; this is not a download of the guest files inside it (use SD → Computer → Files from a disk image for that).</li>" +
+      "<li>Browsers with the secure File System Access save picker ask for the destination when you start. Other browsers use their normal download behavior; enable “Ask where to save each file” in the browser settings if you want a destination picker.</li>" +
+      "<li>Large images take a while; the progress bar shows the transfer.</li></ul>",
+    "guest-computer-download":
+      "<h3>Purpose</h3><p>Download single files from inside a disk image to your computer.</p>" +
+      "<h3>Steps</h3><ol>" +
+      "<li>Choose the <b>OS</b>, the <b>disk image</b> and optionally a <b>user area</b> filter.</li>" +
+      "<li>Press <b>Choose files…</b> and tick one or more files. The line below the button shows how many are selected.</li>" +
+      "<li>Press the download button.</li></ol>" +
+      "<h3>Details</h3><ul>" +
+      "<li>One file is downloaded as it is.</li>" +
+      "<li>Several files are packed into one ZIP file by default, so the browser asks where to save only once. Untick the ZIP option to download them separately.</li>" +
+      "<li>Damaged files (broken extent chains) are shown but cannot be downloaded.</li>" +
+      "<li>The image is never changed.</li></ul>",
+    "guest-image-copy":
+      "<h3>Purpose</h3><p>Copy single files from one disk image to another, entirely on the SD card.</p>" +
+      "<h3>Steps</h3><ol>" +
+      "<li>Choose the <b>source</b> OS, image and user area, then press <b>Choose files…</b> and tick the files to copy.</li>" +
+      "<li>Choose the <b>destination</b> OS, image and user area.</li>" +
+      "<li>Tick <b>OVERWRITE</b> only if existing files may be replaced (confirmation required); otherwise existing names are skipped.</li>" +
+      "<li>Press the copy button.</li></ol>" +
+      "<h3>Details</h3><ul>" +
+      "<li>The source can be the same image as the destination, for example to copy files to another CP/M user area. The source is never changed.</li>" +
+      "<li>Copies between different systems are allowed, for example CP/M-80 to CP/M-86, or ProDOS to UCSD Pascal. File type and Pascal kind are mapped; DOS 3.3 headers are removed on reading and rebuilt on writing.</li>" +
+      "<li>ProDOS subdirectories are listed but cannot be opened.</li>" +
+      "<li>Files stream in small chunks, so large files are fine. Writes are journaled like in Computer → SD.</li></ul>",
+    "image-image-copy":
+      "<h3>Purpose</h3><p>Make a copy of a complete disk image on the SD card, for example as a backup or as a starting point for a new disk.</p>" +
+      "<h3>Steps</h3><ol>" +
+      "<li>Choose the <b>source OS</b> and the <b>source image</b>.</li>" +
+      "<li>Choose the <b>destination OS</b> and type the <b>new image file name</b> (a name only, no directory).</li>" +
+      "<li>Tick <b>OVERWRITE</b> only if an existing destination may be replaced (confirmation required).</li>" +
+      "<li>Press <b>Copy complete image</b>.</li></ol>" +
+      "<h3>Details</h3><ul>" +
+      "<li>The firmware copies in small chunks and verifies the bytes before the new file is committed. The source stays unchanged.</li>" +
+      "<li>When overwriting, the previous destination is preserved until the commit succeeds.</li>" +
+      "<li>A drive marked RO in drives.cfg can still be a source or destination; drives.cfg itself is not rewritten.</li>" +
+      "<li>This creates a new image file. To copy single files into an existing image use SD → SD → Files between disk images.</li></ul>",
+    "manage-images":
+      "<h3>Purpose</h3><p>Browse the image files of one OS on the SD card and manage them.</p>" +
+      "<h3>Steps</h3><ol>" +
+      "<li>Choose the <b>OS directory</b>. The list shows the files in /retro/images/&lt;OS&gt;/ (there are no sub-directories), their size and their drive mapping.</li>" +
+      "<li>Use the buttons on a row to download, copy, rename or delete the file.</li>" +
+      "<li>Tick <b>OVERWRITE on image copy</b> if a copy may replace an existing file.</li>" +
+      "<li><b>Restore preserved image backup</b> brings back the version of an image that was preserved when it was overwritten.</li></ol>" +
+      "<h3>Details</h3><ul>" +
+      "<li>Actions are allowed regardless of the RO/RW mapping in drives.cfg.</li>" +
+      "<li>Deleting or renaming a mapped image can break a drive reference. Read the warning and confirm deliberately.</li>" +
+      "<li>drives.cfg can be replaced only through Computer → SD; neither drives.cfg nor config.cfg can be deleted here, and config.cfg cannot be replaced.</li></ul>",
+    "file-guest-copy":
+      "<h3>Purpose</h3><p>Move ordinary files (not disk images) between the SD card directory of an OS and a disk image.</p>" +
+      "<h3>Top part: SD file → disk image</h3><ol>" +
+      "<li>Choose the OS and the ordinary file in /retro/images/&lt;OS&gt;/.</li>" +
+      "<li>Choose the destination image and user area, then copy. The guest name is converted to the rule of the file system (8.3 for CP/M).</li></ol>" +
+      "<h3>Bottom part: disk image → SD file</h3><ol>" +
+      "<li>Choose the image, press <b>Choose files…</b> and tick the guest files.</li>" +
+      "<li>Copy them out. They are stored as ordinary files in /retro/images/&lt;OS&gt;/.</li></ol>" +
+      "<h3>Details</h3><ul>" +
+      "<li>An SD file is written to a temporary file and committed atomically. An existing SD file is replaced only after confirmation.</li>" +
+      "<li>Names with characters such as $ are rejected because FAT file names do not allow them.</li></ul>",
+    "guest-file-manage":
+      "<h3>Purpose</h3><p>Rename or delete single files inside a disk image.</p>" +
+      "<h3>Steps</h3><ol>" +
+      "<li>Choose the OS, image and user area, then press <b>Choose files…</b>.</li>" +
+      "<li><b>Delete</b>: tick one or more files and press Delete; you must confirm.</li>" +
+      "<li><b>Rename</b>: tick exactly one file, type the new name and press Rename.</li></ol>" +
+      "<h3>Details</h3><ul>" +
+      "<li>Delete frees the directory entries only. The data blocks become free space.</li>" +
+      "<li>Rename refuses a name that already exists and keeps the user area.</li>" +
+      "<li>Both actions are journaled: an interrupted operation is rolled back the next time the manager touches that OS directory.</li></ul>"
   };
   const extra = details[state.functionId] ||
-    "<p>This function is part of the planned manager, but guest filesystem support is not implemented yet. No guest-file operation is performed.</p>";
+    "<p>This function is part of the planned manager, but it is not implemented yet. No operation is performed.</p>";
   return [title, extra];
 }
 
-function showHelp()
+async function showHelp()
 {
-  const [title, body] = helpContent();
+  const [title, builtIn] = helpContent();
+  let body = builtIn;
+  try
+  {
+    const response = await fetch(`/api/help?id=${encodeURIComponent(state.screen === "home" ? "home" : state.functionId)}`, {cache: "no-store"});
+    if (response.ok)
+    {
+      body = await response.text();
+    }
+  }
+  catch (error)
+  {
+    //-- Fall back to the built-in text when LittleFS has no help file.
+  }
   element("helpTitle").textContent = title;
   element("helpBody").innerHTML = body;
   helpDialog.showModal();
@@ -757,6 +1036,8 @@ function navigate(screen, functionId = state.functionId, addHistory = true)
 {
   state.screen = screen;
   state.functionId = functionId;
+  showStatus("");
+  hideProgress();
   if (addHistory)
   {
     history.pushState({screen, functionId}, "", `#${screen}${functionId ? `/${functionId}` : ""}`);
@@ -766,17 +1047,7 @@ function navigate(screen, functionId = state.functionId, addHistory = true)
 
 function renderHome()
 {
-  return `<h2>Functions / Selection</h2>
-    <p class="notice">Whole-image operations are available. Guest files can be listed, copied, renamed and deleted inside CP/M-80, CP/M-86, ProDOS, DOS 3.3 and UCSD Pascal images (140K, 640K and 800K Apple images, either sector order); SWTPC 6800 follows in a later release.</p>
-    <div class="card-grid">${functions.map((item) =>
-    {
-      const status = item.available ? "Available" : `Not implemented — ${item.reason}`;
-      return `<section class="card">
-        <h3>${item.number}. ${escapeHtml(item.title)}</h3>
-        <p class="muted">${escapeHtml(status)}</p>
-        ${item.available ? `<button type="button" data-open-function="${item.id}">Open</button>` : ""}
-      </section>`;
-    }).join("")}</div>`;
+  return "";
 }
 
 function renderImageUpload()
@@ -851,7 +1122,6 @@ function renderImageDownload()
         <select id="downloadMachine">${machineOptions(state.machine)}</select>
       </label>
       <span class="muted">Source: /retro/images/<span id="downloadMachineLabel">${state.machine}</span>/</span>
-      <button type="button" id="loadDownloadImages">List images</button>
     </div>
     <label class="field">Copy From — whole image container or drives.cfg
       <select id="downloadImage"><option value="">Select an image</option></select>
@@ -902,10 +1172,47 @@ function renderManager()
     </table>`;
 }
 
+const menuGroups =
+[
+  {label: "Computer → SD", items: [["computer-image-upload", "Disk images…"], ["computer-guest-upload", "Files into a disk image…"], null, ["computer-sd-files", "Ordinary files…"]]},
+  {label: "SD → Computer", items: [["image-computer-download", "Disk images…"], ["guest-computer-download", "Files from a disk image…"]]},
+  {label: "SD → SD", items: [["image-image-copy", "Disk images…"], ["guest-image-copy", "Files between disk images…"], null, ["file-guest-copy", "Ordinary files ⇄ disk image…"], ["sd-files-copy", "Ordinary files…"]]},
+  {label: "Manage", items: [["manage-images", "Browse and manage disk images…"], ["guest-file-manage", "Rename or delete files in a disk image…"]]}
+];
+
+function closeMenus()
+{
+  menuBar.querySelectorAll(".dropdown").forEach((item) => { item.hidden = true; });
+  menuBar.querySelectorAll(".menuButton.open").forEach((item) => item.classList.remove("open"));
+}
+
+function renderMenuBar()
+{
+  const helpItem = `<span class="menuSpacer"></span><button type="button" class="menuButton" id="helpButton" aria-haspopup="dialog">Help</button>`;
+  if (state.screen === "home")
+  {
+    menuBar.innerHTML = `<span class="menuTitle">Retro Disk Manager</span>` +
+      menuGroups.map((group) => `<span class="menuWrap"><button type="button" class="menuButton" data-menu aria-haspopup="true">${escapeHtml(group.label)}</button>` +
+        `<div class="dropdown" role="menu" hidden>` + group.items.map((entry) =>
+        {
+          if (!entry)
+          {
+            return "<hr>";
+          }
+          const item = functions.find((candidate) => candidate.id === entry[0]);
+          return `<button type="button" role="menuitem"${item.available ? ` data-open-function="${item.id}"` : " disabled"}` +
+            ` title="${escapeHtml(item.available ? item.title : `Not implemented — ${item.reason}`)}">${escapeHtml(entry[1])}</button>`;
+        }).join("") + `</div></span>`).join("") + helpItem;
+    return;
+  }
+  const selected = functions.find((item) => item.id === state.functionId);
+  menuBar.innerHTML = `<span class="menuTitle">${escapeHtml(selected ? selected.title : "SD image manager")}</span>` +
+    `<button type="button" class="menuButton" id="homeButton">Back to Main</button>` + helpItem;
+}
+
 function render()
 {
-  navigation.innerHTML = state.screen === "home" ? "" : `<button type="button" id="homeButton">Back to Main Menu</button>` +
-    `<span class="muted">/ ${escapeHtml(functions.find((item) => item.id === state.functionId)?.title || "Manager")}</span>`;
+  renderMenuBar();
   if (state.screen === "home")
   {
     app.innerHTML = renderHome();
@@ -993,6 +1300,71 @@ async function loadImageOptions(prefix)
   {
     showStatus(error.message);
   }
+}
+
+const textExtensions = new Set(["TXT", "TEXT", "DOC", "ME", "1ST", "PAS", "INC", "COB", "CBL", "BAS", "ASM", "MAC", "A65", "S",
+  "C", "H", "FOR", "FTN", "LST", "PRN", "SUB", "BAT", "CFG", "MD", "LOG", "CSV", "INI", "HLP", "NFO", "PL1", "LIB", "SRC"]);
+const readSizeLimit = 262144;
+
+function isTextName(name)
+{
+  if (/^read[ ._-]?me$/i.test(name))
+  {
+    return true;
+  }
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 && textExtensions.has(name.slice(dot + 1).toUpperCase());
+}
+
+//-- Binary files (for example .HST, .COM) are refused when more than a few bytes are control characters.
+function looksLikeText(bytes)
+{
+  let odd = 0;
+  for (const byte of bytes)
+  {
+    if (byte === 0x1A)
+    {
+      break;
+    }
+    if (byte === 0 || (byte < 32 && byte !== 9 && byte !== 10 && byte !== 12 && byte !== 13 && byte !== 27) || byte === 127)
+    {
+      ++odd;
+    }
+  }
+  return odd <= Math.max(2, bytes.length / 100);
+}
+
+async function readTextFile(url, name, size)
+{
+  if (size > readSizeLimit)
+  {
+    showStatus(`${name} is too large to show (${size} bytes, limit ${readSizeLimit}). Download it instead.`);
+    return;
+  }
+  const response = await api(url);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (!looksLikeText(bytes))
+  {
+    showStatus(`${name} does not look like plain text; it cannot be shown. Download it instead.`);
+    return;
+  }
+  //-- CP/M pads text with 0x1A; classic systems use CR or CR LF line ends.
+  let end = bytes.indexOf(0x1A);
+  end = end < 0 ? bytes.length : end;
+  let text = new TextDecoder("windows-1252").decode(bytes.subarray(0, end));
+  text = text.replace(/\r\n?/g, "\n").replace(/\0/g, "");
+  element("readTitle").textContent = name;
+  element("readBody").textContent = text.length > 0 ? text : "(empty file)";
+  element("readDialog").showModal();
+}
+
+function readButton(url, name, size)
+{
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Read";
+  button.onclick = () => run(() => readTextFile(url, name, size));
+  return button;
 }
 
 function downloadFile(area, path, name)
@@ -1304,6 +1676,10 @@ async function refreshManager()
       download.textContent = "Download";
       download.onclick = () => downloadFile("images", relative, entry.name);
       actions.append(download);
+      if (isTextName(entry.name))
+      {
+        actions.append(readButton(`/api/file${apiPath("images", relative)}`, entry.name, entry.size));
+      }
       if (/\.(dsk|img|po|woz|2mg)$/i.test(entry.name))
       {
         const copy = document.createElement("button");
@@ -1457,7 +1833,7 @@ function guestPicker(slot, title, options)
       <summary id="${slot}Summary">Files already in this image</summary>
       <div class="fileListScroll">
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>User</th><th>Bytes</th><th>Flags</th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>User</th><th>Bytes</th><th>Flags</th><th></th></tr></thead>
           <tbody id="${slot}Table"></tbody>
         </table>
       </div>
@@ -1512,6 +1888,12 @@ function renderGuestTable(slot)
       cell.textContent = text;
       row.append(cell);
     }
+    const readCell = document.createElement("td");
+    if (guestEntryIsSelectable(entry) && isTextName(entry.name))
+    {
+      readCell.append(readButton(guestFileDownloadUrl(guestSlots[slot].image, entry), entry.name, entry.size));
+    }
+    row.append(readCell);
     body.append(row);
   }
 }
@@ -2318,6 +2700,13 @@ function openSelectPopup(select)
     .map((node) => node.textContent.trim()).join(" ").trim() : "";
   element("selectDialogTitle").textContent = title || "Select";
   selectDialogList.replaceChildren();
+  if (Array.from(select.options).every((option) => option.value === ""))
+  {
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "Nothing to choose: no items were found for the current selection.";
+    selectDialogList.append(note);
+  }
   Array.from(select.options).forEach((option, index) =>
   {
     const button = document.createElement("button");
@@ -2395,13 +2784,19 @@ function renderGuestFilesPopup()
       cell.textContent = text;
       row.append(cell);
     }
+    const readCell = document.createElement("td");
+    if (guestEntryIsSelectable(entry) && isTextName(entry.name))
+    {
+      readCell.append(readButton(guestFileDownloadUrl(guestSlots[slot].image, entry), entry.name, entry.size));
+    }
+    row.append(readCell);
     guestFilesBody.append(row);
   }
   if (indexes.length === 0)
   {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 6;
+    cell.colSpan = 7;
     cell.textContent = guestSlots[slot].image ? "No files in this user area." : "Select an image first.";
     row.append(cell);
     guestFilesBody.append(row);
@@ -2442,6 +2837,10 @@ function toggleGuestSelectAll()
 element("guestFilesSelectAll").addEventListener("click", toggleGuestSelectAll);
 guestFilesBody.addEventListener("click", (event) =>
 {
+  if (event.target.closest("button"))
+  {
+    return;
+  }
   const row = event.target.closest("tr");
   const box = row ? row.querySelector("input[data-guest-index]") : null;
   if (!box || box.disabled)
@@ -2502,12 +2901,60 @@ element("app").addEventListener("keydown", (event) =>
     openSelectPopup(event.target);
   }
 });
-element("helpButton").addEventListener("click", showHelp);
-element("navigation").addEventListener("click", (event) =>
+menuBar.addEventListener("click", (event) =>
 {
-  if (event.target.id === "homeButton")
+  const button = event.target.closest("button");
+  if (!button)
+  {
+    return;
+  }
+  if (button.dataset.menu !== undefined)
+  {
+    const wasOpen = button.classList.contains("open");
+    closeMenus();
+    if (!wasOpen)
+    {
+      button.classList.add("open");
+      button.nextElementSibling.hidden = false;
+    }
+    return;
+  }
+  closeMenus();
+  if (button.id === "helpButton")
+  {
+    showHelp();
+  }
+  else if (button.id === "homeButton")
   {
     navigate("home", null);
+  }
+  else if (button.dataset.openFunction)
+  {
+    navigate("function", button.dataset.openFunction);
+  }
+});
+menuBar.addEventListener("mouseover", (event) =>
+{
+  const button = event.target.closest("[data-menu]");
+  if (button && !button.classList.contains("open") && menuBar.querySelector(".menuButton.open"))
+  {
+    closeMenus();
+    button.classList.add("open");
+    button.nextElementSibling.hidden = false;
+  }
+});
+document.addEventListener("click", (event) =>
+{
+  if (!menuBar.contains(event.target))
+  {
+    closeMenus();
+  }
+});
+document.addEventListener("keydown", (event) =>
+{
+  if (event.key === "Escape")
+  {
+    closeMenus();
   }
 });
 element("computerFolderInput").addEventListener("change", (event) =>
@@ -2651,10 +3098,6 @@ element("app").addEventListener("click", (event) =>
   if (event.target.id === "guestDeleteButton")
   {
     run(deleteGuestFiles);
-  }
-  if (event.target.id === "loadDownloadImages")
-  {
-    run(() => loadImageOptions("download"));
   }
   if (event.target.id === "managerRefresh")
   {

@@ -381,6 +381,50 @@ static esp_err_t pageHandler(httpd_req_t* request)
   return httpd_resp_send(request, (const char*)webStart, webEnd - webStart - 1);
 }
 
+//-- Help texts are plain HTML fragments in /littlefs/help/<id>.html; the id is restricted to
+//[a-z0-9-].
+static esp_err_t helpHandler(httpd_req_t* request)
+{
+  char query[64];
+  char identifier[40];
+  if (httpd_req_get_url_query_str(request, query, sizeof(query)) != ESP_OK ||
+      httpd_query_key_value(query, "id", identifier, sizeof(identifier)) != ESP_OK ||
+      identifier[0] == '\0')
+  {
+    return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "missing help id");
+  }
+  for (const char* character = identifier; *character != '\0'; ++character)
+  {
+    if (!islower((unsigned char)*character) && !isdigit((unsigned char)*character) &&
+        *character != '-')
+    {
+      return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "invalid help id");
+    }
+  }
+  char path[96];
+  snprintf(path, sizeof(path), "/littlefs/help/%s.html", identifier);
+  FILE* file = fopen(path, "rb");
+  if (file == NULL)
+  {
+    return httpd_resp_send_err(request, HTTPD_404_NOT_FOUND, "help text not found");
+  }
+  httpd_resp_set_type(request, "text/html; charset=utf-8");
+  httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+  httpd_resp_set_hdr(request, "X-Content-Type-Options", "nosniff");
+  char buffer[512];
+  size_t count;
+  while ((count = fread(buffer, 1, sizeof(buffer), file)) > 0)
+  {
+    if (httpd_resp_send_chunk(request, buffer, (ssize_t)count) != ESP_OK)
+    {
+      fclose(file);
+      return ESP_FAIL;
+    }
+  }
+  fclose(file);
+  return httpd_resp_send_chunk(request, NULL, 0);
+}
+
 static esp_err_t listHandler(httpd_req_t* request)
 {
   char path[absolutePathCapacity];
@@ -2269,7 +2313,7 @@ esp_err_t fileTransferStart(void)
   atomic_store(&stopping, false);
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.stack_size = 12288;
-  config.max_uri_handlers = 16;
+  config.max_uri_handlers = 20;
   config.max_open_sockets = 7;
   //-- Never purge the socket of an active large transfer; allow slow SD/WiFi stalls.
   config.lru_purge_enable = false;
@@ -2283,6 +2327,7 @@ esp_err_t fileTransferStart(void)
   }
   const httpd_uri_t handlers[] = {
       {.uri = "/", .method = HTTP_GET, .handler = pageHandler},
+      {.uri = "/api/help", .method = HTTP_GET, .handler = helpHandler},
       {.uri = "/api/list", .method = HTTP_GET, .handler = listHandler},
       {.uri = "/api/file", .method = HTTP_GET, .handler = downloadHandler},
       {.uri = "/api/file", .method = HTTP_PUT, .handler = uploadHandler},
