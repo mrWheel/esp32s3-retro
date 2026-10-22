@@ -146,6 +146,66 @@ dialog::backdrop
   justify-content: end;
   gap: .5rem;
 }
+#selectDialogList
+{
+  display: grid;
+  gap: .25rem;
+  min-width: min(30rem, 80vw);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+#selectDialogList button
+{
+  margin: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+#selectDialogList button[aria-selected="true"]
+{
+  border-color: #90ddcf;
+  font-weight: bold;
+}
+details.fileList
+{
+  margin: .5rem 0;
+}
+details.fileList .fileListScroll
+{
+  max-height: 40vh;
+  overflow: auto;
+}
+details.fileList .fileListScroll thead th
+{
+  position: sticky;
+  top: 0;
+  background: #1d2c38;
+}
+details.fileList summary
+{
+  cursor: pointer;
+  color: #90ddcf;
+}
+#guestFilesDialog
+{
+  width: min(48rem, calc(100vw - 2rem));
+  max-width: min(48rem, calc(100vw - 2rem));
+}
+#guestFilesScroll
+{
+  max-height: 55vh;
+  overflow: auto;
+  margin: .5rem 0;
+}
+#guestFilesScroll thead th
+{
+  position: sticky;
+  top: 0;
+  background: #1d2c38;
+}
+#guestFilesBody tr
+{
+  cursor: pointer;
+}
 @media (max-width: 600px)
 {
   body
@@ -171,7 +231,6 @@ dialog::backdrop
 <header>
   <div>
     <h1>Retro SD Disk Image Manager</h1>
-    <p class="muted">Single Page Application · ESP32 SD storage</p>
   </div>
   <button id="helpButton" type="button" aria-haspopup="dialog">[Help]</button>
 </header>
@@ -184,6 +243,25 @@ dialog::backdrop
   <h2 id="helpTitle">Help</h2>
   <div id="helpBody"></div>
   <form method="dialog" class="dialog-actions"><button>Close</button></form>
+</dialog>
+<dialog id="selectDialog">
+  <h2 id="selectDialogTitle">Select</h2>
+  <div id="selectDialogList" role="listbox"></div>
+  <form method="dialog" class="dialog-actions"><button>Cancel</button></form>
+</dialog>
+<dialog id="guestFilesDialog">
+  <h2 id="guestFilesTitle">Select files</h2>
+  <div class="actions">
+    <button id="guestFilesSelectAll" type="button">[Select All]</button>
+    <span id="guestFilesCount" class="muted"></span>
+  </div>
+  <div id="guestFilesScroll">
+    <table>
+      <thead><tr><th>Select</th><th>Name</th><th>Type</th><th>User</th><th>Bytes</th><th>Flags</th></tr></thead>
+      <tbody id="guestFilesBody"></tbody>
+    </table>
+  </div>
+  <form method="dialog" class="dialog-actions"><button>Done</button></form>
 </dialog>
 <input id="computerFolderInput" type="file" webkitdirectory multiple accept=".dsk,.img,.po,.woz,.2mg" hidden>
 <script>
@@ -517,15 +595,15 @@ function helpContent()
   const title = selected ? selected.title : "SD image manager";
   const details =
   {
-    "computer-image-upload": "<p>Select the destination OS (images are always written to /retro/images/&lt;OS&gt;/ on the SD card), then choose a Computer folder or individual image files. Supported secure browsers can remember an authorized source folder per selected machine in browser IndexedDB; permission can expire. On ordinary HTTP from the ESP32, use the native directory picker fallback. The browser controls its starting location. LittleFS is on the ESP32 and cannot store a Computer path. Only supported disk images directly inside the selected folder are uploaded. Existing SD destinations are skipped unless OVERWRITE is checked and confirmed. FAT32 limits one file to less than 4 GiB.</p>",
-    "image-computer-download": "<p>Select the source OS and choose a whole image to download. On browsers with the secure File System Access save picker, the destination is selected when you start the download. Otherwise the browser uses its normal download behavior; enable “Ask where to save each file” in browser settings if you want a destination picker. No separate Computer destination directory is needed. This downloads the complete image container byte-for-byte, not guest files inside it.</p>",
+    "computer-image-upload": "<p>Select the destination OS (images are always written to /retro/images/&lt;OS&gt;/ on the SD card), then choose a Computer folder or individual image files. Supported secure browsers can remember an authorized source folder per selected machine in browser IndexedDB; permission can expire. On ordinary HTTP from the ESP32, use the native directory picker fallback. The browser controls its starting location. LittleFS is on the ESP32 and cannot store a Computer path. Only supported disk images directly inside the selected folder are uploaded. Choose “drives.cfg” in Copy From to copy a single drive-configuration file instead: it is stored as /retro/images/&lt;OS&gt;/drives.cfg, replacing the existing one after confirmation. Existing SD destinations are skipped unless OVERWRITE is checked and confirmed. FAT32 limits one file to less than 4 GiB.</p>",
+    "image-computer-download": "<p>Select the source OS and choose a whole image to download. On browsers with the secure File System Access save picker, the destination is selected when you start the download. Otherwise the browser uses its normal download behavior; enable “Ask where to save each file” in browser settings if you want a destination picker. No separate Computer destination directory is needed. This downloads the complete image container byte-for-byte, not guest files inside it. The first list entry, drives.cfg, always appears and downloads the drive configuration of the selected OS (an error is shown if it does not exist on the SD card).</p>",
     "image-image-copy": "<p>Select the source OS and image, then a destination OS and new image filename. The firmware copies in bounded chunks and verifies bytes before commit. Source remains unchanged. OVERWRITE requires confirmation and preserves the prior destination during commit. A mapped RO image is still eligible; its drives.cfg reference is not rewritten.</p>",
     "computer-guest-upload": "<p>Choose the destination OS, disk image and user area, then select Computer files. The preview shows the uppercase name each file will get under the rules of the destination file system (8.3 for CP/M), flags invalid or duplicate names and shows which names already exist. Existing files are skipped unless OVERWRITE is checked and confirmed. Empty files cannot be stored. Data is written to free blocks first and the directory is updated last through an undo journal, so a power loss leaves either the old or the new state. Overwriting needs free room for both copies. The emulators and this manager are mutually exclusive.</p>",
     "guest-computer-download": "<p>Choose an OS, image and user area filter, tick one or more files and download them. One file uses the browser's save picker when available; several files use the normal browser download behavior. Damaged files (broken extent chains) are shown but cannot be downloaded.</p>",
     "guest-image-copy": "<p>Pick the source image and tick files, then pick a destination image and user area. The source may be the same image (copy to another user area). The source is never changed. Existing destination files are skipped unless OVERWRITE is checked and confirmed. Copies stream in small chunks and cross-OS copies are allowed (for example CP/M-80 to CP/M-86, or ProDOS to UCSD Pascal, where file type and Pascal kind are mapped; DOS 3.3 headers are stripped on read and rebuilt on write). ProDOS subdirectories are listed but cannot be opened, and the user area is hidden for file systems without user areas.</p>",
     "file-guest-copy": "<p>Top: copy an ordinary SD file (not a disk image) from /retro/images/&lt;OS&gt;/ into a guest image; the guest name is converted to the name rule of the destination file system (8.3 for CP/M). Bottom: copy ticked guest files out to /retro/images/&lt;OS&gt;/ as ordinary SD files. The SD file is written to a temporary file and committed atomically; an existing SD file is replaced only after confirmation. SD names cannot contain characters such as $ that FAT file names handled by this manager reject.</p>",
     "guest-file-manage": "<p>Tick files to delete them (confirmation required) or tick exactly one file to rename it. Delete only frees the directory entries; renaming refuses an existing name and keeps the user area. Both are journaled, so an interrupted operation is rolled back the next time the manager touches that OS directory.</p>",
-    "manage-images": "<p>Select an OS to list its image files in /retro/images/&lt;OS&gt;/ (there are no sub-directories). Download files, copy or rename whole disk images, and delete regular files. Image operations are allowed regardless of drives.cfg RO/RW mapping. Deleting or renaming a mapped image can break a drive reference; review the warning and confirm deliberately. drives.cfg and config.cfg cannot be deleted or replaced here.</p>",
+    "manage-images": "<p>Select an OS to list its image files in /retro/images/&lt;OS&gt;/ (there are no sub-directories). Download files, copy or rename whole disk images, and delete regular files. Image operations are allowed regardless of drives.cfg RO/RW mapping. Deleting or renaming a mapped image can break a drive reference; review the warning and confirm deliberately. drives.cfg can be replaced only through function 1 (Copy From = drives.cfg); neither it nor config.cfg can be deleted here, and config.cfg cannot be replaced.</p>",
   };
   const extra = details[state.functionId] ||
     "<p>This function is part of the planned manager, but guest filesystem support is not implemented yet. No guest-file operation is performed.</p>";
@@ -579,6 +657,13 @@ function renderImageUpload()
       </label>
       <span class="muted">Target: /retro/images/<span id="uploadMachineLabel">${state.machine}</span>/</span>
     </div>
+    <label class="field">Copy From — Computer item type
+      <select id="uploadKind">
+        <option value="images">Disk images (Computer folder or files)</option>
+        <option value="drivesCfg">drives.cfg — drive configuration of the selected OS</option>
+      </select>
+    </label>
+    <div id="uploadImageSection">
     <div class="card">
       <h3>Computer source directory</h3>
       <p id="computerUploadFolder" class="muted">No Computer directory selected.</p>
@@ -595,7 +680,18 @@ function renderImageUpload()
       <label><input id="overwrite" type="checkbox"> OVERWRITE existing image(s)</label>
       <button id="uploadButton" type="submit">Copy disk image(s) to SD</button>
     </form>
-    <p class="muted">RO/RW drive mappings do not block manager access. Replacing a mapped image affects the image used on its next emulator mount. Drive configuration files cannot be replaced.</p>`;
+    <p class="muted">RO/RW drive mappings do not block manager access. Replacing a mapped image affects the image used on its next emulator mount.</p>
+    </div>
+    <div id="uploadConfigSection" hidden>
+      <form id="configUploadForm" class="card">
+        <h3>drives.cfg</h3>
+        <label class="field">Select the drives.cfg file on the Computer (any file name; it is stored as drives.cfg)
+          <input id="configFile" type="file" accept=".cfg,.txt,text/plain">
+        </label>
+        <button id="configUploadButton" type="submit">Copy drives.cfg to SD</button>
+        <p class="muted">Target: /retro/images/<span id="configTargetLabel">${state.machine}</span>/drives.cfg. Only this one file is written; no disk image is touched. The file must be plain text (at most 16384 bytes, lines of at most 254 characters). The existing drives.cfg is replaced after confirmation; a failed upload leaves it unchanged. The emulator reads it at its next start. config.cfg stays protected.</p>
+      </form>
+    </div>`;
 }
 
 function renderImageDownload()
@@ -608,11 +704,11 @@ function renderImageDownload()
       <span class="muted">Source: /retro/images/<span id="downloadMachineLabel">${state.machine}</span>/</span>
       <button type="button" id="loadDownloadImages">List images</button>
     </div>
-    <label class="field">Copy From — whole image container
+    <label class="field">Copy From — whole image container or drives.cfg
       <select id="downloadImage"><option value="">Select an image</option></select>
     </label>
-    <button type="button" id="downloadImageButton">Download complete image</button>
-    <p class="muted">Choose a destination in the browser's save picker when it appears. If it does not, enable the browser's “Ask where to save each file” setting. This downloads the entire image file, not guest files.</p>`;
+    <button type="button" id="downloadImageButton">Download selected item</button>
+    <p class="muted">Choose a destination in the browser's save picker when it appears. If it does not, enable the browser's “Ask where to save each file” setting. A disk image is downloaded as a complete file, not as guest files; drives.cfg is the drive configuration of the selected OS.</p>`;
 }
 
 function renderImageCopy()
@@ -659,8 +755,8 @@ function renderManager()
 
 function render()
 {
-  navigation.innerHTML = `<button type="button" id="homeButton">Functions / Selection</button>` +
-    (state.screen === "home" ? "" : `<span class="muted">/ ${escapeHtml(functions.find((item) => item.id === state.functionId)?.title || "Manager")}</span>`);
+  navigation.innerHTML = state.screen === "home" ? "" : `<button type="button" id="homeButton">Back to Main Menu</button>` +
+    `<span class="muted">/ ${escapeHtml(functions.find((item) => item.id === state.functionId)?.title || "Manager")}</span>`;
   if (state.screen === "home")
   {
     app.innerHTML = renderHome();
@@ -729,6 +825,13 @@ async function loadImageOptions(prefix)
     const entries = await listPath("images", directory);
     const select = element(prefix === "download" ? "downloadImage" : "copySourceImage");
     select.replaceChildren(new Option(prefix === "download" ? "Select an image" : "Select a source image", ""));
+    if (prefix === "download")
+    {
+      const configuration = entries.find((item) => !item.directory && item.name === "drives.cfg");
+      const configurationState = configuration ? `${configuration.size} bytes` : "not present on the SD card";
+      select.add(new Option(`drives.cfg — drive configuration (${configurationState})`,
+        imagePath(directory, "drives.cfg")));
+    }
     for (const entry of entries.filter((item) => !item.directory && /\.(dsk|img|po|woz|2mg)$/i.test(item.name)))
     {
       const relative = imagePath(directory, entry.name);
@@ -967,7 +1070,11 @@ async function refreshManager()
 
 const guestMachineIds = ["cpm80", "cpm86", "apple2", "ucsd"];
 const guestImagePattern = /\.(dsk|img|po|woz|2mg)$/i;
-const guestSlots = {guestA: {image: "", info: null, files: []}, guestB: {image: "", info: null, files: []}};
+const guestSlots =
+{
+  guestA: {image: "", info: null, files: [], selected: new Set()},
+  guestB: {image: "", info: null, files: [], selected: new Set()}
+};
 
 function guestQuery(parameters)
 {
@@ -1040,16 +1147,44 @@ function guestPicker(slot, title, options)
       <button type="button" data-guest-refresh="${slot}">Refresh</button>
     </div>
     <p id="${slot}Info" class="muted">Select an image.</p>
-    <table>
-      <thead><tr>${options.selectable ? "<th>Select</th>" : ""}<th>Name</th><th>Type</th><th>User</th><th>Bytes</th><th>Flags</th></tr></thead>
-      <tbody id="${slot}Table"></tbody>
-    </table>
+    ${options.selectable ? `<div class="actions">
+      <button type="button" data-guest-choose="${slot}" data-guest-title="${escapeHtml(title)}">Choose files...</button>
+      <span id="${slot}Selection" class="muted">No files selected.</span>
+    </div>` : `<details class="fileList">
+      <summary id="${slot}Summary">Files already in this image</summary>
+      <div class="fileListScroll">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>User</th><th>Bytes</th><th>Flags</th></tr></thead>
+          <tbody id="${slot}Table"></tbody>
+        </table>
+      </div>
+    </details>`}
   </section>`;
 }
 
-function guestSelectable(slot)
+function guestEntryIsSelectable(entry)
 {
-  return slot === "guestA" && state.functionId !== "computer-guest-upload";
+  return !entry.damaged && !entry.directory;
+}
+
+function guestVisibleIndexes(slot)
+{
+  const filter = element(`${slot}User`).value;
+  const indexes = [];
+  guestSlots[slot].files.forEach((entry, index) =>
+  {
+    if (filter === "all" || Number(filter) === entry.user)
+    {
+      indexes.push(index);
+    }
+  });
+  return indexes;
+}
+
+function guestFlagsText(entry)
+{
+  return [entry.readOnly ? "R/O" : "", entry.system ? "SYS" : "", entry.directory ? "DIRECTORY (not accessible)" : "",
+    entry.damaged ? "DAMAGED (cannot be read)" : ""].filter(Boolean).join(" ");
 }
 
 function renderGuestTable(slot)
@@ -1057,43 +1192,47 @@ function renderGuestTable(slot)
   const body = element(`${slot}Table`);
   if (!body)
   {
+    updateGuestSelectionSummary(slot);
     return;
   }
-  const filter = element(`${slot}User`).value;
   body.replaceChildren();
-  guestSlots[slot].files.forEach((entry, index) =>
+  const visibleIndexes = guestVisibleIndexes(slot);
+  element(`${slot}Summary`).textContent = guestSlots[slot].image ?
+    `Files already in this image (${visibleIndexes.length}) - click to show` : "Files already in this image";
+  for (const index of visibleIndexes)
   {
-    if (filter !== "all" && Number(filter) !== entry.user)
-    {
-      return;
-    }
+    const entry = guestSlots[slot].files[index];
     const row = document.createElement("tr");
-    if (guestSelectable(slot))
-    {
-      const cell = document.createElement("td");
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.dataset.guestIndex = String(index);
-      box.disabled = entry.damaged || entry.directory;
-      cell.append(box);
-      row.append(cell);
-    }
-    const flags = [entry.readOnly ? "R/O" : "", entry.system ? "SYS" : "", entry.directory ? "DIRECTORY (not accessible)" : "",
-      entry.damaged ? "DAMAGED (cannot be read)" : ""].filter(Boolean).join(" ");
-    for (const text of [entry.name, entry.type || "", String(entry.user), String(entry.size), flags])
+    for (const text of [entry.name, entry.type || "", String(entry.user), String(entry.size), guestFlagsText(entry)])
     {
       const cell = document.createElement("td");
       cell.textContent = text;
       row.append(cell);
     }
     body.append(row);
-  });
+  }
+}
+
+function guestSelectedIndexes(slot)
+{
+  const files = guestSlots[slot].files;
+  return guestVisibleIndexes(slot).filter((index) => guestSlots[slot].selected.has(index) && guestEntryIsSelectable(files[index]));
+}
+
+function updateGuestSelectionSummary(slot)
+{
+  const label = element(`${slot}Selection`);
+  if (!label)
+  {
+    return;
+  }
+  const count = guestSelectedIndexes(slot).length;
+  label.textContent = count === 0 ? "No files selected." : `${count} file(s) selected.`;
 }
 
 function guestSelectedFiles(slot)
 {
-  return Array.from(element(`${slot}Table`).querySelectorAll("input[data-guest-index]:checked"))
-    .map((box) => guestSlots[slot].files[Number(box.dataset.guestIndex)]);
+  return guestSelectedIndexes(slot).map((index) => guestSlots[slot].files[index]);
 }
 
 async function loadGuestListing(slot)
@@ -1104,6 +1243,7 @@ async function loadGuestListing(slot)
   slotState.image = image;
   slotState.info = null;
   slotState.files = [];
+  slotState.selected.clear();
   renderGuestTable(slot);
   if (!image)
   {
@@ -1696,6 +1836,205 @@ async function run(action)
   }
 }
 
+const selectDialog = element("selectDialog");
+const selectDialogList = element("selectDialogList");
+let selectDialogTarget = null;
+
+function openSelectPopup(select)
+{
+  if (select.disabled || select.options.length === 0)
+  {
+    return;
+  }
+  const label = select.closest("label");
+  const title = label ? Array.from(label.childNodes).filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent.trim()).join(" ").trim() : "";
+  element("selectDialogTitle").textContent = title || "Select";
+  selectDialogList.replaceChildren();
+  Array.from(select.options).forEach((option, index) =>
+  {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = option.textContent;
+    button.disabled = option.disabled;
+    button.dataset.optionIndex = String(index);
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", index === select.selectedIndex ? "true" : "false");
+    selectDialogList.append(button);
+  });
+  selectDialogTarget = select;
+  selectDialog.showModal();
+  const current = selectDialogList.querySelector('[aria-selected="true"]');
+  if (current)
+  {
+    current.scrollIntoView({block: "center"});
+  }
+}
+
+selectDialogList.addEventListener("click", (event) =>
+{
+  const button = event.target.closest("button[data-option-index]");
+  if (!button || !selectDialogTarget)
+  {
+    return;
+  }
+  const select = selectDialogTarget;
+  const index = Number(button.dataset.optionIndex);
+  selectDialogTarget = null;
+  selectDialog.close();
+  if (select.selectedIndex !== index)
+  {
+    select.selectedIndex = index;
+    select.dispatchEvent(new Event("change", {bubbles: true}));
+  }
+  select.focus();
+});
+selectDialog.addEventListener("click", (event) =>
+{
+  if (event.target === selectDialog)
+  {
+    selectDialog.close();
+  }
+});
+selectDialog.addEventListener("close", () =>
+{
+  selectDialogTarget = null;
+});
+const guestFilesDialog = element("guestFilesDialog");
+const guestFilesBody = element("guestFilesBody");
+let guestFilesSlot = null;
+
+function renderGuestFilesPopup()
+{
+  const slot = guestFilesSlot;
+  const files = guestSlots[slot].files;
+  const indexes = guestVisibleIndexes(slot);
+  guestFilesBody.replaceChildren();
+  for (const index of indexes)
+  {
+    const entry = files[index];
+    const row = document.createElement("tr");
+    const boxCell = document.createElement("td");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.dataset.guestIndex = String(index);
+    box.disabled = !guestEntryIsSelectable(entry);
+    box.checked = !box.disabled && guestSlots[slot].selected.has(index);
+    boxCell.append(box);
+    row.append(boxCell);
+    for (const text of [entry.name, entry.type || "", String(entry.user), String(entry.size), guestFlagsText(entry)])
+    {
+      const cell = document.createElement("td");
+      cell.textContent = text;
+      row.append(cell);
+    }
+    guestFilesBody.append(row);
+  }
+  if (indexes.length === 0)
+  {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6;
+    cell.textContent = guestSlots[slot].image ? "No files in this user area." : "Select an image first.";
+    row.append(cell);
+    guestFilesBody.append(row);
+  }
+  element("guestFilesCount").textContent = `${guestSelectedIndexes(slot).length} of ${indexes.filter((index) =>
+    guestEntryIsSelectable(files[index])).length} file(s) selected.`;
+  element("guestFilesSelectAll").disabled = !indexes.some((index) => guestEntryIsSelectable(files[index]));
+}
+
+function openGuestFilesPopup(slot, title)
+{
+  guestFilesSlot = slot;
+  element("guestFilesTitle").textContent = title || "Select files";
+  renderGuestFilesPopup();
+  guestFilesDialog.showModal();
+}
+
+function toggleGuestSelectAll()
+{
+  const slot = guestFilesSlot;
+  const files = guestSlots[slot].files;
+  const indexes = guestVisibleIndexes(slot).filter((index) => guestEntryIsSelectable(files[index]));
+  const everySelected = indexes.length > 0 && indexes.every((index) => guestSlots[slot].selected.has(index));
+  for (const index of indexes)
+  {
+    if (everySelected)
+    {
+      guestSlots[slot].selected.delete(index);
+    }
+    else
+    {
+      guestSlots[slot].selected.add(index);
+    }
+  }
+  renderGuestFilesPopup();
+}
+
+element("guestFilesSelectAll").addEventListener("click", toggleGuestSelectAll);
+guestFilesBody.addEventListener("click", (event) =>
+{
+  const row = event.target.closest("tr");
+  const box = row ? row.querySelector("input[data-guest-index]") : null;
+  if (!box || box.disabled)
+  {
+    return;
+  }
+  if (event.target !== box)
+  {
+    box.checked = !box.checked;
+  }
+  const selected = guestSlots[guestFilesSlot].selected;
+  if (box.checked)
+  {
+    selected.add(Number(box.dataset.guestIndex));
+  }
+  else
+  {
+    selected.delete(Number(box.dataset.guestIndex));
+  }
+  renderGuestFilesPopup();
+});
+guestFilesDialog.addEventListener("click", (event) =>
+{
+  if (event.target === guestFilesDialog)
+  {
+    guestFilesDialog.close();
+  }
+});
+guestFilesDialog.addEventListener("close", () =>
+{
+  const slot = guestFilesSlot;
+  guestFilesSlot = null;
+  if (slot)
+  {
+    updateGuestSelectionSummary(slot);
+  }
+});
+element("app").addEventListener("mousedown", (event) =>
+{
+  if (event.target.closest("select"))
+  {
+    event.preventDefault();
+  }
+});
+element("app").addEventListener("click", (event) =>
+{
+  const select = event.target.closest("select");
+  if (select)
+  {
+    openSelectPopup(select);
+  }
+});
+element("app").addEventListener("keydown", (event) =>
+{
+  if (event.target.tagName === "SELECT" && [" ", "Enter", "ArrowDown", "ArrowUp"].includes(event.key))
+  {
+    event.preventDefault();
+    openSelectPopup(event.target);
+  }
+});
 element("helpButton").addEventListener("click", showHelp);
 element("navigation").addEventListener("click", (event) =>
 {
@@ -1770,7 +2109,14 @@ element("app").addEventListener("change", (event) =>
   if (id === "uploadMachine")
   {
     element("uploadMachineLabel").textContent = event.target.value;
+    element("configTargetLabel").textContent = event.target.value;
     updateHostFolderLabel(event.target.value);
+  }
+  if (id === "uploadKind")
+  {
+    const configuration = event.target.value === "drivesCfg";
+    element("uploadImageSection").hidden = configuration;
+    element("uploadConfigSection").hidden = !configuration;
   }
   if (id === "downloadMachine")
   {
@@ -1796,6 +2142,11 @@ element("app").addEventListener("click", (event) =>
   if (refresh)
   {
     run(() => loadGuestImages(refresh.dataset.guestRefresh));
+  }
+  const choose = event.target.closest("[data-guest-choose]");
+  if (choose)
+  {
+    openGuestFilesPopup(choose.dataset.guestChoose, choose.dataset.guestTitle);
   }
   if (event.target.id === "guestDownloadButton")
   {
@@ -1897,6 +2248,40 @@ element("app").addEventListener("submit", (event) =>
   {
     event.preventDefault();
     run(submitGuestUpload);
+  }
+  if (event.target.id === "configUploadForm")
+  {
+    event.preventDefault();
+    run(async () =>
+    {
+      const machine = element("uploadMachine").value;
+      const files = Array.from(element("configFile").files);
+      if (files.length !== 1)
+      {
+        throw new Error("Select exactly one drives.cfg file on the Computer.");
+      }
+      const file = files[0];
+      if (file.size === 0 || file.size > 16384)
+      {
+        throw new Error("drives.cfg must be between 1 and 16384 bytes.");
+      }
+      if (!confirm(`Replace /retro/images/${machine}/drives.cfg with ${file.name} (${file.size} bytes)? The existing drive configuration is replaced; the emulator reads the new one at its next start.`))
+      {
+        return;
+      }
+      element("configUploadButton").disabled = true;
+      try
+      {
+        await transferUpload("images", imagePath(machine, "drives.cfg"), file, true, "Uploading drives.cfg");
+        element("configFile").value = "";
+        showStatus(`Copied ${file.name} to /retro/images/${machine}/drives.cfg.`);
+      }
+      finally
+      {
+        element("configUploadButton").disabled = false;
+        hideProgress();
+      }
+    });
   }
   if (event.target.id === "imageUploadForm")
   {

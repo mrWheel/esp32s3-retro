@@ -1,10 +1,10 @@
-designDiskImageManager.md — Native SD Disk Image File Manager
+# designDiskImageManager.md — Native SD Disk Image File Manager
 
 Revision: 2026-10-21 (revision 4: SPA function selection, transfer matrix and manager access to RO-mapped SD images)
 Status: implementation specification and autonomous coding assignment
 Repository: https://github.com/mrWheel/esp32s3-retro
 
-1. Purpose and required outcome
+## 1. Purpose and required outcome
 
 Implement a complete browser-based Disk Image File Manager in the ESP32-S3 firmware. It must directly manipulate guest files inside disk-image files stored on the physical FAT32 microSD card, and manage complete image files on that card. It replaces the /retro/exchange/<os>/ staging workflow, OS-specific exchange scripts for routine transfers, and guest HOST file-transfer programs. It must work without a Mac/PC-side helper, Python process, or running guest emulator.
 
@@ -12,7 +12,7 @@ Definition of done: From a browser, select an operating-system profile, select a
 
 Do not interpret ‘copy image’ as copying only files inside the image: both operations are required and distinct.
 
-2. Non-negotiable project constraints
+## 2. Non-negotiable project constraints
 
 	1.	The File Transfer webserver and every emulator are mutually exclusive by design. The webserver is NEVER running while a guest emulator is active. Keep and verify this invariant in the machine/menu lifecycle; never introduce simultaneous image access.
 	2.	Operate on the physical 32 GB FAT32 SD card, not on a computer’s mounted SD card and not via exchange staging. The existing card directory structure remains authoritative, except that /retro/exchange/ and its OS subdirectories must be removed from the supported layout and preparation workflow.
@@ -24,7 +24,7 @@ Do not interpret ‘copy image’ as copying only files inside the image: both o
 	8.	The browser host computer may run macOS, Windows or Linux. File selection must use standard browser/OS file pickers, never hard-coded Mac paths or a native desktop helper. Browser security prohibits arbitrary local file access: every host-to-SD transfer begins with user-selected files, and SD-to-host transfers use browser downloads or an explicitly user-authorized save picker where supported.
 	9.	No placeholders, simulated directory contents, unimplemented buttons, guest-side transfer dependency, or success responses before durable writes.
 
-3. Mandatory repository reconnaissance (before coding)
+## 3. Mandatory repository reconnaissance (before coding)
 
 Inspect the entire local current checkout, not just this design or the README. In particular:
 
@@ -36,7 +36,7 @@ Inspect the entire local current checkout, not just this design or the README. I
 
 Produce an internal inventory mapping actual filenames and functions to each new subsystem before making changes. This document deliberately does not assert nonexistent source filenames or unverified filesystem support. Reuse proven code rather than creating parallel, inconsistent disk-format implementations. If an existing Python tool has the only correct implementation, port its validated algorithms into portable C/C++ with fixtures and cross-checks.
 
-4. Scope and terminology
+## 4. Scope and terminology
 
 	●	Host FAT32 filesystem: physical SD-card files/directories, including .dsk, .img, .po and other actual project-supported image extensions.
 	●	Guest filesystem: files/directories encoded inside a disk-image file, such as CP/M, Apple DOS, ProDOS or Apple Pascal.
@@ -46,7 +46,7 @@ Produce an internal inventory mapping actual filenames and functions to each new
 
 Do not confuse image filename, mounted drive identifier, guest volume name and guest filename. They must be separate fields throughout the implementation.
 
-4.1 Transfer endpoints and directions (mandatory)
+### 4.1 Transfer endpoints and directions (mandatory)
 
 There are three distinct storage locations: (A) files on the user’s host computer, accessed only through the browser’s authorized file picker/download mechanisms; (B) whole image files on the physical FAT32 SD card; and (C) guest files inside those SD-card images. Support all meaningful directions:
 
@@ -63,9 +63,9 @@ There are three distinct storage locations: (A) files on the user’s host compu
 
 Do not force host transfers through /retro/exchange/, a server-side staging directory, Python scripts, a guest HOST program, WebDAV, SMB, or host-mounted SD card. Stream host uploads directly through the HTTP request into the selected guest-image operation or a safely committed SD image file. The browser host is the user’s Mac/Windows/Linux computer, not a filesystem mounted on the ESP32.
 
-5. Supported operations
+## 5. Supported operations
 
-5.1 OS and image selection
+### 5.1 OS and image selection
 
 	1.	List available OS profiles from the existing registry/configuration.
 	2.	For a selected OS, show configured drives/images and discover compatible unassigned images from existing SD image locations. Display physical path, image size, detected filesystem/geometry, mapped drive(s), writable/read-only status and, where available, guest volume label.
@@ -74,7 +74,7 @@ Do not force host transfers through /retro/exchange/, a server-side staging dire
 	5.	Unknown or ambiguous filesystem: allow whole-image download/copy/rename/delete subject to policy, but disable guest writes and explain why. Do not guess format based only on extension.
 	6.	Never include LittleFS system.dsk as an editable/selectable SD image.
 
-5.2 Guest file manager
+### 5.2 Guest file manager
 
 For every supported, verified guest filesystem implement:
 
@@ -88,11 +88,11 @@ For every supported, verified guest filesystem implement:
 
 Overwrite semantics: If replacing a file fails, the previous valid file must remain recoverable; do not delete the old directory entry before validating and reserving the replacement. Implement a filesystem-appropriate safe transaction or an image-level rollback strategy (see §8). Never claim atomicity unless it is demonstrated.
 
-5.3 Guest-to-guest copy between SD images
+### 5.3 Guest-to-guest copy between SD images
 
 Add a Copy Files Between Images workflow. Select source OS/profile, source image, user area/subdirectory and one or more guest files; independently select destination OS/profile, destination image, user area/subdirectory, and conflict policy. Support same-OS and cross-OS copies when a safe representation exists. Read and write using the respective filesystem adapters in bounded chunks; no /retro/exchange/ staging. Do not silently strip Apple metadata, Pascal types or CP/M record semantics: show a conversion/metadata choice, document round-trip limitations, and reject ambiguous lossy conversions unless the user explicitly confirms. For same source/destination image, prevent unsafe overlapping operations. A failure must not corrupt either image. Copy does not delete the source; if a Move action is provided, delete the source only after the destination has been committed and verified. Protect LittleFS images on both sides.
 
-5.4 Complete image manager
+### 5.4 Complete image manager
 
 Implement on the physical SD FAT32 volume:
 
@@ -106,33 +106,33 @@ Implement on the physical SD FAT32 volume:
 
 Image copy must use bounded chunks and must not interpret or modify guest filesystem contents.
 
-5.5 Required parity with the Python disk-image management menus
+### 5.5 Required parity with the Python disk-image management menus
 
 Use the user’s supplied CP/M wrapper (which imports diskImageCpm, diskImageCpm80, diskImageCpm86, and extractApple2Files) as a concrete reference for the required capabilities, not as a runtime dependency. Its CpmImage, CpmVolume, openCpm and run implementations demonstrate listing, extraction, addition, deletion, persistence and format-profile selection. Inspect the actual repository version of extractApple2Files.py and its interactive menu, including options 7 and 10 that use Dest. Path. Inventory every menu operation and implement its meaningful equivalent for each supported OS, not just CP/M. Include copy/move between source and destination images, ordinary SD paths and host, rename where supported, multi-file selection, delete and overwrite. If an operation is inherently impossible for a specific filesystem, disable it with a precise explanation and tests. Do not copy the Python approach of loading the whole image into memory: use bounded sector/record I/O in firmware.
 
 For CP/M specifically, preserve profile-by-size/geometry checks, directory extent handling, record padding (128-byte logical records), allocation block bookkeeping, CP/M user areas 0–15 (the supplied wrapper only shows user 0), and safe save/rollback behavior. Validate imported and exported byte lengths against CP/M record granularity; report any unavoidable padding. Do not treat a deleted extent as proof that its allocation blocks can be reused until the directory has been consistently updated.
 
-6. Filesystem adapters and compatibility
+## 6. Filesystem adapters and compatibility
 
 Design a shared interface such as image_open, image_probe, guest_list, guest_read, guest_write, guest_delete, guest_rename, image_close, and image_flush. These are conceptual operations, not mandated exact symbols. Separate image/block I/O, filesystem format logic, and HTTP handlers. Return structured error codes.
 
-CP/M-80 and CP/M-86
+#### CP/M-80 and CP/M-86
 
 Reuse the repository’s actual DPB/geometry/sector mapping and directory extent logic. Correctly handle allocation blocks, directory entry slots, multi-extent files, records, file size conventions, user areas, deleted entries and free space. Support all actually configured SMALL/LARGE and other existing profiles. CP/M-86 must not be assumed byte-for-byte identical to CP/M-80 without examining its configured disk formats. For ambiguous trailing bytes in 128-byte records, preserve the project-defined transfer convention and document binary round-trip limitations explicitly; verify against Python exchange fixtures and guest programs.
 
-Apple II
+#### Apple II
 
 Support each filesystem that is actually present and validated in current images: DOS 3.3 and ProDOS as applicable. Respect 13/16-sector and nibble/sector ordering only where used, DOS catalog/T-S lists, ProDOS directory/block allocation and file metadata, boot/system blocks, and actual image .dsk/.po ordering. Do not conflate DOS 3.3 with ProDOS. Preserve Apple file type, auxiliary type, load address and resource metadata where relevant. Define explicit browser metadata choices/defaults and round-trip rules.
 
-UCSD / Apple Pascal
+#### UCSD / Apple Pascal
 
 Support the actual Apple Pascal 1.3 volumes and disk layouts in the checked-in profiles, including the 800K boot volume and Pascal work volumes if their filesystem is verified. Recognize the distinction between the shared Apple II machine emulator and the Pascal filesystem: reusing the CPU emulator does not mean using ProDOS parsing for Pascal volumes. Implement Pascal volume directory/file allocation rules, name/type handling and required contiguous allocation/compaction constraints from verified specifications and repository fixtures. Preserve bootability and native file types, especially .TEXT and .CODE. If an image is actually ProDOS-formatted, select the detected filesystem adapter rather than treating it as Pascal based on OS selection.
 
-Unsupported/uncertain formats
+#### Unsupported/uncertain formats
 
 Fail closed for guest writes. Whole-image operations remain available. No fabricated support claims. Add explicit test fixtures and enable write support only after round-trip verification.
 
-6.1 Host file transfer and native picker behavior
+### 6.1 Host file transfer and native picker behavior
 
 Implement host-local interaction using standard HTML browser primitives and progressive enhancement:
 
@@ -145,11 +145,11 @@ Implement host-local interaction using standard HTML browser primitives and prog
 	●	Implement HTTP upload as chunked/bounded processing. Avoid buffering a whole selected host file, ZIP or image in RAM. Handle browser cancellation, disconnect, upload interruption and retries safely.
 	●	Verify Chrome, Safari and Firefox where possible on macOS; Edge/Chrome on Windows; Firefox/Chrome on Linux. Test picker invocation and download behavior manually where automation cannot access OS dialogs. Browser-origin/CORS behavior must remain compatible with the existing File Transfer server.
 
-6.2 Firmware language versus browser language
+### 6.2 Firmware language versus browser language
 
 The web GUI runs HTML/CSS/JavaScript in the browser. The ESP32-S3 webserver, SD-card block/file I/O, HTTP endpoints, and disk-image filesystem adapters run in the ESP-IDF firmware, which is normally C or C++. JavaScript cannot directly open the ESP32’s FAT32 filesystem or modify guest disk sectors; it sends HTTP requests to firmware endpoints. Existing Python scripts are reference/maintenance/test tools on the host, not required during normal web operation. Prefer repository coding conventions for C/C++ and JavaScript separately; do not propose running the Python scripts in the browser.
 
-7. Web API and GUI
+## 7. Web API and GUI
 
 Replace the entire old File Transfer webserver GUI and obsolete exchange-specific HTTP endpoints; retain and reuse only useful underlying Wi-Fi, SD, HTTP-server infrastructure and filesystem logic. The old user-facing functionality is removed, not kept alongside the new manager. Keep the same Wi-Fi lifecycle and trust model; the README currently describes unauthenticated HTTP on a trusted LAN. Bind all endpoints to the existing File Transfer mode and restrict paths rigorously.
 
@@ -222,7 +222,7 @@ Additional UI details:
 	●	Usable from macOS, Windows and Linux desktop browsers and iPad Safari, with no Python, command-line or helper application. Host chooser/save UX follows browser/OS capabilities.
 	●	Never present mock file listings or inactive controls as working features.
 
-8. Integrity, safety and recovery
+## 8. Integrity, safety and recovery
 
 Because the emulator is stopped, no runtime locking with guest disk I/O is necessary. Nevertheless, filesystem corruption from failed writes or power loss is a real risk.
 
@@ -236,11 +236,11 @@ Because the emulator is stopped, no runtime locking with guest disk I/O is neces
 	8.	Add explicit safeguards against altering LittleFS, ROMs and firmware resources.
 	9.	Preserve original test images and never run destructive tests on user data.
 
-8.1 Legacy GUI removal
+### 8.1 Legacy GUI removal
 
 Remove the old File Transfer GUI pages, navigation, handlers, routes and exchange-only code that no longer serves any purpose. The new Disk Image File Manager replaces them completely. Preserve essential shared HTTP server, provisioning, authentication/network assumptions, SD driver, disk emulation, and menu entry/exit lifecycle. Audit all references to old endpoints and exchange/<os> and update/remove them. No backwards-compatibility requirement for the old GUI or exchange endpoints. Never remove unrelated emulator functionality. Existing HOST guest utilities may remain in historical sources/test fixtures but must not be needed for transfers or presented as an active workflow.
 
-9. Eliminate the exchange workflow
+## 9. Eliminate the exchange workflow
 
 After native transfer is verified:
 
@@ -250,7 +250,7 @@ After native transfer is verified:
 	●	Keep Python scripts required for LittleFS system.dsk generation/maintenance and other legitimate offline image construction. Do not indiscriminately delete every Python tool.
 	●	Provide a migration note: users should back up SD data; old exchange directories may be manually removed after confirming no files remain needed. Do not automatically delete user files from existing cards.
 
-10. Implementation phases (execute all; do not stop at a proposal)
+## 10. Implementation phases (execute all; do not stop at a proposal)
 
 Phase A — Audit and design alignment. Inventory real source files, formats, Python exchange algorithms, configs and fixtures. Document capability matrix for each image/OS. Identify code reuse and missing formats. Establish test baseline.
 
@@ -284,7 +284,7 @@ The following is the implementation evidence found in this checkout; a host-side
 
 Phase A is partially evidenced by this inventory and the focused test baseline in `docs/verification.md`; full Phase A requires reconciling all fixtures/configurations and resolving known unrelated test drift. Phase B has no portable guest-filesystem adapter yet. Phase C's whole-image SD operations and Phase E's whole-image SPA flows are implemented, but large-file/device/browser acceptance is incomplete. Phase D has no guest-file HTTP/GUI operations because Phase B is missing. Phase F is not started and is blocked by active emulator HOST/exchange integrations. Phase G has a passing ESP-IDF build and focused host/reference checks, with a known unrelated Python menu-string failure; hardware acceptance is outstanding. Do not report Phase B or Phase D complete based on the current Python utilities or header probes.
 
-11. Mandatory automated test matrix
+## 11. Mandatory automated test matrix
 
 For every verified image format and geometry test:
 
@@ -319,7 +319,7 @@ idf.py size
 
 Do not overwrite local configuration or user modifications without inspecting them. Keep tests deterministic and independent of an actual SD card where possible; add physical SD acceptance steps separately.
 
-11.1 Host transfer and image-to-image test matrix
+### 11.1 Host transfer and image-to-image test matrix
 
 	1.	On macOS, Windows and Linux browsers, select local files via the native OS-backed chooser and upload into a selected SD guest image; verify exact contents and conflict handling.
 	2.	Download a guest file from an SD image to the host; verify its bytes and metadata, and that filename/download behavior matches the browser configuration.
@@ -329,7 +329,7 @@ Do not overwrite local configuration or user modifications without inspecting th
 	6.	Verify Safari/Firefox fallback without File System Access API; never require a guaranteed Save As popup or access to arbitrary local paths.
 	7.	Verify upload/download does not create or use /retro/exchange/, requires no host Python utility, and remains bounded in ESP32 RAM.
 
-12. Acceptance criteria
+## 12. Acceptance criteria
 
 Implementation is complete only when:
 
@@ -357,17 +357,17 @@ Implementation is complete only when:
 
 If a current image format cannot safely support guest writes, do not declare the project finished by hiding it: implement and verify the missing adapter, or report the specific blocker with concrete source evidence and leave it read-only. No fake completion.
 
-13. Instructions to the autonomous coding agent
+## 13. Instructions to the autonomous coding agent
 
 You are authorized to inspect and modify this repository to implement the specification end-to-end. Do the implementation, not merely a plan. First read all required project documents and the real code. Work incrementally, run tests after each subsystem, and preserve unrelated functionality. Use the repository’s naming, formatting and architecture rules; do not create speculative replacement architectures when reusable implementations exist. Do not ask the user routine engineering questions that can be resolved by inspecting the code and tests. Make defensible technical choices, document them, and continue. Ask only when an irreversible choice or unavailable external resource genuinely blocks progress.
 
 Deliver a final implementation report with: files added/changed/removed; filesystem capability matrix; host ↔ image and image ↔ image transfer matrix; OS-native picker/browser download behavior; API and GUI behavior; exact test commands and results; hardware verification status; migration steps; remaining limitations; and explicit confirmation that LittleFS system images were untouched. Do not report unsupported features as complete.
 
-14. Provenance and current verification caveat
+## 14. Provenance and current verification caveat
 
 The public repository README inspected on 2026-10-21 describes a native ESP-IDF project with File Transfer under /retro/exchange/ and /retro/images/, OS profiles CP/M-80, CP/M-86, UCSD Pascal and Apple II, FAT32 microSD storage, LittleFS resources, drives.cfg mappings, and host tests. The README also explicitly notes that some physical ESP32-S3 behaviors remain unverified. The coding agent must verify details against the actual checkout, because this document was prepared from the public README and the user’s requirements, not from a complete source-code audit.
 
-15. Implementation progress log
+## 15. Implementation progress log
 
 This section is the persistent execution record. Update it after each material phase or verification attempt, including exact failures and the changed condition before retrying. Do not rerun an unchanged failing command without a concrete reason. A partial implementation must remain explicitly partial; do not mark a phase complete because its code compiles.
 
@@ -487,3 +487,22 @@ Built (source of truth: `components/guestFs/guestFsApple.c`, `guestFsProdos.c`, 
 - **SPA**: apple2 and UCSD Pascal are selectable in the guest picker; the user-area selector is hidden for file systems without user areas; a Type column is shown; the name preview follows the destination `nameRule`; the upload form has optional Apple file type and aux fields; Help texts and the home notice were updated.
 
 Known limitations: overwrite needs free room for both copies; empty files are rejected; no ProDOS subdirectory navigation; no GS/OS forked files; DOS 3.3 catalogs are not extended; DOS 3.3 text files lose trailing NULs and raw R/S/other types read back padded to a multiple of 256 bytes; a duplicate name inside a DOS 3.3 catalog makes changes to that name fail with Corrupt; non-printable characters in DOS 3.3 names are shown as `?`.
+
+## Revision 6 — drives.cfg transfer (2026-10-22)
+
+Built (source of truth: `main/fileTransfer.c` `uploadHandler`, `isManagedDriveConfiguration`, `driveConfigurationChunkIsValid`; `main/web.html` functions 1 and 3):
+
+- **Function 1, Computer → SD**: a "Copy From" selector offers "Disk images" (existing folder/file flow) or "drives.cfg". With drives.cfg only a single-file picker is shown; whatever the local file is called, it is stored as `/retro/images/<OS>/drives.cfg` for the selected OS. Replacement always asks for confirmation and uses the existing temp-file + backup-rename commit, so a failed upload leaves the previous drives.cfg unchanged. No emulator mapping flag is read or changed.
+- **Function 3, SD → Computer**: the "Copy From" drop-down always lists `drives.cfg` as its first entry (with its size, or "not present on the SD card"), followed by the actual disk images. Selecting it downloads only that file through the existing download route (save picker or normal browser download).
+- **Server rules**: the generic upload protection of drive configuration is relaxed only for the exact path `<os>/drives.cfg` with `<os>` one of the known machine ids and the exact lower-case name. `config.cfg`, manager temporary/journal files and delete of any configuration file stay protected. A drives.cfg upload must be 1 to 16384 bytes (HTTP 413), contain no NUL bytes and no line longer than 254 characters (HTTP 422, streamed check, the 256-byte line buffers of the emulator drive-configuration loaders and of `imageIsMapped` would otherwise reject the file). Content is not otherwise validated; the emulator parses it at its next start.
+- **Not done**: no syntax validation of drive entries, no automatic backup copy of the replaced drives.cfg after a successful upload, no function-6 (SD → SD) or manager-screen support for copying drives.cfg between OS directories. `config.cfg` lives in LittleFS and is not touched.
+- **Verification**: ESP-IDF 6.0.2 `idf.py build` passes (`retroHost.bin` 0x1180B0 bytes, 64% of the app partition free). No host test, browser test or device test of this change has been run.
+
+### Revision 6 — GUI update (2026-10-22)
+
+- The header tagline "Single Page Application · ESP32 SD storage" was removed; the heading "Retro SD Disk Image Manager" and `[Help]` remain.
+- Every `<select>` inside the SPA now opens a modal popup with a scrollable list (max 60% of the viewport height, current choice highlighted and scrolled into view) instead of the native drop-down. Choosing an entry sets the select and fires its normal `change` event, so all existing behavior is unchanged. Opened by click, Enter, Space or arrow keys; Escape, Cancel or a click on the backdrop closes it without change.
+- Wherever single guest files are selected (functions 4, 5, 9 source side and 11) the inline file table was replaced by a `Choose files...` button plus a line "N file(s) selected". The button opens a modal popup with a scrollable table (max 55% of the viewport height, sticky header) with one checkbox per file; a click anywhere on a row toggles it. The popup holds the `[Select All]` button: if every selectable row currently shown is ticked it clears them, otherwise it ticks all of them. Damaged files and directories are never ticked. Rows hidden by the user-area filter are not affected and are not part of the selection. The selection is cleared when another image is loaded. `Done`, Escape or a click on the backdrop closes the popup; the choice is kept. Destination tables (not selectable) stay inline.
+- Verified: script syntax check and `idf.py build`. Not verified in a browser; in particular iPad Safari may still show its native picker for selects.
+- The navigation button "Functions / Selection" was renamed `[Back to Main Menu]`. It is shown on every function screen and is not rendered on the main menu itself (the main menu keeps its heading "Functions / Selection").
+- Informational file lists (the non-selectable destination image tables of functions 2, 5 and 9) are now a collapsed `<details>` drop-down "Files already in this image (N) - click to show"; the user opens it on demand and the list scrolls inside a box of at most 40% of the viewport height (sticky header). The image info line (free space, directory entries) stays visible. The lists used for selecting source files remain in the `Choose files...` popup.

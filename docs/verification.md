@@ -152,3 +152,6 @@ NOT verified (needs the user's device/browser): `/api/guest/*` with Apple images
 
 Suggested hardware checks: list `apple2/data1.po`, `apple2/test1.dsk` and `ucsd/pascalWork1.po` from function 11; upload a `.TXT` and a `.BIN` to a ProDOS image and read them from ProDOS (`CAT`, `TYPE`); upload a `.TEXT` file to `ucsd/pascalWork1.po` and open it from the Pascal filer; copy a text file from ProDOS to Pascal and back; upload a file to `test1.dsk` and `CATALOG`/`LOAD` it in DOS 3.3; rename and delete in each; pull power during an upload and check that the next File Transfer start leaves the image in the old or new state.
 
+## drives.cfg transfer (2026-10-22)
+
+- Firmware build with the new `<OS>/drives.cfg` upload exception and the drives.cfg entry in the SPA function 1/3 selectors: `idf.py build` PASS. Not exercised: upload/download of drives.cfg on a device or in a browser, the 413/422 rejection paths, replacement with a failed transfer.

@@ -164,6 +164,56 @@ static bool isProtectedImageMetadata(const char* path)
          strcasecmp(name, "manager-guest-journal.tmp") == 0;
 }
 
+//-- The emulator drive-configuration loaders read lines with a 256-byte buffer.
+static const size_t driveConfigurationMaximumBytes = 16384;
+static const size_t driveConfigurationMaximumLineBytes = 254;
+
+static bool isManagedDriveConfiguration(const char* retroPath)
+{
+  static const char prefix[] = "/retro/images/";
+  if (strncmp(retroPath, prefix, sizeof(prefix) - 1) != 0)
+  {
+    return false;
+  }
+  const char* machine = retroPath + sizeof(prefix) - 1;
+  const char* separator = strchr(machine, '/');
+  if (separator == NULL || strcmp(separator + 1, "drives.cfg") != 0)
+  {
+    return false;
+  }
+  size_t machineLength = (size_t)(separator - machine);
+  for (size_t index = 0; index < sizeof(imageMachineIds) / sizeof(imageMachineIds[0]); ++index)
+  {
+    if (strlen(imageMachineIds[index]) == machineLength &&
+        strncmp(imageMachineIds[index], machine, machineLength) == 0)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool driveConfigurationChunkIsValid(const char* data, size_t length, size_t* lineLength)
+{
+  for (size_t index = 0; index < length; ++index)
+  {
+    if (data[index] == '\0')
+    {
+      return false;
+    }
+    if (data[index] == '\n')
+    {
+      *lineLength = 0;
+      continue;
+    }
+    if (++(*lineLength) > driveConfigurationMaximumLineBytes)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
 static bool buildSiblingPath(const char* path, const char* name, char* sibling,
                              size_t siblingCapacity)
 {
@@ -471,6 +521,7 @@ static esp_err_t uploadHandler(httpd_req_t* request)
                                                       sizeof(overwriteValue)) == ESP_OK &&
                           strcmp(overwriteValue, "1") == 0;
   char imageBackup[absolutePathCapacity] = "";
+  bool driveConfigurationUpload = false;
   if (area == imageArea)
   {
     const char* root = areaRoot(area);
@@ -481,12 +532,22 @@ static esp_err_t uploadHandler(httpd_req_t* request)
     {
       return respond(request, "400 Bad Request", "Image path is too long");
     }
-    if (isProtectedImageMetadata(retroPath))
+    //-- Only <OS>/drives.cfg may be replaced; config.cfg and manager files stay protected.
+    driveConfigurationUpload = isManagedDriveConfiguration(retroPath);
+    if (!driveConfigurationUpload && isProtectedImageMetadata(retroPath))
     {
       return respond(request, "409 Conflict",
                      "Drive configuration and manager operation files cannot be changed");
     }
+    if (driveConfigurationUpload &&
+        (request->content_len == 0 || request->content_len > driveConfigurationMaximumBytes))
+    {
+      return respond(request, "413 Content Too Large",
+                     "drives.cfg must be between 1 and 16384 bytes");
+    }
   }
+  bool driveConfigurationInvalid = false;
+  size_t driveConfigurationLineLength = 0;
   struct stat info;
   bool destinationExists = false;
   if (stat(path, &info) == 0)
@@ -554,6 +615,13 @@ static esp_err_t uploadHandler(httpd_req_t* request)
     }
     if (received <= 0)
     {
+      success = false;
+      break;
+    }
+    if (driveConfigurationUpload &&
+        !driveConfigurationChunkIsValid(buffer, (size_t)received, &driveConfigurationLineLength))
+    {
+      driveConfigurationInvalid = true;
       success = false;
       break;
     }
@@ -643,6 +711,12 @@ static esp_err_t uploadHandler(httpd_req_t* request)
     atomic_flag_clear(&imageOperationActive);
   }
   unlink(temporaryPath);
+  if (driveConfigurationInvalid)
+  {
+    return respond(request, "422 Unprocessable Content",
+                   "drives.cfg must be a text file with lines of at most 254 characters; "
+                   "the existing file was not changed");
+  }
   return respond(request, "500 Internal Server Error",
                  "Upload aborted or write failed; no final file created");
 }
@@ -1282,7 +1356,7 @@ static bool guestQueryFlag(const char* query, const char* key)
 }
 
 //-- Optional numeric query value (hexadecimal or decimal). Returns false when present but
-//malformed.
+// malformed.
 static bool guestQueryNumber(const char* query, const char* key, unsigned base, unsigned maximum,
                              unsigned* value, bool* present)
 {
