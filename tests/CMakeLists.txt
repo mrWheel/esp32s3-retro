@@ -118,3 +118,26 @@ add_test(NAME apple2ProdosAutostart80Columns COMMAND apple2DiskTests --prodos-80
 add_test(NAME apple2ProdosSmartPort COMMAND apple2DiskTests --prodos-smartport-boot
   "${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2Downloads/appleDisks/ProDOS 2.4.2.dsk" ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po)
 set_tests_properties(apple2ProdosAutostart apple2ProdosAutostart80Columns apple2ProdosSmartPort PROPERTIES FIXTURES_REQUIRED prodosImages)
+add_executable(
+  guestFsTests
+  guestFsTests.c
+  ../components/guestFs/guestFs.c
+  ../components/guestFs/guestFsCpm.c
+  ../main/guestFsImage.c
+  ../main/imageFile.c
+)
+target_include_directories(guestFsTests PRIVATE ../components/guestFs/include ../components/guestFs ../main)
+target_compile_options(guestFsTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
+target_compile_definitions(guestFsTests PRIVATE _DEFAULT_SOURCE GUESTFS_FAULT_INJECTION)
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(guestFsTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(guestFsTests PRIVATE -fsanitize=address,undefined)
+endif()
+set(guestFsWork ${CMAKE_CURRENT_BINARY_DIR}/guestFsWork)
+add_test(NAME guestFsFixtures COMMAND sh -c
+  "rm -rf '${guestFsWork}' && mkdir -p '${guestFsWork}/fixtures' '${guestFsWork}/out' && python3 '${CMAKE_CURRENT_SOURCE_DIR}/guestFsFixture.py' build '${guestFsWork}/fixtures' && python3 '${CMAKE_CURRENT_SOURCE_DIR}/guestFsFixture.py' real '${guestFsWork}/fixtures'")
+set_tests_properties(guestFsFixtures PROPERTIES FIXTURES_SETUP guestFsFixtures)
+add_test(NAME guestFsCpm COMMAND guestFsTests ${guestFsWork}/fixtures ${guestFsWork}/out ${CMAKE_CURRENT_SOURCE_DIR}/..)
+set_tests_properties(guestFsCpm PROPERTIES FIXTURES_REQUIRED guestFsFixtures FIXTURES_SETUP guestFsOutput)
+add_test(NAME guestFsPythonVerify COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/guestFsFixture.py verify ${guestFsWork}/out)
+set_tests_properties(guestFsPythonVerify PROPERTIES FIXTURES_REQUIRED guestFsOutput)

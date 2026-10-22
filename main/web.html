@@ -3,22 +3,104 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Retro File Transfer</title>
+<title>Retro SD Disk Image Manager</title>
 <style>
-body
+:root
 {
-  max-width: 850px;
-  margin: 2rem auto;
-  padding: 0 1rem;
+  color-scheme: dark;
   font: 16px system-ui, sans-serif;
   color: #edf3f7;
   background: #15212b;
 }
-button, input
+*
 {
-  padding: .6rem;
-  margin: .25rem;
+  box-sizing: border-box;
+}
+body
+{
+  max-width: 1050px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+header
+{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #53616d;
+  margin-bottom: 1.25rem;
+}
+button, input, select
+{
+  padding: .65rem;
+  margin: .25rem 0;
   font: inherit;
+}
+button
+{
+  cursor: pointer;
+}
+button:disabled
+{
+  cursor: not-allowed;
+  opacity: .6;
+}
+button, select, input
+{
+  max-width: 100%;
+}
+.toolbar, .row, .actions
+{
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .6rem;
+}
+.toolbar
+{
+  margin-bottom: 1rem;
+}
+.row
+{
+  align-items: end;
+}
+.field
+{
+  display: grid;
+  gap: .25rem;
+  flex: 1 1 14rem;
+}
+.field input, .field select
+{
+  width: 100%;
+}
+.card-grid
+{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: .8rem;
+}
+.card
+{
+  border: 1px solid #53616d;
+  border-radius: .5rem;
+  padding: 1rem;
+  background: #1d2c38;
+}
+.card h3
+{
+  margin: 0 0 .45rem;
+}
+.muted
+{
+  color: #bac8d2;
+}
+.notice
+{
+  border-left: 4px solid #e3b354;
+  padding: .6rem .8rem;
+  background: #26313a;
 }
 a
 {
@@ -46,72 +128,129 @@ progress
   width: min(100%, 32rem);
   height: 1.25rem;
 }
+dialog
+{
+  max-width: min(42rem, calc(100vw - 2rem));
+  color: #edf3f7;
+  background: #1d2c38;
+  border: 1px solid #90ddcf;
+  border-radius: .5rem;
+}
+dialog::backdrop
+{
+  background: #000b;
+}
+.dialog-actions
+{
+  display: flex;
+  justify-content: end;
+  gap: .5rem;
+}
+@media (max-width: 600px)
+{
+  body
+  {
+    padding: .7rem;
+  }
+  header
+  {
+    align-items: flex-start;
+  }
+  table
+  {
+    font-size: .9rem;
+  }
+  td, th
+  {
+    padding: .4rem;
+  }
+}
 </style>
 </head>
 <body>
-<h1>Retro File Transfer</h1>
-<p>Choose a machine and whether you are transferring a disk image or loose files. Disk images go to /retro/images/&lt;machine&gt;/; loose files go to /retro/exchange/&lt;machine&gt;/.</p>
-<label for="machine">Machine:</label>
-<select id="machine">
-<option value="cpm80">CP/M-80</option>
-<option value="cpm86">CP/M-86</option>
-<option value="ucsd">UCSD Pascal</option>
-<option value="apple2">Apple II</option>
-<option value="swtpc">SWTPC 6800</option>
-</select>
-<label for="area">Transfer type:</label>
-<select id="area">
-<option value="exchange">Loose files (/retro/exchange/)</option>
-<option value="images">Disk image (/retro/images/)</option>
-</select>
-<h2 id="location">/microSD/retro/exchange/cpm80/</h2>
-<button id="up">Parent folder</button><button id="refresh">Refresh</button>
-<form id="upload">
-<input id="file" type="file" multiple required><button id="send">Upload</button>
-</form>
-<label><input id="overwrite" type="checkbox"> OVERWRITE</label>
-<label><input id="deleteNoConfirm" type="checkbox"> DELETE without confirming</label>
-<p>Existing files are only overwritten when OVERWRITE is checked. Every listed item shows its full SD-card VFS path. Names must begin with a letter or digit; use letters, digits, spaces, dots, underscores or hyphens (64 characters per name). No trailing space or dot.</p>
-<table>
-<thead><tr><th>Name</th><th>SD-card path</th><th>Bytes</th><th>Actions</th></tr></thead>
-<tbody id="entries"></tbody>
-</table>
+<header>
+  <div>
+    <h1>Retro SD Disk Image Manager</h1>
+    <p class="muted">Single Page Application · ESP32 SD storage</p>
+  </div>
+  <button id="helpButton" type="button" aria-haspopup="dialog">[Help]</button>
+</header>
+<nav id="navigation" class="toolbar" aria-label="Application navigation"></nav>
+<main id="app" aria-live="polite"></main>
 <progress id="progress" max="100" value="0" hidden></progress>
 <p id="progressText" aria-live="polite"></p>
 <p id="status" role="status" aria-live="polite"></p>
+<dialog id="helpDialog">
+  <h2 id="helpTitle">Help</h2>
+  <div id="helpBody"></div>
+  <form method="dialog" class="dialog-actions"><button>Close</button></form>
+</dialog>
+<input id="computerFolderInput" type="file" webkitdirectory multiple accept=".dsk,.img,.po,.woz,.2mg" hidden>
 <script>
 "use strict";
-let currentArea = "exchange";
-let currentMachine = "cpm80";
-let currentPath = "";
+const machines =
+[
+  ["cpm80", "CP/M-80"],
+  ["cpm86", "CP/M-86"],
+  ["ucsd", "UCSD Pascal"],
+  ["apple2", "Apple II"],
+  ["swtpc", "SWTPC 6800"]
+];
+const functions =
+[
+  {id: "computer-image-upload", number: "1", title: "Copy disk images from Computer to SD", available: true},
+  {id: "computer-guest-upload", number: "2", title: "Copy single files from Computer to an SD disk image", available: true},
+  {id: "image-computer-download", number: "3", title: "Copy disk images from SD to Computer", available: true},
+  {id: "guest-computer-download", number: "4", title: "Copy single files from an SD disk image to Computer", available: true},
+  {id: "guest-image-copy", number: "5", title: "Copy single files from disk image to disk image", available: true},
+  {id: "image-image-copy", number: "6", title: "Copy whole disk images from SD to SD", available: true},
+  {id: "manage-images", number: "7", title: "Browse and manage SD image files", available: true},
+  {id: "sd-files-copy", number: "8", title: "Copy ordinary files between SD directories", available: false, reason: "ordinary SD-file copy is not implemented"},
+  {id: "file-guest-copy", number: "9", title: "Copy ordinary SD files to or from guest images", available: true},
+  {id: "computer-sd-files", number: "10", title: "Copy ordinary files between Computer and SD", available: false, reason: "ordinary SD-file transfer is not implemented"},
+  {id: "guest-file-manage", number: "11", title: "Rename or delete guest files", available: true}
+];
+const state =
+{
+  screen: "home",
+  functionId: null,
+  machine: "cpm80",
+  managerMachine: "cpm80"
+};
+const hostDirectories = new Map();
+const hostFiles = new Map();
+const hostDirectoryNames = new Map();
+const app = document.getElementById("app");
+const navigation = document.getElementById("navigation");
+const helpDialog = document.getElementById("helpDialog");
 const element = (id) => document.getElementById(id);
+const directoryDatabaseName = "retroDiskImageManager";
+
+function escapeHtml(value)
+{
+  return String(value).replace(/[&<>"']/g, (character) =>
+  {
+    const entities =
+    {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\"": "&quot;",
+      "'": "&#39;"
+    };
+    return entities[character];
+  });
+}
+
+function machineOptions(selected)
+{
+  return machines.map(([id, label]) =>
+    `<option value="${id}"${id === selected ? " selected" : ""}>${label}</option>`).join("");
+}
 
 function showStatus(message)
 {
   element("status").textContent = message;
-}
-
-function childPath(name)
-{
-  return currentPath ? currentPath + "/" + name : name;
-}
-
-function apiPath(path)
-{
-  const machinePath = currentMachine + (path ? "/" + path : "");
-  return "?area=" + currentArea + "&path=" + encodeURIComponent(machinePath);
-}
-
-function areaRoot()
-{
-  return currentArea === "images" ? "/microSD/retro/images/" + currentMachine :
-    "/microSD/retro/exchange/" + currentMachine;
-}
-
-function showLocation()
-{
-  const suffix = currentPath ? "/" + currentPath : "/";
-  element("location").textContent = areaRoot() + suffix;
 }
 
 function showProgress(label, loaded, total)
@@ -119,14 +258,39 @@ function showProgress(label, loaded, total)
   const progress = element("progress");
   progress.hidden = false;
   progress.value = total > 0 ? Math.min(100, loaded / total * 100) : 0;
-  const percentage = total > 0 ? " (" + Math.floor(loaded / total * 100) + "%)" : "";
-  element("progressText").textContent = label + ": " + loaded + " / " + total + " bytes" + percentage;
+  const percentage = total > 0 ? ` (${Math.floor(loaded / total * 100)}%)` : "";
+  element("progressText").textContent = `${label}: ${loaded} / ${total} bytes${percentage}`;
 }
 
 function hideProgress()
 {
   element("progress").hidden = true;
   element("progressText").textContent = "";
+}
+
+function validImageName(name)
+{
+  if (name.includes("/") || !/\.(dsk|img|po|woz|2mg)$/i.test(name))
+  {
+    showStatus("Use a plain image filename (.dsk, .img, .po, .woz, .2mg) without a directory.");
+    return false;
+  }
+  return true;
+}
+
+function imagePath(machine, file)
+{
+  return [machine, file].filter(Boolean).join("/");
+}
+
+function apiPath(area, path)
+{
+  return `?area=${area}&path=${encodeURIComponent(path)}`;
+}
+
+function imageOperationQuery(source, destination)
+{
+  return `?source=${encodeURIComponent(source)}&destination=${encodeURIComponent(destination)}`;
 }
 
 async function api(path, options = {})
@@ -143,121 +307,1326 @@ async function api(path, options = {})
   return response;
 }
 
-async function refresh()
+function hostDirectoryKey(direction, machine)
 {
-  const response = await api("/api/list" + apiPath(currentPath));
-  const entries = await response.json();
-  showLocation();
-  element("entries").replaceChildren();
-  entries.sort((first, second) => Number(second.directory) - Number(first.directory) || first.name.localeCompare(second.name));
-  for (const entry of entries)
-  {
-    const row = document.createElement("tr");
-    const nameCell = document.createElement("td");
-    const pathCell = document.createElement("td");
-    const sizeCell = document.createElement("td");
-    const actions = document.createElement("td");
-    const path = childPath(entry.name);
-    nameCell.textContent = entry.name;
-    pathCell.textContent = areaRoot() + "/" + path;
-    sizeCell.textContent = entry.directory ? "Folder" : String(entry.size);
-    if (entry.directory)
-    {
-      const openButton = document.createElement("button");
-      openButton.textContent = "Open";
-      openButton.onclick = () => run(async () =>
-      {
-        currentPath = path;
-        await refresh();
-      });
-      actions.append(openButton);
-    }
-    else
-    {
-      const download = document.createElement("button");
-      download.textContent = "Download";
-      download.onclick = () => run(async () =>
-      {
-        download.disabled = true;
-        try
-        {
-          const blob = await transfer("GET", path, null, entry.size, entry.name);
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = entry.name;
-          link.click();
-          setTimeout(() => URL.revokeObjectURL(url), 60000);
-          showStatus("Download complete: " + areaRoot() + "/" + path);
-        }
-        finally
-        {
-          download.disabled = false;
-          hideProgress();
-        }
-      });
-      const deleteButton = document.createElement("button");
-      deleteButton.textContent = "Delete";
-      deleteButton.onclick = () => run(async () =>
-      {
-        if (!element("deleteNoConfirm").checked && !confirm("Delete " + entry.name + "? This cannot be undone."))
-        {
-          return;
-        }
-        await api("/api/file" + apiPath(path), {method: "DELETE"});
-        await refresh();
-        showStatus("Deleted " + entry.name);
-      });
-      actions.append(download, deleteButton);
-    }
-    row.append(nameCell, pathCell, sizeCell, actions);
-    element("entries").append(row);
-  }
-  element("up").disabled = !currentPath;
+  return `${direction}:${machine}`;
 }
 
-function transfer(method, path, file, expectedSize, fileName)
+function supportsHostDirectoryAccess()
 {
-  const request = new XMLHttpRequest();
-  request.open(method, "/api/file" + apiPath(path));
-  request.responseType = "blob";
-  if (method === "PUT")
+  return window.isSecureContext && typeof window.showDirectoryPicker === "function";
+}
+
+function openHostDirectoryDatabase()
+{
+  return new Promise((resolve, reject) =>
   {
-    request.setRequestHeader("Content-Type", "application/octet-stream");
-    if (element("overwrite").checked)
+    if (!window.indexedDB)
     {
-      request.setRequestHeader("X-Overwrite", "1");
+      reject(new Error("This browser does not provide IndexedDB for remembering Computer folders."));
+      return;
     }
+    const request = window.indexedDB.open(directoryDatabaseName, 1);
+    request.onupgradeneeded = () =>
+    {
+      request.result.createObjectStore("directories");
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not open browser folder storage."));
+    request.onblocked = () => reject(new Error("Browser folder storage is blocked by another open manager page."));
+  });
+}
+
+async function saveHostDirectory(direction, machine, handle)
+{
+  const database = await openHostDirectoryDatabase();
+  return new Promise((resolve, reject) =>
+  {
+    const transaction = database.transaction("directories", "readwrite");
+    try
+    {
+      transaction.objectStore("directories").put(handle, hostDirectoryKey(direction, machine));
+    }
+    catch (error)
+    {
+      database.close();
+      reject(error);
+      return;
+    }
+    transaction.oncomplete = () =>
+    {
+      database.close();
+      resolve();
+    };
+    transaction.onerror = () =>
+    {
+      database.close();
+      reject(transaction.error || new Error("Could not remember the Computer folder in this browser."));
+    };
+    transaction.onabort = () =>
+    {
+      database.close();
+      reject(transaction.error || new Error("Could not remember the Computer folder in this browser."));
+    };
+  });
+}
+
+async function loadHostDirectory(direction, machine)
+{
+  const database = await openHostDirectoryDatabase();
+  return new Promise((resolve, reject) =>
+  {
+    const transaction = database.transaction("directories", "readonly");
+    const request = transaction.objectStore("directories").get(hostDirectoryKey(direction, machine));
+    request.onsuccess = () =>
+    {
+      database.close();
+      resolve(request.result || null);
+    };
+    request.onerror = () =>
+    {
+      database.close();
+      reject(request.error || new Error("Could not read the remembered Computer folder."));
+    };
+  });
+}
+
+function hostFolderLabelId()
+{
+  return "computerUploadFolder";
+}
+
+function updateHostFolderLabel(machine, message)
+{
+  const label = element(hostFolderLabelId());
+  if (!label)
+  {
+    return;
+  }
+  label.textContent = message || hostDirectoryNames.get(hostDirectoryKey("upload", machine)) ||
+    "No Computer directory selected.";
+}
+
+function supportedImageFiles(files)
+{
+  return files.filter((file) => /\.(dsk|img|po|woz|2mg)$/i.test(file.name));
+}
+
+async function getFilesInHostDirectory(handle)
+{
+  const files = [];
+  for await (const [name, entry] of handle.entries())
+  {
+    if (entry.kind === "file" && /\.(dsk|img|po|woz|2mg)$/i.test(name))
+    {
+      files.push(await entry.getFile());
+    }
+  }
+  return files;
+}
+
+async function selectHostDirectory()
+{
+  const machine = element("uploadMachine").value;
+  if (!supportsHostDirectoryAccess())
+  {
+    element("computerFolderInput").value = "";
+    element("computerFolderInput").click();
+    return;
+  }
+
+  let handle;
+  try
+  {
+    handle = await window.showDirectoryPicker({mode: "read"});
+  }
+  catch (error)
+  {
+    if (error.name === "AbortError")
+    {
+      return;
+    }
+    throw error;
+  }
+  const key = hostDirectoryKey("upload", machine);
+  hostDirectories.set(key, handle);
+  hostDirectoryNames.set(key, handle.name);
+  try
+  {
+    await saveHostDirectory("upload", machine, handle);
+  }
+  catch (error)
+  {
+    showStatus(`Selected ${handle.name}, but this browser could not remember it: ${error.message}`);
+  }
+
+  const files = supportedImageFiles(await getFilesInHostDirectory(handle));
+  hostFiles.set(machine, files);
+  updateHostFolderLabel(machine,
+    `${handle.name}: ${files.length} supported disk image(s) selected.`);
+  if (files.length === 0)
+  {
+    showStatus(`No supported disk images were found directly inside ${handle.name}.`);
+  }
+}
+
+async function reuseHostDirectory()
+{
+  const machine = element("uploadMachine").value;
+  const key = hostDirectoryKey("upload", machine);
+  const handle = hostDirectories.get(key) || await loadHostDirectory("upload", machine);
+  if (!handle)
+  {
+    showStatus(`No remembered Computer folder exists for ${machine}. Choose a Computer folder first.`);
+    return;
+  }
+
+  let permission = await handle.queryPermission({mode: "read"});
+  if (permission !== "granted")
+  {
+    permission = await handle.requestPermission({mode: "read"});
+  }
+  if (permission !== "granted")
+  {
+    showStatus(`Permission to use ${handle.name} was not granted. Choose the Computer folder again.`);
+    return;
+  }
+
+  hostDirectories.set(key, handle);
+  hostDirectoryNames.set(key, handle.name);
+  const files = supportedImageFiles(await getFilesInHostDirectory(handle));
+  hostFiles.set(machine, files);
+  updateHostFolderLabel(machine,
+    `${handle.name}: ${files.length} supported disk image(s) selected.`);
+  if (files.length === 0)
+  {
+    showStatus(`No supported disk images were found directly inside ${handle.name}.`);
+  }
+}
+
+function helpContent()
+{
+  if (state.screen === "home")
+  {
+    return ["Functions / Selection",
+      "<p>Choose a transfer direction. Whole-image functions operate on SD image files; guest-file functions operate on single files inside CP/M-80 and CP/M-86 images (other operating systems are not yet supported).</p>" +
+      "<p>Computer access uses browser-authorized file selection and standard browser downloads. The browser/OS controls download destination and may show its save picker according to browser settings.</p>" +
+      "<p>Every SD image is managed regardless of whether its emulator drive is marked RO or RW in drives.cfg. Destructive actions warn about existing drive mappings; configuration files themselves remain protected.</p>"];
+  }
+  const selected = functions.find((item) => item.id === state.functionId);
+  const title = selected ? selected.title : "SD image manager";
+  const details =
+  {
+    "computer-image-upload": "<p>Select the destination OS (images are always written to /retro/images/&lt;OS&gt;/ on the SD card), then choose a Computer folder or individual image files. Supported secure browsers can remember an authorized source folder per selected machine in browser IndexedDB; permission can expire. On ordinary HTTP from the ESP32, use the native directory picker fallback. The browser controls its starting location. LittleFS is on the ESP32 and cannot store a Computer path. Only supported disk images directly inside the selected folder are uploaded. Existing SD destinations are skipped unless OVERWRITE is checked and confirmed. FAT32 limits one file to less than 4 GiB.</p>",
+    "image-computer-download": "<p>Select the source OS and choose a whole image to download. On browsers with the secure File System Access save picker, the destination is selected when you start the download. Otherwise the browser uses its normal download behavior; enable “Ask where to save each file” in browser settings if you want a destination picker. No separate Computer destination directory is needed. This downloads the complete image container byte-for-byte, not guest files inside it.</p>",
+    "image-image-copy": "<p>Select the source OS and image, then a destination OS and new image filename. The firmware copies in bounded chunks and verifies bytes before commit. Source remains unchanged. OVERWRITE requires confirmation and preserves the prior destination during commit. A mapped RO image is still eligible; its drives.cfg reference is not rewritten.</p>",
+    "computer-guest-upload": "<p>Choose the destination OS, disk image and user area, then select Computer files. The preview shows the uppercase 8.3 CP/M name each file will get, flags invalid or duplicate names and shows which names already exist. Existing files are skipped unless OVERWRITE is checked and confirmed. Empty files cannot be stored. Data is written to free blocks first and the directory is updated last through an undo journal, so a power loss leaves either the old or the new state. Overwriting needs free room for both copies. The emulators and this manager are mutually exclusive.</p>",
+    "guest-computer-download": "<p>Choose an OS, image and user area filter, tick one or more files and download them. One file uses the browser's save picker when available; several files use the normal browser download behavior. Damaged files (broken extent chains) are shown but cannot be downloaded.</p>",
+    "guest-image-copy": "<p>Pick the source image and tick files, then pick a destination image and user area. The source may be the same image (copy to another user area). The source is never changed. Existing destination files are skipped unless OVERWRITE is checked and confirmed. Copies stream in small chunks and cross-OS copies (CP/M-80 to CP/M-86) are allowed.</p>",
+    "file-guest-copy": "<p>Top: copy an ordinary SD file (not a disk image) from /retro/images/&lt;OS&gt;/ into a guest image; the guest name is converted to a CP/M 8.3 name. Bottom: copy ticked guest files out to /retro/images/&lt;OS&gt;/ as ordinary SD files. The SD file is written to a temporary file and committed atomically; an existing SD file is replaced only after confirmation. SD names cannot contain characters such as $ that FAT file names handled by this manager reject.</p>",
+    "guest-file-manage": "<p>Tick files to delete them (confirmation required) or tick exactly one file to rename it. Delete only frees the directory entries; renaming refuses an existing name and keeps the user area. Both are journaled, so an interrupted operation is rolled back the next time the manager touches that OS directory.</p>",
+    "manage-images": "<p>Select an OS to list its image files in /retro/images/&lt;OS&gt;/ (there are no sub-directories). Download files, copy or rename whole disk images, and delete regular files. Image operations are allowed regardless of drives.cfg RO/RW mapping. Deleting or renaming a mapped image can break a drive reference; review the warning and confirm deliberately. drives.cfg and config.cfg cannot be deleted or replaced here.</p>",
+  };
+  const extra = details[state.functionId] ||
+    "<p>This function is part of the planned manager, but guest filesystem support is not implemented yet. No guest-file operation is performed.</p>";
+  return [title, extra];
+}
+
+function showHelp()
+{
+  const [title, body] = helpContent();
+  element("helpTitle").textContent = title;
+  element("helpBody").innerHTML = body;
+  helpDialog.showModal();
+}
+
+function navigate(screen, functionId = state.functionId, addHistory = true)
+{
+  state.screen = screen;
+  state.functionId = functionId;
+  if (addHistory)
+  {
+    history.pushState({screen, functionId}, "", `#${screen}${functionId ? `/${functionId}` : ""}`);
+  }
+  render();
+}
+
+function renderHome()
+{
+  return `<h2>Functions / Selection</h2>
+    <p class="notice">Whole-image operations are available. Guest files can be listed, copied, renamed and deleted inside CP/M-80 and CP/M-86 images; other operating systems follow in later releases.</p>
+    <div class="card-grid">${functions.map((item) =>
+    {
+      const status = item.available ? "Available" : `Not implemented — ${item.reason}`;
+      return `<section class="card">
+        <h3>${item.number}. ${escapeHtml(item.title)}</h3>
+        <p class="muted">${escapeHtml(status)}</p>
+        ${item.available ? `<button type="button" data-open-function="${item.id}">Open</button>` : ""}
+      </section>`;
+    }).join("")}</div>`;
+}
+
+function renderImageUpload()
+{
+  const folderAccessNote = supportsHostDirectoryAccess() ?
+    "Choose a Computer folder. The browser may remember its authorized handle per selected machine; permission can expire. A website cannot discover or force an absolute host path." :
+    "This browser connection cannot retain Computer folder handles. Choose a folder with the native picker; the browser/OS controls its starting location. A website cannot discover or force an absolute host path.";
+  return `<h2>${escapeHtml(functions[0].title)}</h2>
+    <p>Choose a Computer folder or files with the browser's native picker, then upload complete disk images to /retro/images/&lt;OS&gt;/ on the SD card.</p>
+    <div class="row">
+      <label class="field">Destination OS directory
+        <select id="uploadMachine">${machineOptions(state.machine)}</select>
+      </label>
+      <span class="muted">Target: /retro/images/<span id="uploadMachineLabel">${state.machine}</span>/</span>
+    </div>
+    <div class="card">
+      <h3>Computer source directory</h3>
+      <p id="computerUploadFolder" class="muted">No Computer directory selected.</p>
+      <div class="actions">
+        <button id="chooseUploadFolder" type="button">Choose Computer folder</button>
+        <button id="reuseUploadFolder" type="button"${supportsHostDirectoryAccess() ? "" : " disabled"}>Use last folder for this machine</button>
+      </div>
+      <p class="muted">${folderAccessNote} Suggested organization: ~/Downloads/images/&lt;machine&gt; on macOS/Linux or %USERPROFILE%\\Downloads\\images\\&lt;machine&gt; on Windows; create/select it yourself.</p>
+    </div>
+    <form id="imageUploadForm">
+      <label class="field">Or select individual disk image file(s)
+        <input id="imageFiles" type="file" multiple accept=".dsk,.img,.po,.woz,.2mg">
+      </label>
+      <label><input id="overwrite" type="checkbox"> OVERWRITE existing image(s)</label>
+      <button id="uploadButton" type="submit">Copy disk image(s) to SD</button>
+    </form>
+    <p class="muted">RO/RW drive mappings do not block manager access. Replacing a mapped image affects the image used on its next emulator mount. Drive configuration files cannot be replaced.</p>`;
+}
+
+function renderImageDownload()
+{
+  return `<h2>${escapeHtml(functions[2].title)}</h2>
+    <div class="row">
+      <label class="field">Source OS directory
+        <select id="downloadMachine">${machineOptions(state.machine)}</select>
+      </label>
+      <span class="muted">Source: /retro/images/<span id="downloadMachineLabel">${state.machine}</span>/</span>
+      <button type="button" id="loadDownloadImages">List images</button>
+    </div>
+    <label class="field">Copy From — whole image container
+      <select id="downloadImage"><option value="">Select an image</option></select>
+    </label>
+    <button type="button" id="downloadImageButton">Download complete image</button>
+    <p class="muted">Choose a destination in the browser's save picker when it appears. If it does not, enable the browser's “Ask where to save each file” setting. This downloads the entire image file, not guest files.</p>`;
+}
+
+function renderImageCopy()
+{
+  return `<h2>${escapeHtml(functions[5].title)}</h2>
+    <div class="row">
+      <label class="field">Source Path — OS directory
+        <select id="copySourceMachine">${machineOptions(state.machine)}</select>
+      </label>
+    </div>
+    <label class="field">Copy From — whole image container
+      <select id="copySourceImage"><option value="">Select a source image</option></select>
+    </label>
+    <div class="row">
+      <label class="field">Destination Path — OS directory
+        <select id="copyDestinationMachine">${machineOptions(state.machine)}</select>
+      </label>
+    </div>
+    <label class="field">Copy To — new whole-image filename (do not include a directory)
+      <input id="copyDestinationName" placeholder="copy-of-image.dsk">
+    </label>
+    <label><input id="copyOverwrite" type="checkbox"> OVERWRITE if destination exists</label>
+    <button type="button" id="copyImageButton">Copy complete image</button>
+    <p class="muted">Copy To names a new image container. This is distinct from copying guest files into an existing image. Mapping flags do not block source or destination access.</p>`;
+}
+
+function renderManager()
+{
+  return `<h2>Browse and manage SD image files</h2>
+    <div class="row">
+      <label class="field">OS directory
+        <select id="managerMachine">${machineOptions(state.managerMachine)}</select>
+      </label>
+      <button type="button" id="managerRefresh">Refresh</button>
+    </div>
+    <p id="managerLocation" class="muted"></p>
+    <label><input id="managerOverwrite" type="checkbox"> OVERWRITE on image copy</label>
+    <button type="button" id="restoreBackup">Restore preserved image backup</button>
+    <table>
+      <thead><tr><th>Name</th><th>Bytes / mapping</th><th>Actions</th></tr></thead>
+      <tbody id="managerEntries"></tbody>
+    </table>`;
+}
+
+function render()
+{
+  navigation.innerHTML = `<button type="button" id="homeButton">Functions / Selection</button>` +
+    (state.screen === "home" ? "" : `<span class="muted">/ ${escapeHtml(functions.find((item) => item.id === state.functionId)?.title || "Manager")}</span>`);
+  if (state.screen === "home")
+  {
+    app.innerHTML = renderHome();
+  }
+  else if (state.functionId === "computer-image-upload")
+  {
+    app.innerHTML = renderImageUpload();
+  }
+  else if (state.functionId === "image-computer-download")
+  {
+    app.innerHTML = renderImageDownload();
+    loadImageOptions("download");
+  }
+  else if (state.functionId === "image-image-copy")
+  {
+    app.innerHTML = renderImageCopy();
+    loadImageOptions("copySource");
+  }
+  else if (state.functionId === "manage-images")
+  {
+    app.innerHTML = renderManager();
+    run(refreshManager);
+  }
+  else if (state.functionId === "computer-guest-upload")
+  {
+    app.innerHTML = renderGuestUpload();
+    initGuestScreen();
+  }
+  else if (state.functionId === "guest-computer-download")
+  {
+    app.innerHTML = renderGuestDownload();
+    initGuestScreen();
+  }
+  else if (state.functionId === "guest-image-copy")
+  {
+    app.innerHTML = renderGuestImageCopy();
+    initGuestScreen();
+  }
+  else if (state.functionId === "file-guest-copy")
+  {
+    app.innerHTML = renderFileGuestCopy();
+    initGuestScreen();
+  }
+  else if (state.functionId === "guest-file-manage")
+  {
+    app.innerHTML = renderGuestManage();
+    initGuestScreen();
+  }
+  if (state.functionId === "computer-image-upload")
+  {
+    updateHostFolderLabel(element("uploadMachine").value);
+  }
+}
+
+async function listPath(area, path)
+{
+  const response = await api(`/api/list${apiPath(area, path)}`);
+  return response.json();
+}
+
+async function loadImageOptions(prefix)
+{
+  try
+  {
+    const directory = element(prefix === "download" ? "downloadMachine" : "copySourceMachine").value;
+    const entries = await listPath("images", directory);
+    const select = element(prefix === "download" ? "downloadImage" : "copySourceImage");
+    select.replaceChildren(new Option(prefix === "download" ? "Select an image" : "Select a source image", ""));
+    for (const entry of entries.filter((item) => !item.directory && /\.(dsk|img|po|woz|2mg)$/i.test(item.name)))
+    {
+      const relative = imagePath(directory, entry.name);
+      const mapping = entry.mapped ? " — mapped (manager access allowed)" : " — unassigned";
+      select.add(new Option(`${entry.name} (${entry.size} bytes${mapping})`, relative));
+    }
+  }
+  catch (error)
+  {
+    showStatus(error.message);
+  }
+}
+
+function downloadFile(area, path, name)
+{
+  downloadUrl(`/api/file${apiPath(area, path)}`, name);
+}
+
+function downloadUrl(url, name)
+{
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
+async function downloadImageToComputer(path, name)
+{
+  await downloadToComputer(`/api/file${apiPath("images", path)}`, name);
+}
+
+async function downloadToComputer(url, name)
+{
+  if (!window.isSecureContext || typeof window.showSaveFilePicker !== "function")
+  {
+    downloadUrl(url, name);
+    showStatus(`Download requested for ${name}. If the browser does not prompt, enable its “Ask where to save each file” setting.`);
+    return;
+  }
+
+  let fileHandle;
+  try
+  {
+    fileHandle = await window.showSaveFilePicker({suggestedName: name});
+  }
+  catch (error)
+  {
+    if (error.name === "AbortError")
+    {
+      showStatus("Download cancelled.");
+      return;
+    }
+    throw error;
+  }
+
+  const response = await fetch(url);
+  if (!response.ok)
+  {
+    throw new Error(await response.text());
+  }
+  if (!response.body)
+  {
+    throw new Error("This browser cannot stream the image to the selected destination.");
+  }
+
+  const total = Number(response.headers.get("Content-Length")) || Number(response.headers.get("X-Guest-Size")) || 0;
+  const writable = await fileHandle.createWritable();
+  let reader;
+  let loaded = 0;
+  try
+  {
+    reader = response.body.getReader();
+    while (true)
+    {
+      const {done, value} = await reader.read();
+      if (done)
+      {
+        break;
+      }
+      await writable.write(value);
+      loaded += value.byteLength;
+      showProgress(`Downloading ${name}`, loaded, total);
+    }
+    await writable.close();
+  }
+  catch (error)
+  {
+    try
+    {
+      await writable.abort();
+    }
+    catch (abortError)
+    {
+      throw new Error(`${error.message} (Could not clean up the incomplete Computer file: ${abortError.message})`);
+    }
+    throw error;
+  }
+  finally
+  {
+    if (reader)
+    {
+      reader.releaseLock();
+    }
+    hideProgress();
+  }
+  showStatus(`Downloaded ${loaded} bytes to the selected Computer destination.`);
+}
+
+function transferUpload(area, path, file, overwrite, progressLabel)
+{
+  if (file.size > 4294967294)
+  {
+    return Promise.reject(new Error(`Maximum file size is 4 GiB minus 2 bytes: ${file.name}`));
+  }
+  const request = new XMLHttpRequest();
+  request.open("PUT", `/api/file${apiPath(area, path)}`);
+  request.setRequestHeader("Content-Type", "application/octet-stream");
+  if (overwrite)
+  {
+    request.setRequestHeader("X-Overwrite", "1");
   }
   request.upload.onprogress = (event) =>
   {
-    if (method === "PUT")
-    {
-      showProgress("Uploading " + fileName, event.loaded, event.lengthComputable ? event.total : file.size);
-    }
-  };
-  request.onprogress = (event) =>
-  {
-    if (method === "GET")
-    {
-      showProgress("Downloading " + fileName, event.loaded, event.lengthComputable ? event.total : expectedSize);
-    }
+    showProgress(progressLabel, event.loaded, event.lengthComputable ? event.total : file.size);
   };
   return new Promise((resolve, reject) =>
   {
-    request.onload = async () =>
+    request.onload = () =>
     {
       if (request.status >= 200 && request.status < 300)
       {
-        resolve(request.response);
-        return;
+        resolve(request.responseText);
       }
-      reject(new Error(await request.response.text()));
+      else
+      {
+        reject(new Error(request.responseText || `Upload failed (${request.status}).`));
+      }
     };
     request.onerror = () => reject(new Error("Connection lost. Check the USB terminal."));
     request.onabort = () => reject(new Error("Transfer cancelled."));
     request.send(file);
   });
+}
+
+async function refreshManager()
+{
+  state.managerMachine = element("managerMachine").value;
+  const rows = await listPath("images", state.managerMachine);
+  element("managerLocation").textContent = `/retro/images/${state.managerMachine}/`;
+  const body = element("managerEntries");
+  body.replaceChildren();
+  rows.sort((first, second) => Number(second.directory) - Number(first.directory) || first.name.localeCompare(second.name));
+  for (const entry of rows)
+  {
+    const row = document.createElement("tr");
+    const name = document.createElement("td");
+    const size = document.createElement("td");
+    const actions = document.createElement("td");
+    name.textContent = entry.name;
+    size.textContent = `${entry.size} bytes${entry.mapped ? " — mapped; manager access allowed" : ""}`;
+    if (!entry.directory)
+    {
+      const relative = imagePath(state.managerMachine, entry.name);
+      const download = document.createElement("button");
+      download.textContent = "Download";
+      download.onclick = () => downloadFile("images", relative, entry.name);
+      actions.append(download);
+      if (/\.(dsk|img|po|woz|2mg)$/i.test(entry.name))
+      {
+        const copy = document.createElement("button");
+        copy.textContent = "Copy image";
+        copy.onclick = async () =>
+        {
+          const newName = prompt(`Copy complete image to a new filename in /retro/images/${state.managerMachine}/:`,
+            `copy-${entry.name}`);
+          if (!newName || !validImageName(newName))
+          {
+            return;
+          }
+          const destinationName = imagePath(state.managerMachine, newName);
+          if (element("managerOverwrite").checked &&
+              !confirm("Overwrite destination? It may be mapped in drives.cfg, including as RO. The mapping will not be changed; the previous image is preserved during commit."))
+          {
+            return;
+          }
+          const response = await api(`/api/images/copy${imageOperationQuery(relative, destinationName)}`,
+            {method: "POST", headers: element("managerOverwrite").checked ? {"X-Overwrite": "1"} : {}});
+          showStatus(await response.text());
+          await refreshManager();
+        };
+        const rename = document.createElement("button");
+        rename.textContent = "Rename / move";
+        rename.onclick = async () =>
+        {
+          const newName = prompt(`New filename in /retro/images/${state.managerMachine}/:`, entry.name);
+          if (!newName || newName === entry.name || !validImageName(newName))
+          {
+            return;
+          }
+          const destinationName = imagePath(state.managerMachine, newName);
+          if (!confirm(`${entry.mapped ? "WARNING: this image is mapped in drives.cfg. " : ""}Move ${relative} to ${destinationName}? The mapping will not be changed.`))
+          {
+            return;
+          }
+          const response = await api(`/api/images/rename${imageOperationQuery(relative, destinationName)}`,
+            {method: "POST"});
+          showStatus(await response.text());
+          await refreshManager();
+        };
+        actions.append(copy, rename);
+      }
+      const remove = document.createElement("button");
+      remove.textContent = "Delete";
+      remove.disabled = entry.name.toLowerCase() === "drives.cfg" || entry.name.toLowerCase() === "config.cfg";
+      remove.onclick = async () =>
+      {
+        const warning = entry.mapped ?
+          `WARNING: ${relative} is referenced by drives.cfg. Deleting it can break emulator startup or drive access. Delete anyway?` :
+          `Delete ${relative}? This cannot be undone.`;
+        if (!confirm(warning))
+        {
+          return;
+        }
+        const response = await api(`/api/file${apiPath("images", relative)}`, {method: "DELETE"});
+        showStatus(await response.text());
+        await refreshManager();
+      };
+      actions.append(remove);
+    }
+    row.append(name, size, actions);
+    body.append(row);
+  }
+}
+
+const guestMachineIds = ["cpm80", "cpm86"];
+const guestImagePattern = /\.(dsk|img|po|woz|2mg)$/i;
+const guestSlots = {guestA: {image: "", info: null, files: []}, guestB: {image: "", info: null, files: []}};
+
+function guestQuery(parameters)
+{
+  return Object.entries(parameters).map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join("&");
+}
+
+function guestNamePreview(fileName)
+{
+  const upper = fileName.toUpperCase();
+  const dot = upper.indexOf(".");
+  const base = dot < 0 ? upper : upper.slice(0, dot);
+  const extension = dot < 0 ? "" : upper.slice(dot + 1);
+  if (upper.length === 0 || upper.length > 12 || base.length < 1 || base.length > 8 || extension.length > 3 ||
+      !/^[A-Z0-9_$-]*$/.test(base + extension))
+  {
+    return null;
+  }
+  return extension ? `${base}.${extension}` : base;
+}
+
+function formatBytes(bytes)
+{
+  return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MiB` : bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KiB` : `${bytes} bytes`;
+}
+
+function guestPicker(slot, title, options)
+{
+  const machineChoices = guestMachineIds.map((id) =>
+    `<option value="${id}">${escapeHtml(machines.find((item) => item[0] === id)[1])}</option>`).join("");
+  const userChoices = (options.allUsers ? `<option value="all">All user areas</option>` : "") +
+    Array.from({length: 16}, (unused, user) => `<option value="${user}">User ${user}</option>`).join("");
+  return `<section class="card">
+    <h3>${escapeHtml(title)}</h3>
+    <div class="row">
+      <label class="field">OS directory
+        <select id="${slot}Machine">${machineChoices}</select>
+      </label>
+      <label class="field">Disk image
+        <select id="${slot}Image"><option value="">Select an image</option></select>
+      </label>
+      <label class="field">${options.allUsers ? "Show user area" : "User area"}
+        <select id="${slot}User">${userChoices}</select>
+      </label>
+      <button type="button" data-guest-refresh="${slot}">Refresh</button>
+    </div>
+    <p id="${slot}Info" class="muted">Select an image.</p>
+    <table>
+      <thead><tr>${options.selectable ? "<th>Select</th>" : ""}<th>Name</th><th>User</th><th>Bytes</th><th>Flags</th></tr></thead>
+      <tbody id="${slot}Table"></tbody>
+    </table>
+  </section>`;
+}
+
+function guestSelectable(slot)
+{
+  return slot === "guestA" && state.functionId !== "computer-guest-upload";
+}
+
+function renderGuestTable(slot)
+{
+  const body = element(`${slot}Table`);
+  if (!body)
+  {
+    return;
+  }
+  const filter = element(`${slot}User`).value;
+  body.replaceChildren();
+  guestSlots[slot].files.forEach((entry, index) =>
+  {
+    if (filter !== "all" && Number(filter) !== entry.user)
+    {
+      return;
+    }
+    const row = document.createElement("tr");
+    if (guestSelectable(slot))
+    {
+      const cell = document.createElement("td");
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.dataset.guestIndex = String(index);
+      box.disabled = entry.damaged;
+      cell.append(box);
+      row.append(cell);
+    }
+    const flags = [entry.readOnly ? "R/O" : "", entry.system ? "SYS" : "", entry.damaged ? "DAMAGED (cannot be read)" : ""]
+      .filter(Boolean).join(" ");
+    for (const text of [entry.name, String(entry.user), String(entry.size), flags])
+    {
+      const cell = document.createElement("td");
+      cell.textContent = text;
+      row.append(cell);
+    }
+    body.append(row);
+  });
+}
+
+function guestSelectedFiles(slot)
+{
+  return Array.from(element(`${slot}Table`).querySelectorAll("input[data-guest-index]:checked"))
+    .map((box) => guestSlots[slot].files[Number(box.dataset.guestIndex)]);
+}
+
+async function loadGuestListing(slot)
+{
+  const slotState = guestSlots[slot];
+  const image = element(`${slot}Image`).value;
+  const info = element(`${slot}Info`);
+  slotState.image = image;
+  slotState.info = null;
+  slotState.files = [];
+  renderGuestTable(slot);
+  if (!image)
+  {
+    info.textContent = "Select an image.";
+    return;
+  }
+  info.textContent = "Reading the image directory...";
+  try
+  {
+    const response = await api(`/api/guest/files?${guestQuery({image})}`);
+    const data = await response.json();
+    slotState.info = data;
+    slotState.files = data.files;
+    info.textContent = `${data.fs} (${data.profile}): ${data.files.length} file(s); free ${formatBytes(data.freeBytes)} in ` +
+      `${data.freeBlocks} block(s) of ${data.blockSize} bytes; ${data.freeDirectoryEntries} of ${data.directoryEntries} directory entries free.`;
+    renderGuestTable(slot);
+  }
+  catch (error)
+  {
+    info.textContent = error.message || "Could not read the image.";
+  }
+  if (typeof refreshGuestUploadPreview === "function")
+  {
+    refreshGuestUploadPreview();
+  }
+}
+
+async function loadGuestImages(slot)
+{
+  const machine = element(`${slot}Machine`).value;
+  const select = element(`${slot}Image`);
+  select.replaceChildren(new Option("Select an image", ""));
+  try
+  {
+    const entries = await listPath("images", machine);
+    for (const entry of entries.filter((item) => !item.directory && guestImagePattern.test(item.name)))
+    {
+      select.add(new Option(`${entry.name} (${entry.size} bytes)`, imagePath(machine, entry.name)));
+    }
+  }
+  catch (error)
+  {
+    showStatus(error.message);
+  }
+  await loadGuestListing(slot);
+}
+
+function guestFileDownloadUrl(image, entry)
+{
+  return `/api/guest/file?${guestQuery({image, user: entry.user, name: entry.name})}`;
+}
+
+function renderGuestUpload()
+{
+  return `<h2>${escapeHtml(functions[1].title)}</h2>
+    ${guestPicker("guestB", "Destination disk image", {allUsers: false, selectable: false})}
+    <form id="guestUploadForm">
+      <label class="field">Computer file(s) to store as guest files
+        <input id="guestUploadFiles" type="file" multiple>
+      </label>
+      <label><input id="guestUploadOverwrite" type="checkbox"> OVERWRITE existing guest files</label>
+      <table>
+        <thead><tr><th>Computer file</th><th>Guest name</th><th>Bytes</th><th>Result</th></tr></thead>
+        <tbody id="guestUploadPreview"></tbody>
+      </table>
+      <p id="guestUploadTotals" class="muted"></p>
+      <button id="guestUploadButton" type="submit">Copy file(s) into the disk image</button>
+    </form>
+    <p class="muted">Names are converted to uppercase 8.3 CP/M names. Empty files cannot be stored. The preview is advisory; the firmware validates every name and checks free space.</p>`;
+}
+
+function guestUploadPlan()
+{
+  const input = element("guestUploadFiles");
+  const files = input ? Array.from(input.files) : [];
+  const existing = new Set(guestSlots.guestB.files.filter((entry) => entry.user === Number(element("guestBUser").value))
+    .map((entry) => entry.name));
+  const overwrite = element("guestUploadOverwrite").checked;
+  const seen = new Set();
+  return files.map((file) =>
+  {
+    const guestName = guestNamePreview(file.name);
+    let result = "OK";
+    let accepted = true;
+    if (!guestName)
+    {
+      result = "Invalid CP/M name (use 1-8 characters, optional .1-3; letters, digits, _ $ -)";
+      accepted = false;
+    }
+    else if (file.size === 0)
+    {
+      result = "Empty files cannot be stored";
+      accepted = false;
+    }
+    else if (seen.has(guestName))
+    {
+      result = "Duplicate guest name in this selection";
+      accepted = false;
+    }
+    else if (existing.has(guestName))
+    {
+      result = overwrite ? "Exists: will be OVERWRITTEN" : "Exists: will be skipped";
+      accepted = overwrite;
+    }
+    if (guestName)
+    {
+      seen.add(guestName);
+    }
+    return {file, guestName, result, accepted};
+  });
+}
+
+function refreshGuestUploadPreview()
+{
+  const body = element("guestUploadPreview");
+  if (!body)
+  {
+    return;
+  }
+  body.replaceChildren();
+  const plan = guestUploadPlan();
+  for (const item of plan)
+  {
+    const row = document.createElement("tr");
+    for (const text of [item.file.name, item.guestName || "-", String(item.file.size), item.result])
+    {
+      const cell = document.createElement("td");
+      cell.textContent = text;
+      row.append(cell);
+    }
+    body.append(row);
+  }
+  const total = plan.filter((item) => item.accepted).reduce((sum, item) => sum + item.file.size, 0);
+  const free = guestSlots.guestB.info ? guestSlots.guestB.info.freeBytes : null;
+  element("guestUploadTotals").textContent = `To store: ${formatBytes(total)}` +
+    (free === null ? "" : `; free in image: ${formatBytes(free)}${total > free ? " — NOT ENOUGH SPACE" : ""}`);
+}
+
+function transferGuestUpload(url, file, label)
+{
+  const request = new XMLHttpRequest();
+  request.open("POST", url);
+  request.setRequestHeader("Content-Type", "application/octet-stream");
+  request.upload.onprogress = (event) =>
+  {
+    showProgress(label, event.loaded, event.lengthComputable ? event.total : file.size);
+  };
+  return new Promise((resolve, reject) =>
+  {
+    request.onload = () =>
+    {
+      if (request.status >= 200 && request.status < 300)
+      {
+        resolve(request.responseText);
+      }
+      else
+      {
+        reject(new Error(request.responseText || `Upload failed (${request.status}).`));
+      }
+    };
+    request.onerror = () => reject(new Error("Connection lost. Check the USB terminal."));
+    request.onabort = () => reject(new Error("Transfer cancelled."));
+    request.send(file);
+  });
+}
+
+async function submitGuestUpload()
+{
+  const image = element("guestBImage").value;
+  if (!image)
+  {
+    throw new Error("Select a destination disk image first.");
+  }
+  const user = element("guestBUser").value;
+  const overwrite = element("guestUploadOverwrite").checked;
+  const plan = guestUploadPlan();
+  if (plan.length === 0)
+  {
+    throw new Error("Choose one or more Computer files first.");
+  }
+  const todo = plan.filter((item) => item.accepted);
+  if (todo.length === 0)
+  {
+    throw new Error("Nothing can be stored: " + plan.map((item) => `${item.file.name}: ${item.result}`).join("; "));
+  }
+  const replaced = todo.filter((item) => item.result.startsWith("Exists"));
+  if (replaced.length > 0 &&
+      !confirm(`OVERWRITE ${replaced.map((item) => item.guestName).join(", ")} in ${image} (user ${user})? Overwriting needs free room for both copies while it runs.`))
+  {
+    return;
+  }
+  element("guestUploadButton").disabled = true;
+  const lines = plan.filter((item) => !item.accepted).map((item) => `${item.file.name}: skipped (${item.result})`);
+  try
+  {
+    for (const item of todo)
+    {
+      const url = `/api/guest/upload?${guestQuery({image, user, name: item.guestName, overwrite: overwrite ? "1" : "0"})}`;
+      try
+      {
+        await transferGuestUpload(url, item.file, `Storing ${item.guestName}`);
+        lines.push(`${item.file.name} -> ${item.guestName}: stored`);
+      }
+      catch (error)
+      {
+        lines.push(`${item.file.name}: FAILED - ${error.message}`);
+      }
+      showStatus(lines.join("\n"));
+    }
+  }
+  finally
+  {
+    element("guestUploadButton").disabled = false;
+    hideProgress();
+  }
+  showStatus(lines.join("\n"));
+  await loadGuestListing("guestB");
+}
+
+function renderGuestDownload()
+{
+  return `<h2>${escapeHtml(functions[3].title)}</h2>
+    ${guestPicker("guestA", "Source disk image", {allUsers: true, selectable: true})}
+    <button type="button" id="guestDownloadButton">Download selected file(s)</button>
+    <p class="muted">A single file uses the browser's save picker when available. Several files are downloaded one after another through the browser's normal download behavior. Damaged files cannot be read.</p>`;
+}
+
+async function downloadGuestFiles()
+{
+  const image = element("guestAImage").value;
+  const selected = guestSelectedFiles("guestA");
+  if (!image || selected.length === 0)
+  {
+    throw new Error("Select an image and at least one file.");
+  }
+  if (selected.length === 1)
+  {
+    await downloadToComputer(guestFileDownloadUrl(image, selected[0]), selected[0].name);
+    return;
+  }
+  const lines = [];
+  for (const entry of selected)
+  {
+    try
+    {
+      const response = await api(guestFileDownloadUrl(image, entry));
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(await response.blob());
+      link.download = entry.name;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+      lines.push(`${entry.name}: downloaded`);
+    }
+    catch (error)
+    {
+      lines.push(`${entry.name}: FAILED - ${error.message}`);
+    }
+    showStatus(lines.join("\n"));
+  }
+}
+
+function renderGuestImageCopy()
+{
+  return `<h2>${escapeHtml(functions[4].title)}</h2>
+    ${guestPicker("guestA", "Source disk image", {allUsers: true, selectable: true})}
+    ${guestPicker("guestB", "Destination disk image (may be the same image or another OS)", {allUsers: false, selectable: false})}
+    <label><input id="guestCopyOverwrite" type="checkbox"> OVERWRITE existing destination files</label>
+    <button type="button" id="guestImageCopyButton">Copy selected file(s)</button>
+    <p class="muted">Files keep their names. The destination user area is the one selected for the destination image. The source is never changed. Overwriting needs free room for both copies while it runs.</p>`;
+}
+
+async function copyGuestFiles()
+{
+  const source = element("guestAImage").value;
+  const destination = element("guestBImage").value;
+  const destinationUser = Number(element("guestBUser").value);
+  const selected = guestSelectedFiles("guestA");
+  if (!source || !destination || selected.length === 0)
+  {
+    throw new Error("Select a source image, a destination image and at least one source file.");
+  }
+  const overwrite = element("guestCopyOverwrite").checked;
+  const existing = new Set(guestSlots.guestB.files.filter((entry) => entry.user === destinationUser).map((entry) => entry.name));
+  const todo = [];
+  const lines = [];
+  for (const entry of selected)
+  {
+    if (source.toLowerCase() === destination.toLowerCase() && entry.user === destinationUser)
+    {
+      lines.push(`${entry.name}: skipped (source and destination are the same file)`);
+    }
+    else if (existing.has(entry.name) && !overwrite)
+    {
+      lines.push(`${entry.name}: skipped (exists; enable OVERWRITE)`);
+    }
+    else
+    {
+      todo.push(entry);
+    }
+  }
+  const replaced = todo.filter((entry) => existing.has(entry.name));
+  if (todo.length === 0)
+  {
+    showStatus(lines.join("\n"));
+    return;
+  }
+  if (replaced.length > 0 &&
+      !confirm(`OVERWRITE ${replaced.map((entry) => entry.name).join(", ")} in ${destination} (user ${destinationUser})?`))
+  {
+    return;
+  }
+  for (const entry of todo)
+  {
+    try
+    {
+      const query = guestQuery({fromImage: source, fromUser: entry.user, fromName: entry.name, toImage: destination,
+        toUser: destinationUser, overwrite: overwrite ? "1" : "0"});
+      await api(`/api/guest/copy?${query}`, {method: "POST"});
+      lines.push(`${entry.name}: copied`);
+    }
+    catch (error)
+    {
+      lines.push(`${entry.name}: FAILED - ${error.message}`);
+    }
+    showStatus(lines.join("\n"));
+  }
+  await loadGuestListing("guestB");
+  if (source.toLowerCase() === destination.toLowerCase())
+  {
+    await loadGuestListing("guestA");
+  }
+}
+
+function renderFileGuestCopy()
+{
+  const machineChoices = (id) => guestMachineIds.map((machine) =>
+    `<option value="${machine}">${escapeHtml(machines.find((item) => item[0] === machine)[1])}</option>`).join("");
+  return `<h2>${escapeHtml(functions[8].title)}</h2>
+    <section class="card">
+      <h3>Ordinary SD file into a guest image</h3>
+      <div class="row">
+        <label class="field">SD OS directory
+          <select id="sdSourceMachine">${machineChoices()}</select>
+        </label>
+        <label class="field">SD file (not a disk image)
+          <select id="sdSourceFile"><option value="">Select a file</option></select>
+        </label>
+      </div>
+      <label class="field">Guest file name (leave empty to derive it from the SD file name)
+        <input id="sdToGuestName" placeholder="NAME.EXT">
+      </label>
+    </section>
+    ${guestPicker("guestB", "Guest destination image", {allUsers: false, selectable: false})}
+    <label><input id="fileGuestOverwrite" type="checkbox"> OVERWRITE existing files</label>
+    <div class="actions"><button type="button" id="sdToGuestButton">Copy SD file into the image</button></div>
+    <hr>
+    ${guestPicker("guestA", "Guest source image (copy out to the SD card)", {allUsers: true, selectable: true})}
+    <div class="row">
+      <label class="field">SD target OS directory
+        <select id="sdTargetMachine">${machineChoices()}</select>
+      </label>
+      <label class="field">SD file name (only when exactly one guest file is selected)
+        <input id="guestToSdName" placeholder="same as guest name">
+      </label>
+    </div>
+    <button type="button" id="guestToSdButton">Copy selected guest file(s) to the SD card</button>
+    <p class="muted">SD files live directly in /retro/images/&lt;OS&gt;/. Disk images, drives.cfg, config.cfg and manager files are excluded. SD names may only use letters, digits, space, dot, underscore and hyphen.</p>`;
+}
+
+async function loadSdFiles()
+{
+  const machine = element("sdSourceMachine").value;
+  const select = element("sdSourceFile");
+  select.replaceChildren(new Option("Select a file", ""));
+  try
+  {
+    const entries = await listPath("images", machine);
+    for (const entry of entries.filter((item) => !item.directory && !guestImagePattern.test(item.name) &&
+      !/^(drives|config)\.cfg$/i.test(item.name) && !/\.tmp$/i.test(item.name)))
+    {
+      select.add(new Option(`${entry.name} (${entry.size} bytes)`, imagePath(machine, entry.name)));
+    }
+  }
+  catch (error)
+  {
+    showStatus(error.message);
+  }
+}
+
+async function copySdFileToGuest()
+{
+  const file = element("sdSourceFile").value;
+  const image = element("guestBImage").value;
+  if (!file || !image)
+  {
+    throw new Error("Select an SD file and a destination image.");
+  }
+  const user = Number(element("guestBUser").value);
+  const typed = element("sdToGuestName").value.trim();
+  const guestName = guestNamePreview(typed || file.split("/").pop());
+  if (!guestName)
+  {
+    throw new Error("The guest file name is not a valid CP/M name (1-8 characters, optional .1-3).");
+  }
+  const overwrite = element("fileGuestOverwrite").checked;
+  const exists = guestSlots.guestB.files.some((entry) => entry.user === user && entry.name === guestName);
+  if (exists && !overwrite)
+  {
+    throw new Error(`${guestName} already exists in user ${user}; enable OVERWRITE to replace it.`);
+  }
+  if (exists && !confirm(`OVERWRITE ${guestName} in ${image} (user ${user})?`))
+  {
+    return;
+  }
+  const query = guestQuery({fromFile: file, toImage: image, toUser: user, toName: guestName, overwrite: overwrite ? "1" : "0"});
+  const response = await api(`/api/guest/copy?${query}`, {method: "POST"});
+  showStatus(`${file} -> ${image}: ${await response.text()}`);
+  await loadGuestListing("guestB");
+}
+
+async function copyGuestFilesToSd()
+{
+  const image = element("guestAImage").value;
+  const selected = guestSelectedFiles("guestA");
+  if (!image || selected.length === 0)
+  {
+    throw new Error("Select a guest image and at least one file.");
+  }
+  const machine = element("sdTargetMachine").value;
+  const typed = element("guestToSdName").value.trim();
+  if (typed && selected.length !== 1)
+  {
+    throw new Error("A single SD file name can only be used when exactly one guest file is selected.");
+  }
+  const existing = new Set((await listPath("images", machine)).filter((item) => !item.directory).map((item) => item.name.toLowerCase()));
+  const targets = selected.map((entry) => ({entry, name: typed || entry.name}));
+  const collisions = targets.filter((target) => existing.has(target.name.toLowerCase()));
+  if (collisions.length > 0 &&
+      !confirm(`OVERWRITE ${collisions.map((target) => target.name).join(", ")} in /retro/images/${machine}/ on the SD card?`))
+  {
+    return;
+  }
+  const lines = [];
+  for (const target of targets)
+  {
+    try
+    {
+      const query = guestQuery({fromImage: image, fromUser: target.entry.user, fromName: target.entry.name,
+        toFile: imagePath(machine, target.name), overwrite: "1"});
+      await api(`/api/guest/copy?${query}`, {method: "POST"});
+      lines.push(`${target.entry.name} -> ${imagePath(machine, target.name)}: copied`);
+    }
+    catch (error)
+    {
+      lines.push(`${target.entry.name}: FAILED - ${error.message}`);
+    }
+    showStatus(lines.join("\n"));
+  }
+  await loadSdFiles();
+}
+
+function renderGuestManage()
+{
+  return `<h2>${escapeHtml(functions[10].title)}</h2>
+    ${guestPicker("guestA", "Disk image", {allUsers: true, selectable: true})}
+    <div class="actions">
+      <button type="button" id="guestRenameButton">Rename selected file</button>
+      <button type="button" id="guestDeleteButton">Delete selected file(s)</button>
+    </div>
+    <p class="muted">Deleting only marks the directory entries free; it cannot be undone from here. Renaming keeps the file in its user area and refuses names that already exist.</p>`;
+}
+
+async function renameGuestFile()
+{
+  const image = element("guestAImage").value;
+  const selected = guestSelectedFiles("guestA");
+  if (!image || selected.length !== 1)
+  {
+    throw new Error("Select exactly one file to rename.");
+  }
+  const entry = selected[0];
+  const newName = prompt(`New name for ${entry.name} (user ${entry.user}):`, entry.name);
+  if (!newName)
+  {
+    return;
+  }
+  const guestName = guestNamePreview(newName.trim());
+  if (!guestName)
+  {
+    throw new Error("The new name is not a valid CP/M name (1-8 characters, optional .1-3).");
+  }
+  if (guestName === entry.name)
+  {
+    return;
+  }
+  if (!confirm(`Rename ${entry.name} to ${guestName} in ${image} (user ${entry.user})?`))
+  {
+    return;
+  }
+  const response = await api(`/api/guest/rename?${guestQuery({image, user: entry.user, name: entry.name, to: guestName})}`,
+    {method: "POST"});
+  showStatus(await response.text());
+  await loadGuestListing("guestA");
+}
+
+async function deleteGuestFiles()
+{
+  const image = element("guestAImage").value;
+  const selected = guestSelectedFiles("guestA");
+  if (!image || selected.length === 0)
+  {
+    throw new Error("Select at least one file to delete.");
+  }
+  if (!confirm(`DELETE ${selected.map((entry) => `${entry.name} (user ${entry.user})`).join(", ")} from ${image}? This cannot be undone.`))
+  {
+    return;
+  }
+  const lines = [];
+  for (const entry of selected)
+  {
+    try
+    {
+      await api(`/api/guest/delete?${guestQuery({image, user: entry.user, name: entry.name})}`, {method: "POST"});
+      lines.push(`${entry.name}: deleted`);
+    }
+    catch (error)
+    {
+      lines.push(`${entry.name}: FAILED - ${error.message}`);
+    }
+  }
+  showStatus(lines.join("\n"));
+  await loadGuestListing("guestA");
+}
+
+function initGuestScreen()
+{
+  for (const slot of ["guestA", "guestB"])
+  {
+    if (element(`${slot}Machine`))
+    {
+      run(() => loadGuestImages(slot));
+    }
+  }
+  if (element("sdSourceMachine"))
+  {
+    run(loadSdFiles);
+  }
 }
 
 async function run(action)
@@ -268,67 +1637,279 @@ async function run(action)
   }
   catch (error)
   {
-    showStatus(error.message || "Connection lost. Check the USB terminal.");
+    showStatus(error.message || "Operation failed. Check the connection and SD card.");
   }
 }
 
-element("refresh").onclick = () => run(refresh);
-element("up").onclick = () => run(async () =>
+element("helpButton").addEventListener("click", showHelp);
+element("navigation").addEventListener("click", (event) =>
 {
-  currentPath = currentPath.split("/").slice(0, -1).join("/");
-  await refresh();
-});
-element("upload").onsubmit = (event) =>
-{
-  event.preventDefault();
-  run(async () =>
+  if (event.target.id === "homeButton")
   {
-    const files = Array.from(element("file").files);
-    if (files.length === 0)
+    navigate("home", null);
+  }
+});
+element("computerFolderInput").addEventListener("change", (event) =>
+{
+  const files = Array.from(event.target.files);
+  const machine = element("uploadMachine").value;
+  const rootFiles = files.filter((file) =>
+    !file.webkitRelativePath || file.webkitRelativePath.split("/").length === 2);
+  const images = supportedImageFiles(rootFiles);
+  const relativePath = files.find((file) => file.webkitRelativePath)?.webkitRelativePath || "";
+  const folderName = relativePath.split("/")[0] || "Selected folder";
+  hostFiles.set(machine, images);
+  hostDirectoryNames.set(hostDirectoryKey("upload", machine),
+    `${folderName}: ${images.length} supported disk image(s) selected.`);
+  updateHostFolderLabel(machine);
+  if (files.length !== images.length)
+  {
+    showStatus(`${files.length - images.length} nested or non-image file(s) in the selected Computer folder will be ignored.`);
+  }
+});
+element("app").addEventListener("click", (event) =>
+{
+  const openFunction = event.target.closest("[data-open-function]");
+  if (openFunction)
+  {
+    navigate("function", openFunction.dataset.openFunction);
+  }
+});
+element("app").addEventListener("change", (event) =>
+{
+  const id = event.target.id;
+  const guestMatch = /^(guest[AB])(Machine|Image|User)$/.exec(id);
+  if (guestMatch)
+  {
+    const [, slot, part] = guestMatch;
+    if (part === "Machine")
     {
+      run(() => loadGuestImages(slot));
+    }
+    else if (part === "Image")
+    {
+      run(() => loadGuestListing(slot));
+    }
+    else
+    {
+      renderGuestTable(slot);
+      refreshGuestUploadPreview();
+    }
+  }
+  if (id === "guestUploadFiles" || id === "guestUploadOverwrite")
+  {
+    refreshGuestUploadPreview();
+  }
+  if (id === "sdSourceMachine")
+  {
+    run(loadSdFiles);
+  }
+  if (id === "downloadMachine")
+  {
+    run(() => loadImageOptions("download"));
+  }
+  if (id === "copySourceMachine")
+  {
+    run(() => loadImageOptions("copySource"));
+  }
+  if (id === "uploadMachine")
+  {
+    element("uploadMachineLabel").textContent = event.target.value;
+    updateHostFolderLabel(event.target.value);
+  }
+  if (id === "downloadMachine")
+  {
+    element("downloadMachineLabel").textContent = event.target.value;
+  }
+  if (id === "managerMachine")
+  {
+    run(refreshManager);
+  }
+  if (id === "imageFiles")
+  {
+    const files = Array.from(event.target.files);
+    const machine = element("uploadMachine").value;
+    hostFiles.delete(machine);
+    hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
+    updateHostFolderLabel(machine,
+      files.length ? `${files.length} individual Computer file(s) selected.` : "No Computer directory selected.");
+  }
+});
+element("app").addEventListener("click", (event) =>
+{
+  const refresh = event.target.closest("[data-guest-refresh]");
+  if (refresh)
+  {
+    run(() => loadGuestImages(refresh.dataset.guestRefresh));
+  }
+  if (event.target.id === "guestDownloadButton")
+  {
+    run(downloadGuestFiles);
+  }
+  if (event.target.id === "guestImageCopyButton")
+  {
+    run(copyGuestFiles);
+  }
+  if (event.target.id === "sdToGuestButton")
+  {
+    run(copySdFileToGuest);
+  }
+  if (event.target.id === "guestToSdButton")
+  {
+    run(copyGuestFilesToSd);
+  }
+  if (event.target.id === "guestRenameButton")
+  {
+    run(renameGuestFile);
+  }
+  if (event.target.id === "guestDeleteButton")
+  {
+    run(deleteGuestFiles);
+  }
+  if (event.target.id === "loadDownloadImages")
+  {
+    run(() => loadImageOptions("download"));
+  }
+  if (event.target.id === "managerRefresh")
+  {
+    run(refreshManager);
+  }
+  if (event.target.id === "chooseUploadFolder")
+  {
+    run(selectHostDirectory);
+  }
+  if (event.target.id === "reuseUploadFolder")
+  {
+    run(reuseHostDirectory);
+  }
+  if (event.target.id === "downloadImageButton")
+  {
+    const path = element("downloadImage").value;
+    if (!path)
+    {
+      showStatus("Select a whole disk image first.");
       return;
     }
-    for (const file of files)
+    const name = path.split("/").pop();
+    run(() => downloadImageToComputer(path, name));
+  }
+  if (event.target.id === "copyImageButton")
+  {
+    run(async () =>
     {
-      if (file.size > 4294967294)
+      const source = element("copySourceImage").value;
+      const destinationName = element("copyDestinationName").value.trim();
+      if (!source || !destinationName || destinationName.includes("/") ||
+          !/\.(dsk|img|po|woz|2mg)$/i.test(destinationName))
       {
-        throw new Error("Maximum file size is 4 GiB minus 2 bytes: " + file.name);
+        throw new Error("Select a source image and enter a new disk-image filename without a directory.");
       }
-    }
-    element("send").disabled = true;
-    try
+      const destination = imagePath(element("copyDestinationMachine").value, destinationName);
+      const overwrite = element("copyOverwrite").checked;
+      if (overwrite && !confirm(`Replace ${destination}? It may be mapped in drives.cfg, including as RO. The mapping will not be changed; the existing image is preserved during commit.`))
+      {
+        return;
+      }
+      if (!confirm(`Copy complete image ${source} to ${destination}? The source remains unchanged.`))
+      {
+        return;
+      }
+      showStatus("Copying whole disk image and verifying bytes...");
+      const response = await api(`/api/images/copy${imageOperationQuery(source, destination)}`,
+        {method: "POST", headers: overwrite ? {"X-Overwrite": "1"} : {}});
+      showStatus(await response.text());
+    });
+  }
+  if (event.target.id === "restoreBackup")
+  {
+    run(async () =>
     {
-      let done = 0;
+      const destination = prompt("Enter the intended destination relative to /retro/images/ (example cpm80/work.dsk):");
+      if (!destination || !confirm(`Restore the preserved backup to ${destination}? Destination must not exist. If mapped, drives.cfg will not be changed.`))
+      {
+        return;
+      }
+      const response = await api(`/api/images/recover?destination=${encodeURIComponent(destination)}`,
+        {method: "POST"});
+      showStatus(await response.text());
+      await refreshManager();
+    });
+  }
+});
+element("app").addEventListener("submit", (event) =>
+{
+  if (event.target.id === "guestUploadForm")
+  {
+    event.preventDefault();
+    run(submitGuestUpload);
+  }
+  if (event.target.id === "imageUploadForm")
+  {
+    event.preventDefault();
+    run(async () =>
+    {
+      const machine = element("uploadMachine").value;
+      const files = hostFiles.has(machine) ? hostFiles.get(machine) : Array.from(element("imageFiles").files);
+      if (files.length === 0)
+      {
+        throw new Error("Choose a Computer folder containing disk images or select individual image files first.");
+      }
+      const fileNames = new Set();
       for (const file of files)
       {
-        const label = "Uploading " + file.name + " (" + (done + 1) + "/" + files.length + ")";
-        showStatus(label + "...");
-        showProgress(label, 0, file.size);
-        await transfer("PUT", childPath(file.name), file, file.size, file.name + " (" + (done + 1) + "/" + files.length + ")");
-        done++;
+        if (!/\.(dsk|img|po|woz|2mg)$/i.test(file.name))
+        {
+          throw new Error(`Not a recognized whole-image filename: ${file.name}`);
+        }
+        if (fileNames.has(file.name.toLowerCase()))
+        {
+          throw new Error(`The selected Computer folder contains duplicate image filenames: ${file.name}. Select files from one directory or rename duplicates first.`);
+        }
+        fileNames.add(file.name.toLowerCase());
       }
-      await refresh();
-      showStatus("Upload complete: " + done + " file(s) to " + areaRoot() + (currentPath ? "/" + currentPath : ""));
-      element("file").value = "";
-    }
-    finally
-    {
-      element("send").disabled = false;
-      hideProgress();
-    }
-  });
-};
-function selectionChanged()
+      const overwrite = element("overwrite").checked;
+      if (overwrite && !confirm("OVERWRITE is enabled. Existing images may be mapped in drives.cfg, including as RO. Mappings will not be changed. Continue?"))
+      {
+        return;
+      }
+      element("uploadButton").disabled = true;
+      let completed = 0;
+      try
+      {
+        for (const file of files)
+        {
+          const path = imagePath(machine, file.name);
+          showStatus(`Uploading ${file.name} (${completed + 1}/${files.length})...`);
+          await transferUpload("images", path, file, overwrite, `Uploading ${file.name}`);
+          completed++;
+        }
+        element("imageFiles").value = "";
+        hostFiles.delete(machine);
+        hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
+        updateHostFolderLabel(machine, "Upload complete. Select another Computer folder or files to continue.");
+        showStatus(`Uploaded ${completed} whole image(s) to /retro/images/${machine}/.`);
+      }
+      finally
+      {
+        element("uploadButton").disabled = false;
+        hideProgress();
+      }
+    });
+  }
+});
+window.addEventListener("popstate", (event) =>
 {
-  currentArea = element("area").value;
-  currentMachine = element("machine").value;
-  currentPath = "";
-  run(refresh);
-}
-element("area").onchange = selectionChanged;
-element("machine").onchange = selectionChanged;
-//-- Browsers may restore earlier select values after a reload; sync state from the controls.
-selectionChanged();
+  const destination = event.state || {screen: "home", functionId: null};
+  state.screen = destination.screen;
+  state.functionId = destination.functionId;
+  render();
+});
+window.addEventListener("error", (event) =>
+{
+  showStatus(event.message || "A browser error interrupted the operation.");
+});
+history.replaceState({screen: "home", functionId: null}, "", "#home");
+render();
 </script>
 </body>
 </html>

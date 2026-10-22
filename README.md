@@ -22,9 +22,13 @@ The current menu can start CP/M-80 and CP/M-86 when their required LittleFS reso
 - A machine registry that checks implementation and required boot resources.
 - LittleFS for compact system resources and microSD storage for larger or writable images.
 - An SD-card layout rooted at `/retro/`, with FAT32 validation.
-- Optional browser-based file transfer for `/retro/exchange/` and `/retro/images/`, organized by machine.
+- Browser-based SD file and whole-disk-image management for `/retro/images/<OS>/` (flat per-machine directories, no sub-directories); the browser no longer exposes `/retro/exchange/`.
 
 File Transfer starts only when selected from the menu and a valid Retro SD card is available. It uses plain, unauthenticated HTTP; use it only on a trusted local network. Browser file access is confined to the documented SD image and exchange directories.
+
+The manager is now a Single Page Application that opens on a **Functions / Selection** screen with a contextual `[Help]` popup on each screen. Implemented whole-image workflows include Computer → SD uploads, SD → Computer downloads, byte-verified SD → SD copies, browsing, rename/move and deletion. The upload UI can select image files or, where supported, a Computer source folder. Downloads do not require a separate Computer destination-directory selection: the browser uses its save picker when enabled, or its configured download folder. Where supported, the selected upload-folder handle is remembered per machine profile in browser IndexedDB; this is browser-scoped and is not an absolute path stored in firmware LittleFS. SD-to-SD image copies use bounded buffers and compare the staged copy with its source before committing. The browser shows drive mappings and warns before destructive operations, but mapped images remain manageable whether their emulator drive is marked `RO` or `RW`; the manager does not rewrite `drives.cfg`. Drive configuration files themselves remain protected. If a replacement cannot be committed, the previous file is retained beside the destination as `manager-replace-backup.tmp`; the browser offers an explicit restore action.
+
+Guest files inside **CP/M-80 and CP/M-86** disk images can be listed, uploaded, downloaded, copied (image to image, SD file to and from image), renamed and deleted from the browser (SPA functions 2, 4, 5, 9 and 11), using a native journaled file-system layer (`components/guestFs`) that needs no host-side Python. Apple II/ProDOS and UCSD Pascal adapters, DOS 3.3 and ordinary SD-file-only copies (functions 8 and 10) are not implemented yet; those images answer HTTP 501. The browser/hardware path is built but not yet verified on the device. `/retro/exchange/` and guest `HOST` utilities are still required by current machine integrations; do not remove these directories during migration. See [designDiskImageManager.md](designDiskImageManager.md) and the [verification log](docs/verification.md).
 
 ## Hardware
 
