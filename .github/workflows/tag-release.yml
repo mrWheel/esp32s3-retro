@@ -123,8 +123,36 @@ jobs:
           echo "Latest tag detected: $latest"
           echo "LATEST=$latest" >> $GITHUB_OUTPUT
 
+      - name: Check whether the source version already has a release
+        id: currentRelease
+        if: steps.getVersion.outputs.VERSION != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          version="${{ steps.getVersion.outputs.VERSION }}"
+          statusCode=$(curl -sS -o current_version_release.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$version")
+
+          if [ "$statusCode" = "200" ]; then
+            echo "Release already exists for $version."
+            echo "RELEASE_EXISTS=true" >> "$GITHUB_OUTPUT"
+          elif [ "$statusCode" = "404" ]; then
+            echo "No release exists yet for $version."
+            echo "RELEASE_EXISTS=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Could not check release for $version (HTTP $statusCode)."
+            cat current_version_release.json
+            exit 1
+          fi
+
       - name: Compare version
         id: compareVersion
+        env:
+          CURRENT_RELEASE_EXISTS: ${{ steps.currentRelease.outputs.RELEASE_EXISTS }}
         run: |
           version="${{ steps.getVersion.outputs.VERSION }}"
           versionParseError="${{ steps.getVersion.outputs.VERSION_PARSE_ERROR }}"
@@ -149,9 +177,18 @@ jobs:
             echo "PROCEED=true" >> $GITHUB_ENV
             echo "MAKE_RELEASE=true" >> $GITHUB_ENV
             echo "RELEASE_KIND=initial" >> $GITHUB_ENV
+            echo "CREATE_TAG=true" >> $GITHUB_ENV
           elif [ "$version" = "$latest" ]; then
-            echo "::warning::Version $version already exists. Skipping."
-            echo "PROCEED=false" >> $GITHUB_ENV
+            if [ "$CURRENT_RELEASE_EXISTS" = "true" ]; then
+              echo "::warning::Version $version already has a release. Skipping."
+              echo "PROCEED=false" >> $GITHUB_ENV
+            else
+              echo "Tag $version exists but its release is missing; resuming release creation."
+              echo "PROCEED=true" >> $GITHUB_ENV
+              echo "MAKE_RELEASE=true" >> $GITHUB_ENV
+              echo "RELEASE_KIND=recovery" >> $GITHUB_ENV
+              echo "CREATE_TAG=false" >> $GITHUB_ENV
+            fi
           elif [ "$(printf '%s\n' "$latest" "$version" | sort -V | head -n 1)" = "$version" ]; then
             echo "::warning::Version $version is not greater than $latest. Skipping."
             echo "PROCEED=false" >> $GITHUB_ENV
@@ -159,6 +196,7 @@ jobs:
             echo "Version $version is newer than $latest. Proceeding."
             echo "PROCEED=true" >> $GITHUB_ENV
             echo "MAKE_RELEASE=true" >> $GITHUB_ENV
+            echo "CREATE_TAG=true" >> $GITHUB_ENV
 
             versionMajor=$(echo "$version" | sed -E 's/^v([0-9]+)\..*/\1/')
             versionMinor=$(echo "$version" | sed -E 's/^v[0-9]+\.([0-9]+)\..*/\1/')
@@ -182,7 +220,7 @@ jobs:
           fi
 
       - name: Create and push tag
-        if: env.PROCEED == 'true' && env.VERSION != ''
+        if: env.PROCEED == 'true' && env.CREATE_TAG == 'true' && env.VERSION != ''
         run: |
           echo "Creating and pushing tag $VERSION"
           git config user.name "GitHub Actions"
@@ -245,7 +283,7 @@ jobs:
 
           echo "Current version is $version (major=$versionMajor minor=$versionMinor, kind=$releaseKind)"
 
-          if [ "$releaseKind" = "patch" ] || [ "$releaseKind" = "initial" ]; then
+          if [ "$releaseKind" = "patch" ] || [ "$releaseKind" = "initial" ] || [ "$releaseKind" = "recovery" ]; then
             echo "No cleanup needed for release kind '$releaseKind'."
             echo "DELETED_RELEASE_START_TAG=" >> $GITHUB_OUTPUT
             echo "DELETED_RELEASE_START_TAG=" >> $GITHUB_ENV
@@ -342,7 +380,7 @@ jobs:
 
           if [ -z "$baseTag" ]; then
             echo "No base release tag found. Including recent commits (max 20)."
-            git log --pretty=format:"- %s" | head -n 20 > commits.txt
+            git log -n 20 --pretty=format:"- %s" > commits.txt
             echo "" >> release_notes.txt
             if [ -s commits.txt ]; then
               cat commits.txt >> release_notes.txt
