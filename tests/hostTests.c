@@ -832,6 +832,32 @@ static void testApple2Keyboard(void)
   assert(apple2KeyboardPush(&keyboard, 0xC3, keys) == 0);
 }
 
+//-- Applesoft LIST wraps long lines at CH >= 33; on the 80-column card the wrap moves to the right
+//edge.
+static void testApple2ListWrap(const uint8_t* rom)
+{
+  const char* listedLine =
+      "200  PRINT \"TYPE 'B' FOR BASIC, 'Q' TO QUIT, ANY OTHER KEY TO CONTINUE\";";
+  apple2Core* core = NULL;
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetCharacterOptions(core, true, true) == apple2CoreOk);
+  assert(apple2CoreSetBootIn80Columns(core, true) == apple2CoreOk);
+  assert(apple2CoreLoadRom(core, rom, apple2RomSize) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 500000) == apple2CoreOk);
+
+  apple2TypeBasicCommand(
+      core, "200 PRINT \"TYPE 'B' FOR BASIC, 'Q' TO QUIT, ANY OTHER KEY TO CONTINUE\";\r");
+  apple2TypeBasicCommand(core, "LIST\r");
+  assert(apple2VidexContainsText(core, listedLine));
+
+  apple2TypeBasicCommand(core, "PR#0\r");
+  apple2TypeBasicCommand(core, "LIST\r");
+  assert(!apple2TextContainsText(core, listedLine));
+  assert(apple2TextContainsText(core, "200  PRINT \"TYPE 'B' FOR BASIC, '"));
+
+  apple2CoreDestroy(core);
+}
+
 static void testApple2SystemRom(void)
 {
   FILE* romFile = fopen(APPLE2_SYSTEM_ROM_PATH, "rb");
@@ -844,6 +870,7 @@ static void testApple2SystemRom(void)
   testApple2LowercaseKeyboardEcho(rom);
   testApple2ControlKeys(rom);
   testApple2BootIn80Columns(rom);
+  testApple2ListWrap(rom);
 
   apple2Core* core = NULL;
   assert(apple2CoreCreate(&core) == apple2CoreOk);

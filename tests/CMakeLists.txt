@@ -38,7 +38,7 @@ target_compile_definitions(
   CPM86_SYSTEM_DISK_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/system.dsk"
   CPM86_BIOS_OVERLAY_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/cpm86/retro86bios.h86"
   APPLE2_TEST_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/apple2-diagnostic.rom"
-  APPLE2_SYSTEM_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2_roms/apple.rom")
+  APPLE2_SYSTEM_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2/apple2_roms/apple.rom")
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(hostTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(hostTests PRIVATE -fsanitize=address,undefined)
@@ -57,7 +57,7 @@ target_include_directories(apple2DiskTests PRIVATE ../components/hostCore/includ
   ../components/apple2Core/third_party/chips ../main)
 target_compile_options(apple2DiskTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
 target_compile_definitions(
-  apple2DiskTests PRIVATE APPLE2_SYSTEM_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2_roms/apple.rom"
+  apple2DiskTests PRIVATE APPLE2_SYSTEM_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2/apple2_roms/apple.rom"
   APPLE2_SYSTEM_DISK_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/apple2/system.dsk")
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(apple2DiskTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)

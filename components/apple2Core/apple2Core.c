@@ -29,7 +29,10 @@ enum
   apple2VidexWorkspaceLast = 0x000D,
   apple2LowercaseEchoCycleLimit = 4096,
   apple2MonitorSetvidAddress = 0xFE93,
-  apple2MonitorSetvidEnd = 0xFEB0
+  apple2MonitorSetvidEnd = 0xFEB0,
+  apple2ApplesoftListWrapOperand = 0xD708,
+  apple2ApplesoftListWrapColumn40 = 0x21,
+  apple2ApplesoftListWrapMargin = 7
 };
 
 enum
@@ -52,7 +55,7 @@ typedef struct
 {
   apple2SmartPortReadBlockFunction readBlock;
   apple2SmartPortWriteBlockFunction writeBlock;
-  void *context;
+  void* context;
   uint32_t blockCount;
   bool attached;
 } apple2SmartPortDevice;
@@ -61,32 +64,48 @@ typedef struct
 {
   apple2SlotIoReadFunction readRegister;
   apple2SlotIoWriteFunction writeRegister;
-  void *context;
+  void* context;
   bool attached;
 } apple2SlotIoDevice;
 
-//-- CRTC register values programmed by the slot-3 firmware init ($C800); the boot activation applies the same set.
+//-- CRTC register values programmed by the slot-3 firmware init ($C800); the boot activation
+//applies the same set.
 static const uint8_t videxInitRegisters[16] = {0x62, 0x50, 0x50, 0x28, 0x19, 0x00, 0x18, 0x18,
                                                0x00, 0x0F, 0x20, 0x0F, 0x00, 0x00, 0x00, 0x00};
 
-//— Project-authored block-device signature, dispatch entry points and boot code, written for slot 5.
-//— The bytes that hold the slot number ($70, $81, $85) and the autostart flag ($07) are patched per slot
-//— in readBlockSlotRom(). PR#n enters at $Cn00, branches to $Cn6B and reads block 0 of unit 1 into $0800
-//— through the ProDOS block entry, then jumps to $0801 with X = $n0 as a ProDOS boot sector expects.
+// — Project-authored block-device signature, dispatch entry points and boot code, written for
+// slot 5. — The bytes that hold the slot number ($70, $81, $85) and the autostart flag ($07) are
+// patched per slot — in readBlockSlotRom(). PR#n enters at $Cn00, branches to $Cn6B and reads block
+// 0 of unit 1 into $0800 — through the ProDOS block entry, then jumps to $0801 with X = $n0 as a
+// ProDOS boot sector expects.
 static const uint8_t smartPortSlotRom[256] = {
-    [0x00] = 0xA9, [0x01] = 0x20, [0x02] = 0xA9, [0x03] = 0x00, [0x04] = 0xC9, [0x05] = 0x03,
-    [0x06] = 0xA9, [0x07] = 0x00, [0x08] = 0x38, [0x09] = 0xB0, [0x0A] = 0x60, [0x0D] = 0x60,
-    [0x6B] = 0xA9, [0x6C] = 0x01, [0x6D] = 0x85, [0x6E] = smartPortBlockCommand,
-    [0x6F] = 0xA9, [0x70] = 0x50, [0x71] = 0x85, [0x72] = smartPortBlockUnitNumber,
-    [0x73] = 0xA9, [0x74] = 0x00, [0x75] = 0x85, [0x76] = smartPortBlockBufferPointer,
-    [0x77] = 0x85, [0x78] = smartPortBlockNumber, [0x79] = 0x85, [0x7A] = smartPortBlockNumber + 1,
-    [0x7B] = 0xA9, [0x7C] = 0x08, [0x7D] = 0x85, [0x7E] = smartPortBlockBufferPointer + 1,
-    [0x7F] = 0x20, [0x80] = smartPortEntryBlockOffset, [0x81] = 0xC5, [0x82] = 0xB0, [0x83] = 0x05,
-    [0x84] = 0xA2, [0x85] = 0x50, [0x86] = 0x4C, [0x87] = 0x01, [0x88] = 0x08,
-    [0x89] = 0x4C, [0x8A] = 0x69, [0x8B] = 0xFF,
-    [0xFB] = 0x00, [0xFC] = 0x00, [0xFD] = 0x00, [0xFE] = 0xD7, [0xFF] = smartPortEntryBlockOffset};
+    [0x00] = 0xA9, [0x01] = 0x20,
+    [0x02] = 0xA9, [0x03] = 0x00,
+    [0x04] = 0xC9, [0x05] = 0x03,
+    [0x06] = 0xA9, [0x07] = 0x00,
+    [0x08] = 0x38, [0x09] = 0xB0,
+    [0x0A] = 0x60, [0x0D] = 0x60,
+    [0x6B] = 0xA9, [0x6C] = 0x01,
+    [0x6D] = 0x85, [0x6E] = smartPortBlockCommand,
+    [0x6F] = 0xA9, [0x70] = 0x50,
+    [0x71] = 0x85, [0x72] = smartPortBlockUnitNumber,
+    [0x73] = 0xA9, [0x74] = 0x00,
+    [0x75] = 0x85, [0x76] = smartPortBlockBufferPointer,
+    [0x77] = 0x85, [0x78] = smartPortBlockNumber,
+    [0x79] = 0x85, [0x7A] = smartPortBlockNumber + 1,
+    [0x7B] = 0xA9, [0x7C] = 0x08,
+    [0x7D] = 0x85, [0x7E] = smartPortBlockBufferPointer + 1,
+    [0x7F] = 0x20, [0x80] = smartPortEntryBlockOffset,
+    [0x81] = 0xC5, [0x82] = 0xB0,
+    [0x83] = 0x05, [0x84] = 0xA2,
+    [0x85] = 0x50, [0x86] = 0x4C,
+    [0x87] = 0x01, [0x88] = 0x08,
+    [0x89] = 0x4C, [0x8A] = 0x69,
+    [0x8B] = 0xFF, [0xFB] = 0x00,
+    [0xFC] = 0x00, [0xFD] = 0x00,
+    [0xFE] = 0xD7, [0xFF] = smartPortEntryBlockOffset};
 
-//— Project-authored slot firmware: C303 initializes the text card and installs its COUT routine.
+// — Project-authored slot firmware: C303 initializes the text card and installs its COUT routine.
 static const uint8_t videxFirmware[apple2VidexFirmwareSize] = {
     0xA9, 0x00, 0x8D, 0x06, 0x00, 0x8D, 0x07, 0x00, 0xA9, 0xB3, 0x8D, 0x36, 0x00, 0xA9, 0xC8, 0x8D,
     0x37, 0x00, 0xA9, 0x00, 0x8D, 0xB0, 0xC0, 0xA9, 0x62, 0x8D, 0xB1, 0xC0, 0xA9, 0x01, 0x8D, 0xB0,
@@ -100,28 +119,27 @@ static const uint8_t videxFirmware[apple2VidexFirmwareSize] = {
     0x00, 0x8D, 0xB1, 0xC0, 0xA9, 0x0D, 0x8D, 0xB0, 0xC0, 0xA9, 0x00, 0x8D, 0xB1, 0xC0, 0xA9, 0x0E,
     0x8D, 0xB0, 0xC0, 0xA9, 0x00, 0x8D, 0xB1, 0xC0, 0xA9, 0x0F, 0x8D, 0xB0, 0xC0, 0xA9, 0x00, 0x8D,
     0xB1, 0xC0, 0x60, 0x8D, 0x0A, 0x00, 0x48, 0x8A, 0x48, 0x98, 0x48, 0xA5, 0x0A, 0x29, 0x7F, 0x8D,
-    0x0A,
-    0x00, 0xC9, 0x0D, 0xD0, 0x15, 0xA9, 0x00, 0x8D, 0x06, 0x00, 0xE6, 0x07, 0xA5, 0x07, 0xC9, 0x18,
-    0x90, 0x68, 0xA9, 0x00, 0x8D, 0x07, 0x00, 0x4C, 0x3B, 0xC9, 0xA5, 0x0A, 0xC9, 0x08, 0xD0, 0x09,
-    0xA5, 0x06, 0xF0, 0x56, 0xC6, 0x06, 0x4C, 0x3B, 0xC9, 0xA5, 0x06, 0xC9, 0x50, 0x90, 0x12, 0xA9,
-    0x00, 0x8D, 0x06, 0x00, 0xE6, 0x07, 0xA5, 0x07, 0xC9, 0x18, 0x90, 0x05, 0xA9, 0x17, 0x8D, 0x07,
-    0x00, 0xA5, 0x07, 0xAA, 0xBD, 0x41, 0xC9, 0x18, 0x65, 0x06, 0x85, 0x08, 0xBD, 0x59, 0xC9, 0x69,
-    0x00, 0x85, 0x09, 0xA5, 0x09, 0x4A, 0x0A, 0x0A, 0xAA, 0xA9, 0x00, 0x9D, 0xB0, 0xC0, 0xA5, 0x09,
-    0x29, 0x01, 0xD0, 0x0A, 0xA4, 0x08, 0xA5, 0x0A, 0x99, 0x00, 0xCC, 0x4C, 0x36, 0xC9, 0xA4, 0x08,
-    0xA5, 0x0A, 0x99, 0x00, 0xCD, 0xE6, 0x06, 0x4C, 0x3B, 0xC9, 0x68, 0xA8, 0x68, 0xAA, 0x68, 0x60,
-    0x00,
-    0x50, 0xA0, 0xF0, 0x40, 0x90, 0xE0, 0x30, 0x80, 0xD0, 0x20, 0x70, 0xC0, 0x10, 0x60, 0xB0, 0x00,
-    0x50, 0xA0, 0xF0, 0x40, 0x90, 0xE0, 0x30, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x02, 0x02,
-    0x02, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x06, 0x06, 0x06, 0x07};
+    0x0A, 0x00, 0xC9, 0x0D, 0xD0, 0x15, 0xA9, 0x00, 0x8D, 0x06, 0x00, 0xE6, 0x07, 0xA5, 0x07, 0xC9,
+    0x18, 0x90, 0x68, 0xA9, 0x00, 0x8D, 0x07, 0x00, 0x4C, 0x3B, 0xC9, 0xA5, 0x0A, 0xC9, 0x08, 0xD0,
+    0x09, 0xA5, 0x06, 0xF0, 0x56, 0xC6, 0x06, 0x4C, 0x3B, 0xC9, 0xA5, 0x06, 0xC9, 0x50, 0x90, 0x12,
+    0xA9, 0x00, 0x8D, 0x06, 0x00, 0xE6, 0x07, 0xA5, 0x07, 0xC9, 0x18, 0x90, 0x05, 0xA9, 0x17, 0x8D,
+    0x07, 0x00, 0xA5, 0x07, 0xAA, 0xBD, 0x41, 0xC9, 0x18, 0x65, 0x06, 0x85, 0x08, 0xBD, 0x59, 0xC9,
+    0x69, 0x00, 0x85, 0x09, 0xA5, 0x09, 0x4A, 0x0A, 0x0A, 0xAA, 0xA9, 0x00, 0x9D, 0xB0, 0xC0, 0xA5,
+    0x09, 0x29, 0x01, 0xD0, 0x0A, 0xA4, 0x08, 0xA5, 0x0A, 0x99, 0x00, 0xCC, 0x4C, 0x36, 0xC9, 0xA4,
+    0x08, 0xA5, 0x0A, 0x99, 0x00, 0xCD, 0xE6, 0x06, 0x4C, 0x3B, 0xC9, 0x68, 0xA8, 0x68, 0xAA, 0x68,
+    0x60, 0x00, 0x50, 0xA0, 0xF0, 0x40, 0x90, 0xE0, 0x30, 0x80, 0xD0, 0x20, 0x70, 0xC0, 0x10, 0x60,
+    0xB0, 0x00, 0x50, 0xA0, 0xF0, 0x40, 0x90, 0xE0, 0x30, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01,
+    0x02, 0x02, 0x02, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x06, 0x06, 0x06,
+    0x07};
 
 struct apple2Core
 {
   m6502_t cpu;
   uint64_t pins;
-  uint8_t *ram;
-  uint8_t *languageCardRam;
-  uint8_t *auxRam;
-  uint8_t *iieRom;
+  uint8_t* ram;
+  uint8_t* languageCardRam;
+  uint8_t* auxRam;
+  uint8_t* iieRom;
   size_t languageCardMainBank;
   apple2RamCard ramCard;
   uint8_t rom[apple2RomSize];
@@ -164,7 +182,7 @@ struct apple2Core
   bool blockAutostart[apple2DiskSlotCount];
 };
 
-static void scrollVidexScreen(apple2Core *core)
+static void scrollVidexScreen(apple2Core* core)
 {
   memmove(core->videxRam, &core->videxRam[apple2VidexTextColumns],
           (apple2VidexTextRows - 1) * apple2VidexTextColumns);
@@ -179,18 +197,19 @@ static bool isVidexFirmwareProgramCounter(uint16_t programCounter)
           programCounter < apple2PascalFirmwareBase + apple2PascalFirmwareSize);
 }
 
-static bool isVidexFirmwareAccess(const apple2Core *core)
+static bool isVidexFirmwareAccess(const apple2Core* core)
 {
   return core->cpuBusAccess && isVidexFirmwareProgramCounter(core->cpu.PC);
 }
 
-static void beginVidexWorkspace(apple2Core *core)
+static void beginVidexWorkspace(apple2Core* core)
 {
   if (!core->videxWorkspaceActive)
   {
     memcpy(core->videxSavedWorkspace, &core->ram[0x0006], sizeof(core->videxSavedWorkspace));
     core->videxWorkspaceActive = true;
-    //-- HTAB/VTAB (and the monitor) move the cursor through CH/CV; the card follows them like real 80-column firmware.
+    //-- HTAB/VTAB (and the monitor) move the cursor through CH/CV; the card follows them like real
+    //80-column firmware.
     //-- Under Apple Pascal $24/$25 are ordinary Pascal data and the card keeps its own cursor.
     if (!core->pascalCardActive)
     {
@@ -206,7 +225,7 @@ static void beginVidexWorkspace(apple2Core *core)
   }
 }
 
-static void endVidexWorkspace(apple2Core *core)
+static void endVidexWorkspace(apple2Core* core)
 {
   if (core->videxWorkspaceActive && !isVidexFirmwareProgramCounter(core->cpu.PC))
   {
@@ -220,12 +239,12 @@ static void endVidexWorkspace(apple2Core *core)
   }
 }
 
-static bool isVidexOutputSelected(const apple2Core *core)
+static bool isVidexOutputSelected(const apple2Core* core)
 {
   return core->videxOutputSelected;
 }
 
-static bool isMonitorRomExecuting(const apple2Core *core)
+static bool isMonitorRomExecuting(const apple2Core* core)
 {
   return core->cpu.PC >= 0xF800 && !core->languageCardReadEnabled;
 }
@@ -236,7 +255,8 @@ static bool isTransientOutputVector(uint16_t vector)
   static const uint16_t knownVectors[] = {0xFDF0, 0xC8B3, 0x9EBD};
   for (size_t index = 0; index < sizeof(knownVectors) / sizeof(knownVectors[0]); ++index)
   {
-    if ((vector & 0xFF) == (knownVectors[index] & 0xFF) || (vector >> 8) == (knownVectors[index] >> 8))
+    if ((vector & 0xFF) == (knownVectors[index] & 0xFF) ||
+        (vector >> 8) == (knownVectors[index] >> 8))
     {
       return true;
     }
@@ -244,16 +264,20 @@ static bool isTransientOutputVector(uint16_t vector)
   return false;
 }
 
-//-- Apple DOS 3.3 (48K) swaps the output vector for its own hook ($9EBD) and keeps the real one at $AA53/$AA54.
-//-- Half-written vectors are ignored so a hook swap never looks like a switch between the two screens.
-static bool updateVidexOutputSelection(apple2Core *core)
+//-- Apple DOS 3.3 (48K) swaps the output vector for its own hook ($9EBD) and keeps the real one at
+//$AA53/$AA54.
+//-- Half-written vectors are ignored so a hook swap never looks like a switch between the two
+//screens.
+static bool updateVidexOutputSelection(apple2Core* core)
 {
   uint16_t vector = (uint16_t)(core->ram[0x0036] | ((uint16_t)core->ram[0x0037] << 8));
   bool dosHoldsVidex = core->ram[0xAA53] == 0xB3 && core->ram[0xAA54] == 0xC8;
   bool selected = core->videxOutputSelected;
-  //-- ProDOS BASIC.SYSTEM keeps the real output vector at $BE30/$BE31 while its own hook (somewhere in $9000-$BEFF)
+  //-- ProDOS BASIC.SYSTEM keeps the real output vector at $BE30/$BE31 while its own hook (somewhere
+  //in $9000-$BEFF)
   //-- is installed in CSW.
-  bool proDosHoldsVidex = vector >= 0x9000 && vector < 0xBF00 && core->ram[0xBE30] == 0xB3 && core->ram[0xBE31] == 0xC8;
+  bool proDosHoldsVidex =
+      vector >= 0x9000 && vector < 0xBF00 && core->ram[0xBE30] == 0xB3 && core->ram[0xBE31] == 0xC8;
   if (vector == 0xC8B3 || (vector == 0x9EBD && dosHoldsVidex) || proDosHoldsVidex)
   {
     selected = true;
@@ -265,7 +289,7 @@ static bool updateVidexOutputSelection(apple2Core *core)
   return selected;
 }
 
-static void clearSelectedDisplay(apple2Core *core, bool videxSelected)
+static void clearSelectedDisplay(apple2Core* core, bool videxSelected)
 {
   if (videxSelected)
   {
@@ -293,8 +317,9 @@ static void clearSelectedDisplay(apple2Core *core, bool videxSelected)
   }
 }
 
-//-- Equivalent of PR#3 done by the host at reset: same CRTC registers, output vector and cleared screen.
-static void activateVidexAtBoot(apple2Core *core)
+//-- Equivalent of PR#3 done by the host at reset: same CRTC registers, output vector and cleared
+//screen.
+static void activateVidexAtBoot(apple2Core* core)
 {
   memcpy(core->videxRegisters, videxInitRegisters, sizeof(videxInitRegisters));
   core->video.videxTextMode = core->videxRegisters[1] == apple2VidexTextColumns &&
@@ -307,14 +332,14 @@ static void activateVidexAtBoot(apple2Core *core)
   core->ram[0x0025] = 0;
 }
 
-static uint8_t readVidexIo(apple2Core *core, uint16_t address)
+static uint8_t readVidexIo(apple2Core* core, uint16_t address)
 {
   uint8_t offset = (uint8_t)(address - 0xC0B0);
   core->videxRamBank = ((size_t)(offset >> 2) & 3U) * apple2VidexRamBankSize;
   return offset == 1 ? core->videxRegisters[core->videxRegisterAddress] : core->busValue;
 }
 
-static void writeVidexIo(apple2Core *core, uint16_t address, uint8_t value)
+static void writeVidexIo(apple2Core* core, uint16_t address, uint8_t value)
 {
   uint8_t offset = (uint8_t)(address - 0xC0B0);
   core->videxRamBank = ((size_t)(offset >> 2) & 3U) * apple2VidexRamBankSize;
@@ -330,7 +355,7 @@ static void writeVidexIo(apple2Core *core, uint16_t address, uint8_t value)
   }
 }
 
-static size_t languageCardOffset(const apple2Core *core, uint16_t address)
+static size_t languageCardOffset(const apple2Core* core, uint16_t address)
 {
   if (address < 0xE000)
   {
@@ -340,9 +365,10 @@ static size_t languageCardOffset(const apple2Core *core, uint16_t address)
   return core->languageCardMainBank + 2 * apple2LanguageCardBankSize + (size_t)(address - 0xE000);
 }
 
-static void accessLanguageCardSwitch(apple2Core *core, uint16_t address, bool isWrite)
+static void accessLanguageCardSwitch(apple2Core* core, uint16_t address, bool isWrite)
 {
-  //-- Saturn 128K: offsets with bit 2 set only select one of eight 16 KiB banks ($C084-$C087, $C08C-$C08F).
+  //-- Saturn 128K: offsets with bit 2 set only select one of eight 16 KiB banks ($C084-$C087,
+  //$C08C-$C08F).
   if (core->ramCard == apple2RamCardSaturn128 && (address & 0x04) != 0)
   {
     static const uint8_t bankByOffset[16] = {0, 0, 0, 0, 0, 1, 2, 3, 0, 0, 0, 0, 4, 5, 6, 7};
@@ -372,7 +398,7 @@ static void accessLanguageCardSwitch(apple2Core *core, uint16_t address, bool is
   }
 }
 
-static void clearKeyboardStrobe(apple2Core *core)
+static void clearKeyboardStrobe(apple2Core* core)
 {
   bool keyWasReady = core->keyboardStrobe;
   core->keyboardStrobe = false;
@@ -385,7 +411,7 @@ static void clearKeyboardStrobe(apple2Core *core)
 }
 
 //-- Limit the case correction to the screen echo immediately following key acknowledgement.
-static uint8_t preserveLowercaseEcho(apple2Core *core, uint8_t value, bool videx)
+static uint8_t preserveLowercaseEcho(apple2Core* core, uint8_t value, bool videx)
 {
   if (!core->cpuBusAccess || !core->lowercaseEchoPending)
   {
@@ -402,29 +428,33 @@ static uint8_t preserveLowercaseEcho(apple2Core *core, uint8_t value, bool videx
   return videx ? core->keyboardData : (uint8_t)(core->keyboardData - 'a' + 0xE1);
 }
 
-//-- The controller that answers the I/O range $C0n0..$C0nF (slot n), or NULL when no drive is attached there.
-static apple2Disk *diskForIo(apple2Core *core, uint16_t address)
+//-- The controller that answers the I/O range $C0n0..$C0nF (slot n), or NULL when no drive is
+//attached there.
+static apple2Disk* diskForIo(apple2Core* core, uint16_t address)
 {
-  if (address < 0xC080 + apple2DiskFirstSlot * 0x10 || address >= 0xC080 + (apple2DiskLastSlot + 1) * 0x10)
+  if (address < 0xC080 + apple2DiskFirstSlot * 0x10 ||
+      address >= 0xC080 + (apple2DiskLastSlot + 1) * 0x10)
   {
     return NULL;
   }
-  apple2Disk *disk = &core->disks[((address - 0xC080) >> 4) - apple2DiskFirstSlot];
+  apple2Disk* disk = &core->disks[((address - 0xC080) >> 4) - apple2DiskFirstSlot];
   return apple2DiskIsAttached(disk) ? disk : NULL;
 }
 
-//-- The controller whose boot ROM is mapped at $Cn00..$CnFF (slot n), or NULL when no drive is attached there.
-static apple2Disk *diskForRom(apple2Core *core, uint16_t address)
+//-- The controller whose boot ROM is mapped at $Cn00..$CnFF (slot n), or NULL when no drive is
+//attached there.
+static apple2Disk* diskForRom(apple2Core* core, uint16_t address)
 {
-  if (address < 0xC000 + apple2DiskFirstSlot * 0x100 || address >= 0xC000 + (apple2DiskLastSlot + 1) * 0x100)
+  if (address < 0xC000 + apple2DiskFirstSlot * 0x100 ||
+      address >= 0xC000 + (apple2DiskLastSlot + 1) * 0x100)
   {
     return NULL;
   }
-  apple2Disk *disk = &core->disks[((address - 0xC000) >> 8) - apple2DiskFirstSlot];
+  apple2Disk* disk = &core->disks[((address - 0xC000) >> 8) - apple2DiskFirstSlot];
   return apple2DiskIsAttached(disk) ? disk : NULL;
 }
 
-static bool blockSlotIsAttached(const apple2Core *core, uint8_t slot)
+static bool blockSlotIsAttached(const apple2Core* core, uint8_t slot)
 {
   if (slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot)
   {
@@ -447,12 +477,13 @@ static bool validSmartPortRamRange(uint16_t address, size_t size)
 
 static bool validSmartPortBlockBuffer(uint16_t address)
 {
-  //— A 512 byte block buffer must lie in main RAM ($0000-$BFFF) or in the Language Card area ($D000-$FFFF), not in I/O space.
+  // — A 512 byte block buffer must lie in main RAM ($0000-$BFFF) or in the Language Card area
+  // ($D000-$FFFF), not in I/O space.
   uint32_t end = (uint32_t)address + apple2SmartPortBlockSize;
   return end <= apple2RamSize || (address >= 0xD000 && end <= 0x10000);
 }
 
-static void copySmartPortBlockToGuest(apple2Core *core, uint16_t address, const uint8_t *source)
+static void copySmartPortBlockToGuest(apple2Core* core, uint16_t address, const uint8_t* source)
 {
   for (size_t index = 0; index < apple2SmartPortBlockSize; index++)
   {
@@ -468,7 +499,7 @@ static void copySmartPortBlockToGuest(apple2Core *core, uint16_t address, const 
   }
 }
 
-static void copySmartPortBlockFromGuest(const apple2Core *core, uint16_t address, uint8_t *target)
+static void copySmartPortBlockFromGuest(const apple2Core* core, uint16_t address, uint8_t* target)
 {
   for (size_t index = 0; index < apple2SmartPortBlockSize; index++)
   {
@@ -479,13 +510,15 @@ static void copySmartPortBlockFromGuest(const apple2Core *core, uint16_t address
     }
     else
     {
-      target[index] = core->languageCardReadEnabled ? core->languageCardRam[languageCardOffset(core, source)]
-                                                    : core->rom[source - 0xD000];
+      target[index] = core->languageCardReadEnabled
+                          ? core->languageCardRam[languageCardOffset(core, source)]
+                          : core->rom[source - 0xD000];
     }
   }
 }
 
-static bool readSmartPortBlockToGuest(apple2Core *core, apple2SmartPortDevice *device, uint32_t block, uint16_t buffer)
+static bool readSmartPortBlockToGuest(apple2Core* core, apple2SmartPortDevice* device,
+                                      uint32_t block, uint16_t buffer)
 {
   uint8_t data[apple2SmartPortBlockSize];
   if (!device->readBlock(device->context, block, data))
@@ -496,24 +529,26 @@ static bool readSmartPortBlockToGuest(apple2Core *core, apple2SmartPortDevice *d
   return true;
 }
 
-static bool writeSmartPortBlockFromGuest(apple2Core *core, apple2SmartPortDevice *device, uint32_t block, uint16_t buffer)
+static bool writeSmartPortBlockFromGuest(apple2Core* core, apple2SmartPortDevice* device,
+                                         uint32_t block, uint16_t buffer)
 {
   uint8_t data[apple2SmartPortBlockSize];
   copySmartPortBlockFromGuest(core, buffer, data);
   return device->writeBlock(device->context, block, data);
 }
 
-static apple2SmartPortDevice *smartPortDeviceForUnit(apple2Core *core, uint8_t slot, uint8_t unit)
+static apple2SmartPortDevice* smartPortDeviceForUnit(apple2Core* core, uint8_t slot, uint8_t unit)
 {
-  if (unit == 0 || unit > apple2SmartPortDevices || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot)
+  if (unit == 0 || unit > apple2SmartPortDevices || slot < apple2DiskFirstSlot ||
+      slot > apple2DiskLastSlot)
   {
     return NULL;
   }
-  apple2SmartPortDevice *device = &core->smartPortDevices[slot - apple2DiskFirstSlot][unit - 1];
+  apple2SmartPortDevice* device = &core->smartPortDevices[slot - apple2DiskFirstSlot][unit - 1];
   return device->attached ? device : NULL;
 }
 
-static void setSmartPortResult(apple2Core *core, uint8_t error)
+static void setSmartPortResult(apple2Core* core, uint8_t error)
 {
   core->cpu.A = error;
   if (error == 0)
@@ -526,8 +561,8 @@ static void setSmartPortResult(apple2Core *core, uint8_t error)
   }
 }
 
-static uint8_t executeSmartPortStatus(apple2Core *core, apple2SmartPortDevice *device, uint16_t buffer,
-                                      uint8_t statusCode)
+static uint8_t executeSmartPortStatus(apple2Core* core, apple2SmartPortDevice* device,
+                                      uint16_t buffer, uint8_t statusCode)
 {
   if (statusCode == 0)
   {
@@ -543,9 +578,9 @@ static uint8_t executeSmartPortStatus(apple2Core *core, apple2SmartPortDevice *d
   }
   if (statusCode == 3)
   {
-    static const uint8_t deviceInfo[24] = {
-        0xF0, 0x00, 0x02, 'E', 'S', 'P', '3', '2', '-', 'S', '3', ' ', 'S', 'M', 'A', 'R',
-        'T', ' ', ' ', 0x00, 0x00, 0x01, 0x00, 0x00};
+    static const uint8_t deviceInfo[24] = {0xF0, 0x00, 0x02, 'E',  'S',  'P',  '3',  '2',
+                                           '-',  'S',  '3',  ' ',  'S',  'M',  'A',  'R',
+                                           'T',  ' ',  ' ',  0x00, 0x00, 0x01, 0x00, 0x00};
     if (!validSmartPortRamRange(buffer, sizeof(deviceInfo)))
     {
       return smartPortErrorBadCount;
@@ -560,8 +595,10 @@ static uint8_t executeSmartPortStatus(apple2Core *core, apple2SmartPortDevice *d
   return smartPortErrorBadCommand;
 }
 
-//— SmartPort STATUS for unit 0, status code 0: eight bytes whose first byte is the number of units.
-static uint8_t executeSmartPortControllerStatus(apple2Core *core, uint8_t slot, uint16_t buffer, uint8_t statusCode)
+// — SmartPort STATUS for unit 0, status code 0: eight bytes whose first byte is the number of
+// units.
+static uint8_t executeSmartPortControllerStatus(apple2Core* core, uint8_t slot, uint16_t buffer,
+                                                uint8_t statusCode)
 {
   if (statusCode != 0)
   {
@@ -586,8 +623,8 @@ static uint8_t executeSmartPortControllerStatus(apple2Core *core, uint8_t slot, 
   return 0;
 }
 
-static uint8_t executeSmartPortCommand(apple2Core *core, uint8_t slot, uint8_t command, uint16_t parameters,
-                                       bool extended)
+static uint8_t executeSmartPortCommand(apple2Core* core, uint8_t slot, uint8_t command,
+                                       uint16_t parameters, bool extended)
 {
   size_t parameterSize = extended ? 9 : 7;
   if (!validSmartPortRamRange(parameters, parameterSize) || core->ram[parameters] != 3)
@@ -597,23 +634,26 @@ static uint8_t executeSmartPortCommand(apple2Core *core, uint8_t slot, uint8_t c
   size_t bufferPointerSize = extended ? 3 : 2;
   size_t blockNumberOffset = parameters + (extended ? 5 : 4);
   uint8_t unit = core->ram[parameters + 1];
-  uint16_t buffer = (uint16_t)(core->ram[parameters + 2] | ((uint16_t)core->ram[parameters + 3] << 8));
+  uint16_t buffer =
+      (uint16_t)(core->ram[parameters + 2] | ((uint16_t)core->ram[parameters + 3] << 8));
   if (extended && core->ram[parameters + 4] != 0)
   {
     return smartPortErrorBadCount;
   }
   if (unit == 0 && command == 0)
   {
-    return executeSmartPortControllerStatus(core, slot, buffer, core->ram[parameters + 1 + bufferPointerSize + 1]);
+    return executeSmartPortControllerStatus(core, slot, buffer,
+                                            core->ram[parameters + 1 + bufferPointerSize + 1]);
   }
-  apple2SmartPortDevice *device = smartPortDeviceForUnit(core, slot, unit);
+  apple2SmartPortDevice* device = smartPortDeviceForUnit(core, slot, unit);
   if (device == NULL)
   {
     return smartPortErrorBadUnit;
   }
   if (command == 0)
   {
-    return executeSmartPortStatus(core, device, buffer, core->ram[parameters + 1 + bufferPointerSize + 1]);
+    return executeSmartPortStatus(core, device, buffer,
+                                  core->ram[parameters + 1 + bufferPointerSize + 1]);
   }
   if (command != 1 && command != 2)
   {
@@ -645,7 +685,7 @@ static uint8_t executeSmartPortCommand(apple2Core *core, uint8_t slot, uint8_t c
   return writeSmartPortBlockFromGuest(core, device, block, buffer) ? 0 : smartPortErrorIo;
 }
 
-static uint8_t executeProDosBlockCommand(apple2Core *core, uint8_t slot)
+static uint8_t executeProDosBlockCommand(apple2Core* core, uint8_t slot)
 {
   uint8_t unitNumber = core->ram[smartPortBlockUnitNumber];
   uint8_t unitSlot = (unitNumber >> 4) & 0x07U;
@@ -654,7 +694,7 @@ static uint8_t executeProDosBlockCommand(apple2Core *core, uint8_t slot)
     return smartPortErrorBadUnit;
   }
   uint8_t unit = (unitNumber & 0x80U) != 0 ? 2 : 1;
-  apple2SmartPortDevice *device = smartPortDeviceForUnit(core, slot, unit);
+  apple2SmartPortDevice* device = smartPortDeviceForUnit(core, slot, unit);
   if (device == NULL)
   {
     return smartPortErrorBadUnit;
@@ -698,22 +738,24 @@ static uint8_t executeProDosBlockCommand(apple2Core *core, uint8_t slot)
   }
 }
 
-static bool executeSmartPortTrap(apple2Core *core)
+static bool executeSmartPortTrap(apple2Core* core)
 {
   uint16_t entry = core->cpu.PC;
   uint8_t slot = (uint8_t)((entry >> 8) & 0x0FU);
   uint16_t slotBase = (uint16_t)(0xC000 + slot * 0x100);
-  //— Only an opcode fetch at an entry address is a call; operand fetches of the slot boot code must pass.
-  if ((core->pins & M6502_SYNC) == 0 || entry < 0xC000 || entry >= 0xC800 || !blockSlotIsAttached(core, slot) ||
-      (core->iie && core->intCxRom) ||
-      (entry != slotBase + smartPortEntryBlockOffset && entry != slotBase + smartPortEntryCallOffset))
+  // — Only an opcode fetch at an entry address is a call; operand fetches of the slot boot code
+  // must pass.
+  if ((core->pins & M6502_SYNC) == 0 || entry < 0xC000 || entry >= 0xC800 ||
+      !blockSlotIsAttached(core, slot) || (core->iie && core->intCxRom) ||
+      (entry != slotBase + smartPortEntryBlockOffset &&
+       entry != slotBase + smartPortEntryCallOffset))
   {
     return false;
   }
 
   uint16_t stackAddress = (uint16_t)(0x0100U + (uint8_t)(core->cpu.S + 1));
-  uint16_t returnAddress =
-      (uint16_t)(core->ram[stackAddress] | ((uint16_t)core->ram[(uint16_t)(stackAddress + 1)] << 8));
+  uint16_t returnAddress = (uint16_t)(core->ram[stackAddress] |
+                                      ((uint16_t)core->ram[(uint16_t)(stackAddress + 1)] << 8));
   uint8_t error;
   if (entry == slotBase + smartPortEntryBlockOffset)
   {
@@ -732,11 +774,12 @@ static bool executeSmartPortTrap(apple2Core *core)
     else
     {
       uint16_t pointerAddress = (uint16_t)(returnAddress + 2);
-      uint16_t parameters =
-          (uint16_t)(core->ram[pointerAddress] | ((uint16_t)core->ram[(uint16_t)(pointerAddress + 1)] << 8));
+      uint16_t parameters = (uint16_t)(core->ram[pointerAddress] |
+                                       ((uint16_t)core->ram[(uint16_t)(pointerAddress + 1)] << 8));
       error = extended && core->ram[(uint16_t)(pointerAddress + 2)] != 0
                   ? smartPortErrorBadCount
-                  : executeSmartPortCommand(core, slot, (uint8_t)(command & 0x3FU), parameters, extended);
+                  : executeSmartPortCommand(core, slot, (uint8_t)(command & 0x3FU), parameters,
+                                            extended);
     }
     if (error == 0 && (command & 0x3FU) == 1)
     {
@@ -758,12 +801,12 @@ static bool executeSmartPortTrap(apple2Core *core)
   return true;
 }
 
-//— Slot ROM byte of a block-device slot. An autostart slot carries the Disk II boot signature ($07 = $3C) so
-//— the Autostart ROM boots it at reset; ProDOS then sees a generic block device (nonzero $FF, driver at $Cn0A).
-//— Otherwise $07 = 0 marks a SmartPort interface.
-static uint8_t readBlockSlotRom(const apple2Core *core, uint8_t slot, uint8_t offset)
+// — Slot ROM byte of a block-device slot. An autostart slot carries the Disk II boot signature ($07
+// = $3C) so — the Autostart ROM boots it at reset; ProDOS then sees a generic block device (nonzero
+// $FF, driver at $Cn0A). — Otherwise $07 = 0 marks a SmartPort interface.
+static uint8_t readBlockSlotRom(const apple2Core* core, uint8_t slot, uint8_t offset)
 {
-  const apple2SmartPortDevice *devices = core->smartPortDevices[slot - apple2DiskFirstSlot];
+  const apple2SmartPortDevice* devices = core->smartPortDevices[slot - apple2DiskFirstSlot];
   switch (offset)
   {
   case 0x07:
@@ -796,8 +839,7 @@ static uint8_t readBlockSlotRom(const apple2Core *core, uint8_t slot, uint8_t of
   return writable ? (uint8_t)(capabilities | 0x04U) : capabilities;
 }
 
-
-static void setVideoSwitch(apple2Core *core, uint16_t address)
+static void setVideoSwitch(apple2Core* core, uint16_t address)
 {
   switch (address)
   {
@@ -830,16 +872,18 @@ static void setVideoSwitch(apple2Core *core, uint16_t address)
   }
 }
 
-//-- Apple IIe memory map ($0000-$BFFF): ALTZP, RAMRD/RAMWRT and 80STORE (+PAGE2, +HIRES) choose main or auxiliary RAM.
-static uint8_t *iieRamPointer(apple2Core *core, uint16_t address, bool isWrite)
+//-- Apple IIe memory map ($0000-$BFFF): ALTZP, RAMRD/RAMWRT and 80STORE (+PAGE2, +HIRES) choose
+//main or auxiliary RAM.
+static uint8_t* iieRamPointer(apple2Core* core, uint16_t address, bool isWrite)
 {
   bool useAux;
   if (address < 0x0200)
   {
     useAux = core->altZp;
   }
-  else if (core->video.store80 && ((address >= 0x0400 && address < 0x0800) ||
-                                   (core->video.highResolution && address >= 0x2000 && address < 0x4000)))
+  else if (core->video.store80 &&
+           ((address >= 0x0400 && address < 0x0800) ||
+            (core->video.highResolution && address >= 0x2000 && address < 0x4000)))
   {
     useAux = core->video.page2;
   }
@@ -850,7 +894,7 @@ static uint8_t *iieRamPointer(apple2Core *core, uint16_t address, bool isWrite)
   return &(useAux ? core->auxRam : core->ram)[address];
 }
 
-static uint8_t readIIeStatus(const apple2Core *core, uint16_t address)
+static uint8_t readIIeStatus(const apple2Core* core, uint16_t address)
 {
   bool flag = false;
   switch (address & 0x1F)
@@ -906,7 +950,7 @@ static uint8_t readIIeStatus(const apple2Core *core, uint16_t address)
   return (uint8_t)((flag ? 0x80 : 0x00) | (core->keyboardData & 0x7F));
 }
 
-static void writeIIeSoftSwitch(apple2Core *core, uint16_t address)
+static void writeIIeSoftSwitch(apple2Core* core, uint16_t address)
 {
   bool on = (address & 0x01) != 0;
   switch (address & 0x0E)
@@ -939,12 +983,14 @@ static void writeIIeSoftSwitch(apple2Core *core, uint16_t address)
   }
 }
 
-//-- $C100-$CFFF: built-in firmware or the slot cards, following INTCXROM, SLOTC3ROM and the INTC8ROM latch.
-static uint8_t readIIeSlotRom(apple2Core *core, uint16_t address)
+//-- $C100-$CFFF: built-in firmware or the slot cards, following INTCXROM, SLOTC3ROM and the
+//INTC8ROM latch.
+static uint8_t readIIeSlotRom(apple2Core* core, uint16_t address)
 {
   if (address >= 0xC800)
   {
-    uint8_t value = (core->intCxRom || core->intC8Rom) ? core->iieRom[address - 0xC000] : core->busValue;
+    uint8_t value =
+        (core->intCxRom || core->intC8Rom) ? core->iieRom[address - 0xC000] : core->busValue;
     if (address == 0xCFFF)
     {
       core->intC8Rom = false;
@@ -972,9 +1018,9 @@ static uint8_t readIIeSlotRom(apple2Core *core, uint16_t address)
   return core->busValue;
 }
 
-static uint8_t readAddressIIe(apple2Core *core, uint16_t address)
+static uint8_t readAddressIIe(apple2Core* core, uint16_t address)
 {
-  apple2Disk *disk;
+  apple2Disk* disk;
   if (address < 0xC000)
   {
     return *iieRamPointer(core, address, false);
@@ -993,7 +1039,7 @@ static uint8_t readAddressIIe(apple2Core *core, uint16_t address)
     uint8_t slot = (uint8_t)((address - 0xC080) / 0x10);
     if (slot >= 1 && slot <= 2 && core->slotIoDevices[slot - 1].attached)
     {
-      apple2SlotIoDevice *device = &core->slotIoDevices[slot - 1];
+      apple2SlotIoDevice* device = &core->slotIoDevices[slot - 1];
       return device->readRegister(device->context, (uint8_t)(address & 0x0F));
     }
   }
@@ -1032,9 +1078,9 @@ static uint8_t readAddressIIe(apple2Core *core, uint16_t address)
   return core->busValue;
 }
 
-static void writeAddressIIe(apple2Core *core, uint16_t address, uint8_t value)
+static void writeAddressIIe(apple2Core* core, uint16_t address, uint8_t value)
 {
-  apple2Disk *disk;
+  apple2Disk* disk;
   if (address < 0xC000)
   {
     *iieRamPointer(core, address, true) = value;
@@ -1053,9 +1099,10 @@ static void writeAddressIIe(apple2Core *core, uint16_t address, uint8_t value)
       core->intC8Rom = false;
     }
   }
-  else if (address >= 0xC090 && address <= 0xC0AF && core->slotIoDevices[(address - 0xC080) / 0x10 - 1].attached)
+  else if (address >= 0xC090 && address <= 0xC0AF &&
+           core->slotIoDevices[(address - 0xC080) / 0x10 - 1].attached)
   {
-    apple2SlotIoDevice *device = &core->slotIoDevices[(address - 0xC080) / 0x10 - 1];
+    apple2SlotIoDevice* device = &core->slotIoDevices[(address - 0xC080) / 0x10 - 1];
     device->writeRegister(device->context, (uint8_t)(address & 0x0F), value);
   }
   else if (address <= 0xC00F)
@@ -1080,10 +1127,10 @@ static void writeAddressIIe(apple2Core *core, uint16_t address, uint8_t value)
   }
 }
 
-static uint8_t readAddress(apple2Core *core, uint16_t address)
+static uint8_t readAddress(apple2Core* core, uint16_t address)
 {
   uint8_t value;
-  apple2Disk *disk;
+  apple2Disk* disk;
   if (core->iie)
   {
     value = readAddressIIe(core, address);
@@ -1095,7 +1142,7 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
     uint8_t slot = (uint8_t)((address - 0xC080) / 0x10);
     if (slot >= 1 && slot <= 2 && core->slotIoDevices[slot - 1].attached)
     {
-      apple2SlotIoDevice *device = &core->slotIoDevices[slot - 1];
+      apple2SlotIoDevice* device = &core->slotIoDevices[slot - 1];
       value = device->readRegister(device->context, (uint8_t)(address & 0x0F));
       core->busValue = value;
       return value;
@@ -1136,7 +1183,8 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   {
     value = apple2DiskBootRoms[(address >> 8) - 0xC0 - apple2DiskFirstSlot][address & 0xFF];
   }
-  else if (address >= 0xC400 && address < 0xC800 && blockSlotIsAttached(core, (uint8_t)((address >> 8) & 0x0FU)))
+  else if (address >= 0xC400 && address < 0xC800 &&
+           blockSlotIsAttached(core, (uint8_t)((address >> 8) & 0x0FU)))
   {
     value = readBlockSlotRom(core, (uint8_t)((address >> 8) & 0x0FU), (uint8_t)address);
   }
@@ -1161,7 +1209,8 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
     {
       value = videxFirmware[offset];
     }
-    else if (address >= apple2PascalFirmwareBase && address < apple2PascalFirmwareBase + apple2PascalFirmwareSize)
+    else if (address >= apple2PascalFirmwareBase &&
+             address < apple2PascalFirmwareBase + apple2PascalFirmwareSize)
     {
       value = apple2PascalFirmware[address - apple2PascalFirmwareBase];
     }
@@ -1178,6 +1227,15 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   {
     value = core->languageCardReadEnabled ? core->languageCardRam[languageCardOffset(core, address)]
                                           : core->rom[address - 0xD000];
+    //-- Applesoft LIST wraps at CH >= 33 (CMP #$21 at $D707) and indents the continuation by 5.
+    //-- With the 80-column card selected move that wrap column to the right edge, keeping the same
+    //7 column margin.
+    if (address == apple2ApplesoftListWrapOperand && !core->languageCardReadEnabled &&
+        value == apple2ApplesoftListWrapColumn40 && core->videxOutputSelected &&
+        core->video.videxTextMode && !core->pascalCardActive)
+    {
+      value = (uint8_t)(apple2VidexTextColumns - apple2ApplesoftListWrapMargin);
+    }
   }
   else
   {
@@ -1187,9 +1245,9 @@ static uint8_t readAddress(apple2Core *core, uint16_t address)
   return value;
 }
 
-static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
+static void writeAddress(apple2Core* core, uint16_t address, uint8_t value)
 {
-  apple2Disk *disk;
+  apple2Disk* disk;
   if (core->iie)
   {
     writeAddressIIe(core, address, value);
@@ -1201,7 +1259,7 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
     uint8_t slot = (uint8_t)((address - 0xC080) / 0x10);
     if (slot >= 1 && slot <= 2 && core->slotIoDevices[slot - 1].attached)
     {
-      apple2SlotIoDevice *device = &core->slotIoDevices[slot - 1];
+      apple2SlotIoDevice* device = &core->slotIoDevices[slot - 1];
       device->writeRegister(device->context, (uint8_t)(address & 0x0F), value);
     }
   }
@@ -1219,13 +1277,16 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   }
   else if (address < apple2RamSize)
   {
-    //-- While the monitor SETVID routine runs the default video output is the 80-column card, not the 40-column screen.
+    //-- While the monitor SETVID routine runs the default video output is the 80-column card, not
+    //the 40-column screen.
     if (!core->pascalCardActive && core->setvidActive && (address == 0x0036 || address == 0x0037))
     {
       value = address == 0x0036 ? 0xB3 : 0xC8;
     }
-    //-- In 80-column boot mode the card is the default screen: ProDOS BASIC.SYSTEM resets CSW to COUT1 ($FDF0) itself,
-    //-- which is not a PR#0. Only the monitor (PR#0 through OUTPORT) may select the 40-column screen.
+    //-- In 80-column boot mode the card is the default screen: ProDOS BASIC.SYSTEM resets CSW to
+    //COUT1 ($FDF0) itself,
+    //-- which is not a PR#0. Only the monitor (PR#0 through OUTPORT) may select the 40-column
+    //screen.
     if (core->bootIn80Columns && !core->pascalCardActive && !isMonitorRomExecuting(core))
     {
       if (address == 0x0037 && value == 0xFD && core->ram[0x0036] == 0xF0)
@@ -1239,7 +1300,8 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
         core->ram[0x0037] = 0xC8;
       }
     }
-    bool isOutputVectorAddress = address == 0x0036 || address == 0x0037 || address == 0xAA53 || address == 0xAA54;
+    bool isOutputVectorAddress =
+        address == 0x0036 || address == 0x0037 || address == 0xAA53 || address == 0xAA54;
     if (address >= 0x0400 && address <= 0x0BFF && !core->pascalCardActive)
     {
       value = preserveLowercaseEcho(core, value, false);
@@ -1290,23 +1352,25 @@ static void writeAddress(apple2Core *core, uint16_t address, uint8_t value)
   core->busValue = value;
 }
 
-apple2CoreResult apple2CoreCreate(apple2Core **core)
+apple2CoreResult apple2CoreCreate(apple2Core** core)
 {
   if (core == NULL)
   {
     return apple2CoreInvalidArgument;
   }
   *core = NULL;
-  apple2Core *created = calloc(1, sizeof(*created));
+  apple2Core* created = calloc(1, sizeof(*created));
   if (created == NULL)
   {
     return apple2CoreNoMemory;
   }
 #ifdef ESP_PLATFORM
-  created->ram = heap_caps_calloc(apple2RamSize, sizeof(*created->ram), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  created->ram =
+      heap_caps_calloc(apple2RamSize, sizeof(*created->ram), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (created->ram == NULL)
   {
-    created->ram = heap_caps_calloc(apple2RamSize, sizeof(*created->ram), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    created->ram = heap_caps_calloc(apple2RamSize, sizeof(*created->ram),
+                                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   }
 #else
   created->ram = calloc(apple2RamSize, sizeof(*created->ram));
@@ -1333,7 +1397,7 @@ apple2CoreResult apple2CoreCreate(apple2Core **core)
   return apple2CoreOk;
 }
 
-void apple2CoreDestroy(apple2Core *core)
+void apple2CoreDestroy(apple2Core* core)
 {
   if (core == NULL)
   {
@@ -1346,7 +1410,7 @@ void apple2CoreDestroy(apple2Core *core)
   free(core);
 }
 
-apple2CoreResult apple2CoreSetRamCard(apple2Core *core, apple2RamCard ramCard)
+apple2CoreResult apple2CoreSetRamCard(apple2Core* core, apple2RamCard ramCard)
 {
   if (core == NULL || (ramCard != apple2RamCardLanguage16 && ramCard != apple2RamCardSaturn128))
   {
@@ -1356,8 +1420,9 @@ apple2CoreResult apple2CoreSetRamCard(apple2Core *core, apple2RamCard ramCard)
   {
     return apple2CoreOk;
   }
-  size_t size = ramCard == apple2RamCardSaturn128 ? apple2Saturn128RamSize : apple2LanguageCardRamSize;
-  uint8_t *ram = NULL;
+  size_t size =
+      ramCard == apple2RamCardSaturn128 ? apple2Saturn128RamSize : apple2LanguageCardRamSize;
+  uint8_t* ram = NULL;
 #ifdef ESP_PLATFORM
   ram = heap_caps_calloc(size, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (ram == NULL)
@@ -1378,10 +1443,10 @@ apple2CoreResult apple2CoreSetRamCard(apple2Core *core, apple2RamCard ramCard)
   return apple2CoreOk;
 }
 
-static uint8_t *allocateGuestMemory(size_t size)
+static uint8_t* allocateGuestMemory(size_t size)
 {
 #ifdef ESP_PLATFORM
-  uint8_t *memory = heap_caps_calloc(size, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  uint8_t* memory = heap_caps_calloc(size, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (memory == NULL)
   {
     memory = heap_caps_calloc(size, 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -1392,7 +1457,7 @@ static uint8_t *allocateGuestMemory(size_t size)
 #endif
 }
 
-apple2CoreResult apple2CoreEnableIIe(apple2Core *core)
+apple2CoreResult apple2CoreEnableIIe(apple2Core* core)
 {
   if (core == NULL)
   {
@@ -1402,9 +1467,9 @@ apple2CoreResult apple2CoreEnableIIe(apple2Core *core)
   {
     return apple2CoreOk;
   }
-  uint8_t *auxRam = allocateGuestMemory(apple2IIeAuxRamSize);
-  uint8_t *languageCardRam = allocateGuestMemory(apple2IIeLanguageCardRamSize);
-  uint8_t *iieRom = calloc(apple2IIeRomSize, 1);
+  uint8_t* auxRam = allocateGuestMemory(apple2IIeAuxRamSize);
+  uint8_t* languageCardRam = allocateGuestMemory(apple2IIeLanguageCardRamSize);
+  uint8_t* iieRom = calloc(apple2IIeRomSize, 1);
   if (auxRam == NULL || languageCardRam == NULL || iieRom == NULL)
   {
     free(auxRam);
@@ -1423,12 +1488,12 @@ apple2CoreResult apple2CoreEnableIIe(apple2Core *core)
   return apple2CoreOk;
 }
 
-bool apple2CoreIsIIe(const apple2Core *core)
+bool apple2CoreIsIIe(const apple2Core* core)
 {
   return core != NULL && core->iie;
 }
 
-apple2CoreResult apple2CoreLoadRom(apple2Core *core, const uint8_t *rom, size_t size)
+apple2CoreResult apple2CoreLoadRom(apple2Core* core, const uint8_t* rom, size_t size)
 {
   if (core != NULL && rom != NULL && core->iie)
   {
@@ -1459,7 +1524,7 @@ apple2CoreResult apple2CoreLoadRom(apple2Core *core, const uint8_t *rom, size_t 
   return apple2CoreReset(core);
 }
 
-apple2CoreResult apple2CoreReset(apple2Core *core)
+apple2CoreResult apple2CoreReset(apple2Core* core)
 {
   if (core == NULL || !core->romLoaded)
   {
@@ -1503,7 +1568,7 @@ apple2CoreResult apple2CoreReset(apple2Core *core)
   return apple2CoreOk;
 }
 
-apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
+apple2CoreResult apple2CoreRunCycles(apple2Core* core, size_t cycles)
 {
   if (core == NULL || !core->romLoaded)
   {
@@ -1534,27 +1599,33 @@ apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
       core->cpuBusAccess = false;
       continue;
     }
-    //-- Monitor SETVID ($FE93, also called by the DOS boot code) is told apart from PR#n, which enters at OUTPORT ($FE95).
+    //-- Monitor SETVID ($FE93, also called by the DOS boot code) is told apart from PR#n, which
+    //enters at OUTPORT ($FE95).
     if ((core->pins & M6502_SYNC) != 0 && core->bootIn80Columns)
     {
       if (address == apple2MonitorSetvidAddress)
       {
         core->setvidActive = true;
       }
-      else if (core->setvidActive && (address < apple2MonitorSetvidAddress || address >= apple2MonitorSetvidEnd))
+      else if (core->setvidActive &&
+               (address < apple2MonitorSetvidAddress || address >= apple2MonitorSetvidEnd))
       {
         core->setvidActive = false;
       }
     }
-    //-- Apple Pascal 1.1 found the card through its firmware protocol and initialises it at $C320: from here on the
-    //-- card is the console and Pascal's zero page and screen memory are not touched by the 80-column emulation.
-    if ((core->pins & M6502_SYNC) != 0 && address == apple2PascalInitEntry && !core->pascalCardActive)
+    //-- Apple Pascal 1.1 found the card through its firmware protocol and initialises it at $C320:
+    //from here on the
+    //-- card is the console and Pascal's zero page and screen memory are not touched by the
+    //80-column emulation.
+    if ((core->pins & M6502_SYNC) != 0 && address == apple2PascalInitEntry &&
+        !core->pascalCardActive)
     {
       core->pascalCardActive = true;
       core->setvidActive = false;
       core->videxOutputSelected = true;
     }
-    //-- The monitor HOME routine only knows the 40-column page; clear the card screen when it is selected.
+    //-- The monitor HOME routine only knows the 40-column page; clear the card screen when it is
+    //selected.
     //-- With the Language Card read-enabled $FC58 is ProDOS code, not the monitor.
     if ((core->pins & M6502_SYNC) != 0 && address == 0xFC58 && core->videxOutputSelected &&
         !core->pascalCardActive && !core->languageCardReadEnabled)
@@ -1569,7 +1640,7 @@ apple2CoreResult apple2CoreRunCycles(apple2Core *core, size_t cycles)
   return apple2CoreOk;
 }
 
-apple2CoreResult apple2CoreReadMemory(apple2Core *core, uint16_t address, uint8_t *value)
+apple2CoreResult apple2CoreReadMemory(apple2Core* core, uint16_t address, uint8_t* value)
 {
   if (core == NULL || value == NULL)
   {
@@ -1579,7 +1650,7 @@ apple2CoreResult apple2CoreReadMemory(apple2Core *core, uint16_t address, uint8_
   return apple2CoreOk;
 }
 
-apple2CoreResult apple2CoreWriteMemory(apple2Core *core, uint16_t address, uint8_t value)
+apple2CoreResult apple2CoreWriteMemory(apple2Core* core, uint16_t address, uint8_t value)
 {
   if (core == NULL)
   {
@@ -1589,7 +1660,7 @@ apple2CoreResult apple2CoreWriteMemory(apple2Core *core, uint16_t address, uint8
   return apple2CoreOk;
 }
 
-apple2CoreResult apple2CoreSetBootIn80Columns(apple2Core *core, bool enabled)
+apple2CoreResult apple2CoreSetBootIn80Columns(apple2Core* core, bool enabled)
 {
   if (core == NULL)
   {
@@ -1599,7 +1670,7 @@ apple2CoreResult apple2CoreSetBootIn80Columns(apple2Core *core, bool enabled)
   return apple2CoreOk;
 }
 
-apple2CoreResult apple2CoreSetCharacterOptions(apple2Core *core, bool lowercaseCharacterRom,
+apple2CoreResult apple2CoreSetCharacterOptions(apple2Core* core, bool lowercaseCharacterRom,
                                                bool lowercaseKeyboard)
 {
   if (core == NULL)
@@ -1611,7 +1682,7 @@ apple2CoreResult apple2CoreSetCharacterOptions(apple2Core *core, bool lowercaseC
   return apple2CoreOk;
 }
 
-char apple2CoreDecodeTextCharacter(const apple2Core *core, uint8_t value)
+char apple2CoreDecodeTextCharacter(const apple2Core* core, uint8_t value)
 {
   if (core != NULL && core->iie && core->video.altCharSet)
   {
@@ -1634,7 +1705,7 @@ char apple2CoreDecodeTextCharacter(const apple2Core *core, uint8_t value)
   return (char)character;
 }
 
-apple2CoreResult apple2CorePressKey(apple2Core *core, uint8_t character)
+apple2CoreResult apple2CorePressKey(apple2Core* core, uint8_t character)
 {
   if (core == NULL || character > 0x7F)
   {
@@ -1655,12 +1726,12 @@ apple2CoreResult apple2CorePressKey(apple2Core *core, uint8_t character)
   return apple2CoreOk;
 }
 
-bool apple2CoreKeyPending(const apple2Core *core)
+bool apple2CoreKeyPending(const apple2Core* core)
 {
   return core != NULL && core->keyboardStrobe;
 }
 
-void apple2CoreGetVideoState(const apple2Core *core, apple2VideoState *state)
+void apple2CoreGetVideoState(const apple2Core* core, apple2VideoState* state)
 {
   if (core != NULL && state != NULL)
   {
@@ -1669,7 +1740,7 @@ void apple2CoreGetVideoState(const apple2Core *core, apple2VideoState *state)
   }
 }
 
-bool apple2CoreTextAddress(bool page2, size_t row, size_t column, uint16_t *address)
+bool apple2CoreTextAddress(bool page2, size_t row, size_t column, uint16_t* address)
 {
   if (address == NULL || row >= apple2TextRows || column >= apple2TextColumns)
   {
@@ -1680,11 +1751,12 @@ bool apple2CoreTextAddress(bool page2, size_t row, size_t column, uint16_t *addr
   return true;
 }
 
-apple2CoreResult apple2CoreReadTextCell(const apple2Core *core, bool page2, size_t row, size_t column,
-                                        uint8_t *value)
+apple2CoreResult apple2CoreReadTextCell(const apple2Core* core, bool page2, size_t row,
+                                        size_t column, uint8_t* value)
 {
   uint16_t address;
-  if (core != NULL && core->iie && core->video.col80 && value != NULL && column < apple2VidexTextColumns &&
+  if (core != NULL && core->iie && core->video.col80 && value != NULL &&
+      column < apple2VidexTextColumns &&
       apple2CoreTextAddress(core->video.store80 ? false : page2, row, column / 2, &address))
   {
     //-- 80-column text: even columns come from auxiliary memory, odd columns from main memory.
@@ -1699,19 +1771,23 @@ apple2CoreResult apple2CoreReadTextCell(const apple2Core *core, bool page2, size
   return apple2CoreOk;
 }
 
-apple2CoreResult apple2CoreReadVidexTextCell(const apple2Core *core, size_t row, size_t column, uint8_t *value)
+apple2CoreResult apple2CoreReadVidexTextCell(const apple2Core* core, size_t row, size_t column,
+                                             uint8_t* value)
 {
-  if (core == NULL || value == NULL || row >= apple2VidexTextRows || column >= apple2VidexTextColumns)
+  if (core == NULL || value == NULL || row >= apple2VidexTextRows ||
+      column >= apple2VidexTextColumns)
   {
     return apple2CoreInvalidArgument;
   }
-  size_t startAddress = (((size_t)core->videxRegisters[12] & 0x3FU) << 8) | core->videxRegisters[13];
-  size_t address = (startAddress + row * apple2VidexTextColumns + column) & (apple2VidexRamSize - 1);
+  size_t startAddress =
+      (((size_t)core->videxRegisters[12] & 0x3FU) << 8) | core->videxRegisters[13];
+  size_t address =
+      (startAddress + row * apple2VidexTextColumns + column) & (apple2VidexRamSize - 1);
   *value = core->videxRam[address];
   return apple2CoreOk;
 }
 
-bool apple2CoreGetVidexCursor(const apple2Core *core, size_t *row, size_t *column)
+bool apple2CoreGetVidexCursor(const apple2Core* core, size_t* row, size_t* column)
 {
   if (core == NULL || row == NULL || column == NULL || !core->video.videxTextMode ||
       !isVidexOutputSelected(core))
@@ -1723,9 +1799,11 @@ bool apple2CoreGetVidexCursor(const apple2Core *core, size_t *row, size_t *colum
   return true;
 }
 
-bool apple2CoreGetTextCursor(const apple2Core *core, size_t *row, size_t *column)
+bool apple2CoreGetTextCursor(const apple2Core* core, size_t* row, size_t* column)
 {
-  if (core == NULL || row == NULL || column == NULL || core->ram[0x0024] >= (core->iie && core->video.col80 ? apple2VidexTextColumns : apple2TextColumns) ||
+  if (core == NULL || row == NULL || column == NULL ||
+      core->ram[0x0024] >=
+          (core->iie && core->video.col80 ? apple2VidexTextColumns : apple2TextColumns) ||
       core->ram[0x0025] >= apple2TextRows)
   {
     return false;
@@ -1735,12 +1813,14 @@ bool apple2CoreGetTextCursor(const apple2Core *core, size_t *row, size_t *column
   return true;
 }
 
-apple2CoreResult apple2CoreAttachDisk(apple2Core *core, apple2DiskReadSectorFunction readSector, void *context)
+apple2CoreResult apple2CoreAttachDisk(apple2Core* core, apple2DiskReadSectorFunction readSector,
+                                      void* context)
 {
-  return apple2CoreAttachDiskDrive(core, 6, 0, apple2DiskSectorOrderDos, apple2DiskTrackCount, readSector, context);
+  return apple2CoreAttachDiskDrive(core, 6, 0, apple2DiskSectorOrderDos, apple2DiskTrackCount,
+                                   readSector, context);
 }
 
-apple2CoreResult apple2CoreDetachDisk(apple2Core *core)
+apple2CoreResult apple2CoreDetachDisk(apple2Core* core)
 {
   if (core == NULL)
   {
@@ -1756,43 +1836,46 @@ apple2CoreResult apple2CoreDetachDisk(apple2Core *core)
   return apple2CoreOk;
 }
 
-void apple2CoreGetDiskState(const apple2Core *core, apple2DiskState *state)
+void apple2CoreGetDiskState(const apple2Core* core, apple2DiskState* state)
 {
   apple2CoreGetDiskStateForSlot(core, 6, state);
 }
 
-apple2CoreResult apple2CoreAttachDiskDrive(apple2Core *core, uint8_t slot, uint8_t drive, apple2DiskSectorOrder order,
-                                           uint8_t trackCount, apple2DiskReadSectorFunction readSector,
-                                           void *context)
+apple2CoreResult apple2CoreAttachDiskDrive(apple2Core* core, uint8_t slot, uint8_t drive,
+                                           apple2DiskSectorOrder order, uint8_t trackCount,
+                                           apple2DiskReadSectorFunction readSector, void* context)
 {
-  return apple2CoreAttachWritableDiskDrive(core, slot, drive, order, trackCount, readSector, NULL, context);
+  return apple2CoreAttachWritableDiskDrive(core, slot, drive, order, trackCount, readSector, NULL,
+                                           context);
 }
 
-apple2CoreResult apple2CoreAttachWritableDiskDrive(apple2Core *core, uint8_t slot, uint8_t drive,
+apple2CoreResult apple2CoreAttachWritableDiskDrive(apple2Core* core, uint8_t slot, uint8_t drive,
                                                    apple2DiskSectorOrder order, uint8_t trackCount,
                                                    apple2DiskReadSectorFunction readSector,
-                                                   apple2DiskWriteSectorFunction writeSector, void *context)
+                                                   apple2DiskWriteSectorFunction writeSector,
+                                                   void* context)
 {
   if (core == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot ||
       blockSlotIsAttached(core, slot) ||
       !(writeSector == NULL
-            ? apple2DiskAttachDrive(&core->disks[slot - apple2DiskFirstSlot], drive, order, trackCount, readSector,
-                                    context)
-            : apple2DiskAttachWritableDrive(&core->disks[slot - apple2DiskFirstSlot], drive, order, trackCount,
-                                            readSector, writeSector, context)))
+            ? apple2DiskAttachDrive(&core->disks[slot - apple2DiskFirstSlot], drive, order,
+                                    trackCount, readSector, context)
+            : apple2DiskAttachWritableDrive(&core->disks[slot - apple2DiskFirstSlot], drive, order,
+                                            trackCount, readSector, writeSector, context)))
   {
     return apple2CoreInvalidArgument;
   }
   return apple2CoreOk;
 }
 
-apple2CoreResult apple2CoreDetachDiskDrive(apple2Core *core, uint8_t slot, uint8_t drive)
+apple2CoreResult apple2CoreDetachDiskDrive(apple2Core* core, uint8_t slot, uint8_t drive)
 {
-  if (core == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot || drive >= apple2DiskDrivesPerSlot)
+  if (core == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot ||
+      drive >= apple2DiskDrivesPerSlot)
   {
     return apple2CoreInvalidArgument;
   }
-  apple2Disk *disk = &core->disks[slot - apple2DiskFirstSlot];
+  apple2Disk* disk = &core->disks[slot - apple2DiskFirstSlot];
   apple2DiskDetachDrive(disk, drive);
   if (!apple2DiskIsAttached(disk))
   {
@@ -1801,7 +1884,7 @@ apple2CoreResult apple2CoreDetachDiskDrive(apple2Core *core, uint8_t slot, uint8
   return apple2CoreOk;
 }
 
-bool apple2CoreGetDiskStateForSlot(const apple2Core *core, uint8_t slot, apple2DiskState *state)
+bool apple2CoreGetDiskStateForSlot(const apple2Core* core, uint8_t slot, apple2DiskState* state)
 {
   if (core == NULL || state == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot)
   {
@@ -1811,17 +1894,19 @@ bool apple2CoreGetDiskStateForSlot(const apple2Core *core, uint8_t slot, apple2D
   return true;
 }
 
-apple2CoreResult apple2CoreAttachBlockDevice(apple2Core *core, uint8_t slot, uint8_t unit, uint32_t blockCount,
-                                             bool autostart, apple2SmartPortReadBlockFunction readBlock,
-                                             apple2SmartPortWriteBlockFunction writeBlock, void *context)
+apple2CoreResult apple2CoreAttachBlockDevice(apple2Core* core, uint8_t slot, uint8_t unit,
+                                             uint32_t blockCount, bool autostart,
+                                             apple2SmartPortReadBlockFunction readBlock,
+                                             apple2SmartPortWriteBlockFunction writeBlock,
+                                             void* context)
 {
   if (core == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot || unit == 0 ||
-      unit > apple2SmartPortDevices || blockCount == 0 || blockCount > 0xFFFFFFU || readBlock == NULL ||
-      apple2DiskIsAttached(&core->disks[slot - apple2DiskFirstSlot]))
+      unit > apple2SmartPortDevices || blockCount == 0 || blockCount > 0xFFFFFFU ||
+      readBlock == NULL || apple2DiskIsAttached(&core->disks[slot - apple2DiskFirstSlot]))
   {
     return apple2CoreInvalidArgument;
   }
-  apple2SmartPortDevice *device = &core->smartPortDevices[slot - apple2DiskFirstSlot][unit - 1];
+  apple2SmartPortDevice* device = &core->smartPortDevices[slot - apple2DiskFirstSlot][unit - 1];
   if (device->attached)
   {
     return apple2CoreInvalidArgument;
@@ -1835,14 +1920,15 @@ apple2CoreResult apple2CoreAttachBlockDevice(apple2Core *core, uint8_t slot, uin
   return apple2CoreOk;
 }
 
-apple2CoreResult apple2CoreDetachBlockDevice(apple2Core *core, uint8_t slot, uint8_t unit)
+apple2CoreResult apple2CoreDetachBlockDevice(apple2Core* core, uint8_t slot, uint8_t unit)
 {
   if (core == NULL || slot < apple2DiskFirstSlot || slot > apple2DiskLastSlot || unit == 0 ||
       unit > apple2SmartPortDevices)
   {
     return apple2CoreInvalidArgument;
   }
-  memset(&core->smartPortDevices[slot - apple2DiskFirstSlot][unit - 1], 0, sizeof(apple2SmartPortDevice));
+  memset(&core->smartPortDevices[slot - apple2DiskFirstSlot][unit - 1], 0,
+         sizeof(apple2SmartPortDevice));
   if (!blockSlotIsAttached(core, slot))
   {
     core->blockAutostart[slot - apple2DiskFirstSlot] = false;
@@ -1850,22 +1936,25 @@ apple2CoreResult apple2CoreDetachBlockDevice(apple2Core *core, uint8_t slot, uin
   return apple2CoreOk;
 }
 
-apple2CoreResult apple2CoreAttachSmartPortDevice(apple2Core *core, uint8_t unit, uint32_t blockCount,
+apple2CoreResult apple2CoreAttachSmartPortDevice(apple2Core* core, uint8_t unit,
+                                                 uint32_t blockCount,
                                                  apple2SmartPortReadBlockFunction readBlock,
-                                                 apple2SmartPortWriteBlockFunction writeBlock, void *context)
+                                                 apple2SmartPortWriteBlockFunction writeBlock,
+                                                 void* context)
 {
-  return apple2CoreAttachBlockDevice(core, apple2SmartPortSlot, unit, blockCount, false, readBlock, writeBlock,
-                                     context);
+  return apple2CoreAttachBlockDevice(core, apple2SmartPortSlot, unit, blockCount, false, readBlock,
+                                     writeBlock, context);
 }
 
-apple2CoreResult apple2CoreDetachSmartPortDevice(apple2Core *core, uint8_t unit)
+apple2CoreResult apple2CoreDetachSmartPortDevice(apple2Core* core, uint8_t unit)
 {
   return apple2CoreDetachBlockDevice(core, apple2SmartPortSlot, unit);
 }
 
-apple2CoreResult apple2CoreAttachSlotIoDevice(apple2Core *core, uint8_t slot,
+apple2CoreResult apple2CoreAttachSlotIoDevice(apple2Core* core, uint8_t slot,
                                               apple2SlotIoReadFunction readRegister,
-                                              apple2SlotIoWriteFunction writeRegister, void *context)
+                                              apple2SlotIoWriteFunction writeRegister,
+                                              void* context)
 {
   if (core == NULL || slot < 1 || slot > 2 || readRegister == NULL || writeRegister == NULL ||
       core->slotIoDevices[slot - 1].attached)
@@ -1879,7 +1968,7 @@ apple2CoreResult apple2CoreAttachSlotIoDevice(apple2Core *core, uint8_t slot,
   return apple2CoreOk;
 }
 
-apple2CoreResult apple2CoreDetachSlotIoDevice(apple2Core *core, uint8_t slot)
+apple2CoreResult apple2CoreDetachSlotIoDevice(apple2Core* core, uint8_t slot)
 {
   if (core == NULL || slot < 1 || slot > 2)
   {
