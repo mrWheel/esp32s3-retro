@@ -52,7 +52,7 @@ The supported SD image layout is flat: image files reside directly in `/retro/im
 
 ### Storage boundaries
 
-- Whole-image operations (upload, download, copy, rename, delete, replace) target the physical SD card only. Complete disk images in LittleFS, including the firmware-provided `system.dsk` images, are never uploaded, replaced, copied over, renamed or deleted by the manager.
+- Whole-image operations (upload, copy, rename, delete, replace) target the physical SD card only. Downloads can also read supported disk-image files listed directly in `/littlefs/<OS>/`. LittleFS images are never uploaded, replaced, copied over, renamed or deleted as complete images by the manager.
 - Guest-file operations may also target the disk images in LittleFS (for example `/littlefs/<OS>/system.dsk`). They are limited to writing, replacing, renaming and deleting individual files or programs inside the image; the image container itself stays in place with unchanged size and geometry. This is allowed regardless of whether the emulator maps the image `RO` or `RW`: the emulator's `RO` setting applies to the emulator only, exactly as for SD images.
 - LittleFS has little free space: guest-file writes in LittleFS images must stay within the existing image size, use the same journal/undo protection as SD images (the journal for a LittleFS image is kept in LittleFS next to the image) and report a clear error when the image or LittleFS is full.
 - `drives.cfg` lives in LittleFS (`/littlefs/<OS>/drives.cfg`) and can be transferred by its dedicated workflow. Manager recovery/journal files are protected from ordinary file operations.
@@ -70,7 +70,7 @@ The supported SD image layout is flat: image files reside directly in `/retro/im
 
 ### Whole-image and SD image-file operations
 
-The manager supports selecting and transferring complete image files between the host and SD card, copying images between SD image directories, and managing image files on the SD card. It can list files, download, upload, copy, rename, and delete images; replacement and deletion require explicit user action. Preserved replacement backups can be restored through the recovery workflow.
+The manager supports selecting and transferring complete image files between the host and SD card, downloading supported images from LittleFS, copying images between SD image directories, and managing image files on the SD card. It can list files, download, upload, copy, rename, and delete SD images; replacement and deletion require explicit user action. Preserved replacement backups can be restored through the recovery workflow.
 
 Whole-image operations treat the image as opaque bytes. The manager reports whether an image is referenced by a configured drive, but does not silently alter `drives.cfg`. Supported image filename extensions are `.dsk`, `.img`, `.po`, `.woz`, and `.2mg`; an extension does not establish that the guest filesystem inside an image is supported.
 
@@ -116,8 +116,8 @@ The current HTTP surface is:
 | --- | --- | --- |
 | `GET` | `/` | Serve the manager application. |
 | `GET` | `/api/help?id=...` | Serve a help fragment from LittleFS. |
-| `GET` | `/api/list` | List permitted SD image-directory entries and mapping state. |
-| `GET` | `/api/file` | Download an SD file. |
+| `GET` | `/api/list` | List SD image-directory entries and mapping state, plus the selected OS's LittleFS image names and sizes. LittleFS entries are read-only download sources. |
+| `GET` | `/api/file` | Download an SD file or a listed LittleFS disk image for a known OS. |
 | `PUT` | `/api/file` | Upload an SD file, subject to path and file-type protections. |
 | `DELETE` | `/api/file` | Delete an eligible SD file. |
 | `POST` | `/api/images/copy` | Copy an image to another permitted image path. |

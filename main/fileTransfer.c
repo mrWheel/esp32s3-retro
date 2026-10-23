@@ -309,6 +309,29 @@ static bool driveConfigurationLittlefsPath(const char* relative, char* absolute,
   return false;
 }
 
+static bool littlefsImagePath(const char* relative, char* absolute, size_t capacity)
+{
+  for (size_t index = 0; index < sizeof(imageMachineIds) / sizeof(imageMachineIds[0]); ++index)
+  {
+    size_t machineLength = strlen(imageMachineIds[index]);
+    if (strncmp(relative, imageMachineIds[index], machineLength) != 0 ||
+        relative[machineLength] != '/')
+    {
+      continue;
+    }
+    const char* imageName = relative + machineLength + 1;
+    if (imageName[0] == '\0' || strchr(imageName, '/') != NULL || !pathIsSafe(imageName) ||
+        !isDiskImagePath(imageName))
+    {
+      return false;
+    }
+    int pathLength =
+        snprintf(absolute, capacity, "%s/%s/%s", littlefsRoot, imageMachineIds[index], imageName);
+    return pathLength >= 0 && (size_t)pathLength < capacity;
+  }
+  return false;
+}
+
 static bool isLittlefsPath(const char* path)
 {
   return strncmp(path, "/littlefs/", strlen("/littlefs/")) == 0;
@@ -482,6 +505,35 @@ static esp_err_t listHandler(httpd_req_t* request)
   {
     return respond(request, "404 Not Found", "Directory unavailable");
   }
+  const char* listRelative = path + strlen(areaRoot(area));
+  DIR* littlefsDirectory = NULL;
+  if (area == imageArea && listRelative[0] == '/')
+  {
+    const char* osId = listRelative + 1;
+    for (size_t index = 0; index < sizeof(imageMachineIds) / sizeof(imageMachineIds[0]); ++index)
+    {
+      if (strcmp(osId, imageMachineIds[index]) == 0)
+      {
+        char littlefsDirectoryPath[absolutePathCapacity];
+        int pathLength = snprintf(littlefsDirectoryPath, sizeof(littlefsDirectoryPath), "%s/%s",
+                                  littlefsRoot, imageMachineIds[index]);
+        if (pathLength < 0 || (size_t)pathLength >= sizeof(littlefsDirectoryPath))
+        {
+          closedir(directory);
+          return respond(request, "500 Internal Server Error",
+                         "Cannot resolve the LittleFS OS directory");
+        }
+        littlefsDirectory = opendir(littlefsDirectoryPath);
+        if (littlefsDirectory == NULL)
+        {
+          closedir(directory);
+          return respond(request, "500 Internal Server Error",
+                         "Cannot open the LittleFS OS directory");
+        }
+        break;
+      }
+    }
+  }
   httpd_resp_set_type(request, "application/json");
   httpd_resp_set_hdr(request, "Cache-Control", "no-store");
   esp_err_t result = httpd_resp_sendstr_chunk(request, "[");
@@ -535,7 +587,6 @@ static esp_err_t listHandler(httpd_req_t* request)
   }
   closedir(directory);
   //-- drives.cfg is stored in LittleFS; list it with the images of its OS.
-  const char* listRelative = path + strlen(areaRoot(area));
   char littlefsConfigPath[absolutePathCapacity];
   char configRelative[relativePathCapacity];
   struct stat configInfo;
@@ -550,6 +601,42 @@ static esp_err_t listHandler(httpd_req_t* request)
              "%s{\"name\":\"drives.cfg\",\"directory\":false,\"size\":%llu,\"mapped\":false}",
              first ? "" : ",", (unsigned long long)configInfo.st_size);
     result = httpd_resp_sendstr_chunk(request, row);
+    first = false;
+  }
+  if (result == ESP_OK && area == imageArea && listRelative[0] == '/')
+  {
+    struct dirent* littlefsEntry;
+    while (result == ESP_OK && !atomic_load(&stopping) && littlefsDirectory != NULL &&
+           (littlefsEntry = readdir(littlefsDirectory)) != NULL)
+    {
+      if (!pathIsSafe(littlefsEntry->d_name) || strchr(littlefsEntry->d_name, '/') != NULL ||
+          !isDiskImagePath(littlefsEntry->d_name))
+      {
+        continue;
+      }
+      char littlefsImage[absolutePathCapacity];
+      int imageLength = snprintf(littlefsImage, sizeof(littlefsImage), "%s%s/%s", littlefsRoot,
+                                 listRelative, littlefsEntry->d_name);
+      struct stat imageInfo;
+      if (imageLength < 0 || (size_t)imageLength >= sizeof(littlefsImage) ||
+          stat(littlefsImage, &imageInfo) != 0 || !S_ISREG(imageInfo.st_mode))
+      {
+        result = ESP_FAIL;
+        break;
+      }
+      char row[224];
+      snprintf(row, sizeof(row),
+               "%s{\"name\":\"%.64s\",\"directory\":false,\"size\":%llu,"
+               "\"mapped\":false,\"littlefs\":true}",
+               first ? "" : ",", littlefsEntry->d_name, (unsigned long long)imageInfo.st_size);
+      result = httpd_resp_sendstr_chunk(request, row);
+      first = false;
+      vTaskDelay(1);
+    }
+  }
+  if (littlefsDirectory != NULL)
+  {
+    closedir(littlefsDirectory);
   }
   if (result != ESP_OK || atomic_load(&stopping))
   {
@@ -559,11 +646,27 @@ static esp_err_t listHandler(httpd_req_t* request)
   return result == ESP_OK ? httpd_resp_send_chunk(request, NULL, 0) : result;
 }
 
+static bool resolveLittlefsImageDownload(httpd_req_t* request, char* path, size_t capacity)
+{
+  static const char queryPrefix[] = "area=littlefs&path=";
+  char query[800];
+  char relative[relativePathCapacity];
+  if (httpd_req_get_url_query_str(request, query, sizeof(query)) != ESP_OK ||
+      strncmp(query, queryPrefix, sizeof(queryPrefix) - 1) != 0)
+  {
+    return false;
+  }
+  const char* encodedPath = query + sizeof(queryPrefix) - 1;
+  return strchr(encodedPath, '&') == NULL && pathDecode(encodedPath, relative, sizeof(relative)) &&
+         littlefsImagePath(relative, path, capacity);
+}
+
 static esp_err_t downloadHandler(httpd_req_t* request)
 {
   char path[absolutePathCapacity];
   fileArea area;
-  if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path), &area))
+  if (!acceptingRequests(request) || (!resolveLittlefsImageDownload(request, path, sizeof(path)) &&
+                                      !resolveRequest(request, path, sizeof(path), &area)))
   {
     return ESP_OK;
   }

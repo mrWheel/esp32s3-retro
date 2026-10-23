@@ -447,8 +447,8 @@ const state =
 {
   screen: "home",
   functionId: null,
-  machine: "cpm80",
-  managerMachine: "cpm80"
+  machine: "",
+  managerMachine: ""
 };
 const hostFiles = new Map();
 const app = document.getElementById("app");
@@ -476,10 +476,10 @@ function escapeHtml(value)
   });
 }
 
-function machineOptions(selected)
+function machineOptions()
 {
-  return machines.map(([id, label]) =>
-    `<option value="${id}"${id === selected ? " selected" : ""}>${label}</option>`).join("");
+  return `<option value="" selected>Select OS directory</option>` + machines.map(([id, label]) =>
+    `<option value="${id}">${label}</option>`).join("");
 }
 
 function showStatus(message)
@@ -644,6 +644,11 @@ function applyDroppedFiles(kind, collected)
   if (kind === "images")
   {
     const machine = element("uploadMachine").value;
+    if (!machine)
+    {
+      showStatus("Select a destination OS directory before adding disk images.");
+      return;
+    }
     hostFiles.set(machine, mergeFiles(hostFiles.get(machine) || [], collected.files));
     refreshImageUploadPreview();
   }
@@ -722,13 +727,14 @@ function helpContent()
       "<li>Data goes to free blocks first and the directory is updated last through an undo journal, so a power loss leaves either the old or the new state, never a half file.</li>" +
       "<li>The list of files already in the image can be opened under “Files already in this image”.</li></ul>",
     "image-computer-download":
-      "<h3>Purpose</h3><p>Download a complete disk image (or drives.cfg) from the SD card to your computer.</p>" +
+      "<h3>Purpose</h3><p>Download a complete disk image from the SD card or a LittleFS OS image, or download drives.cfg, to your computer.</p>" +
       "<h3>Steps</h3><ol>" +
-      "<li>Choose the <b>Source OS directory</b> and press <b>List images</b> if the list is not filled yet.</li>" +
-      "<li>Choose the item in <b>Copy From</b>. The first entry, drives.cfg, is always present; an error is shown if it does not exist in LittleFS.</li>" +
+      "<li>Choose the <b>Source OS directory</b>. The dropdown then lists disk images from both the SD card and that OS's LittleFS folder.</li>" +
+      "<li>Choose the item in <b>Copy From</b>. drives.cfg is listed first; images found in the selected OS's LittleFS directory are listed with their actual filenames.</li>" +
       "<li>Press <b>Download selected item</b>.</li></ol>" +
       "<h3>Details</h3><ul>" +
       "<li>The complete image container is downloaded byte for byte; this is not a download of the guest files inside it (use SD → Computer → Files from a disk image for that).</li>" +
+      "<li>LittleFS images are available for download only as complete images. Use the guest-file workflows to read or write individual files inside them.</li>" +
       "<li>Browsers with the secure File System Access save picker ask for the destination when you start. Other browsers use their normal download behavior; enable “Ask where to save each file” in the browser settings if you want a destination picker.</li>" +
       "<li>Large images take a while; the progress bar shows the transfer.</li></ul>",
     "guest-computer-download":
@@ -849,9 +855,9 @@ function renderImageUpload()
     <p>Drop disk image files from your Computer to upload them to /retro/images/&lt;OS&gt;/ on the SD card.</p>
     <div class="row">
       <label class="field">Destination OS directory
-        <select id="uploadMachine">${machineOptions(state.machine)}</select>
+        <select id="uploadMachine">${machineOptions()}</select>
       </label>
-      <span class="muted">Target: /retro/images/<span id="uploadMachineLabel">${state.machine}</span>/</span>
+      <span class="muted">Target: /retro/images/<span id="uploadMachineLabel">—</span>/</span>
     </div>
     <label class="field">Copy From — Computer item type
       <select id="uploadKind">
@@ -887,7 +893,7 @@ function renderImageUpload()
           <input id="configFile" type="file" accept=".cfg,.txt,text/plain">
         </label>
         <button id="configUploadButton" type="submit">Copy drives.cfg to LittleFS</button>
-        <p class="muted">Target: /littlefs/<span id="configTargetLabel">${state.machine}</span>/drives.cfg (LittleFS). Only this one file is written; no disk image is touched. The file must be plain text (at most 16384 bytes, lines of at most 254 characters). The existing drives.cfg is replaced after confirmation; a failed upload leaves it unchanged. The emulator reads it at its next start.</p>
+        <p class="muted">Target: /littlefs/<span id="configTargetLabel">—</span>/drives.cfg (LittleFS). Only this one file is written; no disk image is touched. The file must be plain text (at most 16384 bytes, lines of at most 254 characters). The existing drives.cfg is replaced after confirmation; a failed upload leaves it unchanged. The emulator reads it at its next start.</p>
       </form>
     </div>`;
 }
@@ -897,9 +903,9 @@ function renderImageDownload()
   return `<h2>${escapeHtml(functions[2].title)}</h2>
     <div class="row">
       <label class="field">Source OS directory
-        <select id="downloadMachine">${machineOptions(state.machine)}</select>
+        <select id="downloadMachine">${machineOptions()}</select>
       </label>
-      <span class="muted">Source: /retro/images/<span id="downloadMachineLabel">${state.machine}</span>/</span>
+      <span class="muted">Source: /retro/images/<span id="downloadMachineLabel">—</span>/</span>
     </div>
     <label class="field">Copy From — whole image container or drives.cfg
       <select id="downloadImage"><option value="">Select an image</option></select>
@@ -913,7 +919,7 @@ function renderImageCopy()
   return `<h2>${escapeHtml(functions[5].title)}</h2>
     <div class="row">
       <label class="field">Source Path — OS directory
-        <select id="copySourceMachine">${machineOptions(state.machine)}</select>
+        <select id="copySourceMachine">${machineOptions()}</select>
       </label>
     </div>
     <label class="field">Copy From — whole image container
@@ -921,7 +927,7 @@ function renderImageCopy()
     </label>
     <div class="row">
       <label class="field">Destination Path — OS directory
-        <select id="copyDestinationMachine">${machineOptions(state.machine)}</select>
+        <select id="copyDestinationMachine">${machineOptions()}</select>
       </label>
     </div>
     <label class="field">Copy To — new whole-image filename (do not include a directory)
@@ -937,7 +943,7 @@ function renderManager()
   return `<h2>Browse and manage SD image files</h2>
     <div class="row">
       <label class="field">OS directory
-        <select id="managerMachine">${machineOptions(state.managerMachine)}</select>
+        <select id="managerMachine">${machineOptions()}</select>
       </label>
       <button type="button" id="managerRefresh">Refresh</button>
     </div>
@@ -1056,17 +1062,27 @@ async function loadImageOptions(prefix)
   try
   {
     const directory = element(prefix === "download" ? "downloadMachine" : "copySourceMachine").value;
-    const entries = await listPath("images", directory);
     const select = element(prefix === "download" ? "downloadImage" : "copySourceImage");
     select.replaceChildren(new Option(prefix === "download" ? "Select an image" : "Select a source image", ""));
+    if (!directory)
+    {
+      return;
+    }
+    const entries = await listPath("images", directory);
     if (prefix === "download")
     {
       const configuration = entries.find((item) => !item.directory && item.name === "drives.cfg");
-      const configurationState = configuration ? `${configuration.size} bytes` : "not present on the SD card";
+      const configurationState = configuration ? `${configuration.size} bytes` : "not present in LittleFS";
       select.add(new Option(`drives.cfg — drive configuration (${configurationState})`,
         imagePath(directory, "drives.cfg")));
+      for (const entry of entries.filter((item) => item.littlefs && /\.(dsk|img|po|woz|2mg)$/i.test(item.name)))
+      {
+        select.add(new Option(`${entry.name} (${entry.size} bytes — LittleFS image)`,
+          `littlefs.${directory}/${entry.name}`));
+      }
     }
-    for (const entry of entries.filter((item) => !item.directory && /\.(dsk|img|po|woz|2mg)$/i.test(item.name)))
+    for (const entry of entries.filter((item) => !item.directory && !item.littlefs &&
+      /\.(dsk|img|po|woz|2mg)$/i.test(item.name)))
     {
       const relative = imagePath(directory, entry.name);
       const mapping = entry.mapped ? " — mapped (manager access allowed)" : " — unassigned";
@@ -1161,7 +1177,10 @@ function downloadUrl(url, name)
 
 async function downloadImageToComputer(path, name)
 {
-  await downloadToComputer(`/api/file${apiPath("images", path)}`, name);
+  const littlefsImage = path.startsWith("littlefs.");
+  const area = littlefsImage ? "littlefs" : "images";
+  const relative = littlefsImage ? path.slice("littlefs.".length) : path;
+  await downloadToComputer(`/api/file${apiPath(area, relative)}`, name);
 }
 
 async function downloadToComputer(url, name)
@@ -1280,12 +1299,13 @@ function transferUpload(area, path, file, overwrite, progressLabel)
 async function imageUploadPlan(machine)
 {
   const files = hostFiles.get(machine) || [];
-  if (files.length === 0)
+  if (!machine || files.length === 0)
   {
     return [];
   }
   const entries = await listPath("images", machine);
-  const existing = new Map(entries.filter((entry) => !entry.directory).map((entry) => [entry.name.toLowerCase(), entry]));
+  const existing = new Map(entries.filter((entry) => !entry.directory && !entry.littlefs)
+    .map((entry) => [entry.name.toLowerCase(), entry]));
   const overwrite = element("overwrite").checked;
   const seen = new Set();
   return files.map((file) =>
@@ -1329,6 +1349,8 @@ async function refreshImageUploadPreview()
   }
   const token = ++imagePreviewToken;
   const machine = element("uploadMachine").value;
+  element("uploadMachineLabel").textContent = machine || "—";
+  element("configTargetLabel").textContent = machine || "—";
   let plan;
   try
   {
@@ -1369,16 +1391,21 @@ async function refreshImageUploadPreview()
   const todo = plan.filter((item) => item.accepted);
   const skipped = plan.filter((item) => item.result === "Exists: will be skipped").length;
   const rejected = plan.length - todo.length - skipped;
-  element("imageUploadHeader").textContent = `Destination: /retro/images/${machine}/ on the SD card.`;
+  element("imageUploadHeader").textContent = machine ?
+    `Destination: /retro/images/${machine}/ on the SD card.` : "Select an OS directory before adding or copying images.";
   element("imageUploadTotals").textContent = plan.length === 0 ? "No files in the list." :
     `${plan.length} file(s): ${todo.length} will be written (${formatBytes(todo.reduce((sum, item) => sum + item.file.size, 0))}), ` +
     `${skipped} skipped, ${rejected} rejected.`;
-  element("uploadButton").disabled = imageUploadBusy || (plan.length > 0 && todo.length === 0);
+  element("uploadButton").disabled = !machine || imageUploadBusy || (plan.length > 0 && todo.length === 0);
 }
 
 async function submitImageUpload()
 {
   const machine = element("uploadMachine").value;
+  if (!machine)
+  {
+    throw new Error("Select a destination OS directory first.");
+  }
   const plan = await imageUploadPlan(machine);
   if (plan.length === 0)
   {
@@ -1431,10 +1458,15 @@ async function submitImageUpload()
 async function refreshManager()
 {
   state.managerMachine = element("managerMachine").value;
-  const rows = await listPath("images", state.managerMachine);
-  element("managerLocation").textContent = `/retro/images/${state.managerMachine}/`;
   const body = element("managerEntries");
   body.replaceChildren();
+  if (!state.managerMachine)
+  {
+    element("managerLocation").textContent = "Select an OS directory.";
+    return;
+  }
+  const rows = (await listPath("images", state.managerMachine)).filter((entry) => !entry.littlefs);
+  element("managerLocation").textContent = `/retro/images/${state.managerMachine}/`;
   rows.sort((first, second) => Number(second.directory) - Number(first.directory) || first.name.localeCompare(second.name));
   for (const entry of rows)
   {
@@ -1582,7 +1614,7 @@ function formatBytes(bytes)
 
 function guestPicker(slot, title, options)
 {
-  const machineChoices = guestMachineIds.map((id) =>
+  const machineChoices = `<option value="" selected>Select OS directory</option>` + guestMachineIds.map((id) =>
     `<option value="${id}">${escapeHtml(machines.find((item) => item[0] === id)[1])}</option>`).join("");
   const userChoices = (options.allUsers ? `<option value="all">All user areas</option>` : "") +
     Array.from({length: 16}, (unused, user) => `<option value="${user}">User ${user}</option>`).join("");
@@ -1742,10 +1774,16 @@ async function loadGuestImages(slot)
   const machine = element(`${slot}Machine`).value;
   const select = element(`${slot}Image`);
   select.replaceChildren(new Option("Select an image", ""));
+  if (!machine)
+  {
+    await loadGuestListing(slot);
+    return;
+  }
   try
   {
     const entries = await listPath("images", machine);
-    for (const entry of entries.filter((item) => !item.directory && guestImagePattern.test(item.name)))
+    for (const entry of entries.filter((item) => !item.directory && !item.littlefs &&
+      guestImagePattern.test(item.name)))
     {
       select.add(new Option(`${entry.name} (${entry.size} bytes)`, imagePath(machine, entry.name)));
     }
@@ -2240,7 +2278,7 @@ async function copyGuestFiles()
 
 function renderFileGuestCopy()
 {
-  const machineChoices = (id) => guestMachineIds.map((machine) =>
+  const machineChoices = () => `<option value="" selected>Select OS directory</option>` + guestMachineIds.map((machine) =>
     `<option value="${machine}">${escapeHtml(machines.find((item) => item[0] === machine)[1])}</option>`).join("");
   return `<h2>${escapeHtml(functions[8].title)}</h2>
     <section class="card">
@@ -2279,6 +2317,10 @@ async function loadSdFiles()
   const machine = element("sdSourceMachine").value;
   const select = element("sdSourceFile");
   select.replaceChildren(new Option("Select a file", ""));
+  if (!machine)
+  {
+    return;
+  }
   try
   {
     const entries = await listPath("images", machine);
@@ -2334,12 +2376,18 @@ async function copyGuestFilesToSd()
     throw new Error("Select a guest image and at least one file.");
   }
   const machine = element("sdTargetMachine").value;
+  if (!machine)
+  {
+    throw new Error("Select an SD target OS directory.");
+  }
   const typed = element("guestToSdName").value.trim();
   if (typed && selected.length !== 1)
   {
     throw new Error("A single SD file name can only be used when exactly one guest file is selected.");
   }
-  const existing = new Set((await listPath("images", machine)).filter((item) => !item.directory).map((item) => item.name.toLowerCase()));
+  const existing = new Set((await listPath("images", machine))
+    .filter((item) => !item.directory && !item.littlefs)
+    .map((item) => item.name.toLowerCase()));
   const targets = selected.map((entry) => ({entry, name: typed || entry.name}));
   const collisions = targets.filter((target) => existing.has(target.name.toLowerCase()));
   if (collisions.length > 0 &&
@@ -2795,8 +2843,8 @@ element("app").addEventListener("change", (event) =>
   }
   if (id === "uploadMachine")
   {
-    element("uploadMachineLabel").textContent = event.target.value;
-    element("configTargetLabel").textContent = event.target.value;
+    element("uploadMachineLabel").textContent = event.target.value || "—";
+    element("configTargetLabel").textContent = event.target.value || "—";
     refreshImageUploadPreview();
   }
   if (id === "uploadKind")
@@ -2807,7 +2855,7 @@ element("app").addEventListener("change", (event) =>
   }
   if (id === "downloadMachine")
   {
-    element("downloadMachineLabel").textContent = event.target.value;
+    element("downloadMachineLabel").textContent = event.target.value || "—";
   }
   if (id === "managerMachine")
   {
@@ -2897,13 +2945,14 @@ element("app").addEventListener("click", (event) =>
     run(async () =>
     {
       const source = element("copySourceImage").value;
+      const destinationMachine = element("copyDestinationMachine").value;
       const destinationName = element("copyDestinationName").value.trim();
-      if (!source || !destinationName || destinationName.includes("/") ||
+      if (!source || !destinationMachine || !destinationName || destinationName.includes("/") ||
           !/\.(dsk|img|po|woz|2mg)$/i.test(destinationName))
       {
-        throw new Error("Select a source image and enter a new disk-image filename without a directory.");
+        throw new Error("Select source and destination OS directories, a source image and a new disk-image filename without a directory.");
       }
-      const destination = imagePath(element("copyDestinationMachine").value, destinationName);
+      const destination = imagePath(destinationMachine, destinationName);
       const overwrite = element("copyOverwrite").checked;
       if (overwrite && !confirm(`Replace ${destination}? It may be mapped in drives.cfg, including as RO. The mapping will not be changed; the existing image is preserved during commit.`))
       {
@@ -2948,6 +2997,10 @@ element("app").addEventListener("submit", (event) =>
     run(async () =>
     {
       const machine = element("uploadMachine").value;
+      if (!machine)
+      {
+        throw new Error("Select a destination OS directory first.");
+      }
       const files = Array.from(element("configFile").files);
       if (files.length !== 1)
       {

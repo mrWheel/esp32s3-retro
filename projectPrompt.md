@@ -516,9 +516,9 @@ Do not delay the first working version for optional features.
 
 ### Scope and security
 
-The browser file server exposes only `/retro/exchange/` and `/retro/images/` on the physical SD card. It must not access LittleFS or any other SD path. The GUI must let the user select a machine (`cpm80`, `cpm86`, `ucsd`, `apple2` or `swtpc`) and a transfer type. Loose files go under `/retro/exchange/<machine>/` so the selected guest can access them (CP/M `HOST DIR` reads `/retro/exchange/cpm80/`); disk images go under `/retro/images/<machine>/`. The GUI must show each item's full VFS path (for example `/microSD/retro/exchange/cpm80/FILE.TXT`) beside its name. File Transfer runs separately from emulators, so browser writes cannot modify an active guest disk image.
+The general browser file-transfer area exposes only `/retro/exchange/` and `/retro/images/` on the physical SD card; it must not access other SD paths or provide general LittleFS file browsing. Dedicated Disk Image Manager workflows may access LittleFS only for `drives.cfg`, guest-file operations, and read-only complete-image downloads of disk-image files directly inside a known `/littlefs/<OS>/` directory. They must not upload, replace, copy, rename or delete a LittleFS image as a complete image. The GUI must let the user select a machine (`cpm80`, `cpm86`, `ucsd`, `apple2` or `swtpc`) and a transfer type. Loose files go under `/retro/exchange/<machine>/` so the selected guest can access them (CP/M `HOST DIR` reads `/retro/exchange/cpm80/`); disk images go under `/retro/images/<machine>/`. The GUI must show each item's full VFS path (for example `/microSD/retro/exchange/cpm80/FILE.TXT`) beside its name. File Transfer runs separately from emulators, so browser writes cannot modify an active guest disk image.
 
-Normalize and validate every requested path. Reject ../, encoded traversal, absolute-path escape, and any resolved path outside the two permitted roots.
+Normalize and validate every requested path. Reject ../, encoded traversal, absolute-path escape, and any resolved path outside the permitted SD roots or the explicitly allowlisted LittleFS paths above.
 
 Never directly concatenate an untrusted URL path into a filesystem path.
 
