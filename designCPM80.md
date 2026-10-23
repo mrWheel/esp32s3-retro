@@ -203,7 +203,7 @@ D=/retro/images/cpm80/languages.dsk,RW,BIG
 E=/retro/images/cpm80/Utility.dsk,RW,LARGE
 ```
 
-The configuration file is `/microSD/retro/images/cpm80/drives.cfg`. Each non-comment line has the form:
+The configuration file is `/littlefs/cpm80/drives.cfg`. Each non-comment line has the form:
 
 ```text
 drive=/path/to/image,RO|RW,SYSTEM|LARGE|BIG

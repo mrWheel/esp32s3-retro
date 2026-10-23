@@ -7,14 +7,16 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
-static const machineResource cpm80Resources[] = {{"/littlefs/cpm80/system.dsk", cpm80SystemImageSize}};
-static const machineResource cpm86Resources[] = {{"/littlefs/cpm86/cpm.sys", cpm86SystemFileSize},
-                                                 {"/littlefs/cpm86/retro86bios.h86", 1},
-                                                 {"/littlefs/cpm86/system.dsk", cpm86SystemDiskSize}};
-static const char *apple2ConfigPath = "/littlefs/apple2/config.cfg";
-static const char *ucsdConfigPath = "/littlefs/ucsd/config.cfg";
+static const machineResource cpm80Resources[] = {
+    {"/littlefs/cpm80/system.dsk", cpm80SystemImageSize}};
+static const machineResource cpm86Resources[] = {
+    {"/littlefs/cpm86/cpm.sys", cpm86SystemFileSize},
+    {"/littlefs/cpm86/retro86bios.h86", 1},
+    {"/littlefs/cpm86/system.dsk", cpm86SystemDiskSize}};
+static const char* apple2ConfigPath = "/littlefs/apple2/drives.cfg";
+static const char* ucsdConfigPath = "/littlefs/ucsd/drives.cfg";
 
-static machineState probeMachine(const retroMachine *machine)
+static machineState probeMachine(const retroMachine* machine)
 {
   if (!machine->implemented)
   {
@@ -27,7 +29,7 @@ static machineState probeMachine(const retroMachine *machine)
   for (size_t index = 0; index < machine->resourceCount; ++index)
   {
     struct stat info;
-    const machineResource *resource = &machine->requiredResources[index];
+    const machineResource* resource = &machine->requiredResources[index];
     if (stat(resource->path, &info) != 0)
     {
       return machineMissingResource;
@@ -50,7 +52,7 @@ static void runPlaceholder(void)
   puts("Not implemented yet.");
 }
 
-static machineState probeApple2(const retroMachine *machine)
+static machineState probeApple2(const retroMachine* machine)
 {
   return apple2MachineProbeWithConfig(machine, apple2ConfigPath);
 }
@@ -60,7 +62,7 @@ static esp_err_t initializeApple2(void)
   return apple2MachineInitializeWithConfig(apple2ConfigPath);
 }
 
-static machineState probeUcsd(const retroMachine *machine)
+static machineState probeUcsd(const retroMachine* machine)
 {
   return apple2MachineProbeWithConfig(machine, ucsdConfigPath);
 }
@@ -71,29 +73,31 @@ static esp_err_t initializeUcsd(void)
 }
 
 static const retroMachine machines[] = {
-    {"CP/M-80", "cpm80", "designCPM80.md", true, false, cpm80Resources, 1, cpm80MachineProbe, cpm80MachineInitialize,
-     cpm80MachineRun},
-    {"CP/M-86", "cpm86", "designCPM86.md", true, false, cpm86Resources, 3, cpm86MachineProbe, cpm86MachineInitialize,
-     cpm86MachineRun},
-    {"UCSD Pascal", "ucsd", "designUCSD.md", true, false, NULL, 0, probeUcsd, initializeUcsd, apple2MachineRun},
+    {"CP/M-80", "cpm80", "designCPM80.md", true, false, cpm80Resources, 1, cpm80MachineProbe,
+     cpm80MachineInitialize, cpm80MachineRun},
+    {"CP/M-86", "cpm86", "designCPM86.md", true, false, cpm86Resources, 3, cpm86MachineProbe,
+     cpm86MachineInitialize, cpm86MachineRun},
+    {"UCSD Pascal", "ucsd", "designUCSD.md", true, false, NULL, 0, probeUcsd, initializeUcsd,
+     apple2MachineRun},
     {"Apple II", "apple2", "designApple2.md", true, false, NULL, 0, probeApple2, initializeApple2,
      apple2MachineRun},
-    {"SWTPC 6800", "swtpc", "designSWTPC.md", false, false, NULL, 0, probeMachine, initializePlaceholder,
-     runPlaceholder}};
+    {"SWTPC 6800", "swtpc", "designSWTPC.md", false, false, NULL, 0, probeMachine,
+     initializePlaceholder, runPlaceholder}};
 
 size_t machineCount(void)
 {
   return sizeof(machines) / sizeof(machines[0]);
 }
 
-const retroMachine *machineGet(size_t index)
+const retroMachine* machineGet(size_t index)
 {
   return index < machineCount() ? &machines[index] : NULL;
 }
 
-const char *machineStateText(machineState state)
+const char* machineStateText(machineState state)
 {
-  static const char *names[] = {"available", "not implemented", "missing resource", "SD required", "invalid resource"};
+  static const char* names[] = {"available", "not implemented", "missing resource", "SD required",
+                                "invalid resource"};
   return (unsigned)state < sizeof(names) / sizeof(names[0]) ? names[state] : "unknown";
 }
 
@@ -104,6 +108,7 @@ void machineInspectResources(void)
     char path[64];
     snprintf(path, sizeof(path), "/littlefs/%s", machines[index].id);
     printf("%s: %s; design: %s\n", path,
-           storageDirectoryExists(path) ? "directory present" : "directory missing", machines[index].design);
+           storageDirectoryExists(path) ? "directory present" : "directory missing",
+           machines[index].design);
   }
 }

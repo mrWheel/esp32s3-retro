@@ -78,7 +78,7 @@ OS_REGISTRY = {
             "  BIG     2049 tracks x 8 x 512 B (8392704 bytes), 16 KiB blocks, 512 directory\n"
             "          entries; drives B: through F: (RETRO86_DATA_BIG_V1)\n"
             "Files need CP/M 8.3 names (upper-cased automatically); user area 0.\n"
-            "prepareSd.py creates /retro/images/cpm86/drives.cfg; edit its image paths\n"
+            "The drive configuration is littlefs/cpm86/drives.cfg; edit its image paths\n"
             "and RO/RW access modes. buildDiskImage.py needs --source-dir with CPM.SYS\n"
             "and the .CMD utilities."
         ),

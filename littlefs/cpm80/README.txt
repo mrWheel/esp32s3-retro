@@ -14,7 +14,7 @@ directory command; STAT supplies disk status in place of a separate SHOW.COM
 or SDIR.COM. SUBMIT.COM is included, but its patched build writes $$$.SUB on
 read-only A: and cannot submit jobs with the current access policy.
 
-Optional SD images map to B:–F: using /retro/images/cpm80/drives.cfg. The config
+Optional SD images map to B:–F: using /littlefs/cpm80/drives.cfg. The config
 maps a drive letter to an image path, RO/RW access and SYSTEM/LARGE disk
 profile. SYSTEM is 256,256 bytes (77 tracks × 26 128-byte sectors); LARGE is
 512,512 bytes (77 tracks × 52 sectors, 2 KiB allocation blocks and 128

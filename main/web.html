@@ -419,7 +419,6 @@ details.fileList summary
   </div>
   <form method="dialog" class="dialog-actions"><button>Done</button></form>
 </dialog>
-<input id="computerFolderInput" type="file" webkitdirectory multiple accept=".dsk,.img,.po,.woz,.2mg" hidden>
 <script>
 "use strict";
 const machines =
@@ -451,14 +450,11 @@ const state =
   machine: "cpm80",
   managerMachine: "cpm80"
 };
-const hostDirectories = new Map();
 const hostFiles = new Map();
-const hostDirectoryNames = new Map();
 const app = document.getElementById("app");
 const menuBar = document.getElementById("menuBar");
 const helpDialog = document.getElementById("helpDialog");
 const element = (id) => document.getElementById(id);
-const directoryDatabaseName = "retroDiskImageManager";
 let guestUploadPending = [];
 let guestUploadBusy = false;
 let imageUploadBusy = false;
@@ -543,107 +539,6 @@ async function api(path, options = {})
     throw new Error(await response.text());
   }
   return response;
-}
-
-function hostDirectoryKey(direction, machine)
-{
-  return `${direction}:${machine}`;
-}
-
-function supportsHostDirectoryAccess()
-{
-  return window.isSecureContext && typeof window.showDirectoryPicker === "function";
-}
-
-function openHostDirectoryDatabase()
-{
-  return new Promise((resolve, reject) =>
-  {
-    if (!window.indexedDB)
-    {
-      reject(new Error("This browser does not provide IndexedDB for remembering Computer folders."));
-      return;
-    }
-    const request = window.indexedDB.open(directoryDatabaseName, 1);
-    request.onupgradeneeded = () =>
-    {
-      request.result.createObjectStore("directories");
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error("Could not open browser folder storage."));
-    request.onblocked = () => reject(new Error("Browser folder storage is blocked by another open manager page."));
-  });
-}
-
-async function saveHostDirectory(direction, machine, handle)
-{
-  const database = await openHostDirectoryDatabase();
-  return new Promise((resolve, reject) =>
-  {
-    const transaction = database.transaction("directories", "readwrite");
-    try
-    {
-      transaction.objectStore("directories").put(handle, hostDirectoryKey(direction, machine));
-    }
-    catch (error)
-    {
-      database.close();
-      reject(error);
-      return;
-    }
-    transaction.oncomplete = () =>
-    {
-      database.close();
-      resolve();
-    };
-    transaction.onerror = () =>
-    {
-      database.close();
-      reject(transaction.error || new Error("Could not remember the Computer folder in this browser."));
-    };
-    transaction.onabort = () =>
-    {
-      database.close();
-      reject(transaction.error || new Error("Could not remember the Computer folder in this browser."));
-    };
-  });
-}
-
-async function loadHostDirectory(direction, machine)
-{
-  const database = await openHostDirectoryDatabase();
-  return new Promise((resolve, reject) =>
-  {
-    const transaction = database.transaction("directories", "readonly");
-    const request = transaction.objectStore("directories").get(hostDirectoryKey(direction, machine));
-    request.onsuccess = () =>
-    {
-      database.close();
-      resolve(request.result || null);
-    };
-    request.onerror = () =>
-    {
-      database.close();
-      reject(request.error || new Error("Could not read the remembered Computer folder."));
-    };
-  });
-}
-
-function hostFolderLabelId()
-{
-  return "computerUploadFolder";
-}
-
-function updateHostFolderLabel(machine, message)
-{
-  const label = element(hostFolderLabelId());
-  if (!label)
-  {
-    return;
-  }
-  const pending = hostFiles.get(machine);
-  label.textContent = message || hostDirectoryNames.get(hostDirectoryKey("upload", machine)) ||
-    (pending && pending.length ? `${pending.length} Computer file(s) ready.` : "No Computer directory selected.");
 }
 
 function fileKey(file)
@@ -750,8 +645,6 @@ function applyDroppedFiles(kind, collected)
   {
     const machine = element("uploadMachine").value;
     hostFiles.set(machine, mergeFiles(hostFiles.get(machine) || [], collected.files));
-    hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
-    updateHostFolderLabel(machine);
     refreshImageUploadPreview();
   }
   else if (kind === "guest")
@@ -761,105 +654,6 @@ function applyDroppedFiles(kind, collected)
   }
   showStatus([`Added ${collected.files.length} file(s) to the list. Nothing is copied until you press the Copy button.`,
     ...collected.notes].join("\n"));
-}
-
-function supportedImageFiles(files)
-{
-  return files.filter((file) => /\.(dsk|img|po|woz|2mg)$/i.test(file.name));
-}
-
-async function getFilesInHostDirectory(handle)
-{
-  const files = [];
-  for await (const [name, entry] of handle.entries())
-  {
-    if (entry.kind === "file" && /\.(dsk|img|po|woz|2mg)$/i.test(name))
-    {
-      files.push(await entry.getFile());
-    }
-  }
-  return files;
-}
-
-async function selectHostDirectory()
-{
-  const machine = element("uploadMachine").value;
-  if (!supportsHostDirectoryAccess())
-  {
-    element("computerFolderInput").value = "";
-    element("computerFolderInput").click();
-    return;
-  }
-
-  let handle;
-  try
-  {
-    handle = await window.showDirectoryPicker({mode: "read"});
-  }
-  catch (error)
-  {
-    if (error.name === "AbortError")
-    {
-      return;
-    }
-    throw error;
-  }
-  const key = hostDirectoryKey("upload", machine);
-  hostDirectories.set(key, handle);
-  hostDirectoryNames.set(key, handle.name);
-  try
-  {
-    await saveHostDirectory("upload", machine, handle);
-  }
-  catch (error)
-  {
-    showStatus(`Selected ${handle.name}, but this browser could not remember it: ${error.message}`);
-  }
-
-  const files = supportedImageFiles(await getFilesInHostDirectory(handle));
-  hostFiles.set(machine, files);
-  updateHostFolderLabel(machine,
-    `${handle.name}: ${files.length} supported disk image(s) selected.`);
-  refreshImageUploadPreview();
-  if (files.length === 0)
-  {
-    showStatus(`No supported disk images were found directly inside ${handle.name}.`);
-  }
-}
-
-async function reuseHostDirectory()
-{
-  const machine = element("uploadMachine").value;
-  const key = hostDirectoryKey("upload", machine);
-  const handle = hostDirectories.get(key) || await loadHostDirectory("upload", machine);
-  if (!handle)
-  {
-    showStatus(`No remembered Computer folder exists for ${machine}. Choose a Computer folder first.`);
-    return;
-  }
-
-  let permission = await handle.queryPermission({mode: "read"});
-  if (permission !== "granted")
-  {
-    permission = await handle.requestPermission({mode: "read"});
-  }
-  if (permission !== "granted")
-  {
-    showStatus(`Permission to use ${handle.name} was not granted. Choose the Computer folder again.`);
-    return;
-  }
-
-  hostDirectories.set(key, handle);
-  hostDirectoryNames.set(key, handle.name);
-  const files = supportedImageFiles(await getFilesInHostDirectory(handle));
-  hostFiles.set(machine, files);
-  updateHostFolderLabel(machine,
-    `${handle.name}: ${files.length} supported disk image(s) selected.`);
-  refreshImageUploadPreview();
-  if (files.length === 0)
-  {
-    showStatus(`No supported disk images were found directly inside ${handle.name}.`);
-  }
 }
 
 function helpContent()
@@ -883,7 +677,7 @@ function helpContent()
       "<li><b>Disk image</b>: one file on the SD card (for example .dsk, .po, .img) that contains a complete floppy disk of an emulated machine. Images live in /retro/images/&lt;OS&gt;/ on the SD card.</li>" +
       "<li><b>Guest file</b>: a single file inside a disk image, as the emulated computer sees it.</li>" +
       "<li><b>OS</b>: the emulated machine: CP/M-80, CP/M-86, UCSD Pascal, Apple II or SWTPC 6800. Each has its own image directory.</li>" +
-      "<li><b>drives.cfg</b>: the file per OS that tells the emulator which image is in which drive (RO or RW).</li>" +
+      "<li><b>drives.cfg</b>: the file per OS (stored in LittleFS as /littlefs/&lt;OS&gt;/drives.cfg, next to the system disk) that tells the emulator which image is in which drive (RO or RW).</li>" +
       "</ul>" +
       "<h3>Supported file systems</h3>" +
       "<p>Single files can be listed, copied, renamed and deleted inside CP/M-80, CP/M-86, Apple II (ProDOS and DOS 3.3) and UCSD Pascal images (140K, 640K and 800K Apple images, either sector order). SWTPC 6800 is not yet supported for single files; whole images work for every OS.</p>" +
@@ -891,7 +685,7 @@ function helpContent()
       "<ul>" +
       "<li>This manager runs only from the Retro menu system, and the web server cannot be started while an emulator is active. So no emulator can have an image open while you change it; the changed images are used the next time you start an emulator.</li>" +
       "<li>Every image can be managed, whether its drive is marked RO or RW in drives.cfg. Actions that could break a drive mapping show a warning and ask for confirmation.</li>" +
-      "<li>drives.cfg can only be replaced through Computer → SD (Copy From = drives.cfg). config.cfg is protected and cannot be changed here.</li>" +
+      "<li>drives.cfg can only be replaced through Computer → SD (Copy From = drives.cfg). It is stored in LittleFS.</li>" +
       "<li>The browser, not this page, decides where downloads are saved. Enable “Ask where to save each file” in your browser if you want a save dialog.</li>" +
       "<li>FAT32 on the SD card limits one file to less than 4 GiB.</li>" +
       "<li>Progress and results of an action are shown below the form.</li>" +
@@ -906,15 +700,14 @@ function helpContent()
       "<h3>Steps</h3><ol>" +
       "<li>Choose the <b>Destination OS directory</b>. Images are always written to /retro/images/&lt;OS&gt;/ on the SD card; the target is shown next to the selection.</li>" +
       "<li>Choose <b>Copy From</b>: “Disk images” or “drives.cfg”.</li>" +
-      "<li>For disk images, add files in any of three ways: press <b>Choose Computer folder</b> (all supported images directly inside that folder are added), drag image files or a folder from Finder / File Explorer onto the drop zone, or use the file picker for individual files.</li>" +
+      "<li>For disk images, drag image files or a folder from Finder / File Explorer onto the drop zone. No file picker is provided.</li>" +
       "<li>Check the <b>Preview</b> list. It shows for every file the full destination on the SD card and its result: new, will be skipped, will be overwritten or rejected. Use <b>Remove</b> or <b>Clear list</b> to correct the list.</li>" +
       "<li>Tick <b>OVERWRITE</b> only if existing images may be replaced (you must confirm). Without it, existing images are skipped.</li>" +
       "<li>Press <b>Copy disk image(s) to SD</b>. Nothing is copied before this moment.</li></ol>" +
       "<h3>Details</h3><ul>" +
-      "<li>Only the files directly inside a chosen or dropped folder are used; subfolders are ignored and reported.</li>" +
-      "<li>Supported secure (HTTPS) browsers can remember the authorized folder per OS; the permission can expire. On plain HTTP from the ESP32 the native folder picker is used and nothing is remembered. A website can never read or force an absolute path on your computer.</li>" +
+      "<li>When you drop a folder, only its top-level files are used; subfolders are ignored and reported.</li>" +
       "<li>Replacing an image that is mapped in drives.cfg affects the image the next time the emulator starts.</li>" +
-      "<li>For drives.cfg: choose the file on your computer (any file name). It is stored as /retro/images/&lt;OS&gt;/drives.cfg after confirmation. It must be plain text, at most 16384 bytes with lines of at most 254 characters. A failed upload leaves the old file unchanged.</li></ul>",
+      "<li>For drives.cfg: choose the file on your computer (any file name). It is stored in LittleFS as /littlefs/&lt;OS&gt;/drives.cfg after confirmation. It must be plain text, at most 16384 bytes with lines of at most 254 characters. A failed upload leaves the old file unchanged.</li></ul>",
     "computer-guest-upload":
       "<h3>Purpose</h3><p>Put single files from your computer inside an existing disk image on the SD card.</p>" +
       "<h3>Steps</h3><ol>" +
@@ -932,7 +725,7 @@ function helpContent()
       "<h3>Purpose</h3><p>Download a complete disk image (or drives.cfg) from the SD card to your computer.</p>" +
       "<h3>Steps</h3><ol>" +
       "<li>Choose the <b>Source OS directory</b> and press <b>List images</b> if the list is not filled yet.</li>" +
-      "<li>Choose the item in <b>Copy From</b>. The first entry, drives.cfg, is always present; an error is shown if it does not exist on the SD card.</li>" +
+      "<li>Choose the item in <b>Copy From</b>. The first entry, drives.cfg, is always present; an error is shown if it does not exist in LittleFS.</li>" +
       "<li>Press <b>Download selected item</b>.</li></ol>" +
       "<h3>Details</h3><ul>" +
       "<li>The complete image container is downloaded byte for byte; this is not a download of the guest files inside it (use SD → Computer → Files from a disk image for that).</li>" +
@@ -983,7 +776,7 @@ function helpContent()
       "<h3>Details</h3><ul>" +
       "<li>Actions are allowed regardless of the RO/RW mapping in drives.cfg.</li>" +
       "<li>Deleting or renaming a mapped image can break a drive reference. Read the warning and confirm deliberately.</li>" +
-      "<li>drives.cfg can be replaced only through Computer → SD; neither drives.cfg nor config.cfg can be deleted here, and config.cfg cannot be replaced.</li></ul>",
+      "<li>drives.cfg can be replaced only through Computer → SD; drives.cfg cannot be deleted here.</li></ul>",
     "file-guest-copy":
       "<h3>Purpose</h3><p>Move ordinary files (not disk images) between the SD card directory of an OS and a disk image.</p>" +
       "<h3>Top part: SD file → disk image</h3><ol>" +
@@ -1052,11 +845,8 @@ function renderHome()
 
 function renderImageUpload()
 {
-  const folderAccessNote = supportsHostDirectoryAccess() ?
-    "Choose a Computer folder. The browser may remember its authorized handle per selected machine; permission can expire. A website cannot discover or force an absolute host path." :
-    "This browser connection cannot retain Computer folder handles. Choose a folder with the native picker; the browser/OS controls its starting location. A website cannot discover or force an absolute host path.";
   return `<h2>${escapeHtml(functions[0].title)}</h2>
-    <p>Choose a Computer folder or files with the browser's native picker, then upload complete disk images to /retro/images/&lt;OS&gt;/ on the SD card.</p>
+    <p>Drop disk image files from your Computer to upload them to /retro/images/&lt;OS&gt;/ on the SD card.</p>
     <div class="row">
       <label class="field">Destination OS directory
         <select id="uploadMachine">${machineOptions(state.machine)}</select>
@@ -1065,28 +855,16 @@ function renderImageUpload()
     </div>
     <label class="field">Copy From — Computer item type
       <select id="uploadKind">
-        <option value="images">Disk images (Computer folder or files)</option>
+        <option value="images">Disk images (drag and drop)</option>
         <option value="drivesCfg">drives.cfg — drive configuration of the selected OS</option>
       </select>
     </label>
     <div id="uploadImageSection">
-    <div class="card">
-      <h3>Computer source directory</h3>
-      <p id="computerUploadFolder" class="muted">No Computer directory selected.</p>
-      <div class="actions">
-        <button id="chooseUploadFolder" type="button">Choose Computer folder</button>
-        <button id="reuseUploadFolder" type="button"${supportsHostDirectoryAccess() ? "" : " disabled"}>Use last folder for this machine</button>
-      </div>
-      <p class="muted">${folderAccessNote} Suggested organization: ~/Downloads/images/&lt;machine&gt; on macOS/Linux or %USERPROFILE%\\Downloads\\images\\&lt;machine&gt; on Windows; create/select it yourself.</p>
-    </div>
     <div id="imageDropZone" class="card dropZone" data-dropzone="images">
       <h3>Drop disk images here</h3>
-      <p class="muted">Drag disk image files, or a folder containing them, from Finder / File Explorer onto this box. Nothing is copied until you press the Copy button.</p>
+      <p class="muted">Drag disk image files or a folder from Finder / File Explorer onto this box. Nothing is copied until you press the Copy button.</p>
     </div>
     <form id="imageUploadForm">
-      <label class="field">Or select individual disk image file(s)
-        <input id="imageFiles" type="file" multiple accept=".dsk,.img,.po,.woz,.2mg">
-      </label>
       <h3>Preview</h3>
       <p id="imageUploadHeader" class="muted"></p>
       <table>
@@ -1108,8 +886,8 @@ function renderImageUpload()
         <label class="field">Select the drives.cfg file on the Computer (any file name; it is stored as drives.cfg)
           <input id="configFile" type="file" accept=".cfg,.txt,text/plain">
         </label>
-        <button id="configUploadButton" type="submit">Copy drives.cfg to SD</button>
-        <p class="muted">Target: /retro/images/<span id="configTargetLabel">${state.machine}</span>/drives.cfg. Only this one file is written; no disk image is touched. The file must be plain text (at most 16384 bytes, lines of at most 254 characters). The existing drives.cfg is replaced after confirmation; a failed upload leaves it unchanged. The emulator reads it at its next start. config.cfg stays protected.</p>
+        <button id="configUploadButton" type="submit">Copy drives.cfg to LittleFS</button>
+        <p class="muted">Target: /littlefs/<span id="configTargetLabel">${state.machine}</span>/drives.cfg (LittleFS). Only this one file is written; no disk image is touched. The file must be plain text (at most 16384 bytes, lines of at most 254 characters). The existing drives.cfg is replaced after confirmation; a failed upload leaves it unchanged. The emulator reads it at its next start.</p>
       </form>
     </div>`;
 }
@@ -1263,7 +1041,6 @@ function render()
   }
   if (state.functionId === "computer-image-upload")
   {
-    updateHostFolderLabel(element("uploadMachine").value);
     refreshImageUploadPreview();
   }
 }
@@ -1605,7 +1382,7 @@ async function submitImageUpload()
   const plan = await imageUploadPlan(machine);
   if (plan.length === 0)
   {
-    throw new Error("Drop disk image files here, choose a Computer folder or select individual image files first.");
+    throw new Error("Drop disk image files here first.");
   }
   const todo = plan.filter((item) => item.accepted);
   if (todo.length === 0)
@@ -1646,8 +1423,6 @@ async function submitImageUpload()
     imageUploadBusy = false;
     hideProgress();
     hostFiles.set(machine, (hostFiles.get(machine) || []).filter((file) => !stored.has(file)));
-    hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
-    updateHostFolderLabel(machine);
     await refreshImageUploadPreview();
   }
   showStatus(`${lines.join("\n")}\nUploaded ${stored.size} whole image(s) to /retro/images/${machine}/.`);
@@ -1726,7 +1501,7 @@ async function refreshManager()
       }
       const remove = document.createElement("button");
       remove.textContent = "Delete";
-      remove.disabled = entry.name.toLowerCase() === "drives.cfg" || entry.name.toLowerCase() === "config.cfg";
+      remove.disabled = entry.name.toLowerCase() === "drives.cfg" ;
       remove.onclick = async () =>
       {
         const warning = entry.mapped ?
@@ -2490,7 +2265,7 @@ function renderFileGuestCopy()
       </label>
     </div>
     <button type="button" id="guestToSdButton">Copy selected guest file(s) to the SD card</button>
-    <p class="muted">SD files live directly in /retro/images/&lt;OS&gt;/. Disk images, drives.cfg, config.cfg and manager files are excluded. SD names may only use letters, digits, space, dot, underscore and hyphen.</p>`;
+    <p class="muted">SD files live directly in /retro/images/&lt;OS&gt;/. Disk images, drives.cfg and manager files are excluded. SD names may only use letters, digits, space, dot, underscore and hyphen.</p>`;
 }
 
 async function loadSdFiles()
@@ -2957,25 +2732,6 @@ document.addEventListener("keydown", (event) =>
     closeMenus();
   }
 });
-element("computerFolderInput").addEventListener("change", (event) =>
-{
-  const files = Array.from(event.target.files);
-  const machine = element("uploadMachine").value;
-  const rootFiles = files.filter((file) =>
-    !file.webkitRelativePath || file.webkitRelativePath.split("/").length === 2);
-  const images = supportedImageFiles(rootFiles);
-  const relativePath = files.find((file) => file.webkitRelativePath)?.webkitRelativePath || "";
-  const folderName = relativePath.split("/")[0] || "Selected folder";
-  hostFiles.set(machine, images);
-  hostDirectoryNames.set(hostDirectoryKey("upload", machine),
-    `${folderName}: ${images.length} supported disk image(s) selected.`);
-  updateHostFolderLabel(machine);
-  refreshImageUploadPreview();
-  if (files.length !== images.length)
-  {
-    showStatus(`${files.length - images.length} nested or non-image file(s) in the selected Computer folder will be ignored.`);
-  }
-});
 element("app").addEventListener("click", (event) =>
 {
   const openFunction = event.target.closest("[data-open-function]");
@@ -3035,7 +2791,6 @@ element("app").addEventListener("change", (event) =>
   {
     element("uploadMachineLabel").textContent = event.target.value;
     element("configTargetLabel").textContent = event.target.value;
-    updateHostFolderLabel(event.target.value);
     refreshImageUploadPreview();
   }
   if (id === "uploadKind")
@@ -3051,16 +2806,6 @@ element("app").addEventListener("change", (event) =>
   if (id === "managerMachine")
   {
     run(refreshManager);
-  }
-  if (id === "imageFiles")
-  {
-    const files = Array.from(event.target.files);
-    const machine = element("uploadMachine").value;
-    hostFiles.set(machine, mergeFiles(hostFiles.get(machine) || [], files));
-    hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
-    event.target.value = "";
-    updateHostFolderLabel(machine);
-    refreshImageUploadPreview();
   }
 });
 element("app").addEventListener("click", (event) =>
@@ -3111,8 +2856,6 @@ element("app").addEventListener("click", (event) =>
     {
       const machine = element("uploadMachine").value;
       hostFiles.set(machine, (hostFiles.get(machine) || []).filter((file, position) => position !== index));
-      hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
-      updateHostFolderLabel(machine);
       refreshImageUploadPreview();
     }
     else
@@ -3125,22 +2868,12 @@ element("app").addEventListener("click", (event) =>
   {
     const machine = element("uploadMachine").value;
     hostFiles.delete(machine);
-    hostDirectoryNames.delete(hostDirectoryKey("upload", machine));
-    updateHostFolderLabel(machine);
     refreshImageUploadPreview();
   }
   if (event.target.id === "guestUploadClear")
   {
     guestUploadPending = [];
     refreshGuestUploadPreview();
-  }
-  if (event.target.id === "chooseUploadFolder")
-  {
-    run(selectHostDirectory);
-  }
-  if (event.target.id === "reuseUploadFolder")
-  {
-    run(reuseHostDirectory);
   }
   if (event.target.id === "downloadImageButton")
   {

@@ -88,7 +88,7 @@ firmware build alone.
 
 The BIOS exposes up to six 160 KiB raw images as drives A: through F:. A: is
 the required LittleFS system image; B: through F: are optional SD-card images
-loaded from `/retro/images/cpm86/drives.cfg`. Each drive has its own DPH,
+loaded from `/littlefs/cpm86/drives.cfg`. Each drive has its own DPH,
 checksum vector and allocation vector. Disk records are 128 bytes; each track
 has 32 records. Values are assembled little-endian from the low/high port
 pairs.

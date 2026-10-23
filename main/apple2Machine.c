@@ -17,17 +17,17 @@
 #include <string.h>
 #include <sys/stat.h>
 
-static const char *tag = "apple2Machine";
-static const char *romPath = "/littlefs/apple2/apple2.rom";
-static const char *iieRomPath = "/littlefs/apple2/apple2e.rom";
-static const char *apple2ConfigPath = "/littlefs/apple2/config.cfg";
-static const char *ucsdConfigPath = "/littlefs/ucsd/config.cfg";
-static const char *apple2ExchangeRoot = "/microSD/retro/exchange/apple2";
-static const char *ucsdExchangeRoot = "/microSD/retro/exchange/ucsd";
+static const char* tag = "apple2Machine";
+static const char* romPath = "/littlefs/apple2/apple2.rom";
+static const char* iieRomPath = "/littlefs/apple2/apple2e.rom";
+static const char* apple2ConfigPath = "/littlefs/apple2/drives.cfg";
+static const char* ucsdConfigPath = "/littlefs/ucsd/drives.cfg";
+static const char* apple2ExchangeRoot = "/microSD/retro/exchange/apple2";
+static const char* ucsdExchangeRoot = "/microSD/retro/exchange/ucsd";
 static char driveConfigPath[apple2DriveConfigPathCapacity];
 static const size_t bootSlotIndex = 6 - apple2DriveConfigFirstSlot;
 static const uint8_t exchangeSlot = 2;
-static apple2Core *guestCore;
+static apple2Core* guestCore;
 static hostExchange exchangeService;
 static bool exchangeServiceInitialized;
 static apple2DiskImage guestDisks[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
@@ -43,7 +43,7 @@ static const int64_t escapeTimeoutUs = 50000;
 static bool renderedVidexMode;
 static bool renderedVidexModeKnown;
 
-static const char *exchangeRootForConfig(const char *configPath)
+static const char* exchangeRootForConfig(const char* configPath)
 {
   if (configPath == NULL)
   {
@@ -60,7 +60,7 @@ static const char *exchangeRootForConfig(const char *configPath)
   return NULL;
 }
 
-static uint8_t readExchangeRegister(void *context, uint8_t registerIndex)
+static uint8_t readExchangeRegister(void* context, uint8_t registerIndex)
 {
   if (registerIndex == 0)
   {
@@ -69,7 +69,7 @@ static uint8_t readExchangeRegister(void *context, uint8_t registerIndex)
   return 0xFF;
 }
 
-static void writeExchangeRegister(void *context, uint8_t registerIndex, uint8_t value)
+static void writeExchangeRegister(void* context, uint8_t registerIndex, uint8_t value)
 {
   if (registerIndex == 0)
   {
@@ -81,7 +81,7 @@ static void writeExchangeRegister(void *context, uint8_t registerIndex, uint8_t 
   }
 }
 
-static bool appendText(char *buffer, size_t capacity, size_t *length, const char *text)
+static bool appendText(char* buffer, size_t capacity, size_t* length, const char* text)
 {
   size_t textLength = strlen(text);
   if (textLength >= capacity - *length)
@@ -93,7 +93,7 @@ static bool appendText(char *buffer, size_t capacity, size_t *length, const char
   return true;
 }
 
-static bool appendCharacter(char *buffer, size_t capacity, size_t *length, char character)
+static bool appendCharacter(char* buffer, size_t capacity, size_t* length, char character)
 {
   if (*length + 1 >= capacity)
   {
@@ -109,8 +109,9 @@ static char decodeVidexCharacter(uint8_t value)
   return value >= 0x20 ? (char)value : ' ';
 }
 
-static bool appendTextCell(char *buffer, size_t capacity, size_t *length, const apple2Core *core, uint8_t value,
-                           bool flashOn, bool altCharSet, bool *inverse, bool *flashing)
+static bool appendTextCell(char* buffer, size_t capacity, size_t* length, const apple2Core* core,
+                           uint8_t value, bool flashOn, bool altCharSet, bool* inverse,
+                           bool* flashing)
 {
   //-- The IIe alternate character set has inverse glyphs for $00-$7F and no flashing ones.
   bool cellInverse = altCharSet ? (value & 0x80) == 0 : (value & 0xC0) == 0;
@@ -135,7 +136,8 @@ static bool appendTextCell(char *buffer, size_t capacity, size_t *length, const 
   return appendCharacter(buffer, capacity, length, character);
 }
 
-static bool appendVidexTextCell(char *buffer, size_t capacity, size_t *length, uint8_t value, bool *inverse)
+static bool appendVidexTextCell(char* buffer, size_t capacity, size_t* length, uint8_t value,
+                                bool* inverse)
 {
   bool cellInverse = (value & 0x80) != 0;
   if (cellInverse != *inverse)
@@ -179,7 +181,8 @@ static void renderScreen(int64_t nowUs)
           return;
         }
       }
-      else if (showText && apple2CoreReadTextCell(guestCore, video.page2, row, column, &value) != apple2CoreOk)
+      else if (showText &&
+               apple2CoreReadTextCell(guestCore, video.page2, row, column, &value) != apple2CoreOk)
       {
         return;
       }
@@ -189,7 +192,8 @@ static void renderScreen(int64_t nowUs)
         value = (uint8_t)("GRAPHICS DISPLAY NOT IMPLEMENTED"[column] | 0x80);
       }
       currentCells[column] = value;
-      hasFlashingCells = hasFlashingCells || (!video.videxTextMode && !video.altCharSet && (value & 0xC0) == 0x40);
+      hasFlashingCells =
+          hasFlashingCells || (!video.videxTextMode && !video.altCharSet && (value & 0xC0) == 0x40);
     }
     bool cellsChanged = !screenRendered || memcmp(currentCells, renderedCells[row], columns) != 0;
     bool flashChanged = screenRendered && hasFlashingCells && flashOn != renderedFlashOn;
@@ -209,10 +213,11 @@ static void renderScreen(int64_t nowUs)
       for (size_t column = 0; column < columns; ++column)
       {
         bool appended = video.videxTextMode
-                            ? appendVidexTextCell(rowBuffer, sizeof(rowBuffer), &length, currentCells[column],
-                                                  &inverse)
+                            ? appendVidexTextCell(rowBuffer, sizeof(rowBuffer), &length,
+                                                  currentCells[column], &inverse)
                             : appendTextCell(rowBuffer, sizeof(rowBuffer), &length, guestCore,
-                                             currentCells[column], flashOn, video.altCharSet, &inverse, &flashing);
+                                             currentCells[column], flashOn, video.altCharSet,
+                                             &inverse, &flashing);
         if (!appended)
         {
           return;
@@ -247,8 +252,8 @@ static void renderScreen(int64_t nowUs)
       cursorColumn = columns - 1;
     }
     char cursor[32];
-    int cursorLength = snprintf(cursor, sizeof(cursor), "\x1b[?25h\x1b[%zu;%zuH", cursorRow + 1,
-                                cursorColumn + 1);
+    int cursorLength =
+        snprintf(cursor, sizeof(cursor), "\x1b[?25h\x1b[%zu;%zuH", cursorRow + 1, cursorColumn + 1);
     if (cursorLength < 0 || (size_t)cursorLength >= sizeof(cursor) || !hostConsoleWrite(cursor))
     {
       return;
@@ -283,8 +288,9 @@ static void handleInput(void)
   queuedKeyCount = 0;
   if (!hostConsoleCharAvailable())
   {
-    //— A lone ESC (no sequence byte following) is a real ESC key press
-    if (apple2KeyboardHasPending(&keyboard) && esp_timer_get_time() - lastTerminalByteUs > escapeTimeoutUs)
+    // — A lone ESC (no sequence byte following) is a real ESC key press
+    if (apple2KeyboardHasPending(&keyboard) &&
+        esp_timer_get_time() - lastTerminalByteUs > escapeTimeoutUs)
     {
       queuedKeyCount = apple2KeyboardFlush(&keyboard, queuedKeys);
       pressNextQueuedKey();
@@ -301,7 +307,7 @@ static void handleInput(void)
   pressNextQueuedKey();
 }
 
-static machineState probeRom(const char *path, size_t size, long resetOffset, uint16_t minimumReset)
+static machineState probeRom(const char* path, size_t size, long resetOffset, uint16_t minimumReset)
 {
   struct stat info;
   if (stat(path, &info) != 0)
@@ -312,7 +318,7 @@ static machineState probeRom(const char *path, size_t size, long resetOffset, ui
   {
     return machineResourceInvalid;
   }
-  FILE *romFile = fopen(path, "rb");
+  FILE* romFile = fopen(path, "rb");
   if (romFile == NULL || fseek(romFile, resetOffset, SEEK_SET) != 0)
   {
     if (romFile != NULL)
@@ -322,7 +328,8 @@ static machineState probeRom(const char *path, size_t size, long resetOffset, ui
     return machineResourceInvalid;
   }
   uint8_t resetVector[2];
-  bool valid = fread(resetVector, 1, sizeof(resetVector), romFile) == sizeof(resetVector) && !ferror(romFile);
+  bool valid = fread(resetVector, 1, sizeof(resetVector), romFile) == sizeof(resetVector) &&
+               !ferror(romFile);
   if (fclose(romFile) != 0)
   {
     return machineResourceInvalid;
@@ -331,38 +338,35 @@ static machineState probeRom(const char *path, size_t size, long resetOffset, ui
   return valid && resetAddress >= minimumReset ? machineAvailable : machineResourceInvalid;
 }
 
-machineState apple2MachineProbeWithConfig(const retroMachine *machine, const char *configPath)
+machineState apple2MachineProbeWithConfig(const retroMachine* machine, const char* configPath)
 {
   (void)machine;
-  char selectedDrivesPath[apple2DriveConfigPathCapacity];
+  const char* selectedDrivesPath = configPath;
   char configError[128];
-  apple2DriveConfigResult configResult =
-      apple2DriveConfigResolve(configPath, selectedDrivesPath, sizeof(selectedDrivesPath), configError,
-                               sizeof(configError));
-  if (configResult != apple2DriveConfigLoaded)
+  if (configPath == NULL)
   {
-    return configResult == apple2DriveConfigMissing ? machineMissingResource : machineResourceInvalid;
+    return machineResourceInvalid;
   }
 
   apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
-  configResult = apple2DriveConfigLoad(selectedDrivesPath, drives, configError, sizeof(configError));
+  apple2DriveConfigResult configResult =
+      apple2DriveConfigLoad(selectedDrivesPath, drives, configError, sizeof(configError));
   if (configResult != apple2DriveConfigLoaded)
   {
-    return configResult == apple2DriveConfigMissing ? machineMissingResource : machineResourceInvalid;
+    return configResult == apple2DriveConfigMissing ? machineMissingResource
+                                                    : machineResourceInvalid;
   }
 
-  machineState romState =
-      apple2DriveConfigMachineIsIIe(selectedDrivesPath)
-          ? probeRom(iieRomPath, apple2IIeRomSize, 0x3FFC, 0xC100)
-          : probeRom(romPath, apple2RomSize, 0x2FFC, 0xD000);
+  machineState romState = apple2DriveConfigMachineIsIIe(selectedDrivesPath)
+                              ? probeRom(iieRomPath, apple2IIeRomSize, 0x3FFC, 0xC100)
+                              : probeRom(romPath, apple2RomSize, 0x2FFC, 0xD000);
   if (romState != machineAvailable)
   {
     return romState;
   }
 
   struct stat info;
-  const apple2DriveConfig *bootDrive =
-      &drives[6 - apple2DriveConfigFirstSlot][0];
+  const apple2DriveConfig* bootDrive = &drives[6 - apple2DriveConfigFirstSlot][0];
   if (!bootDrive->configured || stat(bootDrive->path, &info) != 0)
   {
     return machineMissingResource;
@@ -371,9 +375,8 @@ machineState apple2MachineProbeWithConfig(const retroMachine *machine, const cha
   {
     return machineResourceInvalid;
   }
-  uint64_t expectedImageSize =
-      (uint64_t)apple2DiskImageProfileTracks(bootDrive->profile) * apple2DiskImageSectorsPerTrack *
-      apple2DiskImageSectorSize;
+  uint64_t expectedImageSize = (uint64_t)apple2DiskImageProfileTracks(bootDrive->profile) *
+                               apple2DiskImageSectorsPerTrack * apple2DiskImageSectorSize;
   if ((uint64_t)info.st_size != expectedImageSize)
   {
     return machineResourceInvalid;
@@ -381,18 +384,18 @@ machineState apple2MachineProbeWithConfig(const retroMachine *machine, const cha
   return machineAvailable;
 }
 
-static bool readDiskSector(void *context, uint8_t track, uint8_t sector, uint8_t *buffer)
+static bool readDiskSector(void* context, uint8_t track, uint8_t sector, uint8_t* buffer)
 {
   diskActivityRead();
   return apple2DiskImageReadSectorCallback(context, track, sector, buffer);
 }
 
-static bool writeDiskSector(void *context, uint8_t track, uint8_t sector, const uint8_t *buffer)
+static bool writeDiskSector(void* context, uint8_t track, uint8_t sector, const uint8_t* buffer)
 {
   return apple2DiskImageWriteSectorCallback(context, track, sector, buffer);
 }
 
-static bool readSmartPortBlock(void *context, uint32_t block, uint8_t *buffer)
+static bool readSmartPortBlock(void* context, uint32_t block, uint8_t* buffer)
 {
   diskActivityRead();
   bool read = apple2DiskImageReadBlockCallback(context, block, buffer);
@@ -403,7 +406,7 @@ static bool readSmartPortBlock(void *context, uint32_t block, uint8_t *buffer)
   return read;
 }
 
-static bool writeSmartPortBlock(void *context, uint32_t block, const uint8_t *buffer)
+static bool writeSmartPortBlock(void* context, uint32_t block, const uint8_t* buffer)
 {
   diskActivityWrite();
   bool written = apple2DiskImageWriteBlockCallback(context, block, buffer);
@@ -430,18 +433,18 @@ static void releaseDisk(void)
   {
     for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDevicesPerSlot; ++driveIndex)
     {
-      apple2DiskImage *image = &guestDisks[slotIndex][driveIndex];
+      apple2DiskImage* image = &guestDisks[slotIndex][driveIndex];
       if (apple2DiskImageIsOpen(image) && apple2DiskImageClose(image) != apple2DiskImageOk)
       {
-        ESP_LOGW(tag, "closing the image of PR%u.%u failed", (unsigned)(slotIndex + apple2DriveConfigFirstSlot),
-                 (unsigned)(driveIndex + 1));
+        ESP_LOGW(tag, "closing the image of PR%u.%u failed",
+                 (unsigned)(slotIndex + apple2DriveConfigFirstSlot), (unsigned)(driveIndex + 1));
       }
       apple2DiskImageInitialize(image);
     }
   }
 }
 
-static const char *contentText(const apple2DiskImage *image)
+static const char* contentText(const apple2DiskImage* image)
 {
   switch (image->probe.content)
   {
@@ -463,44 +466,50 @@ typedef enum
 } driveMode;
 
 //-- A missing or invalid disk image is reported but never prevents the machine from starting.
-static bool openDriveImage(size_t slotIndex, size_t driveIndex, const apple2DriveConfig *config)
+static bool openDriveImage(size_t slotIndex, size_t driveIndex, const apple2DriveConfig* config)
 {
   uint8_t slot = (uint8_t)(slotIndex + apple2DriveConfigFirstSlot);
-  apple2DiskImage *image = &guestDisks[slotIndex][driveIndex];
+  apple2DiskImage* image = &guestDisks[slotIndex][driveIndex];
   apple2DiskImageInitialize(image);
-  apple2DiskImageResult result = apple2DiskImageOpenProfileMode(image, config->path, config->profile,
-                                                                apple2DiskImageOrderAuto, config->readOnly);
+  apple2DiskImageResult result = apple2DiskImageOpenProfileMode(
+      image, config->path, config->profile, apple2DiskImageOrderAuto, config->readOnly);
   if (result != apple2DiskImageOk)
   {
-    ESP_LOGW(tag, "no disk media on %s%u.%u: %s: %s", config->smartPort ? "SP" : "SD", (unsigned)slot,
-             (unsigned)(driveIndex + 1), config->path, apple2DiskImageResultText(result));
+    ESP_LOGW(tag, "no disk media on %s%u.%u: %s: %s", config->smartPort ? "SP" : "SD",
+             (unsigned)slot, (unsigned)(driveIndex + 1), config->path,
+             apple2DiskImageResultText(result));
     return false;
   }
   return true;
 }
 
-static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2DriveConfig *config, driveMode mode)
+static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2DriveConfig* config,
+                              driveMode mode)
 {
   uint8_t slot = (uint8_t)(slotIndex + apple2DriveConfigFirstSlot);
-  apple2DiskImage *image = &guestDisks[slotIndex][driveIndex];
-  apple2DiskSectorOrder order = image->order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
-                                                                            : apple2DiskSectorOrderDos;
-  const char *prefix = mode == driveModeSmartPort ? "SP" : "SD";
+  apple2DiskImage* image = &guestDisks[slotIndex][driveIndex];
+  apple2DiskSectorOrder order = image->order == apple2DiskImageOrderProdos
+                                    ? apple2DiskSectorOrderProdos
+                                    : apple2DiskSectorOrderDos;
+  const char* prefix = mode == driveModeSmartPort ? "SP" : "SD";
   apple2CoreResult attachResult;
   if (mode == driveModeDiskII)
   {
-    attachResult = apple2CoreAttachWritableDiskDrive(guestCore, slot, (uint8_t)driveIndex, order, image->trackCount,
-                                                     readDiskSector, config->readOnly ? NULL : writeDiskSector, image);
+    attachResult = apple2CoreAttachWritableDiskDrive(
+        guestCore, slot, (uint8_t)driveIndex, order, image->trackCount, readDiskSector,
+        config->readOnly ? NULL : writeDiskSector, image);
   }
   else
   {
     attachResult = apple2CoreAttachBlockDevice(
         guestCore, slot, (uint8_t)(driveIndex + 1), (uint32_t)image->trackCount * 8U,
-        mode == driveModeBlock, readSmartPortBlock, config->readOnly ? NULL : writeSmartPortBlock, image);
+        mode == driveModeBlock, readSmartPortBlock, config->readOnly ? NULL : writeSmartPortBlock,
+        image);
   }
   if (attachResult != apple2CoreOk)
   {
-    ESP_LOGE(tag, "attaching %s to %s%u.%u failed", config->path, prefix, (unsigned)slot, (unsigned)(driveIndex + 1));
+    ESP_LOGE(tag, "attaching %s to %s%u.%u failed", config->path, prefix, (unsigned)slot,
+             (unsigned)(driveIndex + 1));
     apple2DiskImageClose(image);
     apple2DiskImageInitialize(image);
     return;
@@ -508,43 +517,51 @@ static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2D
   if (mode == driveModeSmartPort)
   {
     ESP_LOGI(tag, "SmartPort SP%u.%u (%s): %s, %u blocks, %s", (unsigned)slot,
-             (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write", config->path,
-             (unsigned)image->trackCount * 8U, contentText(image));
+             (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write",
+             config->path, (unsigned)image->trackCount * 8U, contentText(image));
   }
   else if (mode == driveModeBlock)
   {
     ESP_LOGI(tag, "Block device PR%u.%u (%s): %s, %u blocks, %s, boots with PR#%u", (unsigned)slot,
-             (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write", config->path,
-             (unsigned)image->trackCount * 8U, contentText(image), (unsigned)slot);
+             (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write",
+             config->path, (unsigned)image->trackCount * 8U, contentText(image), (unsigned)slot);
   }
   else
   {
     ESP_LOGI(tag, "Disk II PR%u.%u (%s): %s, %u tracks, %s sector order, %s", (unsigned)slot,
-             (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write", config->path,
-             (unsigned)image->trackCount,
-             image->order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS", contentText(image));
+             (unsigned)(driveIndex + 1), config->readOnly ? "read-only" : "read/write",
+             config->path, (unsigned)image->trackCount,
+             image->order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS",
+             contentText(image));
   }
-  if (image->probe.content == apple2DiskImageContentPascal || image->probe.content == apple2DiskImageContentProDos)
+  if (image->probe.content == apple2DiskImageContentPascal ||
+      image->probe.content == apple2DiskImageContentProDos)
   {
     ESP_LOGI(tag, "%s%u.%u %s volume %s: %u blocks", prefix, (unsigned)slot,
-             (unsigned)(driveIndex + 1), image->probe.content == apple2DiskImageContentProDos ? "ProDOS" : "Apple Pascal",
+             (unsigned)(driveIndex + 1),
+             image->probe.content == apple2DiskImageContentProDos ? "ProDOS" : "Apple Pascal",
              image->probe.volumeName, (unsigned)image->probe.volumeBlocks);
   }
   if (mode == driveModeDiskII && image->orderSuspect)
   {
-    ESP_LOGW(tag, "PR%u.%u: the sector order chosen from the file extension disagrees with the content (%s expected)",
+    ESP_LOGW(tag,
+             "PR%u.%u: the sector order chosen from the file extension disagrees with the content "
+             "(%s expected)",
              (unsigned)slot, (unsigned)(driveIndex + 1),
              image->probe.order == apple2DiskImageOrderProdos ? "ProDOS/Pascal" : "DOS");
   }
 }
 
-//-- A controller slot is SmartPort, a block device for ProDOS content or an 800K Pascal boot image, or Disk II.
-//-- The boot drive SD6.1 must be configured in drives.cfg and its image must open; otherwise the machine does not start.
+//-- A controller slot is SmartPort, a block device for ProDOS content or an 800K Pascal boot image,
+//or Disk II.
+//-- The boot drive SD6.1 must be configured in drives.cfg and its image must open; otherwise the
+//machine does not start.
 static esp_err_t attachDisks(void)
 {
   apple2DriveConfig config[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
   char configError[128];
-  apple2DriveConfigResult configResult = apple2DriveConfigLoad(driveConfigPath, config, configError, sizeof(configError));
+  apple2DriveConfigResult configResult =
+      apple2DriveConfigLoad(driveConfigPath, config, configError, sizeof(configError));
   bool bootDriveOpened = false;
   if (configResult != apple2DriveConfigLoaded)
   {
@@ -567,18 +584,20 @@ static esp_err_t attachDisks(void)
         }
         smartPort = smartPort || config[slotIndex][driveIndex].smartPort;
         proDosContent = proDosContent ||
-                        (opened[driveIndex] &&
-                         guestDisks[slotIndex][driveIndex].probe.content == apple2DiskImageContentProDos);
+                        (opened[driveIndex] && guestDisks[slotIndex][driveIndex].probe.content ==
+                                                   apple2DiskImageContentProDos);
       }
     }
-    const apple2DriveConfig *bootDrive = &config[bootSlotIndex][0];
-    const apple2DiskImage *bootImage = &guestDisks[bootSlotIndex][0];
-    //-- The Pascal 3.5-inch system disk boots through the block-device slot ROM; 5.25-inch Pascal boots through Disk II.
-    bool pascalBlockBoot =
-        slotIndex == bootSlotIndex && opened[0] && bootDrive->profile == apple2DiskImageProfile800k &&
-        bootImage->probe.content == apple2DiskImageContentPascal;
-    driveMode mode = smartPort ? driveModeSmartPort
-                              : (proDosContent || pascalBlockBoot ? driveModeBlock : driveModeDiskII);
+    const apple2DriveConfig* bootDrive = &config[bootSlotIndex][0];
+    const apple2DiskImage* bootImage = &guestDisks[bootSlotIndex][0];
+    //-- The Pascal 3.5-inch system disk boots through the block-device slot ROM; 5.25-inch Pascal
+    //boots through Disk II.
+    bool pascalBlockBoot = slotIndex == bootSlotIndex && opened[0] &&
+                           bootDrive->profile == apple2DiskImageProfile800k &&
+                           bootImage->probe.content == apple2DiskImageContentPascal;
+    driveMode mode = smartPort
+                         ? driveModeSmartPort
+                         : (proDosContent || pascalBlockBoot ? driveModeBlock : driveModeDiskII);
     for (size_t driveIndex = 0; driveIndex < apple2DriveConfigDevicesPerSlot; ++driveIndex)
     {
       if (opened[driveIndex])
@@ -601,7 +620,8 @@ static esp_err_t attachDisks(void)
   else
   {
     ESP_LOGE(tag, "boot drive SD6.1 image %s cannot be opened", config[bootSlotIndex][0].path);
-    printf("Apple II cannot start: the SD6.1 image %s cannot be opened.\n", config[bootSlotIndex][0].path);
+    printf("Apple II cannot start: the SD6.1 image %s cannot be opened.\n",
+           config[bootSlotIndex][0].path);
   }
   return ESP_ERR_NOT_FOUND;
 }
@@ -635,9 +655,9 @@ static uint32_t totalWriteFailures(void)
   return total;
 }
 
-esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
+esp_err_t apple2MachineInitializeWithConfig(const char* configPath)
 {
-  const char *exchangeRoot = exchangeRootForConfig(configPath);
+  const char* exchangeRoot = exchangeRootForConfig(configPath);
   if (exchangeRoot == NULL)
   {
     ESP_LOGE(tag, "No host exchange directory is configured for profile %s",
@@ -645,30 +665,27 @@ esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
     return ESP_ERR_INVALID_ARG;
   }
 
-  char configError[128];
-  apple2DriveConfigResult configResult =
-      apple2DriveConfigResolve(configPath, driveConfigPath, sizeof(driveConfigPath), configError, sizeof(configError));
-  if (configResult != apple2DriveConfigLoaded)
+  if (strlen(configPath) >= sizeof(driveConfigPath))
   {
-    ESP_LOGE(tag, "%s", configError);
-    printf("Apple II cannot start: %s.\n", configError);
-    return configResult == apple2DriveConfigMissing ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_ARG;
+    return ESP_ERR_INVALID_ARG;
   }
+  strcpy(driveConfigPath, configPath);
 
   bool iie = apple2DriveConfigMachineIsIIe(driveConfigPath);
   size_t romSize = iie ? apple2IIeRomSize : apple2RomSize;
-  FILE *romFile = fopen(iie ? iieRomPath : romPath, "rb");
+  FILE* romFile = fopen(iie ? iieRomPath : romPath, "rb");
   if (romFile == NULL)
   {
     return ESP_ERR_NOT_FOUND;
   }
-  uint8_t *rom = malloc(romSize);
+  uint8_t* rom = malloc(romSize);
   if (rom == NULL)
   {
     fclose(romFile);
     return ESP_ERR_NO_MEM;
   }
-  bool loaded = fread(rom, 1, romSize, romFile) == romSize && fgetc(romFile) == EOF && !ferror(romFile);
+  bool loaded =
+      fread(rom, 1, romSize, romFile) == romSize && fgetc(romFile) == EOF && !ferror(romFile);
   bool closed = fclose(romFile) == 0;
   if (!loaded || !closed)
   {
@@ -703,7 +720,8 @@ esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
   }
   if (coreResult == apple2CoreOk && !iie)
   {
-    //-- The 80-column card is selected automatically at every start, like the Disk II controller boots.
+    //-- The 80-column card is selected automatically at every start, like the Disk II controller
+    //boots.
     coreResult = apple2CoreSetBootIn80Columns(guestCore, true);
   }
   if (coreResult != apple2CoreOk)
@@ -721,8 +739,9 @@ esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
     guestCore = NULL;
     return ESP_ERR_INVALID_RESPONSE;
   }
-  bool exchangeReady = exchangeRoot == ucsdExchangeRoot ? hostExchangeInitializeUcsd(&exchangeService, exchangeRoot)
-                                                         : hostExchangeInitializeProdos(&exchangeService, exchangeRoot);
+  bool exchangeReady = exchangeRoot == ucsdExchangeRoot
+                           ? hostExchangeInitializeUcsd(&exchangeService, exchangeRoot)
+                           : hostExchangeInitializeProdos(&exchangeService, exchangeRoot);
   if (!exchangeReady)
   {
     ESP_LOGE(tag, "Host exchange service could not be initialized for %s", exchangeRoot);
@@ -731,11 +750,12 @@ esp_err_t apple2MachineInitializeWithConfig(const char *configPath)
     return ESP_ERR_INVALID_STATE;
   }
   exchangeServiceInitialized = true;
-  coreResult = apple2CoreAttachSlotIoDevice(guestCore, exchangeSlot, readExchangeRegister, writeExchangeRegister,
-                                             &exchangeService);
+  coreResult = apple2CoreAttachSlotIoDevice(guestCore, exchangeSlot, readExchangeRegister,
+                                            writeExchangeRegister, &exchangeService);
   if (coreResult != apple2CoreOk)
   {
-    ESP_LOGE(tag, "Apple II host exchange interface could not be attached to slot %u", (unsigned)exchangeSlot);
+    ESP_LOGE(tag, "Apple II host exchange interface could not be attached to slot %u",
+             (unsigned)exchangeSlot);
     releaseDisk();
     apple2CoreDestroy(guestCore);
     guestCore = NULL;
@@ -766,8 +786,8 @@ void apple2MachineRun(void)
   {
     period = 1;
   }
-  size_t cyclesPerPeriod = (size_t)(((uint64_t)1023000 * period + configTICK_RATE_HZ - 1) /
-                                    configTICK_RATE_HZ);
+  size_t cyclesPerPeriod =
+      (size_t)(((uint64_t)1023000 * period + configTICK_RATE_HZ - 1) / configTICK_RATE_HZ);
   apple2KeyboardInit(&keyboard, hostConsolePeekChar() == '\n');
   queuedKeyIndex = 0;
   queuedKeyCount = 0;

@@ -21,7 +21,7 @@ It provides a single interface for:
 - Managing complete image files on the SD card.
 - Browsing, uploading, downloading, copying, renaming, and deleting guest files where a supported filesystem adapter permits the operation.
 - Moving files between a guest image, another guest image, the SD image directory, and the user's computer, subject to the available workflows.
-- Managing `drives.cfg` files stored with the SD images.
+- Managing the `drives.cfg` files, which are stored in LittleFS next to the system disks.
 
 The manager does not create a host filesystem path or bypass browser permissions. Host files are accessed only through user-selected browser file pickers, authorized folder selection where supported, drag-and-drop, and browser download mechanisms.
 
@@ -35,11 +35,11 @@ The manager does not create a host filesystem path or bypass browser permissions
 | Guest filesystem | The filesystem encoded inside an image, such as CP/M, ProDOS, Apple Pascal, or DOS 3.3. |
 | Guest file | A file or directory entry stored inside a guest filesystem. |
 | OS profile | The machine or operating-system profile selected by the user, such as CP/M-80, CP/M-86, UCSD Pascal, Apple II, or SWTPC 6800. |
-| Mapping | A reference to an image in an SD `drives.cfg` file. Mapping an image does not make it a different physical file. |
+| Mapping | A reference to an image in an OS's `drives.cfg` file (`/littlefs/<OS>/drives.cfg`). Mapping an image does not make it a different physical file. |
 
 The image path, guest filename, CP/M user number, guest volume, and configured emulator drive are distinct values. The manager must not infer one from another or silently change drive mappings during ordinary browsing or file operations.
 
-The supported image layout is flat: image and `drives.cfg` files reside directly in `/retro/images/<OS>/`. The manager does not browse image subdirectories.
+The supported SD image layout is flat: image files reside directly in `/retro/images/<OS>/`. The `drives.cfg` of each OS resides in LittleFS as `/littlefs/<OS>/drives.cfg`, next to the system disk image, and is shown by the manager as `<OS>/drives.cfg`. There is no separate `config.cfg` profile file. The manager does not browse image subdirectories.
 
 ## 4. Operating constraints
 
@@ -52,11 +52,12 @@ The supported image layout is flat: image and `drives.cfg` files reside directly
 
 ### Storage boundaries
 
-- All manager image and guest-file operations target the physical SD card.
-- LittleFS resources, including firmware-provided system disks and configuration, are not guest-file-manager targets. The manager must not expose LittleFS write or delete operations.
-- `drives.cfg` is an SD-side file and can be transferred by its dedicated workflow. `config.cfg` and manager recovery/journal files are protected from ordinary file operations.
+- Whole-image operations (upload, download, copy, rename, delete, replace) target the physical SD card only. Complete disk images in LittleFS, including the firmware-provided `system.dsk` images, are never uploaded, replaced, copied over, renamed or deleted by the manager.
+- Guest-file operations may also target the disk images in LittleFS (for example `/littlefs/<OS>/system.dsk`). They are limited to writing, replacing, renaming and deleting individual files or programs inside the image; the image container itself stays in place with unchanged size and geometry. This is allowed regardless of whether the emulator maps the image `RO` or `RW`: the emulator's `RO` setting applies to the emulator only, exactly as for SD images.
+- LittleFS has little free space: guest-file writes in LittleFS images must stay within the existing image size, use the same journal/undo protection as SD images (the journal for a LittleFS image is kept in LittleFS next to the image) and report a clear error when the image or LittleFS is full.
+- `drives.cfg` lives in LittleFS (`/littlefs/<OS>/drives.cfg`) and can be transferred by its dedicated workflow. Manager recovery/journal files are protected from ordinary file operations.
 - Existing image bytes, formats, geometry, sector order, guest metadata, and emulator mappings must be preserved unless the specific guest operation changes guest filesystem content.
-- An emulator mapping marked `RO` does not make an SD image read-only to the manager. The emulator's `RO` setting remains unchanged and continues to apply when that emulator uses the image. Mapped-image changes can affect later emulator operation and must be made visible to the user.
+- An emulator mapping marked `RO` does not make an SD or LittleFS image read-only to the manager. The emulator's `RO` setting remains unchanged and continues to apply when that emulator uses the image. Mapped-image changes can affect later emulator operation and must be made visible to the user.
 
 ### Browser and network
 
@@ -73,7 +74,7 @@ The manager supports selecting and transferring complete image files between the
 
 Whole-image operations treat the image as opaque bytes. The manager reports whether an image is referenced by a configured drive, but does not silently alter `drives.cfg`. Supported image filename extensions are `.dsk`, `.img`, `.po`, `.woz`, and `.2mg`; an extension does not establish that the guest filesystem inside an image is supported.
 
-The `drives.cfg` workflow transfers the selected OS profile's configuration to or from the SD image directory. Upload is limited to a plain-text file with bounded size and line length. The firmware does not fully validate its configuration semantics before storing it.
+The `drives.cfg` workflow transfers the selected OS's configuration to or from `/littlefs/<OS>/drives.cfg`. Upload is limited to a plain-text file with bounded size and line length. The firmware does not fully validate its configuration semantics before storing it.
 
 ### Guest-file operations
 

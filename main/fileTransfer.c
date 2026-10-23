@@ -69,8 +69,8 @@ static bool imageIsMapped(const char* retroPath, bool* mapped)
   for (size_t index = 0; index < sizeof(imageMachineIds) / sizeof(imageMachineIds[0]); ++index)
   {
     char configPath[absolutePathCapacity];
-    int pathLength = snprintf(configPath, sizeof(configPath), "/microSD/retro/images/%s/drives.cfg",
-                              imageMachineIds[index]);
+    int pathLength =
+        snprintf(configPath, sizeof(configPath), "/littlefs/%s/drives.cfg", imageMachineIds[index]);
     if (pathLength < 0 || (size_t)pathLength >= sizeof(configPath))
     {
       return false;
@@ -284,6 +284,45 @@ static bool acceptingRequests(httpd_req_t* request)
   return true;
 }
 
+//-- drives.cfg lives in LittleFS next to the system disk (/littlefs/<OS>/drives.cfg), but the
+//manager
+//-- still addresses it as <OS>/drives.cfg in the images area.
+static const char* littlefsRoot = "/littlefs";
+
+static bool driveConfigurationLittlefsPath(const char* relative, char* absolute, size_t capacity)
+{
+  const char* separator = strchr(relative, '/');
+  if (separator == NULL || strcmp(separator + 1, "drives.cfg") != 0)
+  {
+    return false;
+  }
+  size_t machineLength = (size_t)(separator - relative);
+  for (size_t index = 0; index < sizeof(imageMachineIds) / sizeof(imageMachineIds[0]); ++index)
+  {
+    if (strlen(imageMachineIds[index]) == machineLength &&
+        strncmp(imageMachineIds[index], relative, machineLength) == 0)
+    {
+      int length = snprintf(absolute, capacity, "%s/%s", littlefsRoot, relative);
+      return length >= 0 && (size_t)length < capacity;
+    }
+  }
+  return false;
+}
+
+static bool isLittlefsPath(const char* path)
+{
+  return strncmp(path, "/littlefs/", strlen("/littlefs/")) == 0;
+}
+
+//-- Maps a resolved request path back to its /retro/images/... name.
+static bool retroPathForRequestPath(const char* path, char* retroPath, size_t capacity)
+{
+  const char* relative =
+      isLittlefsPath(path) ? path + strlen("/littlefs/") : path + strlen(areaRoot(imageArea)) + 1;
+  int length = snprintf(retroPath, capacity, "/retro/images/%s", relative);
+  return length >= 0 && (size_t)length < capacity;
+}
+
 static bool resolveRequest(httpd_req_t* request, char* absolute, size_t capacity, fileArea* area)
 {
   char query[800];
@@ -326,6 +365,11 @@ static bool resolveRequest(httpd_req_t* request, char* absolute, size_t capacity
   {
     respond(request, "400 Bad Request", "SD-card path is too long");
     return false;
+  }
+  char littlefsPath[absolutePathCapacity];
+  if (driveConfigurationLittlefsPath(relative, littlefsPath, sizeof(littlefsPath)))
+  {
+    snprintf(absolute, capacity, "%s", littlefsPath);
   }
   return true;
 }
@@ -490,6 +534,23 @@ static esp_err_t listHandler(httpd_req_t* request)
     vTaskDelay(1);
   }
   closedir(directory);
+  //-- drives.cfg is stored in LittleFS; list it with the images of its OS.
+  const char* listRelative = path + strlen(areaRoot(area));
+  char littlefsConfigPath[absolutePathCapacity];
+  char configRelative[relativePathCapacity];
+  struct stat configInfo;
+  if (result == ESP_OK && listRelative[0] == '/' &&
+      snprintf(configRelative, sizeof(configRelative), "%s/drives.cfg", listRelative + 1) > 0 &&
+      driveConfigurationLittlefsPath(configRelative, littlefsConfigPath,
+                                     sizeof(littlefsConfigPath)) &&
+      stat(littlefsConfigPath, &configInfo) == 0 && S_ISREG(configInfo.st_mode))
+  {
+    char row[96];
+    snprintf(row, sizeof(row),
+             "%s{\"name\":\"drives.cfg\",\"directory\":false,\"size\":%llu,\"mapped\":false}",
+             first ? "" : ",", (unsigned long long)configInfo.st_size);
+    result = httpd_resp_sendstr_chunk(request, row);
+  }
   if (result != ESP_OK || atomic_load(&stopping))
   {
     return ESP_FAIL;
@@ -568,15 +629,12 @@ static esp_err_t uploadHandler(httpd_req_t* request)
   bool driveConfigurationUpload = false;
   if (area == imageArea)
   {
-    const char* root = areaRoot(area);
     char retroPath[relativePathCapacity];
-    int retroPathLength =
-        snprintf(retroPath, sizeof(retroPath), "/retro/images/%s", path + strlen(root) + 1);
-    if (retroPathLength < 0 || (size_t)retroPathLength >= sizeof(retroPath))
+    if (!retroPathForRequestPath(path, retroPath, sizeof(retroPath)))
     {
       return respond(request, "400 Bad Request", "Image path is too long");
     }
-    //-- Only <OS>/drives.cfg may be replaced; config.cfg and manager files stay protected.
+    //-- Only <OS>/drives.cfg (stored in LittleFS) may be replaced; manager files stay protected.
     driveConfigurationUpload = isManagedDriveConfiguration(retroPath);
     if (!driveConfigurationUpload && isProtectedImageMetadata(retroPath))
     {
@@ -638,12 +696,26 @@ static esp_err_t uploadHandler(httpd_req_t* request)
   {
     return respond(request, "404 Not Found", "Destination directory missing");
   }
-  const char* temporaryPath = areaTemporaryPath(area);
+  //-- A rename cannot cross file systems: the LittleFS drives.cfg is staged next to its
+  //destination.
+  char littlefsTemporaryPath[absolutePathCapacity] = "";
+  if (isLittlefsPath(path) &&
+      !buildSiblingPath(path, "drives-upload-part.tmp", littlefsTemporaryPath,
+                        sizeof(littlefsTemporaryPath)))
+  {
+    return respond(request, "400 Bad Request", "Cannot prepare drives.cfg staging path");
+  }
+  const char* temporaryPath =
+      isLittlefsPath(path) ? littlefsTemporaryPath : areaTemporaryPath(area);
+  if (isLittlefsPath(path))
+  {
+    unlink(temporaryPath);
+  }
   int descriptor = open(temporaryPath, O_WRONLY | O_CREAT | O_EXCL, 0600);
   if (descriptor < 0)
   {
     return respond(request, "507 Insufficient Storage",
-                   "Cannot create temporary file; check SD and free space");
+                   "Cannot create temporary file; check storage and free space");
   }
   size_t remaining = request->content_len;
   char buffer[4096];
@@ -781,11 +853,8 @@ static esp_err_t deleteHandler(httpd_req_t* request)
   }
   if (area == imageArea)
   {
-    const char* root = areaRoot(area);
     char retroPath[relativePathCapacity];
-    int retroPathLength =
-        snprintf(retroPath, sizeof(retroPath), "/retro/images/%s", path + strlen(root) + 1);
-    if (retroPathLength < 0 || (size_t)retroPathLength >= sizeof(retroPath))
+    if (!retroPathForRequestPath(path, retroPath, sizeof(retroPath)))
     {
       return respond(request, "400 Bad Request", "Image path is too long");
     }

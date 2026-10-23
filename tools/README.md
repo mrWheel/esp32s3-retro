@@ -12,7 +12,7 @@ firmware, or test the running device. The firmware itself is the C/C++ code in
 | `tools/diskImage.py` | Create, add, list, extract and validate CP/M images (`--os cpm80` or `cpm86`). | Regular host-side media preparation |
 | `tools/buildDiskImage.py` | Build a complete OS data/system image using the selected OS builder. Apple II ProDOS data volumes are supported here too. | Regular host-side media preparation |
 | `tools/createSystemDsk.py` | Compose `littlefs/<os>/system.dsk`. CMake runs it automatically for the Apple II ProDOS system image; run it manually for CP/M system images. | Production-image preparation |
-| `tools/prepareSd.py` | Create the documented directory layout and default config on an existing SD-card mount; does not format the card or overwrite an existing config. | Regular host-side SD preparation |
+| `tools/prepareSd.py` | Create the documented directory layout on an existing SD-card mount; does not format the card. | Regular host-side SD preparation |
 | `tools/fetchCpm80Software.py` | Optional CP/M-80 archive/resource importer. Only fetches explicitly selected content; licensing still needs to be verified by the user. | Optional host maintenance; not needed to build/run firmware |
 | `tools/buildApple2DiskBootRom.py` | Regenerate `components/apple2Core/apple2DiskBootRom.h`, which is compiled into the Apple II firmware. Normally only run when intentionally regenerating that generated header. | Production build-input generator; not a test |
 | `tools/include/diskImageApple2Pascal.py` | Create a blank Apple/UCSD Pascal disk image; not part of the normal `diskImage.py` dispatcher. | Optional host media utility |
@@ -55,7 +55,7 @@ python3 tools/diskImage.py --os cpm86 -h
   A new OS needs `tools/include/diskImage<Os>.py`, `tools/include/buildDiskImage<Os>.py` and one entry in `tools/include/osProfiles.py`. Main entrypoints add `tools/include/` to Python's module search path before importing these modules.
   `prepareSd.py` without a mount point prepares `sdcard/`, and without `--os` prepares all systems.
 
-  `prepareSd.py` (Python 3.9+) adds the documented layout and a default CP/M `drives.cfg` to an already formatted/mounted FAT32 card. It does not format, delete, make disk images, overwrite an existing drive configuration or rewrite an incompatible layout marker. Run with the card mount root as its sole argument.
+  `prepareSd.py` (Python 3.9+) adds the documented layout to an already formatted/mounted FAT32 card. It does not format, delete, make disk images, create drive configurations (those live in `littlefs/<os>/drives.cfg`) or rewrite an incompatible layout marker. Run with the card mount root as its sole argument.
 
   `transferTest.py` exercises an actual running device using the session URL displayed on USB. It creates uniquely named files in exchange/common and removes only those files. Do not run it during manual transfers. Its 8 MiB payload intentionally exceeds normal ESP32-S3 internal RAM; the test PC can hold it in memory, while the device must stream.
 
@@ -181,8 +181,7 @@ disposable images until guest writes have been qualified on the target hardware.
 
 ### CP/M-86 drives
 
-`prepareSd.py --os cpm86` creates `/retro/images/cpm86/drives.cfg` if it does not
-already exist. The CP/M-86 BIOS supports drives A: through F:. A: is the
+The CP/M-86 drive configuration is `littlefs/cpm86/drives.cfg` (flashed with LittleFS). The CP/M-86 BIOS supports drives A: through F:. A: is the
 read-only LittleFS system image; B: through F: are optional SD images. All six
 drives use the same validated 160 KiB `CPM86` image geometry (40 tracks, eight
 512-byte sectors per track, 128-byte guest records, 1 KiB allocation blocks and
@@ -252,7 +251,7 @@ python3 tools/diskImage.py list --os cpm80 ~/Desktop/work.dsk
 cp ~/Desktop/work.dsk /Volumes/SDCARD/retro/images/cpm80/work.dsk
 ```
 
-The local-file `add` step accepts ordinary files with valid CP/M 8.3 names; use `--name MBASIC.COM` if the host filename needs changing. Create refuses to overwrite an existing image unless `--force` is supplied. `add` preserves the image if a file is invalid, duplicated, or does not fit. `prepareSd.py` writes `retro/images/cpm80/drives.cfg` only when it does not already exist; edit that file to choose the drive letter, image path, `RO`/`RW` access and `SYSTEM`/`LARGE` profile. Copy the finished `work.dsk` to the path named by that configuration and safely eject the card before inserting it in the ESP32-S3. At the CP/M prompt, switch to `E:` and use `DIR`; a write-enabled CP/M image is required.
+The local-file `add` step accepts ordinary files with valid CP/M 8.3 names; use `--name MBASIC.COM` if the host filename needs changing. Create refuses to overwrite an existing image unless `--force` is supplied. `add` preserves the image if a file is invalid, duplicated, or does not fit. The drive configuration is `littlefs/cpm80/drives.cfg` (flashed with LittleFS); edit that file to choose the drive letter, image path, `RO`/`RW` access and `SYSTEM`/`LARGE` profile. Copy the finished `work.dsk` to the path named by that configuration and safely eject the card before inserting it in the ESP32-S3. At the CP/M prompt, switch to `E:` and use `DIR`; a write-enabled CP/M image is required.
 
 ## Import resources from an HTML archive
 

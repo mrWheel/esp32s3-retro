@@ -96,7 +96,7 @@ def print_upload_notice(info, output_path):
         return
     print("*** IMPORTANT: this image is not on the emulator's SD card yet. ***")
     print('Upload it to the (physical) SD card with "File Transfer" (emulator menu option 6),')
-    print(f"into /retro/images/{info.key}/ , and name it in /retro/images/{info.key}/drives.cfg where needed.")
+    print(f"into /retro/images/{info.key}/ , and name it in littlefs/{info.key}/drives.cfg where needed.")
     print(f"Local file: {output_path}")
 
 
@@ -107,6 +107,17 @@ def main(argv=None, default_os=None):
     arguments = parser.parse_args(argv)
     info = osProfiles.require_buildable(parser, arguments.os_name)
     builder = info.builder()
+    if hasattr(builder, "apply_defaults"):
+        interactive = (
+            hasattr(builder, "prompt_arguments")
+            and arguments.profile is None
+            and arguments.name is None
+            and not (arguments.output_option or arguments.output)
+            and sys.stdin.isatty()
+        )
+        builder.apply_defaults(arguments)
+        if interactive:
+            builder.prompt_arguments(arguments)
     default_name = getattr(builder, "default_image_name", None)
     requested = (
         arguments.output_option

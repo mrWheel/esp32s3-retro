@@ -15,11 +15,11 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char *tag = "cpm86Machine";
-static const char *systemFilePath = "/littlefs/cpm86/cpm.sys";
-static const char *systemDiskPath = "/littlefs/cpm86/system.dsk";
-static const char *biosOverlayPath = "/littlefs/cpm86/retro86bios.h86";
-static const char *driveConfigPath = "/microSD/retro/images/cpm86/drives.cfg";
+static const char* tag = "cpm86Machine";
+static const char* systemFilePath = "/littlefs/cpm86/cpm.sys";
+static const char* systemDiskPath = "/littlefs/cpm86/system.dsk";
+static const char* biosOverlayPath = "/littlefs/cpm86/retro86bios.h86";
+static const char* driveConfigPath = "/littlefs/cpm86/drives.cfg";
 
 typedef enum
 {
@@ -48,27 +48,30 @@ typedef struct
   diskTransferMode transferMode;
 } cpm86Disk;
 
-static cpm86Core *guestCore;
+static cpm86Core* guestCore;
 static cpm86Disk diskController;
 static hostExchange exchangeService;
 static bool guestReady;
 static bool guestStopRequested;
 
-static void logExecutionMetrics(uint64_t elapsedUs, uint64_t runUs, uint64_t delayUs, uint64_t instructions,
-                               uint64_t batches)
+static void logExecutionMetrics(uint64_t elapsedUs, uint64_t runUs, uint64_t delayUs,
+                                uint64_t instructions, uint64_t batches)
 {
-  ESP_LOGI(tag, "CP/M-86 timing: elapsed=%llu ms run=%llu ms delay=%llu ms instructions=%llu batches=%llu",
-           (unsigned long long)(elapsedUs / 1000ULL), (unsigned long long)(runUs / 1000ULL),
-           (unsigned long long)(delayUs / 1000ULL), (unsigned long long)instructions, (unsigned long long)batches);
+  ESP_LOGI(
+      tag,
+      "CP/M-86 timing: elapsed=%llu ms run=%llu ms delay=%llu ms instructions=%llu batches=%llu",
+      (unsigned long long)(elapsedUs / 1000ULL), (unsigned long long)(runUs / 1000ULL),
+      (unsigned long long)(delayUs / 1000ULL), (unsigned long long)instructions,
+      (unsigned long long)batches);
 }
 
-static uint32_t readMilliseconds(void *context)
+static uint32_t readMilliseconds(void* context)
 {
   (void)context;
   return (uint32_t)((uint64_t)esp_timer_get_time() / 1000ULL);
 }
 
-static bool diskRecordOffset(uint64_t *offset)
+static bool diskRecordOffset(uint64_t* offset)
 {
   if (offset == NULL || diskController.drive >= cpm86DiskDriveCount ||
       !diskController.drives[diskController.drive].configured || diskController.track == 0 ||
@@ -79,11 +82,11 @@ static bool diskRecordOffset(uint64_t *offset)
   }
   uint64_t recordIndex = (uint64_t)diskController.track * 32 + diskController.sector;
   *offset = recordIndex * sizeof(diskController.record);
-  imageFile *image = &diskController.drives[diskController.drive].image;
+  imageFile* image = &diskController.drives[diskController.drive].image;
   return *offset <= imageSize(image) && sizeof(diskController.record) <= imageSize(image) - *offset;
 }
 
-static bool portRead(void *context, uint16_t port, uint8_t *value)
+static bool portRead(void* context, uint16_t port, uint8_t* value)
 {
   (void)context;
   if (value == NULL)
@@ -143,7 +146,7 @@ static bool startDiskTransfer(uint8_t command)
     return true;
   }
 
-  imageFile *image = &diskController.drives[diskController.drive].image;
+  imageFile* image = &diskController.drives[diskController.drive].image;
   if (command == 0)
   {
     diskActivityRead();
@@ -162,7 +165,7 @@ static bool startDiskTransfer(uint8_t command)
   return true;
 }
 
-static bool portWrite(void *context, uint16_t port, uint8_t value)
+static bool portWrite(void* context, uint16_t port, uint8_t value)
 {
   (void)context;
   if (port == 0x00E2)
@@ -206,13 +209,14 @@ static bool portWrite(void *context, uint16_t port, uint8_t value)
     if (diskController.transferIndex == sizeof(diskController.record))
     {
       uint64_t offset;
-      imageFile *image = &diskController.drives[diskController.drive].image;
+      imageFile* image = &diskController.drives[diskController.drive].image;
       bool writeSucceeded = diskRecordOffset(&offset);
       if (writeSucceeded)
       {
         diskActivityWrite();
-        writeSucceeded = imageWriteAt(image, offset, diskController.record, sizeof(diskController.record)) &&
-                         imageFlush(image);
+        writeSucceeded =
+            imageWriteAt(image, offset, diskController.record, sizeof(diskController.record)) &&
+            imageFlush(image);
       }
       if (!writeSucceeded)
       {
@@ -236,8 +240,8 @@ static bool loadSystemFile(void)
 
   uint8_t header[128];
   bool valid = imageSize(&image) == cpm86SystemFileSize &&
-               imageReadAt(&image, 0, header, sizeof(header)) &&
-               header[0] == 1 && header[3] == 0x51 && header[4] == 0;
+               imageReadAt(&image, 0, header, sizeof(header)) && header[0] == 1 &&
+               header[3] == 0x51 && header[4] == 0;
   if (!valid)
   {
     ESP_LOGE(tag, "Invalid CP/M-86 system file or load segment: %s", systemFilePath);
@@ -291,7 +295,8 @@ static bool loadSystemFile(void)
     return false;
   }
 
-  //-- CCP data/stack area (0051:0800-09FF) is never code; stop at the first fetch to keep the real cause in the trace.
+  //-- CCP data/stack area (0051:0800-09FF) is never code; stop at the first fetch to keep the real
+  //cause in the trace.
   cpm86CoreSetExecuteGuard(guestCore, 0x00D10, 0x00F10);
   const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
   if (cpm86CoreWrite(guestCore, 0x00380, bdosVector, sizeof(bdosVector)) != cpm86CoreOk ||
@@ -316,7 +321,7 @@ static void closeDiskImages(void)
   memset(&diskController, 0, sizeof(diskController));
 }
 
-machineState cpm86MachineProbe(const retroMachine *machine)
+machineState cpm86MachineProbe(const retroMachine* machine)
 {
   if (machine == NULL || !machine->implemented)
   {
@@ -333,7 +338,8 @@ machineState cpm86MachineProbe(const retroMachine *machine)
     return machineResourceInvalid;
   }
   uint64_t biosOverlaySize;
-  if (!resourceSize(biosOverlayPath, &biosOverlaySize) || biosOverlaySize == 0 || biosOverlaySize > 4096)
+  if (!resourceSize(biosOverlayPath, &biosOverlaySize) || biosOverlaySize == 0 ||
+      biosOverlaySize > 4096)
   {
     ESP_LOGE(tag, "Invalid CP/M-86 BIOS overlay: %s", biosOverlayPath);
     return machineResourceInvalid;
@@ -346,9 +352,10 @@ machineState cpm86MachineProbe(const retroMachine *machine)
   cpm86DiskProfile systemProfile;
   if (!cpm86DriveConfigSystemProfileFromSize(diskSize, &systemProfile))
   {
-    ESP_LOGE(tag, "Invalid CP/M-86 system disk size %llu (expected %u or %u): %s; A: is not mounted",
-             (unsigned long long)diskSize, (unsigned)cpm86SystemDiskSize, (unsigned)cpm86LargeDiskSize,
-             systemDiskPath);
+    ESP_LOGE(tag,
+             "Invalid CP/M-86 system disk size %llu (expected %u or %u): %s; A: is not mounted",
+             (unsigned long long)diskSize, (unsigned)cpm86SystemDiskSize,
+             (unsigned)cpm86LargeDiskSize, systemDiskPath);
     return machineResourceInvalid;
   }
   return machineAvailable;
@@ -392,9 +399,11 @@ esp_err_t cpm86MachineInitialize(void)
         closeDiskImages();
         return ESP_FAIL;
       }
-      if (!cpm86DriveConfigResolveSystemProfile(&driveConfig[0], diskSize, profileError, sizeof(profileError)))
+      if (!cpm86DriveConfigResolveSystemProfile(&driveConfig[0], diskSize, profileError,
+                                                sizeof(profileError)))
       {
-        ESP_LOGE(tag, "Invalid CP/M-86 system disk %s: %s; A: is not mounted", driveConfig[0].path, profileError);
+        ESP_LOGE(tag, "Invalid CP/M-86 system disk %s: %s; A: is not mounted", driveConfig[0].path,
+                 profileError);
         closeDiskImages();
         return ESP_FAIL;
       }
@@ -423,8 +432,8 @@ esp_err_t cpm86MachineInitialize(void)
         closeDiskImages();
         return ESP_FAIL;
       }
-      ESP_LOGW(tag, "CP/M-86 drive %c: image missing or has invalid size: %s",
-               (char)('A' + drive), driveConfig[drive].path);
+      ESP_LOGW(tag, "CP/M-86 drive %c: image missing or has invalid size: %s", (char)('A' + drive),
+               driveConfig[drive].path);
       continue;
     }
     if (!imageOpen(&diskController.drives[drive].image, driveConfig[drive].path,
@@ -551,8 +560,8 @@ void cpm86MachineRun(void)
       delayTimeUs += (uint64_t)(delayEndUs - delayStartUs);
       if (delayEndUs - lastMetricsLogUs >= 10000000)
       {
-        logExecutionMetrics((uint64_t)(delayEndUs - measurementStartUs), runTimeUs, delayTimeUs, instructionCount,
-                            batchCount);
+        logExecutionMetrics((uint64_t)(delayEndUs - measurementStartUs), runTimeUs, delayTimeUs,
+                            instructionCount, batchCount);
         lastMetricsLogUs = delayEndUs;
       }
       continue;
@@ -578,9 +587,10 @@ void cpm86MachineRun(void)
       {
         for (size_t index = 0; index < headCount; ++index)
         {
-          ESP_LOGE(tag, "First guest instruction %u: %04X:%04X SS:SP=%04X:%04X AX=%04X %s", (unsigned)index,
-                   head[index].segment, head[index].offset, head[index].stackSegment, head[index].stackPointer,
-                   head[index].accumulator, head[index].instruction);
+          ESP_LOGE(tag, "First guest instruction %u: %04X:%04X SS:SP=%04X:%04X AX=%04X %s",
+                   (unsigned)index, head[index].segment, head[index].offset,
+                   head[index].stackSegment, head[index].stackPointer, head[index].accumulator,
+                   head[index].instruction);
         }
       }
       uint8_t dataBytes[16];
@@ -588,23 +598,28 @@ void cpm86MachineRun(void)
       {
         ESP_LOG_BUFFER_HEX_LEVEL(tag, dataBytes, sizeof(dataBytes), ESP_LOG_ERROR);
       }
-      if (cpm86CoreGetRecentTrace(guestCore, trace, cpm86CoreTraceDepth, &traceCount) == cpm86CoreOk)
+      if (cpm86CoreGetRecentTrace(guestCore, trace, cpm86CoreTraceDepth, &traceCount) ==
+          cpm86CoreOk)
       {
         for (size_t index = 0; index < traceCount; ++index)
         {
           ESP_LOGE(tag, "Recent guest instruction %u: %04X:%04X SS:SP=%04X:%04X AX=%04X %s",
-                   (unsigned)index, trace[index].segment, trace[index].offset, trace[index].stackSegment,
-                   trace[index].stackPointer, trace[index].accumulator, trace[index].instruction);
+                   (unsigned)index, trace[index].segment, trace[index].offset,
+                   trace[index].stackSegment, trace[index].stackPointer, trace[index].accumulator,
+                   trace[index].instruction);
         }
       }
-      if (cpm86CoreRead(guestCore, physicalAddress, instructionBytes, sizeof(instructionBytes)) == cpm86CoreOk)
+      if (cpm86CoreRead(guestCore, physicalAddress, instructionBytes, sizeof(instructionBytes)) ==
+          cpm86CoreOk)
       {
         ESP_LOGE(tag,
-                 "CP/M-86 stopped: result=%d CS:IP=%04X:%04X physical=%05lX bytes=%02X %02X %02X %02X %02X %02X "
+                 "CP/M-86 stopped: result=%d CS:IP=%04X:%04X physical=%05lX bytes=%02X %02X %02X "
+                 "%02X %02X %02X "
                  "instructions=%llu executed=%u",
-                 result, segment, offset, (unsigned long)physicalAddress, instructionBytes[0], instructionBytes[1],
-                 instructionBytes[2], instructionBytes[3], instructionBytes[4], instructionBytes[5],
-                 (unsigned long long)cpm86CoreInstructionCount(guestCore), (unsigned)instructionsExecuted);
+                 result, segment, offset, (unsigned long)physicalAddress, instructionBytes[0],
+                 instructionBytes[1], instructionBytes[2], instructionBytes[3], instructionBytes[4],
+                 instructionBytes[5], (unsigned long long)cpm86CoreInstructionCount(guestCore),
+                 (unsigned)instructionsExecuted);
       }
       else
       {
@@ -615,8 +630,9 @@ void cpm86MachineRun(void)
     }
     else
     {
-      ESP_LOGE(tag, "CP/M-86 stopped: result=%d instructions=%llu executed=%u",
-               result, (unsigned long long)cpm86CoreInstructionCount(guestCore), (unsigned)instructionsExecuted);
+      ESP_LOGE(tag, "CP/M-86 stopped: result=%d instructions=%llu executed=%u", result,
+               (unsigned long long)cpm86CoreInstructionCount(guestCore),
+               (unsigned)instructionsExecuted);
     }
     break;
   }
@@ -625,8 +641,8 @@ void cpm86MachineRun(void)
   {
     puts("CP/M-86 stopped by Ctrl+].");
   }
-  logExecutionMetrics((uint64_t)(esp_timer_get_time() - measurementStartUs), runTimeUs, delayTimeUs, instructionCount,
-                      batchCount);
+  logExecutionMetrics((uint64_t)(esp_timer_get_time() - measurementStartUs), runTimeUs, delayTimeUs,
+                      instructionCount, batchCount);
   cpm86CoreDestroy(guestCore);
   guestCore = NULL;
   guestReady = false;

@@ -17,17 +17,16 @@ The current worktree images fail the expected `DATA3:` assertion; verify the
 actual SD media and reconcile the mapping before relying on that result.
 ESP32-S3 behaviour and filesystem writes remain unverified.
 
-Copy this directory's `drives.cfg` to `/retro/images/ucsd/drives.cfg` on the
-SD card when updating the UCSD profile. Menu option 3 requires the config and
-the 800K boot image on the SD card. In File Transfer, select UCSD Pascal and
+The UCSD `drives.cfg` is `littlefs/ucsd/drives.cfg` (flashed with LittleFS, next to
+the boot image). Menu option 3 requires that file and the 800K boot image. In File Transfer, select UCSD Pascal and
 Disk image; uploads go directly into this machine's image directory.
 
-The profile's `drives.cfg` must be copied to `/retro/images/ucsd/drives.cfg`
-on the SD card. In File Transfer, select UCSD Pascal and Disk image; uploads
+The profile's `drives.cfg` is stored in LittleFS as `/littlefs/ucsd/drives.cfg`.
+In File Transfer, select UCSD Pascal and Disk image; uploads
 go directly into this machine's image directory. The Pascal editor read path
 was host-tested in the earlier fixture; write/reopen, volume swaps and
 hardware behaviour have not been qualified.
 
 Disk-image paths in drives.cfg must remain below /retro/images/ucsd/. Menu
-option 3 selects /littlefs/ucsd/config.cfg; option 4 selects
-/littlefs/apple2/config.cfg and continues to use the existing ../drives.cfg.
+option 3 reads /littlefs/ucsd/drives.cfg; option 4 reads
+/littlefs/apple2/drives.cfg.

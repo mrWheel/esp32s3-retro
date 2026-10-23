@@ -18,10 +18,10 @@ automatically when the machine starts) and TEST-NONGR.BAS becomes TEST.NONGR (to
 Applesoft; LOAD TEST.NONGR, then RUN). The emulator must be rebuilt AND flashed again to
 use a new system.dsk.
 
-Menu option 4 selects /littlefs/apple2/config.cfg, which points to drives.cfg on the SD
-card. There is no default drive: that drives.cfg must explicitly list SD6.1. The shipped
-profile boots the ProDOS system volume. Native Apple Pascal media can be selected through menu option 3 and its separate
-/littlefs/ucsd/config.cfg. Its drives.cfg uses the read-only system
+Menu option 4 reads /littlefs/apple2/drives.cfg. There is no default drive: that drives.cfg
+must explicitly list SD6.1. The shipped
+profile boots the ProDOS system volume. Native Apple Pascal media can be selected through menu option 3, which reads
+/littlefs/ucsd/drives.cfg. That file uses the read-only system
 disk from /littlefs/ucsd/ and a separate writable SD work volume under
 /retro/images/ucsd/.
 When SD6.1 is not configured or its image cannot be opened, the emulator returns an error
@@ -31,7 +31,7 @@ The separate project-authored diagnostic test fixture is at
 tests/fixtures/apple2-diagnostic.rom and can be regenerated with:
   python3 tools/buildApple2TestRom.py
 
-More disks: /microSD/retro/images/apple2/drives.cfg (see sdcard/retro/images/apple2/drives.cfg)
+More disks: /littlefs/apple2/drives.cfg (littlefs/apple2/drives.cfg in the project)
 maps images to slots 4..7, drives 1..2, for example the 800K read/write ProDOS data volumes
 made with tools/buildDiskImage.py --os apple2 --name DATA1 data1.po:
   SD6.1=/littlefs/apple2/system.dsk,RO,APPLE2_140K

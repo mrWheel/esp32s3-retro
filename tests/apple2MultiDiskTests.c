@@ -21,9 +21,12 @@ enum
 };
 
 //-- DOS 3.3 interleave: logical sector -> physical sector (the standard published table).
-static const uint8_t dosPhysicalOfLogical[16] = {0, 13, 11, 9, 7, 5, 3, 1, 14, 12, 10, 8, 6, 4, 2, 15};
-//-- ProDOS: block n of a track occupies these two physical sectors (Beneath Apple ProDOS block table).
-static const uint8_t prodosBlockSectors[8][2] = {{0, 2}, {4, 6}, {8, 10}, {12, 14}, {1, 3}, {5, 7}, {9, 11}, {13, 15}};
+static const uint8_t dosPhysicalOfLogical[16] = {0,  13, 11, 9, 7, 5, 3, 1,
+                                                 14, 12, 10, 8, 6, 4, 2, 15};
+//-- ProDOS: block n of a track occupies these two physical sectors (Beneath Apple ProDOS block
+//table).
+static const uint8_t prodosBlockSectors[8][2] = {{0, 2}, {4, 6}, {8, 10}, {12, 14},
+                                                 {1, 3}, {5, 7}, {9, 11}, {13, 15}};
 
 static uint8_t dosLogicalOfPhysical[16];
 static uint8_t prodosLogicalOfPhysical[16];
@@ -48,7 +51,8 @@ static void buildOrderTables(void)
 
 static uint8_t imageSectorOfPhysical(apple2DiskSectorOrder order, uint8_t physical)
 {
-  return order == apple2DiskSectorOrderProdos ? prodosLogicalOfPhysical[physical] : dosLogicalOfPhysical[physical];
+  return order == apple2DiskSectorOrderProdos ? prodosLogicalOfPhysical[physical]
+                                              : dosLogicalOfPhysical[physical];
 }
 
 static uint8_t patternByte(uint8_t id, uint8_t track, uint8_t sector, size_t offset)
@@ -62,9 +66,9 @@ typedef struct
   uint32_t calls;
 } syntheticDisk;
 
-static bool syntheticRead(void *context, uint8_t track, uint8_t sector, uint8_t *buffer)
+static bool syntheticRead(void* context, uint8_t track, uint8_t sector, uint8_t* buffer)
 {
-  syntheticDisk *disk = context;
+  syntheticDisk* disk = context;
   disk->calls++;
   for (size_t offset = 0; offset < sectorSize; ++offset)
   {
@@ -108,8 +112,9 @@ static uint8_t decodeFourAndFour(uint8_t first, uint8_t second)
   return (uint8_t)(((first << 1) | 1U) & second);
 }
 
-//-- Decodes one full track from the nibble stream; returns the bitmask of the physical sectors found.
-static unsigned decodeTrack(const uint8_t *stream, uint8_t expectedTrack, uint8_t sectors[16][256])
+//-- Decodes one full track from the nibble stream; returns the bitmask of the physical sectors
+//found.
+static unsigned decodeTrack(const uint8_t* stream, uint8_t expectedTrack, uint8_t sectors[16][256])
 {
   unsigned found = 0;
   size_t length = apple2DiskNibblesPerTrack;
@@ -151,21 +156,23 @@ static unsigned decodeTrack(const uint8_t *stream, uint8_t expectedTrack, uint8_
   return found;
 }
 
-static void readTrackStream(apple2Disk *disk, uint8_t *stream)
+static void readTrackStream(apple2Disk* disk, uint8_t* stream)
 {
   for (uint32_t index = 0; index < apple2DiskNibblesPerTrack; ++index)
   {
-    stream[index] = apple2DiskAccess(disk, 0xC, false, (uint64_t)index * apple2DiskCyclesPerNibble + 5, 0);
+    stream[index] =
+        apple2DiskAccess(disk, 0xC, false, (uint64_t)index * apple2DiskCyclesPerNibble + 5, 0);
   }
 }
 
-static uint16_t selectedHalfTrack(const apple2Disk *disk)
+static uint16_t selectedHalfTrack(const apple2Disk* disk)
 {
   return disk->drives[disk->drive2Selected ? 1 : 0].halfTrack;
 }
 
-//-- Pulls the head outward by the given number of half-track steps (the model clamps at the last track).
-static void stepHalfTracksUp(apple2Disk *disk, unsigned steps)
+//-- Pulls the head outward by the given number of half-track steps (the model clamps at the last
+//track).
+static void stepHalfTracksUp(apple2Disk* disk, unsigned steps)
 {
   for (unsigned step = 0; step < steps; ++step)
   {
@@ -175,20 +182,21 @@ static void stepHalfTracksUp(apple2Disk *disk, unsigned steps)
   }
 }
 
-static void stepToHalfTrack(apple2Disk *disk, uint16_t halfTrack)
+static void stepToHalfTrack(apple2Disk* disk, uint16_t halfTrack)
 {
   assert(selectedHalfTrack(disk) <= halfTrack);
   stepHalfTracksUp(disk, (unsigned)(halfTrack - selectedHalfTrack(disk)));
 }
 
-static void selectDrive(apple2Disk *disk, uint8_t drive)
+static void selectDrive(apple2Disk* disk, uint8_t drive)
 {
   apple2DiskAccess(disk, drive == 0 ? 0xA : 0xB, false, 0, 0);
 }
 
 //-- Decodes the current track of the selected drive and checks every sector against the pattern the
 //-- synthetic medium holds for that physical sector in the given image order.
-static void expectTrackPattern(apple2Disk *disk, uint8_t id, uint8_t track, apple2DiskSectorOrder order)
+static void expectTrackPattern(apple2Disk* disk, uint8_t id, uint8_t track,
+                               apple2DiskSectorOrder order)
 {
   static uint8_t stream[apple2DiskNibblesPerTrack];
   uint8_t sectors[16][256];
@@ -207,7 +215,8 @@ static void expectTrackPattern(apple2Disk *disk, uint8_t id, uint8_t track, appl
 static void testOrderTables(void)
 {
   assert(dosLogicalOfPhysical[1] == 7 && dosLogicalOfPhysical[13] == 1);
-  assert(prodosLogicalOfPhysical[0] == 0 && prodosLogicalOfPhysical[2] == 1 && prodosLogicalOfPhysical[1] == 8);
+  assert(prodosLogicalOfPhysical[0] == 0 && prodosLogicalOfPhysical[2] == 1 &&
+         prodosLogicalOfPhysical[1] == 8);
   for (uint8_t logical = 0; logical < 16; ++logical)
   {
     assert(prodosLogicalOfPhysical[prodosPhysicalOfLogical[logical]] == logical);
@@ -221,11 +230,13 @@ static void testAttachValidation(void)
   syntheticDisk synthetic = {1, 0};
   assert(!apple2DiskAttachDrive(&disk, 2, apple2DiskSectorOrderDos, 35, syntheticRead, &synthetic));
   assert(!apple2DiskAttachDrive(&disk, 0, apple2DiskSectorOrderDos, 0, syntheticRead, &synthetic));
-  assert(!apple2DiskAttachDrive(&disk, 0, apple2DiskSectorOrderDos, apple2DiskMaxTracks + 1, syntheticRead, &synthetic));
+  assert(!apple2DiskAttachDrive(&disk, 0, apple2DiskSectorOrderDos, apple2DiskMaxTracks + 1,
+                                syntheticRead, &synthetic));
   assert(!apple2DiskAttachDrive(&disk, 0, (apple2DiskSectorOrder)7, 35, syntheticRead, &synthetic));
   assert(!apple2DiskAttachDrive(&disk, 0, apple2DiskSectorOrderDos, 35, NULL, &synthetic));
   assert(!apple2DiskIsAttached(&disk));
-  assert(apple2DiskAttachDrive(&disk, 1, apple2DiskSectorOrderProdos, apple2DiskMaxTracks, syntheticRead, &synthetic));
+  assert(apple2DiskAttachDrive(&disk, 1, apple2DiskSectorOrderProdos, apple2DiskMaxTracks,
+                               syntheticRead, &synthetic));
   assert(apple2DiskIsAttached(&disk) && !disk.drives[0].attached && disk.drives[1].attached);
   apple2DiskDetachDrive(&disk, 1);
   assert(!apple2DiskIsAttached(&disk));
@@ -244,7 +255,8 @@ static void testSectorOrders(void)
 
   apple2DiskInitialize(&disk);
   syntheticDisk prodosMedium = {2, 0};
-  assert(apple2DiskAttachDrive(&disk, 0, apple2DiskSectorOrderProdos, 35, syntheticRead, &prodosMedium));
+  assert(apple2DiskAttachDrive(&disk, 0, apple2DiskSectorOrderProdos, 35, syntheticRead,
+                               &prodosMedium));
   apple2DiskAccess(&disk, 0x9, false, 0, 0);
   expectTrackPattern(&disk, 2, 0, apple2DiskSectorOrderProdos);
   stepToHalfTrack(&disk, 34);
@@ -299,7 +311,8 @@ static void testTwoDrives(void)
   expectTrackPattern(&disk, 4, 0, apple2DiskSectorOrderDos);
   assert(first.calls > 0 && second.calls > 0);
 
-  //-- Write-protect sense (Q6 set, Q7 clear): an attached drive is read-only, an empty drive reads zero.
+  //-- Write-protect sense (Q6 set, Q7 clear): an attached drive is read-only, an empty drive reads
+  //zero.
   apple2DiskAccess(&disk, 0xD, false, 0, 0);
   assert(apple2DiskAccess(&disk, 0xE, false, 0, 0) == 0x80);
   selectDrive(&disk, 1);
@@ -326,7 +339,7 @@ static void testEmptySecondDrive(void)
 
 static void testSlotsThroughCore(void)
 {
-  apple2Core *core = NULL;
+  apple2Core* core = NULL;
   assert(apple2CoreCreate(&core) == apple2CoreOk);
   uint8_t rom[apple2RomSize];
   memset(rom, 0xEA, sizeof(rom));
@@ -335,24 +348,24 @@ static void testSlotsThroughCore(void)
   assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
 
   syntheticDisk medium = {7, 0};
-  assert(apple2CoreAttachDiskDrive(NULL, 5, 0, apple2DiskSectorOrderDos, 35, syntheticRead, &medium) ==
-         apple2CoreInvalidArgument);
-  assert(apple2CoreAttachDiskDrive(core, 3, 0, apple2DiskSectorOrderDos, 35, syntheticRead, &medium) ==
-         apple2CoreInvalidArgument);
-  assert(apple2CoreAttachDiskDrive(core, 8, 0, apple2DiskSectorOrderDos, 35, syntheticRead, &medium) ==
-         apple2CoreInvalidArgument);
-  assert(apple2CoreAttachDiskDrive(core, 5, 2, apple2DiskSectorOrderDos, 35, syntheticRead, &medium) ==
-         apple2CoreInvalidArgument);
-  assert(apple2CoreAttachDiskDrive(core, 5, 0, apple2DiskSectorOrderDos, 0, syntheticRead, &medium) ==
-         apple2CoreInvalidArgument);
+  assert(apple2CoreAttachDiskDrive(NULL, 5, 0, apple2DiskSectorOrderDos, 35, syntheticRead,
+                                   &medium) == apple2CoreInvalidArgument);
+  assert(apple2CoreAttachDiskDrive(core, 3, 0, apple2DiskSectorOrderDos, 35, syntheticRead,
+                                   &medium) == apple2CoreInvalidArgument);
+  assert(apple2CoreAttachDiskDrive(core, 8, 0, apple2DiskSectorOrderDos, 35, syntheticRead,
+                                   &medium) == apple2CoreInvalidArgument);
+  assert(apple2CoreAttachDiskDrive(core, 5, 2, apple2DiskSectorOrderDos, 35, syntheticRead,
+                                   &medium) == apple2CoreInvalidArgument);
+  assert(apple2CoreAttachDiskDrive(core, 5, 0, apple2DiskSectorOrderDos, 0, syntheticRead,
+                                   &medium) == apple2CoreInvalidArgument);
   apple2DiskState state;
   assert(!apple2CoreGetDiskStateForSlot(core, 3, &state));
   assert(!apple2CoreGetDiskStateForSlot(core, 8, &state));
 
   uint8_t value;
   assert(apple2CoreReadMemory(core, 0xC501, &value) == apple2CoreOk && value != 0x20);
-  assert(apple2CoreAttachDiskDrive(core, 5, 1, apple2DiskSectorOrderProdos, 160, syntheticRead, &medium) ==
-         apple2CoreOk);
+  assert(apple2CoreAttachDiskDrive(core, 5, 1, apple2DiskSectorOrderProdos, 160, syntheticRead,
+                                   &medium) == apple2CoreOk);
   assert(apple2CoreGetDiskStateForSlot(core, 5, &state) && state.attached);
   assert(apple2CoreGetDiskStateForSlot(core, 6, &state) && !state.attached);
 
@@ -374,10 +387,12 @@ static void testSlotsThroughCore(void)
   assert(apple2CoreReadMemory(core, 0xC0DB, &value) == apple2CoreOk);
   assert(apple2CoreReadMemory(core, 0xC0DD, &value) == apple2CoreOk);
   assert(apple2CoreReadMemory(core, 0xC0DE, &value) == apple2CoreOk && (value & 0x80) != 0);
-  assert(apple2CoreGetDiskStateForSlot(core, 5, &state) && state.writeAttempts == 0 && state.writeFailures == 0);
+  assert(apple2CoreGetDiskStateForSlot(core, 5, &state) && state.writeAttempts == 0 &&
+         state.writeFailures == 0);
   assert(apple2CoreGetDiskStateForSlot(core, 6, &state) && state.writeAttempts == 0);
 
-  //-- Slot 6 with a second controller present: both attach independently, the legacy calls address slot 6.
+  //-- Slot 6 with a second controller present: both attach independently, the legacy calls address
+  //slot 6.
   assert(apple2CoreAttachDisk(core, syntheticRead, &medium) == apple2CoreOk);
   apple2CoreGetDiskState(core, &state);
   assert(state.attached);
@@ -393,7 +408,7 @@ static void testSlotsThroughCore(void)
   apple2CoreDestroy(core);
 }
 
-static void makeTempPath(char *path, size_t size, const char *suffix)
+static void makeTempPath(char* path, size_t size, const char* suffix)
 {
   snprintf(path, size, "/tmp/apple2MultiDiskXXXXXX%s", suffix);
   int descriptor = mkstemps(path, (int)strlen(suffix));
@@ -401,24 +416,24 @@ static void makeTempPath(char *path, size_t size, const char *suffix)
   assert(close(descriptor) == 0);
 }
 
-static void writeFile(const char *path, const uint8_t *data, size_t size)
+static void writeFile(const char* path, const uint8_t* data, size_t size)
 {
-  FILE *file = fopen(path, "wb");
+  FILE* file = fopen(path, "wb");
   assert(file != NULL);
   assert(fwrite(data, 1, size, file) == size);
   assert(fclose(file) == 0);
 }
 
-static void putWord(uint8_t *target, uint16_t value)
+static void putWord(uint8_t* target, uint16_t value)
 {
   target[0] = (uint8_t)(value & 0xFF);
   target[1] = (uint8_t)(value >> 8);
 }
 
 //-- Builds a ProDOS-order image (block n at byte n * 512) holding a minimal Apple Pascal volume.
-static void buildPascalProdosImage(uint8_t *image, uint16_t volumeBlocks, const char *name)
+static void buildPascalProdosImage(uint8_t* image, uint16_t volumeBlocks, const char* name)
 {
-  uint8_t *header = &image[2 * pascalBlockBytes];
+  uint8_t* header = &image[2 * pascalBlockBytes];
   putWord(&header[0], 0);
   putWord(&header[2], 6);
   putWord(&header[4], 0);
@@ -428,15 +443,15 @@ static void buildPascalProdosImage(uint8_t *image, uint16_t volumeBlocks, const 
   putWord(&header[0x10], 0);
 }
 
-static void buildProDosImage(uint8_t *image, uint16_t volumeBlocks, const char *name)
+static void buildProDosImage(uint8_t* image, uint16_t volumeBlocks, const char* name)
 {
   for (uint16_t block = 2; block <= 5; ++block)
   {
-    uint8_t *directory = &image[(size_t)block * pascalBlockBytes];
+    uint8_t* directory = &image[(size_t)block * pascalBlockBytes];
     putWord(&directory[0], block == 2 ? 0 : block - 1);
     putWord(&directory[2], block == 5 ? 0 : block + 1);
   }
-  uint8_t *header = &image[2 * pascalBlockBytes];
+  uint8_t* header = &image[2 * pascalBlockBytes];
   size_t nameLength = strlen(name);
   header[4] = (uint8_t)(0xF0U | nameLength);
   memcpy(&header[5], name, nameLength);
@@ -446,16 +461,17 @@ static void buildProDosImage(uint8_t *image, uint16_t volumeBlocks, const char *
   putWord(&header[0x25], 0);
   putWord(&header[0x27], 6);
   putWord(&header[0x29], volumeBlocks);
-  uint8_t *bitmap = &image[6 * pascalBlockBytes];
+  uint8_t* bitmap = &image[6 * pascalBlockBytes];
   for (uint16_t block = 7; block < volumeBlocks; ++block)
   {
     bitmap[block / 8] |= (uint8_t)(0x80U >> (block & 7U));
   }
 }
 
-//-- Re-stores a ProDOS-order image in DOS order: the sector with ProDOS logical number L moves to the
+//-- Re-stores a ProDOS-order image in DOS order: the sector with ProDOS logical number L moves to
+//the
 //-- file position DOS logical number of the same physical sector.
-static void convertProdosToDosOrder(const uint8_t *prodos, uint8_t *dos, uint8_t tracks)
+static void convertProdosToDosOrder(const uint8_t* prodos, uint8_t* dos, uint8_t tracks)
 {
   for (uint8_t track = 0; track < tracks; ++track)
   {
@@ -470,8 +486,8 @@ static void convertProdosToDosOrder(const uint8_t *prodos, uint8_t *dos, uint8_t
 
 static void testImageProfileSizes(void)
 {
-  uint8_t *small = calloc(apple2DiskImageSize, 1);
-  uint8_t *big = calloc(apple2DiskImage640kSize, 1);
+  uint8_t* small = calloc(apple2DiskImageSize, 1);
+  uint8_t* big = calloc(apple2DiskImage640kSize, 1);
   assert(small != NULL && big != NULL);
   char smallPath[64];
   char bigPath[64];
@@ -485,41 +501,42 @@ static void testImageProfileSizes(void)
   assert(apple2DiskImageProfileTracks(apple2DiskImageProfile140k) == 35);
   assert(apple2DiskImageProfileTracks(apple2DiskImageProfile640k) == 160);
   assert(apple2DiskImageProfileTracks(apple2DiskImageProfile800k) == 200);
-  assert(apple2DiskImageOpenProfile(NULL, smallPath, apple2DiskImageProfile140k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageInvalidArgument);
-  assert(apple2DiskImageOpenProfile(&image, NULL, apple2DiskImageProfile140k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageInvalidArgument);
-  assert(apple2DiskImageOpenProfile(&image, smallPath, apple2DiskImageProfile640k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageBadSize);
-  assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile140k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageBadSize);
-  assert(apple2DiskImageOpenProfile(&image, "/tmp/apple2MultiDisk-does-not-exist", apple2DiskImageProfile140k,
+  assert(apple2DiskImageOpenProfile(NULL, smallPath, apple2DiskImageProfile140k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageInvalidArgument);
+  assert(apple2DiskImageOpenProfile(&image, NULL, apple2DiskImageProfile140k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageInvalidArgument);
+  assert(apple2DiskImageOpenProfile(&image, smallPath, apple2DiskImageProfile640k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageBadSize);
+  assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile140k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageBadSize);
+  assert(apple2DiskImageOpenProfile(&image, "/tmp/apple2MultiDisk-does-not-exist",
+                                    apple2DiskImageProfile140k,
                                     apple2DiskImageOrderAuto) == apple2DiskImageNotFound);
   assert(!apple2DiskImageIsOpen(&image));
 
-  assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile640k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageOk);
+  assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile640k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageOk);
   assert(image.trackCount == 160 && image.order == apple2DiskImageOrderProdos);
   assert(image.probe.content == apple2DiskImageContentUnknown && !image.orderSuspect);
   uint8_t buffer[sectorSize];
   assert(apple2DiskImageReadSector(&image, 159, 15, buffer) == apple2DiskImageOk);
   assert(apple2DiskImageReadSector(&image, 160, 0, buffer) == apple2DiskImageOutOfRange);
-  assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile640k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageAlreadyOpen);
+  assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile640k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageAlreadyOpen);
   assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
 
   //-- An 800K image (200 tracks, 1600 blocks) is accepted only with the 800K profile.
-  uint8_t *huge = calloc(apple2DiskImage800kSize, 1);
+  uint8_t* huge = calloc(apple2DiskImage800kSize, 1);
   assert(huge != NULL);
   char hugePath[64];
   makeTempPath(hugePath, sizeof(hugePath), ".po");
   writeFile(hugePath, huge, apple2DiskImage800kSize);
-  assert(apple2DiskImageOpenProfile(&image, hugePath, apple2DiskImageProfile640k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageBadSize);
-  assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile800k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageBadSize);
-  assert(apple2DiskImageOpenProfile(&image, hugePath, apple2DiskImageProfile800k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageOk);
+  assert(apple2DiskImageOpenProfile(&image, hugePath, apple2DiskImageProfile640k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageBadSize);
+  assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile800k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageBadSize);
+  assert(apple2DiskImageOpenProfile(&image, hugePath, apple2DiskImageProfile800k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageOk);
   assert(image.trackCount == 200 && image.order == apple2DiskImageOrderProdos);
   assert(apple2DiskImageReadSector(&image, 199, 15, buffer) == apple2DiskImageOk);
   assert(apple2DiskImageReadSector(&image, 200, 0, buffer) == apple2DiskImageOutOfRange);
@@ -529,13 +546,13 @@ static void testImageProfileSizes(void)
 
   //-- Unrecognised content with a neutral name defaults to DOS order; explicit orders win.
   apple2DiskImageInitialize(&image);
-  assert(apple2DiskImageOpenProfile(&image, smallPath, apple2DiskImageProfile140k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageOk);
+  assert(apple2DiskImageOpenProfile(&image, smallPath, apple2DiskImageProfile140k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageOk);
   assert(image.order == apple2DiskImageOrderDos && !image.probe.orderKnown);
   assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
   apple2DiskImageInitialize(&image);
-  assert(apple2DiskImageOpenProfile(&image, smallPath, apple2DiskImageProfile140k, apple2DiskImageOrderProdos) ==
-         apple2DiskImageOk);
+  assert(apple2DiskImageOpenProfile(&image, smallPath, apple2DiskImageProfile140k,
+                                    apple2DiskImageOrderProdos) == apple2DiskImageOk);
   assert(image.order == apple2DiskImageOrderProdos);
   assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
 
@@ -548,7 +565,7 @@ static void testImageProfileSizes(void)
 static void testPascalProbe(void)
 {
   //-- 640K Apple Pascal volume stored in ProDOS order (.po).
-  uint8_t *big = calloc(apple2DiskImage640kSize, 1);
+  uint8_t* big = calloc(apple2DiskImage640kSize, 1);
   assert(big != NULL);
   buildPascalProdosImage(big, blocks640k, "BIGVOL");
   char bigPath[64];
@@ -557,10 +574,11 @@ static void testPascalProbe(void)
 
   apple2DiskImage image;
   apple2DiskImageInitialize(&image);
-  assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile640k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageOk);
+  assert(apple2DiskImageOpenProfile(&image, bigPath, apple2DiskImageProfile640k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageOk);
   assert(image.probe.content == apple2DiskImageContentPascal && image.probe.orderKnown);
-  assert(image.probe.order == apple2DiskImageOrderProdos && image.order == apple2DiskImageOrderProdos);
+  assert(image.probe.order == apple2DiskImageOrderProdos &&
+         image.order == apple2DiskImageOrderProdos);
   assert(strcmp(image.probe.volumeName, "BIGVOL") == 0 && image.probe.volumeBlocks == blocks640k);
   assert(!image.orderSuspect);
   assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
@@ -568,8 +586,8 @@ static void testPascalProbe(void)
   free(big);
 
   //-- 140K Apple Pascal volume stored in DOS order (.dsk) is recognised by content alone.
-  uint8_t *prodos = calloc(apple2DiskImageSize, 1);
-  uint8_t *dos = calloc(apple2DiskImageSize, 1);
+  uint8_t* prodos = calloc(apple2DiskImageSize, 1);
+  uint8_t* dos = calloc(apple2DiskImageSize, 1);
   assert(prodos != NULL && dos != NULL);
   buildPascalProdosImage(prodos, blocks140k, "SMALL");
   convertProdosToDosOrder(prodos, dos, 35);
@@ -577,8 +595,8 @@ static void testPascalProbe(void)
   makeTempPath(dosPath, sizeof(dosPath), ".dsk");
   writeFile(dosPath, dos, apple2DiskImageSize);
   apple2DiskImageInitialize(&image);
-  assert(apple2DiskImageOpenProfile(&image, dosPath, apple2DiskImageProfile140k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageOk);
+  assert(apple2DiskImageOpenProfile(&image, dosPath, apple2DiskImageProfile140k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageOk);
   assert(image.probe.content == apple2DiskImageContentPascal && image.probe.orderKnown);
   assert(image.probe.order == apple2DiskImageOrderDos && image.order == apple2DiskImageOrderDos);
   assert(strcmp(image.probe.volumeName, "SMALL") == 0 && image.probe.volumeBlocks == blocks140k);
@@ -587,8 +605,8 @@ static void testPascalProbe(void)
 
   //-- A forced wrong order is used as told but reported as suspect.
   apple2DiskImageInitialize(&image);
-  assert(apple2DiskImageOpenProfile(&image, dosPath, apple2DiskImageProfile140k, apple2DiskImageOrderProdos) ==
-         apple2DiskImageOk);
+  assert(apple2DiskImageOpenProfile(&image, dosPath, apple2DiskImageProfile140k,
+                                    apple2DiskImageOrderProdos) == apple2DiskImageOk);
   assert(image.order == apple2DiskImageOrderProdos && image.orderSuspect);
   assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
   assert(unlink(dosPath) == 0);
@@ -598,19 +616,20 @@ static void testPascalProbe(void)
   makeTempPath(poPath, sizeof(poPath), ".po");
   writeFile(poPath, dos, apple2DiskImageSize);
   apple2DiskImageInitialize(&image);
-  assert(apple2DiskImageOpenProfile(&image, poPath, apple2DiskImageProfile140k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageOk);
-  assert(image.order == apple2DiskImageOrderProdos && image.orderSuspect && image.probe.order == apple2DiskImageOrderDos);
+  assert(apple2DiskImageOpenProfile(&image, poPath, apple2DiskImageProfile140k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageOk);
+  assert(image.order == apple2DiskImageOrderProdos && image.orderSuspect &&
+         image.probe.order == apple2DiskImageOrderDos);
   assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
   assert(unlink(poPath) == 0);
 
   //-- Header sanity: bad next-block, bad name length and bad block count are all rejected.
   for (int variant = 0; variant < 4; ++variant)
   {
-    uint8_t *broken = calloc(apple2DiskImageSize, 1);
+    uint8_t* broken = calloc(apple2DiskImageSize, 1);
     assert(broken != NULL);
     buildPascalProdosImage(broken, blocks140k, "BROKEN");
-    uint8_t *header = &broken[2 * pascalBlockBytes];
+    uint8_t* header = &broken[2 * pascalBlockBytes];
     if (variant == 0)
     {
       putWord(&header[2], 7);
@@ -631,8 +650,8 @@ static void testPascalProbe(void)
     makeTempPath(brokenPath, sizeof(brokenPath), ".po");
     writeFile(brokenPath, broken, apple2DiskImageSize);
     apple2DiskImageInitialize(&image);
-    assert(apple2DiskImageOpenProfile(&image, brokenPath, apple2DiskImageProfile140k, apple2DiskImageOrderAuto) ==
-           apple2DiskImageOk);
+    assert(apple2DiskImageOpenProfile(&image, brokenPath, apple2DiskImageProfile140k,
+                                      apple2DiskImageOrderAuto) == apple2DiskImageOk);
     assert(image.probe.content == apple2DiskImageContentUnknown);
     assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
     assert(unlink(brokenPath) == 0);
@@ -651,11 +670,12 @@ static void testProbeArguments(void)
   assert(apple2DiskImageProbe(&image, &result) == apple2DiskImageNotOpen);
 }
 
-//-- A 640K Pascal volume read through the Disk II model: ProDOS block 1000 (track 125) is the physical sector
+//-- A 640K Pascal volume read through the Disk II model: ProDOS block 1000 (track 125) is the
+//physical sector
 //-- pair 0 and 2 of that track, and nothing in the image file changes.
 static void testPascal640kThroughController(void)
 {
-  uint8_t *data = calloc(apple2DiskImage640kSize, 1);
+  uint8_t* data = calloc(apple2DiskImage640kSize, 1);
   assert(data != NULL);
   buildPascalProdosImage(data, blocks640k, "BIGVOL");
   for (size_t offset = 0; offset < pascalBlockBytes; ++offset)
@@ -669,12 +689,14 @@ static void testPascal640kThroughController(void)
 
   apple2DiskImage image;
   apple2DiskImageInitialize(&image);
-  assert(apple2DiskImageOpenProfile(&image, path, apple2DiskImageProfile640k, apple2DiskImageOrderAuto) ==
-         apple2DiskImageOk);
+  assert(apple2DiskImageOpenProfile(&image, path, apple2DiskImageProfile640k,
+                                    apple2DiskImageOrderAuto) == apple2DiskImageOk);
   apple2Disk disk;
   apple2DiskInitialize(&disk);
-  assert(apple2DiskAttachDrive(&disk, 0, image.order == apple2DiskImageOrderProdos ? apple2DiskSectorOrderProdos
-                                                                                   : apple2DiskSectorOrderDos,
+  assert(apple2DiskAttachDrive(&disk, 0,
+                               image.order == apple2DiskImageOrderProdos
+                                   ? apple2DiskSectorOrderProdos
+                                   : apple2DiskSectorOrderDos,
                                image.trackCount, apple2DiskImageReadSectorCallback, &image));
   apple2DiskAccess(&disk, 0x9, false, 0, 0);
 
@@ -701,9 +723,9 @@ static void testPascal640kThroughController(void)
 
   assert(apple2DiskImageClose(&image) == apple2DiskImageOk);
   size_t afterSize = 0;
-  FILE *file = fopen(path, "rb");
+  FILE* file = fopen(path, "rb");
   assert(file != NULL);
-  uint8_t *after = malloc(apple2DiskImage640kSize);
+  uint8_t* after = malloc(apple2DiskImage640kSize);
   assert(after != NULL);
   afterSize = fread(after, 1, apple2DiskImage640kSize, file);
   assert(fclose(file) == 0);
@@ -715,8 +737,8 @@ static void testPascal640kThroughController(void)
 
 static void testProDosSmartPortBlocks(void)
 {
-  uint8_t *prodos = calloc(apple2DiskImage640kSize, 1);
-  uint8_t *dos = calloc(apple2DiskImage640kSize, 1);
+  uint8_t* prodos = calloc(apple2DiskImage640kSize, 1);
+  uint8_t* dos = calloc(apple2DiskImage640kSize, 1);
   assert(prodos != NULL && dos != NULL);
   buildProDosImage(prodos, blocks640k, "DATA640");
   char prodosPath[64];
@@ -783,12 +805,13 @@ static void testProDosSmartPortBlocks(void)
   free(prodos);
 }
 
-static void writeText(const char *path, const char *text)
+static void writeText(const char* path, const char* text)
 {
-  writeFile(path, (const uint8_t *)text, strlen(text));
+  writeFile(path, (const uint8_t*)text, strlen(text));
 }
 
-static void expectDefaults(apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot])
+static void expectDefaults(
+    apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot])
 {
   for (size_t slot = 0; slot < apple2DriveConfigSlotCount; ++slot)
   {
@@ -804,8 +827,8 @@ static void testDriveConfig(void)
   apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
   char error[128];
   assert(apple2DriveConfigLoad(NULL, drives, error, sizeof(error)) == apple2DriveConfigInvalid);
-  assert(apple2DriveConfigLoad("/tmp/apple2MultiDisk-no-such-drives.cfg", drives, error, sizeof(error)) ==
-         apple2DriveConfigMissing);
+  assert(apple2DriveConfigLoad("/tmp/apple2MultiDisk-no-such-drives.cfg", drives, error,
+                               sizeof(error)) == apple2DriveConfigMissing);
   expectDefaults(drives);
 
   char path[64];
@@ -827,7 +850,8 @@ static void testDriveConfig(void)
   assert(!drives[3][1].readOnly);
   assert(drives[1][0].readOnly);
   assert(!drives[1][0].smartPort && !drives[2][1].smartPort);
-  assert(!drives[0][0].configured && !drives[0][1].configured && !drives[1][1].configured && !drives[3][0].configured);
+  assert(!drives[0][0].configured && !drives[0][1].configured && !drives[1][1].configured &&
+         !drives[3][0].configured);
 
   writeText(path, "SP5.1=/retro/images/apple2/prodos140.po,RO,APPLE2_140K\n"
                   "SP5.2=/retro/images/apple2/prodos640.po,RW,APPLE2_640K\n"
@@ -864,7 +888,7 @@ static void testDriveConfig(void)
   assert(drives[2][0].configured && !drives[2][0].readOnly);
   assert(strcmp(drives[2][0].path, "/littlefs/ucsd/ApplePascal.dsk") == 0);
 
-  static const char *const invalidLines[] = {
+  static const char* const invalidLines[] = {
       "SD6.1=/littlefs/apple2/system.dsk,RW,APPLE2_140K\n",
       "SD6.2=/littlefs/ucsd/ApplePascal.dsk,RW,APPLE2_140K\n",
       "SP6.1=/littlefs/ucsd/ApplePascal.dsk,RW,APPLE2_140K\n",
@@ -884,15 +908,21 @@ static void testDriveConfig(void)
       "SD6.2=/retro/images/apple2/../data.dsk,RO,APPLE2_140K\n",
       "SD6.2=/retro/images/apple2/,RO,APPLE2_140K\n",
       "SD6.2=/littlefs/cpm86/system.dsk,RO,APPLE2_140K\n",
-      "SD6.2=/retro/images/apple2/a.dsk,RO,APPLE2_140K\nSD6.2=/retro/images/apple2/b.dsk,RO,APPLE2_140K\n",
-      "SD5.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP5.2=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
-      "SD4.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP4.1=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
-      "SP4.1=/retro/images/apple2/a.po,RO,APPLE2_640K\nSP4.1=/retro/images/apple2/b.po,RO,APPLE2_640K\n",
+      "SD6.2=/retro/images/apple2/a.dsk,RO,APPLE2_140K\nSD6.2=/retro/images/apple2/"
+      "b.dsk,RO,APPLE2_140K\n",
+      "SD5.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP5.2=/retro/images/apple2/"
+      "block.po,RO,APPLE2_640K\n",
+      "SD4.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP4.1=/retro/images/apple2/"
+      "block.po,RO,APPLE2_640K\n",
+      "SP4.1=/retro/images/apple2/a.po,RO,APPLE2_640K\nSP4.1=/retro/images/apple2/"
+      "b.po,RO,APPLE2_640K\n",
       "SP8.1=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
       "SP5.5=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
       "SD5.3=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\n",
-      "SD5.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP5.3=/retro/images/apple2/block.po,RO,APPLE2_640K\n",
-      "SP5.4=/retro/images/apple2/a.po,RO,APPLE2_640K\nSP5.4=/retro/images/apple2/b.po,RO,APPLE2_640K\n",
+      "SD5.1=/retro/images/apple2/disk.dsk,RO,APPLE2_140K\nSP5.3=/retro/images/apple2/"
+      "block.po,RO,APPLE2_640K\n",
+      "SP5.4=/retro/images/apple2/a.po,RO,APPLE2_640K\nSP5.4=/retro/images/apple2/"
+      "b.po,RO,APPLE2_640K\n",
       "just text\n",
   };
   for (size_t index = 0; index < sizeof(invalidLines) / sizeof(invalidLines[0]); ++index)
@@ -917,83 +947,20 @@ static void testDriveConfig(void)
 
 static void testProfileConfig(void)
 {
-  char configPath[64];
   char sourcePath[256];
-  char drivesPath[apple2DriveConfigPathCapacity];
   char error[128];
   apple2DriveConfig drives[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
-  makeTempPath(configPath, sizeof(configPath), ".cfg");
 
-  assert(apple2DriveConfigResolve(NULL, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
-         apple2DriveConfigInvalid);
-  assert(apple2DriveConfigResolve("/tmp/apple2MultiDisk-no-such-config.cfg", drivesPath, sizeof(drivesPath), error,
-                                  sizeof(error)) == apple2DriveConfigMissing);
-
-  writeText(configPath, "# ProDOS profile\n"
-                        "drives = /retro/images/apple2/drives.cfg \n");
-  assert(apple2DriveConfigResolve(configPath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
+  snprintf(sourcePath, sizeof(sourcePath), "%s/littlefs/ucsd/drives.cfg", PROJECT_ROOT_PATH);
+  assert(apple2DriveConfigLoad(sourcePath, drives, error, sizeof(error)) ==
          apple2DriveConfigLoaded);
-  assert(strcmp(drivesPath, "/microSD/retro/images/apple2/drives.cfg") == 0);
-
-  writeText(configPath, "drives=/retro/images/ucsd/drives.cfg\n");
-  assert(apple2DriveConfigResolve(configPath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
-         apple2DriveConfigLoaded);
-  assert(strcmp(drivesPath, "/microSD/retro/images/ucsd/drives.cfg") == 0);
-
-  snprintf(sourcePath, sizeof(sourcePath), "%s/littlefs/apple2/config.cfg", PROJECT_ROOT_PATH);
-  assert(apple2DriveConfigResolve(sourcePath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
-         apple2DriveConfigLoaded);
-  assert(strcmp(drivesPath, "/microSD/retro/images/apple2/drives.cfg") == 0);
-  snprintf(sourcePath, sizeof(sourcePath), "%s/littlefs/ucsd/config.cfg", PROJECT_ROOT_PATH);
-  assert(apple2DriveConfigResolve(sourcePath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
-         apple2DriveConfigLoaded);
-  assert(strcmp(drivesPath, "/microSD/retro/images/ucsd/drives.cfg") == 0);
-
-  snprintf(sourcePath, sizeof(sourcePath), "%s/sdcard/retro/images/ucsd/drives.cfg", PROJECT_ROOT_PATH);
-  assert(apple2DriveConfigLoad(sourcePath, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
   assert(drives[6 - apple2DriveConfigFirstSlot][0].configured);
-  assert(!drives[6 - apple2DriveConfigFirstSlot][0].readOnly);
-  assert(drives[6 - apple2DriveConfigFirstSlot][0].profile == apple2DiskImageProfile800k);
-  assert(strcmp(drives[6 - apple2DriveConfigFirstSlot][0].path,
-                "/microSD/retro/images/ucsd/Apple Pascal 1.3 3.5.po") == 0);
-  assert(drives[5 - apple2DriveConfigFirstSlot][0].configured);
-  assert(drives[5 - apple2DriveConfigFirstSlot][0].smartPort);
-  assert(!drives[5 - apple2DriveConfigFirstSlot][0].readOnly);
-  assert(strcmp(drives[5 - apple2DriveConfigFirstSlot][0].path,
-                "/microSD/retro/images/ucsd/pascalWork1.po") == 0);
-  assert(drives[5 - apple2DriveConfigFirstSlot][1].configured);
-  assert(drives[5 - apple2DriveConfigFirstSlot][1].smartPort);
-  assert(!drives[5 - apple2DriveConfigFirstSlot][1].readOnly);
-  assert(strcmp(drives[5 - apple2DriveConfigFirstSlot][1].path,
-                "/microSD/retro/images/ucsd/pascalWork2.po") == 0);
-  assert(!drives[5 - apple2DriveConfigFirstSlot][2].configured);
-  assert(drives[4 - apple2DriveConfigFirstSlot][0].configured);
-  assert(drives[4 - apple2DriveConfigFirstSlot][0].smartPort);
-  assert(drives[4 - apple2DriveConfigFirstSlot][0].readOnly);
-  assert(strcmp(drives[4 - apple2DriveConfigFirstSlot][0].path,
-                "/microSD/retro/images/ucsd/ApplePascal2-640K.po") == 0);
-  assert(!drives[5 - apple2DriveConfigFirstSlot][3].configured);
+  assert(strncmp(drives[6 - apple2DriveConfigFirstSlot][0].path, "/littlefs/ucsd/", 15) == 0);
 
-  static const char *const invalidConfigs[] = {
-      "# No selected drives file\n",
-      "drives=/retro/images/apple2/../drives.cfg\n",
-      "drives=/retro/images/cpm80/drives.cfg\n",
-      "drives=/retro/images/apple2/drives.txt\n",
-      "drives=/retro/images/apple2/drives.cfg\ndrives=/retro/images/ucsd/drives.cfg\n",
-      "unknown=/retro/images/apple2/drives.cfg\n",
-      "not a config line\n",
-  };
-  for (size_t index = 0; index < sizeof(invalidConfigs) / sizeof(invalidConfigs[0]); ++index)
-  {
-    writeText(configPath, invalidConfigs[index]);
-    assert(apple2DriveConfigResolve(configPath, drivesPath, sizeof(drivesPath), error, sizeof(error)) ==
-           apple2DriveConfigInvalid);
-    assert(drivesPath[0] == '\0');
-  }
-
-  writeText(configPath, "drives=/retro/images/apple2/drives.cfg\n");
-  assert(apple2DriveConfigResolve(configPath, drivesPath, 8, error, sizeof(error)) == apple2DriveConfigInvalid);
-  assert(unlink(configPath) == 0);
+  snprintf(sourcePath, sizeof(sourcePath), "%s/littlefs/apple2/drives.cfg", PROJECT_ROOT_PATH);
+  assert(apple2DriveConfigLoad(sourcePath, drives, error, sizeof(error)) ==
+         apple2DriveConfigLoaded);
+  assert(drives[6 - apple2DriveConfigFirstSlot][0].configured);
 }
 
 int main(void)
@@ -1014,6 +981,7 @@ int main(void)
   testProDosSmartPortBlocks();
   testDriveConfig();
   testProfileConfig();
-  puts("PASS: multi-drive Disk II, ProDOS SmartPort blocks, 640K media, probing, and profile configuration");
+  puts("PASS: multi-drive Disk II, ProDOS SmartPort blocks, 640K media, probing, and profile "
+       "configuration");
   return 0;
 }

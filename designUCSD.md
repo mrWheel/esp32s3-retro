@@ -795,3 +795,7 @@ Before accepting additional Apple II milestones, confirm HOST-M1/CP/M acceptance
 ````
 
 </details>
+
+## Implementation record — drives.cfg moved to LittleFS
+
+The profile `config.cfg` files are removed. Menu option 3 reads `/littlefs/ucsd/drives.cfg` and option 4 reads `/littlefs/apple2/drives.cfg` directly (CP/M-80 and CP/M-86 likewise use `/littlefs/<os>/drives.cfg`), so a flashed LittleFS always carries the drive configuration together with the system disk images. Earlier records in this document that mention `config.cfg` or an SD-side `drives.cfg` describe the superseded design.
