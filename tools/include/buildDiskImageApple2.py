@@ -17,14 +17,43 @@ DETAILS = (
     "Builds a ProDOS 8 volume (800K = 1600 blocks by default; also 640K and 140K).\n"
     "Use --bootable to add ProDOS boot files, or --boot-from to copy them from another volume.\n"
     "Without --output the volume is written to <sd-root>/retro/images/apple2/data<size>.po.\n"
+    "When started on a terminal without --profile, --name or an output name, the disk size\n"
+    "(140K, 640K or 800K) and the volume name are asked; the image is then written as <name>.dsk (140K, DOS order) or <name>.po (640K, 800K).\n"
     "Files in --source-dir get a ProDOS type from the suffix (.BAS, .TXT, .BIN, .SYS); characters\n"
     "ProDOS does not allow in names become '.' and HELLO.BAS becomes STARTUP.\n"
     "A .po file is in ProDOS block order. A 140K .dsk is written in DOS sector order."
 )
 
 
+PROMPT_PROFILES = {"1": "140K", "2": "640K", "3": "800K"}
+
+
 def default_image_name(arguments):
+    if arguments.name_given:
+        return f"{arguments.name.strip()}{'.dsk' if arguments.profile == '140K' else '.po'}"
     return f"data{arguments.profile[:-1]}.po"
+
+
+def prompt_arguments(arguments):
+    """Ask for the disk size and volume name; the extension follows the size (.dsk for 140K, else .po)."""
+    while True:
+        choice = input("Disk Size 1=140k, 2=640k, 3=800K: ").strip()
+        if choice in PROMPT_PROFILES:
+            arguments.profile = PROMPT_PROFILES[choice]
+            break
+        print("Enter 1, 2 or 3.")
+    while True:
+        name = input("Volume Name: ").strip()
+        if name.lower().endswith((".po", ".dsk")):
+            name = name.rsplit(".", 1)[0]
+        try:
+            diskImageApple2Prodos.normalize_volume_name(name)
+        except DiskImageError as error:
+            print(error)
+            continue
+        arguments.name = name
+        arguments.name_given = True
+        break
 
 
 def add_arguments(parser):
@@ -32,10 +61,10 @@ def add_arguments(parser):
         "--profile",
         type=str.upper,
         choices=sorted(diskImageApple2Prodos.VOLUME_BLOCKS),
-        default=DEFAULT_PROFILE,
-        help="volume size (default: %(default)s)",
+        default=None,
+        help=f"volume size (default: {DEFAULT_PROFILE}; asked interactively when no options are given)",
     )
-    parser.add_argument("--name", default="DATA", help="ProDOS volume name (default: %(default)s)")
+    parser.add_argument("--name", default=None, help="ProDOS volume name (default: DATA)")
     parser.add_argument("--source-dir", type=Path, help="directory with files to add to the volume")
     parser.add_argument(
         "--binary-load-address",
@@ -68,6 +97,14 @@ def _source_files(source_dir, binary_load_address):
         names.add(name)
         files.append((path.name, name, file_type, aux_type, payload))
     return files
+
+
+def apply_defaults(arguments):
+    arguments.name_given = False
+    if arguments.profile is None:
+        arguments.profile = DEFAULT_PROFILE
+    if arguments.name is None:
+        arguments.name = "DATA"
 
 
 def build(arguments, output_path, project_root):
