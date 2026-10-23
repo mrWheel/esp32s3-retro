@@ -670,7 +670,7 @@ static void testApple2LowercaseKeyboardEcho(const uint8_t* rom)
 }
 
 //-- With boot-in-80-columns enabled the machine starts on the card without PR#3; PR#0 still returns
-//to the 40-column screen.
+// to the 40-column screen.
 static void testApple2BootIn80Columns(const uint8_t* rom)
 {
   apple2Core* core = NULL;
@@ -1208,7 +1208,7 @@ static void testHostExchange(void)
   assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusExists);
 
   //-- PUT with overwrite: a bad CRC keeps the old file, a good transfer replaces it, and the flag
-  //is not sticky.
+  // is not sticky.
   const uint8_t replacementBytes[] = {0x11, 0x22, 0x33};
   uint32_t replacementCrc = testCrc32(replacementBytes, sizeof(replacementBytes));
   for (int attempt = 0; attempt < 2; ++attempt)
@@ -2128,7 +2128,7 @@ static bool runCpm86UntilPrompt(cpm86Core* core, cpm86BootFixture* fixture, cons
 }
 
 //-- Builds a RETRO86_DATA_BIG_V1 image the way tools/diskImageCpm.py does: 16 KiB blocks, 16-bit
-//block
+// block
 //-- pointers, EXM 7, one 16 KiB directory block. The file uses block 1 and the far block 300.
 static void writeCpm86BigTextImage(const char* path, size_t lineCount)
 {
@@ -2176,7 +2176,7 @@ static void writeCpm86BigTextImage(const char* path, size_t lineCount)
 
 //-- Builds a RETRO86_DATA_LARGE_V1 image the way tools/diskImageCpm.py does: 2 KiB blocks, one
 //-- 16 KiB (128 record) directory entry per extent, extent numbers 0,1,2,... and 8 block pointers
-//per entry.
+// per entry.
 static void writeCpm86LargeTextImage(const char* path, size_t lineCount)
 {
   enum
@@ -2397,7 +2397,7 @@ static void testCpm86Boot(void)
   assert(unlink(largeDiskPath) == 0);
 
   //-- A text file of 19,600 bytes spans two directory extents (one 16 KiB extent per entry); the
-  //BDOS must
+  // BDOS must
   //-- find records 128 and up on a LARGE drive, so every line has to appear in the TYPE output.
   const size_t textLineCount = 2800;
   char textDiskPath[] = "/tmp/cpm86-large-text-XXXXXX";
@@ -2631,7 +2631,7 @@ static void testCpm86Boot(void)
     assert(strstr(fixture.output, "sidecar metadata file already exists") == NULL);
 
     //-- PUT without O is refused while the exchange file exists; PUT O replaces it and shows
-    //progress dots.
+    // progress dots.
     exchangeHostFile = fopen(exchangeSourcePath, "wb");
     assert(exchangeHostFile != NULL);
     assert(fputc(0x55, exchangeHostFile) == 0x55);
@@ -2662,7 +2662,7 @@ static void testCpm86Boot(void)
     }
 
     //-- Real binaries (several KiB up to 26 KiB) copied with PIP are sent with wildcard PUT and
-    //must arrive byte for byte.
+    // must arrive byte for byte.
     {
       static const char* const binaryNames[] = {"ASM86.CMD", "ED.CMD", "GENCMD.CMD", "PIP.CMD",
                                                 "HOST.CMD"};
@@ -2713,7 +2713,7 @@ static void testCpm86Boot(void)
     }
 
     //-- A file larger than the free space of the CP/M drive reports "disk full" and leaves nothing
-    //behind.
+    // behind.
     char exchangeBigPath[sizeof(exchangeDirectoryPath) + sizeof("/BIGFILE.DAT")];
     snprintf(exchangeBigPath, sizeof(exchangeBigPath), "%s/BIGFILE.DAT", exchangeDirectoryPath);
     FILE* exchangeBigFile = fopen(exchangeBigPath, "wb");
@@ -2887,7 +2887,7 @@ static void testCpm80DriveConfig(void)
   {
     assert(!drives[drive].configured);
   }
-  //-- A: accepts both explicit system profiles; BIG, RW and foreign paths stay invalid.
+  //-- A: accepts both explicit system profiles; BIG and foreign paths stay invalid.
   static const char largeSystemConfig[] = "A=/littlefs/cpm80/system.dsk,RO,LARGE\n";
   file = fopen(configPath, "wb");
   assert(file != NULL);
@@ -2897,8 +2897,15 @@ static void testCpm80DriveConfig(void)
   assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigLoaded);
   assert(drives[0].configured && drives[0].profile == cpm80DiskProfileLarge && drives[0].readOnly &&
          !drives[0].profileFromSize);
+  static const char writableSystemConfig[] = "A=/littlefs/cpm80/system.dsk,RW,SYSTEM\n";
+  file = fopen(configPath, "wb");
+  assert(file != NULL);
+  assert(fwrite(writableSystemConfig, 1, sizeof(writableSystemConfig) - 1, file) ==
+         sizeof(writableSystemConfig) - 1);
+  assert(fclose(file) == 0);
+  assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigLoaded);
+  assert(drives[0].configured && !drives[0].readOnly);
   static const char invalidSystemConfigs[][64] = {"A=/littlefs/cpm80/system.dsk,RO,BIG\n",
-                                                  "A=/littlefs/cpm80/system.dsk,RW,LARGE\n",
                                                   "A=/retro/images/cpm80/system.dsk,RO,SYSTEM\n"};
   for (size_t index = 0; index < sizeof(invalidSystemConfigs) / sizeof(invalidSystemConfigs[0]);
        ++index)
@@ -2996,14 +3003,22 @@ static void testCpm86DriveConfig(void)
   assert(drives[5].configured && drives[5].profile == cpm86DiskProfileDataLarge &&
          !drives[5].readOnly);
 
+  static const char writableSystemConfig[] = "A=/littlefs/cpm86/system.dsk,RW,RETRO86_SYSTEM_V1\n";
+  file = fopen(configPath, "wb");
+  assert(file != NULL);
+  assert(fwrite(writableSystemConfig, 1, sizeof(writableSystemConfig) - 1, file) ==
+         sizeof(writableSystemConfig) - 1);
+  assert(fclose(file) == 0);
+  assert(cpm86DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm86DriveConfigLoaded);
+  assert(drives[0].configured && !drives[0].readOnly);
+
   static const char invalidConfigs[][128] = {
       "A=/littlefs/cpm86/system.dsk,RO,RETRO86_DATA_LARGE_V1\n",
       "B=/retro/images/cpm86/../escape.dsk,RW,RETRO86_DATA_V1\n",
-      "A=/littlefs/cpm86/system.dsk,RW,RETRO86_SYSTEM_V1\n",
       "B=/retro/images/cpm86/work.dsk,RW,RETRO86_SYSTEM_V1\n",
       "G=/retro/images/cpm86/work.dsk,RW,RETRO86_DATA_V1\n",
-      "B=/retro/images/cpm86/work.dsk,RW,RETRO86_DATA_V1\nB=/retro/images/cpm86/"
-      "work2.dsk,RW,RETRO86_DATA_V1\n",
+      ("B=/retro/images/cpm86/work.dsk,RW,RETRO86_DATA_V1\nB=/retro/images/cpm86/"
+       "work2.dsk,RW,RETRO86_DATA_V1\n"),
   };
   for (size_t index = 0; index < sizeof(invalidConfigs) / sizeof(invalidConfigs[0]); ++index)
   {
@@ -3296,7 +3311,7 @@ static void testCpm80GuestBoot(void)
   imageFile bigDisk = {0};
   assert(imageOpen(&bigDisk, bigDiskPath, false));
   //-- BIG.TXT: 140 records over two 16 KiB blocks (1 and 300, so a 16-bit pointer) in one directory
-  //entry
+  // entry
   //-- that spans two logical extents (EX=1, RC=12).
   uint8_t bigDirectory[cpm80BigDiskDirectoryEntries * 32];
   memset(bigDirectory, 0xE5, sizeof(bigDirectory));
@@ -4138,7 +4153,7 @@ static void testCpm80GuestBoot(void)
 }
 
 //-- Builds a LARGE system.dsk with tools/createSystemDsk.py from bootDisks/<os>/systemDsk into a
-//temporary file.
+// temporary file.
 static void createLargeSystemDisk(const char* osName, char* diskPath, size_t diskPathCapacity)
 {
   char temporaryDirectory[] = "/tmp/retro-large-system-XXXXXX";
@@ -4185,7 +4200,7 @@ static void testCpm80LargeSystemBoot(void)
   assert(imageSize(&disk) == cpm80LargeImageSize);
 
   //-- Same steps as the firmware: size -> profile, then the CCP/BDOS from offset 0, independent of
-  //the profile.
+  // the profile.
   cpm80DriveConfig systemDrive = {.profile = cpm80DiskProfileSystem,
                                   .readOnly = true,
                                   .configured = true,
@@ -4308,7 +4323,7 @@ static void testCpm86LargeSystemBoot(void)
 }
 
 //-- Runs one console command to the next prompt (output is cleared first); returns the instructions
-//spent.
+// spent.
 static size_t runCpm80Command(cpm80Guest* guest, cpm80GuestFixture* fixture, const char* command,
                               const char* prompt, size_t instructionLimit)
 {
@@ -4330,7 +4345,7 @@ static size_t runCpm80Command(cpm80Guest* guest, cpm80GuestFixture* fixture, con
 
 //-- GET and PUT of one big file between a BIG/LARGE/SYSTEM E: drive and the exchange directory.
 //-- fullDisk: the file is larger than the drive, so GET must fail with a "disk full" reason and
-//leave nothing behind.
+// leave nothing behind.
 static void runCpm80TransferCase(cpm80DiskProfile transferProfile, size_t transferBytes,
                                  bool fullDisk)
 {
@@ -4484,11 +4499,11 @@ static void testCpm80LargeTransfer(void)
 }
 
 //-- Assembles guest/cpm80/host/HOST.ASM inside the emulated CP/M-80 with the standard ASM.COM and
-//LOAD.COM and
+// LOAD.COM and
 //-- checks that the resulting HOST.COM is identical to the one installed in
-//bootDisks/cpm80/systemDsk.
+// bootDisks/cpm80/systemDsk.
 //-- CPM80_HOST_ASM_OUTPUT=<path> runs only this test and stores the freshly built HOST.COM there
-//instead of comparing.
+// instead of comparing.
 static void testCpm80HostAssemble(void)
 {
   char largeSystemPath[256];
@@ -4612,7 +4627,7 @@ static void writeMoreTestFile(const char* path, int lineCount)
 }
 
 //-- Sends keys to the running MORE and waits until the expected text appears; returns true when it
-//did.
+// did.
 static bool moreSendKeys(cpm80Guest* guest, cpm80GuestFixture* fixture, const char* keys,
                          const char* expected)
 {
@@ -4621,7 +4636,7 @@ static bool moreSendKeys(cpm80Guest* guest, cpm80GuestFixture* fixture, const ch
 }
 
 //-- Runs bootDisks/cpm80/utilities/MORE.COM in the emulated CP/M-80: paging, scrolling back, jumps,
-//search,
+// search,
 //-- cursor keys, long-line wrapping, tabs and control characters.
 static void testCpm80More(void)
 {
@@ -4699,7 +4714,7 @@ static void testCpm80More(void)
   runCpm80Command(&guest, &fixture, "E:\r", "E>", limit);
 
   //-- A short file with long, tab and control rows is printed completely and MORE exits without a
-  //prompt.
+  // prompt.
   runCpm80Command(&guest, &fixture, "MORE WRAP.TXT\r", "E>", limit);
   char expectedWrap[512];
   assert(snprintf(expectedWrap, sizeof(expectedWrap), "%s\r\n%s\r\n%s\r\n%s\r\n%s\r\n", lineA80,

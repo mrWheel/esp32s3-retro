@@ -29,7 +29,7 @@ Keep the host services and machine-specific emulation separate so additional sys
 - ESP-IDF 6.0.2, native ESP-IDF only; no Arduino framework or PlatformIO.
 - USB Serial/JTAG console.
 - LOLIN S3 Pro WS2812B RGB LED on GPIO 38, used as guest disk-I/O activity feedback.
-- Internal flash with LittleFS for minimum boot resources.
+- Internal flash with LittleFS for minimum boot resources; system boot images may be configured writable, while RO remains the default.
 - microSDHC formatted as FAT32; 32 GB recommended and 16 GB acceptable. Do not require exFAT.
 - CP/M-86's current 640 KiB guest-memory profile requires external PSRAM on the configured board.
 

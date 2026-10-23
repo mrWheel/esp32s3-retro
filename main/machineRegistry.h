@@ -6,6 +6,7 @@
 typedef enum
 {
   machineAvailable,
+  machineWritable,
   machineNotImplemented,
   machineMissingResource,
   machineSdRequired,
@@ -14,26 +15,26 @@ typedef enum
 
 typedef struct
 {
-  const char *path;
+  const char* path;
   size_t minimumSize;
 } machineResource;
 
 typedef struct retroMachine retroMachine;
 struct retroMachine
 {
-  const char *name;
-  const char *id;
-  const char *design;
+  const char* name;
+  const char* id;
+  const char* design;
   bool implemented;
   bool requiresSd;
-  const machineResource *requiredResources;
+  const machineResource* requiredResources;
   size_t resourceCount;
-  machineState (*probe)(const retroMachine *machine);
+  machineState (*probe)(const retroMachine* machine);
   esp_err_t (*init)(void);
   void (*run)(void);
 };
 
 size_t machineCount(void);
-const retroMachine *machineGet(size_t index);
-const char *machineStateText(machineState state);
+const retroMachine* machineGet(size_t index);
+const char* machineStateText(machineState state);
 void machineInspectResources(void);

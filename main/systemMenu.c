@@ -22,7 +22,7 @@ typedef enum
 
 static void showMenu(void)
 {
-  //— Terminal test string: plain text followed by red text (ANSI SGR 31) and reset
+  // — Terminal test string: plain text followed by red text (ANSI SGR 31) and reset
   //-tst- hostConsoleWrite("\x1b[2J\x1b[HANSI cursor test\r\n");
   //-tst- hostConsoleWrite("HELLO\r\nWORLD\r\n\x1b[31mRED\x1b[0m\r\n");
   int titleLength = printf("\nESP32-S3 Retro Computer Version [%s]\n", PROG_VERSION) - 2;
@@ -35,7 +35,7 @@ static void showMenu(void)
   printf("SD: %s\n\n", storageStatus());
   for (size_t index = 0; index < machineCount(); ++index)
   {
-    const retroMachine *machine = machineGet(index);
+    const retroMachine* machine = machineGet(index);
     machineState state = machine->probe(machine);
     if (state == machineAvailable)
     {
@@ -58,7 +58,7 @@ static void showReturnPrompt(void)
 
 static menuState selectMachine(unsigned choice)
 {
-  const retroMachine *machine = machineGet(choice - 1);
+  const retroMachine* machine = machineGet(choice - 1);
   if (machine == NULL)
   {
     return mainMenu;
@@ -69,7 +69,7 @@ static menuState selectMachine(unsigned choice)
   {
     machine->run();
   }
-  else if (state != machineAvailable)
+  else if (state != machineAvailable && state != machineWritable)
   {
     printf("Unavailable: %s\n", machineStateText(state));
   }
@@ -107,7 +107,8 @@ void systemMenuRun(void)
       {
         fileTransferStop();
         previousAddress[0] = '\0';
-        puts("WiFi connection lost; File Transfer stopped. Press ENTER, then reset to reconnect if needed.");
+        puts("WiFi connection lost; File Transfer stopped. Press ENTER, then reset to reconnect if "
+             "needed.");
       }
       if (connected && !fileTransferActive() && !serverFailed)
       {
@@ -122,7 +123,8 @@ void systemMenuRun(void)
       {
         snprintf(previousAddress, sizeof(previousAddress), "%s", address);
         printf("\nWiFi connected: %s\nOpen: http://%s/\n", address, address);
-        puts("Anyone on this WiFi network can access SD-card exchange files and disk images while File Transfer is active.");
+        puts("Anyone on this WiFi network can access SD-card exchange files and disk images while "
+             "File Transfer is active.");
         puts("Press ENTER to stop File Transfer and return to the main menu.");
       }
       if (!connected && !timeoutShown && esp_timer_get_time() - transferStarted > 120000000)
@@ -194,7 +196,8 @@ void systemMenuRun(void)
       state = returnPrompt;
       continue;
     }
-    puts("Connecting or provisioning WiFi. For setup join Retro-Setup, then open http://192.168.4.1/");
+    puts("Connecting or provisioning WiFi. For setup join Retro-Setup, then open "
+         "http://192.168.4.1/");
     puts("Press ENTER at any time to stop File Transfer and return to the main menu.");
     state = transferMode;
     transferStarted = esp_timer_get_time();

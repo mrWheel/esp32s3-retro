@@ -1749,6 +1749,12 @@ async function loadGuestImages(slot)
     {
       select.add(new Option(`${entry.name} (${entry.size} bytes)`, imagePath(machine, entry.name)));
     }
+    //-- System/boot disks live in LittleFS; the guest files inside them can be changed too.
+    const lfsResponse = await api(`/api/guest/images?os=${encodeURIComponent(machine)}`);
+    for (const entry of await lfsResponse.json())
+    {
+      select.add(new Option(`${entry.name} (${entry.size} bytes, LittleFS)`, imagePath(`littlefs.${machine}`, entry.name)));
+    }
   }
   catch (error)
   {

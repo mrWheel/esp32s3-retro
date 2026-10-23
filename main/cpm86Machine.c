@@ -296,7 +296,7 @@ static bool loadSystemFile(void)
   }
 
   //-- CCP data/stack area (0051:0800-09FF) is never code; stop at the first fetch to keep the real
-  //cause in the trace.
+  // cause in the trace.
   cpm86CoreSetExecuteGuard(guestCore, 0x00D10, 0x00F10);
   const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
   if (cpm86CoreWrite(guestCore, 0x00380, bdosVector, sizeof(bdosVector)) != cpm86CoreOk ||
@@ -327,6 +327,10 @@ machineState cpm86MachineProbe(const retroMachine* machine)
   {
     return machineNotImplemented;
   }
+  cpm86DriveConfig drives[cpm86DiskDriveCount];
+  char configError[128];
+  cpm86DriveConfigResult configResult =
+      cpm86DriveConfigLoad(driveConfigPath, drives, configError, sizeof(configError));
   uint64_t systemSize;
   if (!resourceSize(systemFilePath, &systemSize))
   {
@@ -358,7 +362,17 @@ machineState cpm86MachineProbe(const retroMachine* machine)
              (unsigned)cpm86LargeDiskSize, systemDiskPath);
     return machineResourceInvalid;
   }
-  return machineAvailable;
+  imageFile systemDisk = {0};
+  if (!imageOpen(&systemDisk, drives[0].path, drives[0].readOnly))
+  {
+    return machineResourceInvalid;
+  }
+  if (!imageClose(&systemDisk))
+  {
+    return machineResourceInvalid;
+  }
+  return configResult == cpm86DriveConfigLoaded && !drives[0].readOnly ? machineWritable
+                                                                       : machineAvailable;
 }
 
 esp_err_t cpm86MachineInitialize(void)

@@ -164,7 +164,7 @@ static void closeDiskImages(void)
 }
 
 //-- The A: layout (SYSTEM or LARGE) follows from the size of the image file; the CCP/BDOS and
-//header sit at the same offsets in both.
+// header sit at the same offsets in both.
 static bool resolveSystemProfile(imageFile* image)
 {
   char error[128];
@@ -193,7 +193,7 @@ machineState cpm80MachineProbe(const retroMachine* machine)
   loadDriveConfig();
   const char* systemDiskPath = driveTable[0].path;
   imageFile image = {0};
-  if (!imageOpen(&image, systemDiskPath, true))
+  if (!imageOpen(&image, systemDiskPath, driveTable[0].readOnly))
   {
     uint64_t size;
     if (resourceSize(systemDiskPath, &size))
@@ -219,7 +219,8 @@ machineState cpm80MachineProbe(const retroMachine* machine)
     ESP_LOGE(tag, "Failed to close CP/M system image during probe: %s", systemDiskPath);
     return machineResourceInvalid;
   }
-  return valid ? machineAvailable : machineResourceInvalid;
+  return valid ? (driveTable[0].readOnly ? machineAvailable : machineWritable)
+               : machineResourceInvalid;
 }
 
 esp_err_t cpm80MachineInitialize(void)
@@ -230,7 +231,7 @@ esp_err_t cpm80MachineInitialize(void)
     return ESP_FAIL;
   }
   loadDriveConfig();
-  if (!imageOpen(&diskImages[0], driveTable[0].path, true))
+  if (!imageOpen(&diskImages[0], driveTable[0].path, driveTable[0].readOnly))
   {
     ESP_LOGE(tag, "Could not open CP/M system image: %s", driveTable[0].path);
     return ESP_FAIL;

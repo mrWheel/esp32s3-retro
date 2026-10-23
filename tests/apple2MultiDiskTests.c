@@ -24,7 +24,7 @@ enum
 static const uint8_t dosPhysicalOfLogical[16] = {0,  13, 11, 9, 7, 5, 3, 1,
                                                  14, 12, 10, 8, 6, 4, 2, 15};
 //-- ProDOS: block n of a track occupies these two physical sectors (Beneath Apple ProDOS block
-//table).
+// table).
 static const uint8_t prodosBlockSectors[8][2] = {{0, 2}, {4, 6}, {8, 10}, {12, 14},
                                                  {1, 3}, {5, 7}, {9, 11}, {13, 15}};
 
@@ -113,7 +113,7 @@ static uint8_t decodeFourAndFour(uint8_t first, uint8_t second)
 }
 
 //-- Decodes one full track from the nibble stream; returns the bitmask of the physical sectors
-//found.
+// found.
 static unsigned decodeTrack(const uint8_t* stream, uint8_t expectedTrack, uint8_t sectors[16][256])
 {
   unsigned found = 0;
@@ -171,7 +171,7 @@ static uint16_t selectedHalfTrack(const apple2Disk* disk)
 }
 
 //-- Pulls the head outward by the given number of half-track steps (the model clamps at the last
-//track).
+// track).
 static void stepHalfTracksUp(apple2Disk* disk, unsigned steps)
 {
   for (unsigned step = 0; step < steps; ++step)
@@ -312,7 +312,7 @@ static void testTwoDrives(void)
   assert(first.calls > 0 && second.calls > 0);
 
   //-- Write-protect sense (Q6 set, Q7 clear): an attached drive is read-only, an empty drive reads
-  //zero.
+  // zero.
   apple2DiskAccess(&disk, 0xD, false, 0, 0);
   assert(apple2DiskAccess(&disk, 0xE, false, 0, 0) == 0x80);
   selectDrive(&disk, 1);
@@ -392,7 +392,7 @@ static void testSlotsThroughCore(void)
   assert(apple2CoreGetDiskStateForSlot(core, 6, &state) && state.writeAttempts == 0);
 
   //-- Slot 6 with a second controller present: both attach independently, the legacy calls address
-  //slot 6.
+  // slot 6.
   assert(apple2CoreAttachDisk(core, syntheticRead, &medium) == apple2CoreOk);
   apple2CoreGetDiskState(core, &state);
   assert(state.attached);
@@ -469,7 +469,7 @@ static void buildProDosImage(uint8_t* image, uint16_t volumeBlocks, const char* 
 }
 
 //-- Re-stores a ProDOS-order image in DOS order: the sector with ProDOS logical number L moves to
-//the
+// the
 //-- file position DOS logical number of the same physical sector.
 static void convertProdosToDosOrder(const uint8_t* prodos, uint8_t* dos, uint8_t tracks)
 {
@@ -671,7 +671,7 @@ static void testProbeArguments(void)
 }
 
 //-- A 640K Pascal volume read through the Disk II model: ProDOS block 1000 (track 125) is the
-//physical sector
+// physical sector
 //-- pair 0 and 2 of that track, and nothing in the image file changes.
 static void testPascal640kThroughController(void)
 {
@@ -875,6 +875,9 @@ static void testDriveConfig(void)
   assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
   assert(drives[2][0].configured && strcmp(drives[2][0].path, "/littlefs/apple2/system.dsk") == 0);
   assert(drives[2][0].readOnly);
+  writeText(path, "SD6.1=/littlefs/apple2/system.dsk,RW,APPLE2_640K\n");
+  assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
+  assert(drives[2][0].configured && !drives[2][0].readOnly);
   writeText(path, "SD6.1=/littlefs/ucsd/ApplePascal.dsk,RO,APPLE2_140K\n"
                   "SD6.2=/retro/images/ucsd/pascal640.po,RW,APPLE2_640K\n");
   assert(apple2DriveConfigLoad(path, drives, error, sizeof(error)) == apple2DriveConfigLoaded);
@@ -889,7 +892,6 @@ static void testDriveConfig(void)
   assert(strcmp(drives[2][0].path, "/littlefs/ucsd/ApplePascal.dsk") == 0);
 
   static const char* const invalidLines[] = {
-      "SD6.1=/littlefs/apple2/system.dsk,RW,APPLE2_140K\n",
       "SD6.2=/littlefs/ucsd/ApplePascal.dsk,RW,APPLE2_140K\n",
       "SP6.1=/littlefs/ucsd/ApplePascal.dsk,RW,APPLE2_140K\n",
       "SD6.1=/littlefs/ucsd/../apple2/system.dsk,RO,APPLE2_140K\n",

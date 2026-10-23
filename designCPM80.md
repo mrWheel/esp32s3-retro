@@ -193,7 +193,7 @@ SYSTEM, LARGE, and BIG are supported for B:–F:. A: supports SYSTEM or LARGE, n
 
 ### Drive mapping
 
-The CP/M drive table exposes A: through F:. A: is the read-only LittleFS system image. B:–F: are optional SD images. The checked-in mapping is:
+The CP/M drive table exposes A: through F:. A: is the LittleFS system image and defaults to read-only; its configured RO/RW mode is honored. B:–F: are optional SD images. The checked-in mapping is:
 
 ```text
 A=/littlefs/cpm80/system.dsk,RO,SYSTEM
@@ -211,7 +211,7 @@ drive=/path/to/image,RO|RW,SYSTEM|LARGE|BIG
 
 The parser accepts A:–F:, blank lines, lines beginning with `#`, and spaces or tabs surrounding fields. It rejects duplicate drive entries, unknown drives, unsupported profiles or modes, malformed or overlong lines, control characters, and unsafe paths. Paths must not contain traversal, repeated separators, backslashes, or path components `.` and `..`.
 
-- A: must be read-only, must use a LittleFS path under `/littlefs/cpm80/`, and cannot use BIG.
+- A: must use a LittleFS path under `/littlefs/cpm80/` and cannot use BIG. Its configured RO/RW mode is honored.
 - B:–F: must use the SD namespace `/retro/images/cpm80/`; the machine layer maps that namespace to the `/microSD` VFS mount.
 - If the configuration is missing, only the built-in A: system image is configured.
 - If any configuration content is invalid, the whole file is rejected and the built-in A:-only table is restored; valid partial entries are not retained.
@@ -284,7 +284,7 @@ Presence in the image is not proof that every bundled program is compatible with
 - The BIOS uses identity sector translation and this project's raw-image geometry. Interleaved, skewed, or archival floppy formats are not automatically converted.
 - A: accepts only SYSTEM and LARGE raw images with the expected size and system header. B:–F: are checked for exact profile size and openability, but their full CP/M directory/allocation structures are not validated at mount time.
 - CP/M files are stored in 128-byte records. The filesystem does not encode the exact byte length of the last record, so trailing padding cannot always be distinguished from file content.
-- A: is always read-only. Optional drives must be explicitly configured and successfully mounted. Missing or invalid optional drives are unavailable rather than redirected to another drive.
+- A: defaults to read-only but may be configured read/write. Optional drives must be explicitly configured and successfully mounted. Missing or invalid optional drives are unavailable rather than redirected to another drive.
 - The physical USB Serial/JTAG console does not itself render ANSI/VT100. Display behavior depends on the terminal program and its configuration.
 - Host tests and a successful firmware build do not establish hardware behavior, SD-card compatibility, terminal compatibility, or application compatibility.
 - The upstream CCP/BDOS assembly outputs are checked in, but regenerating them requires the upstream assembler/build tools; the exact assembler tool revision used for those binaries is not pinned.
@@ -309,7 +309,7 @@ Hardware acceptance should separately verify:
 
 1. The firmware recognizes the intended ESP32-S3 configuration and probes the A: system resource correctly.
 2. Cold boot reaches the CP/M prompt; `DIR`, `TYPE`, a transient program, and WBOOT work.
-3. A: is read-only; mounted SD drives use the configured profile and RO/RW behavior, with record writes persisting after machine shutdown and restart.
+3. A: defaults to read-only; configured RO/RW behavior applies to A: and mounted SD drives, with record writes persisting after machine shutdown and restart.
 4. Missing and malformed optional images remain unavailable without aliasing to A:.
 5. Console input/output, VT100/ANSI sequences, 80×24 terminal behavior, and the intended Minicom workflow behave correctly.
 6. Repeated guest entry/exit, long execution, large images, and sustained disk activity do not trigger watchdog failures or resource leaks.

@@ -9,20 +9,20 @@ apple2eu.rom from assets/apple2_roms/apple_2e_unenhanced_rom.zip, from offset 0x
 used when drives.cfg contains MACHINE=IIE (needed for Pascal 1.3 128K). Redistribution
 license not verified.
 
-system.dsk is the bootable ProDOS 8 volume /SYSTEM (140K), generated from the base
+system.dsk is the bootable ProDOS 8 volume /SYSTEM (640K), generated from the base
 bootDisks/apple2/prodosEmpty.po plus every file in bootDisks/apple2/systemDsk by the
 firmware build (CMake configure time), or manually with:
   PYTHONPATH=tools python3 tools/createSystemDsk.py --os apple2 --profile PRODOS
 HELLO.BAS becomes STARTUP (run by BASIC.SYSTEM at boot; the 80-column card is selected
 automatically when the machine starts) and TEST-NONGR.BAS becomes TEST.NONGR (tokenized
-Applesoft; LOAD TEST.NONGR, then RUN). The emulator must be rebuilt AND flashed again to
-use a new system.dsk.
+Applesoft; LOAD TEST.NONGR, then RUN). SD6.1 may mount this image read-only or read/write.
+RW changes persist in LittleFS, but the next firmware build regenerates the image.
 
 Menu option 4 reads /littlefs/apple2/drives.cfg. There is no default drive: that drives.cfg
 must explicitly list SD6.1. The shipped
 profile boots the ProDOS system volume. Native Apple Pascal media can be selected through menu option 3, which reads
-/littlefs/ucsd/drives.cfg. That file uses the read-only system
-disk from /littlefs/ucsd/ and a separate writable SD work volume under
+/littlefs/ucsd/drives.cfg. Its SD6.1 system boot disk may be read-only or
+read/write; a separate writable SD work volume can be configured under
 /retro/images/ucsd/.
 When SD6.1 is not configured or its image cannot be opened, the emulator returns an error
 instead of substituting another disk.
@@ -34,7 +34,7 @@ tests/fixtures/apple2-diagnostic.rom and can be regenerated with:
 More disks: /littlefs/apple2/drives.cfg (littlefs/apple2/drives.cfg in the project)
 maps images to slots 4..7, drives 1..2, for example the 800K read/write ProDOS data volumes
 made with tools/buildDiskImage.py --os apple2 --name DATA1 data1.po:
-  SD6.1=/littlefs/apple2/system.dsk,RO,APPLE2_140K
+  SD6.1=/littlefs/apple2/system.dsk,RO,APPLE2_640K
   SD6.2=/retro/images/apple2/data1.po,RW,APPLE2_800K
   SD5.1=/retro/images/apple2/data2.po,RW,APPLE2_800K
 Upload the data images to /retro/images/apple2/ with "File Transfer". An Apple (UCSD)

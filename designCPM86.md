@@ -207,7 +207,7 @@ The BIOS may call host image-record primitives through virtual I/O. The host nev
 
 |Drive|Configured storage                         |Role                             |Current policy|
 |-----|-------------------------------------------|---------------------------------|--------------|
-|A:   |Minimal validated LittleFS image if it fits|System and native essential tools|RO            |
+|A:   |Minimal validated LittleFS image if it fits|System and native essential tools|RO by default; configurable RW|
 |B:   |Configured SD image                        |Language tools                   |RO, optional  |
 |C:   |Configured SD image                        |Editors/assemblers               |RO, optional  |
 |D:   |Configured SD image                        |Utilities                        |RO, optional  |
@@ -225,13 +225,13 @@ Use `/littlefs/cpm86/drives.cfg` with the host’s established line-oriented syn
   E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_V1
   F=/retro/images/cpm86/archive.dsk,RW,RETRO86_DATA_V1
 
-`RETRO86_SYSTEM` (the older name `RETRO86_SYSTEM_V1` is still accepted) is permitted only for read-only A: at the fixed LittleFS system path. The firmware chooses the A: geometry from the size of `/littlefs/cpm86/system.dsk`: 163,840 bytes selects the 160 KiB DPB (BIOS geometry code `0xFF`), 528,384 bytes selects the LARGE DPB (129 tracks × 8 × 512 bytes, 2 KiB blocks, 128 directory entries, DSM=255, code `0x01`); any other size is logged as an error and A: is not mounted. The BIOS needs no change because SELDSK already picks the DPB from the firmware geometry code. `RETRO86_DATA_V1` is permitted for B:–F: and currently uses the same verified 160 KiB geometry. Reject duplicate drives, path escapes, unsupported profile/access combinations and malformed lines as an entire invalid configuration. Retain the built-in A: as fallback and disable optional drives. Never create blank media during boot.
+`RETRO86_SYSTEM` (the older name `RETRO86_SYSTEM_V1` is still accepted) is permitted for A: at the fixed LittleFS system path in RO or RW mode. The firmware chooses the A: geometry from the size of `/littlefs/cpm86/system.dsk`: 163,840 bytes selects the 160 KiB DPB (BIOS geometry code `0xFF`), 528,384 bytes selects the LARGE DPB (129 tracks × 8 × 512 bytes, 2 KiB blocks, 128 directory entries, DSM=255, code `0x01`); any other size is logged as an error and A: is not mounted. The BIOS needs no change because SELDSK already picks the DPB from the firmware geometry code. `RETRO86_DATA_V1` is permitted for B:–F: and currently uses the same verified 160 KiB geometry. Reject duplicate drives, path escapes, unsupported profile/access combinations and malformed lines as an entire invalid configuration. Retain the built-in A: as fallback and disable optional drives. Never create blank media during boot.
 
 Freeze each profile’s exact image length, physical/logical sector layout, numbering, skew, reserved tracks, boot bytes, record size and filesystem parameters. Audit SPT, BSH, BLM, EXM, DSM, DRM, AL0/AL1, CKS and OFF where the chosen release uses them, together with pointer sizes, allocation-vector length, extent encoding and block-number width. Document physical-sector versus logical-record translation. CP/M-86 is not a license to enlarge a DPB arbitrarily.
 
 The existing CP/M 2.2 SYSTEM/LARGE geometries and RETROCPM signature are not inherited. A matching image byte length alone is insufficient. Initial geometry should be conservative and independently verifiable. Qualify larger profiles only after filesystem capacity, directory/extents and application limits are proved. Host FAT32 and HTTP capacity remain separate.
 
-A: read-only policy must be checked against native SUBMIT/batch scratch-file behaviour. Select a compatible utility or document use of a writable system image under a separate policy; never silently write through LittleFS protection.
+A: defaults to read-only. When configured RW, record writes update the LittleFS system image; the next firmware build regenerates that image. The checked-in system disk remains RO.
 
 ## Preparing E: on macOS
 
@@ -339,6 +339,7 @@ Definition of Done: every applicable gate has observed evidence; genuine guest a
 |CPM86-DEC-017|Selected OS source     |Use [tsupplis/cpm86-kernel](https://github.com/tsupplis/cpm86-kernel/tree/00927e17f43ea4241cc0809531cf68ce835e9c16) at `00927e17f43ea4241cc0809531cf68ce835e9c16` as CP/M-86 1.1 source/reference under the repository's included rights statement and the user's non-commercial-use confirmation; do not silently ship its IBM PC XT BIOS as RETRO86_V1|
 |CPM86-DEC-018|Local system reference|Use the user-provided root image `cmp86.img` as a CP/M-86 source/reference candidate; preserve it unchanged and validate its exact disk format, boot path and rights before building RETRO86_V1 resources|
 |CPM86-DEC-019|Selected emulator extension|Expose a monotonic unsigned millisecond count on byte IN ports F0h–F4h under capability B1h (`RETRO86_TIMER_B1`); inject a generic host callback into the CP/M-86 core, snapshot only on F1h, and keep ESP-IDF out of the CPU core. Other CPU emulators require explicit integration.|
+|CPM86-DEC-020|Implemented 2026-10-23|Honor the configured A: access mode instead of forcing the system disk read-only. Keep RO as the default; when configured RW, the menu displays `[Writable!]` and writes persist in LittleFS until the firmware rebuilds the image. This was chosen over the previous fixed-RO policy so the system disk can be modified by native guests. Host parser coverage was added; guest writes and ESP32-S3 persistence remain unverified.|
 
 ## Issue log
 

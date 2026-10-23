@@ -1,18 +1,20 @@
 CP/M-80 LittleFS A: image.
 
 system.dsk is a 256,256-byte raw image with 77 tracks, 26 128-byte sectors per
-track, two reserved tracks and the read-only 8-inch SSSD DPB..
+track, two reserved tracks and the 8-inch SSSD DPB.
 It contains the genuine CCP and BDOS, resident ERA/REN/TYPE/USER/DIR commands,
 HELLO.COM, WELCOME.TXT, the custom HOST.COM guest transfer utility and the CP/M utility set documented in
 components/cpm80Core/os/utilities/README.md. The 16-byte RETROCPM resource header
 is in the reserved area; the BIOS is implemented in the guest adapter.
 
-The machine loads CCP at C400 and BDOS at CC00. A: is immutable on LittleFS.
+The machine loads CCP at C400 and BDOS at CC00. A: defaults to read-only but
+may be configured read/write in drives.cfg. Writes persist in LittleFS until
+the firmware rebuilds the generated system image.
 Use A>DIR to list the files, A>TYPE WELCOME.TXT to verify text display, and
 A>HELLO to verify transient loading and warm boot. DIR is the resident
 directory command; STAT supplies disk status in place of a separate SHOW.COM
-or SDIR.COM. SUBMIT.COM is included, but its patched build writes $$$.SUB on
-read-only A: and cannot submit jobs with the current access policy.
+or SDIR.COM. SUBMIT.COM is included; it needs writable A: because it writes
+$$$.SUB.
 
 Optional SD images map to B:–F: using /littlefs/cpm80/drives.cfg. The config
 maps a drive letter to an image path, RO/RW access and SYSTEM/LARGE disk
@@ -29,7 +31,7 @@ tools/README.md for configuration, image creation and software rights details.
 
 HOST DIR lists files in /retro/exchange/cpm. HOST GET NAME.EXT copies a host
 file into the current CP/M drive; HOST PUT NAME.EXT copies it back. Transfer
-works only in USER 0; HOST DIR works in all user areas. A: is read-only, so
+works only in USER 0; HOST DIR works in all user areas. If A: is read-only,
 from E: run the utility with A:HOST GET NAME.EXT or A:HOST PUT NAME.EXT. HOST
 returns to the drive it was started from. HOST uses exact byte lengths and a visible NAME.HST
 sidecar to preserve the length of imported files; the sidecar is reserved for

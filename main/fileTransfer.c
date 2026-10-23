@@ -285,7 +285,7 @@ static bool acceptingRequests(httpd_req_t* request)
 }
 
 //-- drives.cfg lives in LittleFS next to the system disk (/littlefs/<OS>/drives.cfg), but the
-//manager
+// manager
 //-- still addresses it as <OS>/drives.cfg in the images area.
 static const char* littlefsRoot = "/littlefs";
 
@@ -697,7 +697,7 @@ static esp_err_t uploadHandler(httpd_req_t* request)
     return respond(request, "404 Not Found", "Destination directory missing");
   }
   //-- A rename cannot cross file systems: the LittleFS drives.cfg is staged next to its
-  //destination.
+  // destination.
   char littlefsTemporaryPath[absolutePathCapacity] = "";
   if (isLittlefsPath(path) &&
       !buildSiblingPath(path, "drives-upload-part.tmp", littlefsTemporaryPath,
@@ -1301,6 +1301,7 @@ typedef struct
   imageFile image;
   guestFsIo io;
   guestFsVolume* volume;
+  bool littlefs;
   char osId[guestOsIdCapacity];
   char relative[relativePathCapacity];
   char absolute[absolutePathCapacity];
@@ -1319,9 +1320,28 @@ static bool guestOsIsKnown(const char* osId)
   return false;
 }
 
-static bool guestJournalPath(const char* osId, char* path, size_t capacity)
+//-- Disk images in LittleFS (the system/boot disks) are addressed as "littlefs.<OS>/<image>"; the
+//-- journal of such an image is kept in LittleFS next to it.
+static const char guestLittlefsPrefix[] = "littlefs.";
+
+static bool guestJournalPath(const char* osId, bool littlefs, char* path, size_t capacity)
 {
-  int length = snprintf(path, capacity, "/microSD/retro/images/%s/manager-guest-journal.tmp", osId);
+  int length = littlefs ? snprintf(path, capacity, "/littlefs/%s/manager-guest-journal.tmp", osId)
+                        : snprintf(path, capacity,
+                                   "/microSD/retro/images/%s/manager-guest-journal.tmp", osId);
+  return length >= 0 && (size_t)length < capacity;
+}
+
+static bool guestImageAbsolutePath(const char* osId, bool littlefs, const char* relative,
+                                   char* path, size_t capacity)
+{
+  const char* name = strchr(relative, '/');
+  if (name == NULL)
+  {
+    return false;
+  }
+  int length = littlefs ? snprintf(path, capacity, "/littlefs/%s%s", osId, name)
+                        : snprintf(path, capacity, "/microSD/retro/images/%s", relative);
   return length >= 0 && (size_t)length < capacity;
 }
 
@@ -1527,11 +1547,12 @@ static bool guestQueryAttributes(const char* query, guestFsAttributes* attribute
 }
 
 //-- Resolve a pending undo journal of an OS directory before any other guest operation.
-static bool guestRecoverPending(const char* osId, char* message, size_t messageCapacity)
+static bool guestRecoverPending(const char* osId, bool littlefs, char* message,
+                                size_t messageCapacity)
 {
   char journalPath[absolutePathCapacity];
   char imageId[guestIdCapacity];
-  if (!guestJournalPath(osId, journalPath, sizeof(journalPath)))
+  if (!guestJournalPath(osId, littlefs, journalPath, sizeof(journalPath)))
   {
     snprintf(message, messageCapacity, "Journal path is too long");
     return false;
@@ -1551,10 +1572,14 @@ static bool guestRecoverPending(const char* osId, char* message, size_t messageC
     char absolute[absolutePathCapacity];
     imageFile image = {.file = NULL, .size = 0, .readOnly = false};
     guestFsIo io;
-    size_t osLength = strlen(osId);
-    int length = snprintf(absolute, sizeof(absolute), "/microSD/retro/images/%s", imageId);
-    if (length > 0 && (size_t)length < sizeof(absolute) && strncmp(imageId, osId, osLength) == 0 &&
-        imageId[osLength] == '/' && isFlatImagePath(imageId) && isDiskImagePath(imageId) &&
+    char expectedPrefix[guestOsIdCapacity + sizeof(guestLittlefsPrefix) + 1];
+    int prefixLength = snprintf(expectedPrefix, sizeof(expectedPrefix), "%s%s/",
+                                littlefs ? guestLittlefsPrefix : "", osId);
+    if (prefixLength > 0 && strncmp(imageId, expectedPrefix, (size_t)prefixLength) == 0 &&
+        isFlatImagePath(imageId) && isDiskImagePath(imageId) &&
+        guestImageAbsolutePath(osId, littlefs,
+                               imageId + (littlefs ? strlen(guestLittlefsPrefix) : 0), absolute,
+                               sizeof(absolute)) &&
         imageOpen(&image, absolute, false))
     {
       guestFsImageBind(&io, &image);
@@ -1604,13 +1629,19 @@ static const char* guestSessionOpen(guestSession* session, const char* query, co
     snprintf(message, messageCapacity, "A valid <OS>/<image> path is required");
     return "400 Bad Request";
   }
-  size_t osLength = (size_t)(strchr(session->relative, '/') - session->relative);
+  const char* osStart = session->relative;
+  if (strncmp(osStart, guestLittlefsPrefix, strlen(guestLittlefsPrefix)) == 0)
+  {
+    session->littlefs = true;
+    osStart += strlen(guestLittlefsPrefix);
+  }
+  size_t osLength = (size_t)(strchr(osStart, '/') - osStart);
   if (osLength == 0 || osLength >= sizeof(session->osId))
   {
     snprintf(message, messageCapacity, "Invalid OS directory");
     return "400 Bad Request";
   }
-  memcpy(session->osId, session->relative, osLength);
+  memcpy(session->osId, osStart, osLength);
   session->osId[osLength] = '\0';
   if (!guestOsIsKnown(session->osId))
   {
@@ -1623,16 +1654,15 @@ static const char* guestSessionOpen(guestSession* session, const char* query, co
              session->osId);
     return "501 Not Implemented";
   }
-  int length = snprintf(session->absolute, sizeof(session->absolute), "/microSD/retro/images/%s",
-                        session->relative);
   struct stat info;
-  if (length < 0 || (size_t)length >= sizeof(session->absolute) ||
+  if (!guestImageAbsolutePath(session->osId, session->littlefs, osStart, session->absolute,
+                              sizeof(session->absolute)) ||
       stat(session->absolute, &info) != 0 || !S_ISREG(info.st_mode))
   {
     snprintf(message, messageCapacity, "Disk image unavailable");
     return "404 Not Found";
   }
-  if (!guestRecoverPending(session->osId, message, messageCapacity))
+  if (!guestRecoverPending(session->osId, session->littlefs, message, messageCapacity))
   {
     return "500 Internal Server Error";
   }
@@ -1643,7 +1673,7 @@ static const char* guestSessionOpen(guestSession* session, const char* query, co
   }
   guestFsImageBind(&session->io, &session->image);
   char journalPath[absolutePathCapacity];
-  if (!guestJournalPath(session->osId, journalPath, sizeof(journalPath)))
+  if (!guestJournalPath(session->osId, session->littlefs, journalPath, sizeof(journalPath)))
   {
     guestSessionClose(session);
     snprintf(message, messageCapacity, "Journal path is too long");
@@ -2348,14 +2378,67 @@ done:
   return response;
 }
 
+//-- Lists the disk images in /littlefs/<OS>/ (system/boot disks) as guest-file targets.
+static esp_err_t guestLittlefsImagesHandler(httpd_req_t* request)
+{
+  if (!acceptingRequests(request))
+  {
+    return ESP_OK;
+  }
+  char query[64];
+  char osId[guestOsIdCapacity];
+  if (httpd_req_get_url_query_str(request, query, sizeof(query)) != ESP_OK ||
+      httpd_query_key_value(query, "os", osId, sizeof(osId)) != ESP_OK || !guestOsIsKnown(osId))
+  {
+    return respond(request, "400 Bad Request", "A valid os is required");
+  }
+  char directoryPath[absolutePathCapacity];
+  snprintf(directoryPath, sizeof(directoryPath), "/littlefs/%s", osId);
+  DIR* directory = opendir(directoryPath);
+  httpd_resp_set_type(request, "application/json");
+  httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+  esp_err_t result = httpd_resp_sendstr_chunk(request, "[");
+  bool first = true;
+  struct dirent* entry;
+  while (directory != NULL && result == ESP_OK && (entry = readdir(directory)) != NULL)
+  {
+    char child[absolutePathCapacity];
+    struct stat info;
+    int length = snprintf(child, sizeof(child), "%s/%s", directoryPath, entry->d_name);
+    if (!pathIsSafe(entry->d_name) || !isDiskImagePath(entry->d_name) || length < 0 ||
+        (size_t)length >= sizeof(child) || stat(child, &info) != 0 || !S_ISREG(info.st_mode))
+    {
+      continue;
+    }
+    char row[160];
+    snprintf(row, sizeof(row), "%s{\"name\":\"%.64s\",\"size\":%llu}", first ? "" : ",",
+             entry->d_name, (unsigned long long)info.st_size);
+    result = httpd_resp_sendstr_chunk(request, row);
+    first = false;
+  }
+  if (directory != NULL)
+  {
+    closedir(directory);
+  }
+  if (result != ESP_OK)
+  {
+    return ESP_FAIL;
+  }
+  result = httpd_resp_sendstr_chunk(request, "]");
+  return result == ESP_OK ? httpd_resp_send_chunk(request, NULL, 0) : result;
+}
+
 static void guestRecoverAllPending(void)
 {
   char message[guestFsDetailCapacity + 96];
   for (size_t index = 0; index < sizeof(imageMachineIds) / sizeof(imageMachineIds[0]); ++index)
   {
-    if (!guestRecoverPending(imageMachineIds[index], message, sizeof(message)))
+    for (int littlefs = 0; littlefs < 2; ++littlefs)
     {
-      ESP_LOGE(fileTransferTag, "%s: %s", imageMachineIds[index], message);
+      if (!guestRecoverPending(imageMachineIds[index], littlefs != 0, message, sizeof(message)))
+      {
+        ESP_LOGE(fileTransferTag, "%s: %s", imageMachineIds[index], message);
+      }
     }
   }
 }
@@ -2404,6 +2487,7 @@ esp_err_t fileTransferStart(void)
       {.uri = "/api/images/copy", .method = HTTP_POST, .handler = imageCopyHandler},
       {.uri = "/api/images/rename", .method = HTTP_POST, .handler = imageRenameHandler},
       {.uri = "/api/images/recover", .method = HTTP_POST, .handler = imageRecoverHandler},
+      {.uri = "/api/guest/images", .method = HTTP_GET, .handler = guestLittlefsImagesHandler},
       {.uri = "/api/guest/files", .method = HTTP_GET, .handler = guestFilesHandler},
       {.uri = "/api/guest/file", .method = HTTP_GET, .handler = guestFileHandler},
       {.uri = "/api/guest/upload", .method = HTTP_POST, .handler = guestUploadHandler},

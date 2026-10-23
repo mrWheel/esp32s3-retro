@@ -5,11 +5,11 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char *systemImagePath = "/littlefs/cpm86/system.dsk";
-static const char *systemPathPrefix = "/littlefs/cpm86/";
-static const char *dataPathPrefix = "/retro/images/cpm86/";
+static const char* systemImagePath = "/littlefs/cpm86/system.dsk";
+static const char* systemPathPrefix = "/littlefs/cpm86/";
+static const char* dataPathPrefix = "/retro/images/cpm86/";
 
-static void setError(char *error, size_t errorCapacity, const char *message)
+static void setError(char* error, size_t errorCapacity, const char* message)
 {
   if (error != NULL && errorCapacity > 0)
   {
@@ -26,34 +26,35 @@ static void initializeDefaults(cpm86DriveConfig drives[cpm86DiskDriveCount])
   drives[0].configured = true;
 }
 
-static char *trim(char *text)
+static char* trim(char* text)
 {
   while (*text == ' ' || *text == '\t')
   {
     ++text;
   }
   size_t length = strlen(text);
-  while (length > 0 && (text[length - 1] == ' ' || text[length - 1] == '\t' || text[length - 1] == '\r' ||
-                        text[length - 1] == '\n'))
+  while (length > 0 && (text[length - 1] == ' ' || text[length - 1] == '\t' ||
+                        text[length - 1] == '\r' || text[length - 1] == '\n'))
   {
     text[--length] = '\0';
   }
   return text;
 }
 
-static bool safePath(const char *path, const char *prefix)
+static bool safePath(const char* path, const char* prefix)
 {
   size_t pathLength = strlen(path);
   size_t prefixLength = strlen(prefix);
-  if (pathLength <= prefixLength || strncmp(path, prefix, prefixLength) != 0 || path[pathLength - 1] == '/' ||
-      strstr(path, "//") != NULL || strstr(path, "/./") != NULL || strstr(path, "/../") != NULL ||
+  if (pathLength <= prefixLength || strncmp(path, prefix, prefixLength) != 0 ||
+      path[pathLength - 1] == '/' || strstr(path, "//") != NULL || strstr(path, "/./") != NULL ||
+      strstr(path, "/../") != NULL ||
       (pathLength >= 2 && strcmp(path + pathLength - 2, "/.") == 0) ||
-      (pathLength >= 3 && strcmp(path + pathLength - 3, "/..") == 0) || strchr(path, '\\') != NULL ||
-      strchr(path, ',') != NULL)
+      (pathLength >= 3 && strcmp(path + pathLength - 3, "/..") == 0) ||
+      strchr(path, '\\') != NULL || strchr(path, ',') != NULL)
   {
     return false;
   }
-  for (const unsigned char *character = (const unsigned char *)path; *character != '\0'; ++character)
+  for (const unsigned char* character = (const unsigned char*)path; *character != '\0'; ++character)
   {
     if (*character < 0x20 || *character == 0x7f)
     {
@@ -63,22 +64,22 @@ static bool safePath(const char *path, const char *prefix)
   return true;
 }
 
-static bool parseLine(char *line, cpm86DriveConfig drives[cpm86DiskDriveCount],
+static bool parseLine(char* line, cpm86DriveConfig drives[cpm86DiskDriveCount],
                       bool seen[cpm86DiskDriveCount])
 {
-  char *content = trim(line);
+  char* content = trim(line);
   if (*content == '\0' || *content == '#')
   {
     return true;
   }
-  char *equals = strchr(content, '=');
+  char* equals = strchr(content, '=');
   if (equals == NULL || equals == content || strchr(equals + 1, '=') != NULL)
   {
     return false;
   }
   *equals = '\0';
-  char *driveName = trim(content);
-  char *fields = trim(equals + 1);
+  char* driveName = trim(content);
+  char* fields = trim(equals + 1);
   if (strlen(driveName) != 1 || driveName[0] < 'A' || driveName[0] >= 'A' + cpm86DiskDriveCount)
   {
     return false;
@@ -89,21 +90,21 @@ static bool parseLine(char *line, cpm86DriveConfig drives[cpm86DiskDriveCount],
     return false;
   }
 
-  char *firstComma = strchr(fields, ',');
+  char* firstComma = strchr(fields, ',');
   if (firstComma == NULL)
   {
     return false;
   }
   *firstComma = '\0';
-  char *mode = trim(firstComma + 1);
-  char *secondComma = strchr(mode, ',');
+  char* mode = trim(firstComma + 1);
+  char* secondComma = strchr(mode, ',');
   if (secondComma == NULL)
   {
     return false;
   }
   *secondComma = '\0';
-  char *profileName = trim(secondComma + 1);
-  char *imagePath = trim(fields);
+  char* profileName = trim(secondComma + 1);
+  char* imagePath = trim(fields);
   mode = trim(mode);
   if (*imagePath == '\0' || *profileName == '\0' || strchr(profileName, ',') != NULL)
   {
@@ -146,9 +147,9 @@ static bool parseLine(char *line, cpm86DriveConfig drives[cpm86DiskDriveCount],
     return false;
   }
 
-  const char *requiredPrefix = drive == 0 ? systemPathPrefix : dataPathPrefix;
-  if ((drive == 0 && (profile != cpm86DiskProfileSystem || !readOnly ||
-                      strcmp(imagePath, systemImagePath) != 0)) ||
+  const char* requiredPrefix = drive == 0 ? systemPathPrefix : dataPathPrefix;
+  if ((drive == 0 &&
+       (profile != cpm86DiskProfileSystem || strcmp(imagePath, systemImagePath) != 0)) ||
       (drive != 0 && profile == cpm86DiskProfileSystem) || !safePath(imagePath, requiredPrefix) ||
       strlen(imagePath) >= sizeof(drives[drive].path))
   {
@@ -173,9 +174,9 @@ static bool parseLine(char *line, cpm86DriveConfig drives[cpm86DiskDriveCount],
   return true;
 }
 
-cpm86DriveConfigResult cpm86DriveConfigLoad(const char *path,
+cpm86DriveConfigResult cpm86DriveConfigLoad(const char* path,
                                             cpm86DriveConfig drives[cpm86DiskDriveCount],
-                                            char *error, size_t errorCapacity)
+                                            char* error, size_t errorCapacity)
 {
   if (path == NULL || drives == NULL)
   {
@@ -184,12 +185,13 @@ cpm86DriveConfigResult cpm86DriveConfigLoad(const char *path,
   }
 
   initializeDefaults(drives);
-  FILE *file = fopen(path, "rb");
+  FILE* file = fopen(path, "rb");
   if (file == NULL)
   {
     if (errno == ENOENT)
     {
-      setError(error, errorCapacity, "drives.cfg is missing; using the built-in A: system image only");
+      setError(error, errorCapacity,
+               "drives.cfg is missing; using the built-in A: system image only");
       return cpm86DriveConfigMissing;
     }
     setError(error, errorCapacity, "drives.cfg could not be opened");
@@ -237,7 +239,7 @@ cpm86DriveConfigResult cpm86DriveConfigLoad(const char *path,
   return cpm86DriveConfigLoaded;
 }
 
-bool cpm86DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm86DiskProfile *profile)
+bool cpm86DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm86DiskProfile* profile)
 {
   if (profile == NULL)
   {
@@ -256,7 +258,7 @@ bool cpm86DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm86DiskProfile 
   return false;
 }
 
-bool cpm86DriveConfigResolveSystemProfile(cpm86DriveConfig *drive, uint64_t imageSize, char *error,
+bool cpm86DriveConfigResolveSystemProfile(cpm86DriveConfig* drive, uint64_t imageSize, char* error,
                                           size_t errorCapacity)
 {
   cpm86DiskProfile detected;

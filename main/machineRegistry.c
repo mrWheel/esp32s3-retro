@@ -96,8 +96,8 @@ const retroMachine* machineGet(size_t index)
 
 const char* machineStateText(machineState state)
 {
-  static const char* names[] = {"available", "not implemented", "missing resource", "SD required",
-                                "invalid resource"};
+  static const char* names[] = {"available",        "Writable!",   "not implemented",
+                                "missing resource", "SD required", "invalid resource"};
   return (unsigned)state < sizeof(names) / sizeof(names[0]) ? names[state] : "unknown";
 }
 

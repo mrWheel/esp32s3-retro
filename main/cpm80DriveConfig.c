@@ -3,12 +3,12 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char *systemImagePath = "/littlefs/cpm80/system.dsk";
-static const char *systemPathPrefix = "/littlefs/cpm80/";
-static const char *largePathPrefix = "/retro/images/cpm80/";
-static const char *largeVfsPrefix = "/microSD";
+static const char* systemImagePath = "/littlefs/cpm80/system.dsk";
+static const char* systemPathPrefix = "/littlefs/cpm80/";
+static const char* largePathPrefix = "/retro/images/cpm80/";
+static const char* largeVfsPrefix = "/microSD";
 
-static void setError(char *error, size_t errorCapacity, const char *message)
+static void setError(char* error, size_t errorCapacity, const char* message)
 {
   if (error != NULL && errorCapacity > 0)
   {
@@ -26,32 +26,32 @@ static void initializeDefaults(cpm80DriveConfig drives[cpm80DiskDriveCount])
   drives[0].profileFromSize = true;
 }
 
-static char *trim(char *text)
+static char* trim(char* text)
 {
   while (*text == ' ' || *text == '\t')
   {
     ++text;
   }
   size_t length = strlen(text);
-  while (length > 0 && (text[length - 1] == ' ' || text[length - 1] == '\t' || text[length - 1] == '\r' ||
-                        text[length - 1] == '\n'))
+  while (length > 0 && (text[length - 1] == ' ' || text[length - 1] == '\t' ||
+                        text[length - 1] == '\r' || text[length - 1] == '\n'))
   {
     text[--length] = '\0';
   }
   return text;
 }
 
-static bool safePath(const char *path, const char *prefix)
+static bool safePath(const char* path, const char* prefix)
 {
   size_t prefixLength = strlen(prefix);
-  if (strncmp(path, prefix, prefixLength) != 0 || path[prefixLength] == '\0' || path[strlen(path) - 1] == '/' ||
-      strstr(path, "//") != NULL || strstr(path, "/./") != NULL || strstr(path, "/../") != NULL ||
-      strcmp(path + strlen(path) - 2, "/.") == 0 || strcmp(path + strlen(path) - 3, "/..") == 0 ||
-      strchr(path, '\\') != NULL)
+  if (strncmp(path, prefix, prefixLength) != 0 || path[prefixLength] == '\0' ||
+      path[strlen(path) - 1] == '/' || strstr(path, "//") != NULL || strstr(path, "/./") != NULL ||
+      strstr(path, "/../") != NULL || strcmp(path + strlen(path) - 2, "/.") == 0 ||
+      strcmp(path + strlen(path) - 3, "/..") == 0 || strchr(path, '\\') != NULL)
   {
     return false;
   }
-  for (const unsigned char *character = (const unsigned char *)path; *character != '\0'; ++character)
+  for (const unsigned char* character = (const unsigned char*)path; *character != '\0'; ++character)
   {
     if (*character < 0x20 || *character == 0x7f)
     {
@@ -61,21 +61,22 @@ static bool safePath(const char *path, const char *prefix)
   return true;
 }
 
-static bool parseLine(char *line, cpm80DriveConfig drives[cpm80DiskDriveCount], bool seen[cpm80DiskDriveCount])
+static bool parseLine(char* line, cpm80DriveConfig drives[cpm80DiskDriveCount],
+                      bool seen[cpm80DiskDriveCount])
 {
-  char *content = trim(line);
+  char* content = trim(line);
   if (*content == '\0' || *content == '#')
   {
     return true;
   }
-  char *equals = strchr(content, '=');
+  char* equals = strchr(content, '=');
   if (equals == NULL || equals == content || strchr(equals + 1, '=') != NULL)
   {
     return false;
   }
   *equals = '\0';
-  char *driveName = trim(content);
-  char *fields = trim(equals + 1);
+  char* driveName = trim(content);
+  char* fields = trim(equals + 1);
   if (strlen(driveName) != 1 || driveName[0] < 'A' || driveName[0] >= 'A' + cpm80DiskDriveCount)
   {
     return false;
@@ -85,21 +86,21 @@ static bool parseLine(char *line, cpm80DriveConfig drives[cpm80DiskDriveCount], 
   {
     return false;
   }
-  char *firstComma = strchr(fields, ',');
+  char* firstComma = strchr(fields, ',');
   if (firstComma == NULL)
   {
     return false;
   }
   *firstComma = '\0';
-  char *mode = trim(firstComma + 1);
-  char *secondComma = strchr(mode, ',');
+  char* mode = trim(firstComma + 1);
+  char* secondComma = strchr(mode, ',');
   if (secondComma == NULL)
   {
     return false;
   }
   *secondComma = '\0';
-  char *profileName = trim(secondComma + 1);
-  char *imagePath = trim(fields);
+  char* profileName = trim(secondComma + 1);
+  char* imagePath = trim(fields);
   mode = trim(mode);
   if (strchr(profileName, ',') != NULL || *imagePath == '\0')
   {
@@ -137,10 +138,11 @@ static bool parseLine(char *line, cpm80DriveConfig drives[cpm80DiskDriveCount], 
     return false;
   }
 
-  //-- A: is the LittleFS system image (SYSTEM or LARGE, never BIG); B: to F: are SD images (SYSTEM = 256256 bytes, LARGE = 512512 bytes or BIG = 8421376 bytes).
-  const char *requiredPrefix = drive == 0 ? systemPathPrefix : largePathPrefix;
+  //-- A: is the LittleFS system image (SYSTEM or LARGE, never BIG); its RO/RW mode is configurable.
+  //-- B: to F: are SD images (SYSTEM = 256256 bytes, LARGE = 512512 bytes or BIG = 8421376 bytes).
+  const char* requiredPrefix = drive == 0 ? systemPathPrefix : largePathPrefix;
   size_t storedPathLength = strlen(imagePath) + (drive != 0 ? strlen(largeVfsPrefix) : 0);
-  if ((drive == 0 && (profile == cpm80DiskProfileBig || !readOnly)) || !safePath(imagePath, requiredPrefix) ||
+  if ((drive == 0 && profile == cpm80DiskProfileBig) || !safePath(imagePath, requiredPrefix) ||
       storedPathLength >= sizeof(drives[drive].path))
   {
     return false;
@@ -162,8 +164,9 @@ static bool parseLine(char *line, cpm80DriveConfig drives[cpm80DiskDriveCount], 
   return true;
 }
 
-cpm80DriveConfigResult cpm80DriveConfigLoad(const char *path, cpm80DriveConfig drives[cpm80DiskDriveCount], char *error,
-                                        size_t errorCapacity)
+cpm80DriveConfigResult cpm80DriveConfigLoad(const char* path,
+                                            cpm80DriveConfig drives[cpm80DiskDriveCount],
+                                            char* error, size_t errorCapacity)
 {
   if (path == NULL || drives == NULL)
   {
@@ -172,12 +175,13 @@ cpm80DriveConfigResult cpm80DriveConfigLoad(const char *path, cpm80DriveConfig d
   }
 
   initializeDefaults(drives);
-  FILE *file = fopen(path, "rb");
+  FILE* file = fopen(path, "rb");
   if (file == NULL)
   {
     if (errno == ENOENT)
     {
-      setError(error, errorCapacity, "drives.cfg is missing; using the built-in A: system image only");
+      setError(error, errorCapacity,
+               "drives.cfg is missing; using the built-in A: system image only");
       return cpm80DriveConfigMissing;
     }
     setError(error, errorCapacity, "drives.cfg could not be opened");
@@ -225,7 +229,7 @@ cpm80DriveConfigResult cpm80DriveConfigLoad(const char *path, cpm80DriveConfig d
   return cpm80DriveConfigLoaded;
 }
 
-bool cpm80DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm80DiskProfile *profile)
+bool cpm80DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm80DiskProfile* profile)
 {
   if (profile == NULL)
   {
@@ -244,7 +248,7 @@ bool cpm80DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm80DiskProfile 
   return false;
 }
 
-bool cpm80DriveConfigResolveSystemProfile(cpm80DriveConfig *drive, uint64_t imageSize, char *error,
+bool cpm80DriveConfigResolveSystemProfile(cpm80DriveConfig* drive, uint64_t imageSize, char* error,
                                           size_t errorCapacity)
 {
   cpm80DiskProfile detected;
@@ -252,8 +256,10 @@ bool cpm80DriveConfigResolveSystemProfile(cpm80DriveConfig *drive, uint64_t imag
   {
     if (error != NULL && errorCapacity > 0)
     {
-      snprintf(error, errorCapacity, "size %llu matches no system profile (SYSTEM=%llu, LARGE=%llu)",
-               (unsigned long long)imageSize, (unsigned long long)cpm80DiskProfileImageSize(cpm80DiskProfileSystem),
+      snprintf(error, errorCapacity,
+               "size %llu matches no system profile (SYSTEM=%llu, LARGE=%llu)",
+               (unsigned long long)imageSize,
+               (unsigned long long)cpm80DiskProfileImageSize(cpm80DiskProfileSystem),
                (unsigned long long)cpm80DiskProfileImageSize(cpm80DiskProfileLarge));
     }
     return false;
@@ -263,7 +269,8 @@ bool cpm80DriveConfigResolveSystemProfile(cpm80DriveConfig *drive, uint64_t imag
     if (error != NULL && errorCapacity > 0)
     {
       snprintf(error, errorCapacity, "drives.cfg says %s but the image is %s (size %llu)",
-               cpm80DiskProfileName(drive->profile), cpm80DiskProfileName(detected), (unsigned long long)imageSize);
+               cpm80DiskProfileName(drive->profile), cpm80DiskProfileName(detected),
+               (unsigned long long)imageSize);
     }
     return false;
   }

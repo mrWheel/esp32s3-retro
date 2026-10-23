@@ -48,9 +48,9 @@ LICENSE.md. Preserve that provenance and review those terms before redistributin
 these CP/M-86 binaries; no broader license is asserted here. The user-provided
 assets/cmp86.img was not used or modified.
 
-The system disk is opened read-only by the firmware. Optional SD drives are
-configured in /littlefs/cpm86/drives.cfg; use disposable images for drives
-configured read/write.
+The system disk defaults to read-only, but may be configured read/write in
+/littlefs/cpm86/drives.cfg. Writes persist in LittleFS until the firmware
+rebuilds the generated system image. Use disposable images for writable disks.
 
 HOST.CMD is installed on system.dsk. The host CP/M-86 fixture assembles the
 source in a guest and passes DIR/GET/PUT tests, including wildcard matching,

@@ -21,6 +21,7 @@ The current menu can start CP/M-80 and CP/M-86 when their required LittleFS reso
 - USB Serial/JTAG console and a reset-to-menu startup flow.
 - A machine registry that checks implementation and required boot resources.
 - LittleFS for compact system resources and microSD storage for larger or writable images.
+- System boot disks may be configured read/write. When RW, the menu shows `[Writable!]` after the machine name; RO remains the default, and LittleFS writes persist until the next firmware build regenerates the image.
 - An SD-card layout rooted at `/retro/`, with FAT32 validation.
 - Browser-based SD file and whole-disk-image management for `/retro/images/<OS>/` (flat per-machine directories, no sub-directories); the browser no longer exposes `/retro/exchange/`.
 

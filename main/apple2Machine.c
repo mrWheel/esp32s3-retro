@@ -381,6 +381,19 @@ machineState apple2MachineProbeWithConfig(const retroMachine* machine, const cha
   {
     return machineResourceInvalid;
   }
+  if (!bootDrive->readOnly)
+  {
+    FILE* image = fopen(bootDrive->path, "r+b");
+    if (image == NULL)
+    {
+      return machineResourceInvalid;
+    }
+    if (fclose(image) != 0)
+    {
+      return machineResourceInvalid;
+    }
+    return machineWritable;
+  }
   return machineAvailable;
 }
 
@@ -553,9 +566,9 @@ static void attachOpenedDrive(size_t slotIndex, size_t driveIndex, const apple2D
 }
 
 //-- A controller slot is SmartPort, a block device for ProDOS content or an 800K Pascal boot image,
-//or Disk II.
+// or Disk II.
 //-- The boot drive SD6.1 must be configured in drives.cfg and its image must open; otherwise the
-//machine does not start.
+// machine does not start.
 static esp_err_t attachDisks(void)
 {
   apple2DriveConfig config[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
@@ -591,7 +604,7 @@ static esp_err_t attachDisks(void)
     const apple2DriveConfig* bootDrive = &config[bootSlotIndex][0];
     const apple2DiskImage* bootImage = &guestDisks[bootSlotIndex][0];
     //-- The Pascal 3.5-inch system disk boots through the block-device slot ROM; 5.25-inch Pascal
-    //boots through Disk II.
+    // boots through Disk II.
     bool pascalBlockBoot = slotIndex == bootSlotIndex && opened[0] &&
                            bootDrive->profile == apple2DiskImageProfile800k &&
                            bootImage->probe.content == apple2DiskImageContentPascal;
@@ -721,7 +734,7 @@ esp_err_t apple2MachineInitializeWithConfig(const char* configPath)
   if (coreResult == apple2CoreOk && !iie)
   {
     //-- The 80-column card is selected automatically at every start, like the Disk II controller
-    //boots.
+    // boots.
     coreResult = apple2CoreSetBootIn80Columns(guestCore, true);
   }
   if (coreResult != apple2CoreOk)

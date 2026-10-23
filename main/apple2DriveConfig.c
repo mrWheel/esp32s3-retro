@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char* systemImagePath = "/littlefs/apple2/system.dsk";
 static const char* systemPathPrefix = "/littlefs/apple2/";
 static const char* pascalSystemPathPrefix = "/littlefs/ucsd/";
 static const char* dataPathPrefix = "/retro/images/apple2/";
@@ -223,12 +222,7 @@ static bool parseLine(char* line, driveTable drives,
       !smartPort && slotIndex + apple2DriveConfigFirstSlot == 6 && driveIndex == 0;
   if (pascalSystem && !readOnly && !pascalBootDrive)
   {
-    setError(error, errorCapacity, "only the SD6.1 UCSD boot image may be writable in LittleFS");
-    return false;
-  }
-  if (!readOnly && strcmp(imagePath, systemImagePath) == 0)
-  {
-    setError(error, errorCapacity, "system.dsk must be read-only");
+    setError(error, errorCapacity, "only the SD6.1 UCSD boot image may be writable from LittleFS");
     return false;
   }
   if (pascalSystem && !safePath(imagePath, pascalSystemPathPrefix))
