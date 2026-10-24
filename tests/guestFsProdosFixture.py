@@ -14,6 +14,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / "tools" / "include"))
 sys.path.insert(0, str(root / "tools"))
+sys.path.insert(0, str(root / "tools" / "apple2"))
 
 import diskImageApple2Prodos as p
 from diskImageCommon import DiskImageError

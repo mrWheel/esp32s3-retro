@@ -28,7 +28,7 @@ typedef struct
   uint8_t exm;
 } cpmProfile;
 
-//-- Mirrors tools/include/diskImageCpm80.py and diskImageCpm86.py PROFILES.
+//-- Mirrors tools/cpm80/diskImageCpm80.py and tools/cpm86/diskImageCpm86.py PROFILES.
 static const cpmProfile cpmProfiles[] = {
     {"cpm80", "SYSTEM", 256256, 1024, 64, 6656, 242, 2, 1, 0},
     {"cpm80", "LARGE", 512512, 2048, 128, 13312, 242, 2, 1, 0},

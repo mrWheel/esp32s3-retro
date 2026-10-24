@@ -14,18 +14,20 @@ firmware, or test the running device. The firmware itself is the C/C++ code in
 | `tools/createSystemDsk.py` | Compose `littlefs/<os>/system.dsk`. CMake runs it automatically for the Apple II ProDOS system image; run it manually for CP/M system images. | Production-image preparation |
 | `tools/prepareSd.py` | Create the documented directory layout on an existing SD-card mount; does not format the card. | Regular host-side SD preparation |
 | `tools/fetchCpm80Software.py` | Optional CP/M-80 archive/resource importer. Only fetches explicitly selected content; licensing still needs to be verified by the user. | Optional host maintenance; not needed to build/run firmware |
-| `tools/buildApple2DiskBootRom.py` | Regenerate `components/apple2Core/apple2DiskBootRom.h`, which is compiled into the Apple II firmware. Normally only run when intentionally regenerating that generated header. | Production build-input generator; not a test |
-| `tools/include/diskImageApple2Pascal.py` | Create a blank Apple/UCSD Pascal disk image; not part of the normal `diskImage.py` dispatcher. | Optional host media utility |
-| `tools/buildApple2TestRom.py` | Generate the minimal diagnostic ROM fixture in `tests/fixtures/`. | Test-only |
+| `tools/apple2/buildApple2DiskBootRom.py` | Regenerate `components/apple2Core/apple2DiskBootRom.h`, which is compiled into the Apple II firmware. Normally only run when intentionally regenerating that generated header. | Production build-input generator; not a test |
+| `tools/ucsd/buildApple2PascalCardRom.py` | Regenerate `components/apple2Core/apple2PascalCardRom.h` for the Apple Pascal card. | Production build-input generator; not a test |
+| `tools/apple2/extractApple2Files.py` | Interactively browse Apple II disk images and copy/remove files between disk images and host folders; also imported by the Apple II, CP/M, and UCSD adapters. | Optional host media utility |
+| `tools/ucsd/diskImageApple2Pascal.py` | Create a blank Apple/UCSD Pascal disk image; not part of the normal `diskImage.py` dispatcher. | Optional host media utility |
+| `tools/apple2/buildApple2TestRom.py` | Generate the minimal diagnostic ROM fixture in `tests/fixtures/`. | Test-only |
 | `tools/transferTest.py` | Exercise the HTTP file-transfer service on a running device. It creates and deletes uniquely named test files. | Test-only; run only when deliberately testing a device |
-| `tools/include/*.py` (other files) | OS-specific builders, disk-format implementations, shared helpers and registry imported by the host entrypoints. | Internal modules; not separate production applications |
+| `tools/include/*.py` (other files) | Shared disk-format helpers and OS registry imported by the host entrypoints. | Internal modules; not separate production applications |
 | `tools/cpm86/diskdefs` | Optional disk geometry definitions for external CP/M image tools; not read by the firmware. | Host-side support data |
 | `tools/README.md` | Usage and behavior documentation for these tools. | Documentation |
 
 In short: use the first four programs for normal host-side preparation. The
 two explicitly test-only tools are not needed for normal firmware operation.
-`buildApple2DiskBootRom.py` is different: although it is usually run only by
-developers, its generated header is part of the production firmware.
+The Apple II and UCSD ROM generators are usually run only by developers, but
+their generated headers are part of the production firmware.
 
 ## OS-independent usage (`--os`)
 
@@ -50,16 +52,16 @@ python3 tools/diskImage.py --os cpm86 -h
 
   For CP/M-86 it needs `--source-dir` with `CPM.SYS` and the `.CMD` files (no sources are checked in). 
 
-  `tools/` contains the host-side command-line entrypoints listed above. Reusable OS and format modules, including `osProfiles.py`, `diskImageCpm.py`, `diskImageCpm80.py`, `diskImageCpm86.py`, `diskImageApple2Prodos.py`, `apple2Basic.py` and the per-OS image builders, live in `tools/include/`. The `diskImage.py` and `buildDiskImage.py` entrypoints dispatch to those modules using `--os`; for example, create CP/M-80 images with `python3 tools/diskImage.py create --os cpm80 --profile LARGE work.dsk`.
+  `tools/` contains the host-side command-line entrypoints listed above. OS-specific image modules, extraction adapters, and builders live in their matching `tools/<os>/` directories; shared modules, including `osProfiles.py`, `diskImageCpm.py` and `diskImageCommon.py`, live in `tools/include/`. The `diskImage.py` and `buildDiskImage.py` entrypoints dispatch to the OS modules using `--os`; for example, create CP/M-80 images with `python3 tools/diskImage.py create --os cpm80 --profile LARGE work.dsk`.
   
-  A new OS needs `tools/include/diskImage<Os>.py`, `tools/include/buildDiskImage<Os>.py` and one entry in `tools/include/osProfiles.py`. Main entrypoints add `tools/include/` to Python's module search path before importing these modules.
+  A new OS needs `tools/<os>/diskImage<Os>.py`, `tools/<os>/buildDiskImage<Os>.py` and one entry in `tools/include/osProfiles.py`. Main entrypoints add the shared and OS-specific directories to Python's module search path before importing these modules.
   `prepareSd.py` without a mount point prepares `sdcard/`, and without `--os` prepares all systems.
 
   `prepareSd.py` (Python 3.9+) adds the documented layout to an already formatted/mounted FAT32 card. It does not format, delete, make disk images, create drive configurations (those live in `littlefs/<os>/drives.cfg`) or rewrite an incompatible layout marker. Run with the card mount root as its sole argument.
 
   `transferTest.py` exercises an actual running device using the session URL displayed on USB. It creates uniquely named files in exchange/common and removes only those files. Do not run it during manual transfers. Its 8 MiB payload intentionally exceeds normal ESP32-S3 internal RAM; the test PC can hold it in memory, while the device must stream.
 
-  `tools/include/buildDiskImageCpm80.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance and non-commercial use scope are in `components/cpm80Core/os/utilities/README.md`. No SD work image is generated; E: requires a separately prepared matching CP/M image.
+  `tools/cpm80/buildDiskImageCpm80.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance and non-commercial use scope are in `components/cpm80Core/os/utilities/README.md`. No SD work image is generated; E: requires a separately prepared matching CP/M image.
 
 ### Create a SYSTEM.DSK on LittleFS
 

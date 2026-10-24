@@ -48,7 +48,7 @@ Host menu
 | Guest and BIOS | `components/cpm80Core/cpm80Guest.c` | Install CP/M memory structures and BIOS, dispatch BIOS calls, and run bounded instruction batches. |
 | Z80 core | `components/z80/` | Upstream `superzazu/z80` core pinned to commit `d64fe10a2274e5e40019b1086bf7d8990cbc5f23`, MIT license. |
 | CP/M operating system | `components/cpm80Core/os/` | CCP and BDOS sources/binaries from `brouhaha/cpm22`, pinned to commit `01018abbccce0bdf4874b0b2ed1a048c5fcc2987`. |
-| Image preparation | `tools/include/buildDiskImageCpm80.py`, `tools/include/diskImageCpm.py`, `tools/include/diskImageCpm80.py` | Build and manipulate raw CP/M images on a development computer. |
+| Image preparation | `tools/cpm80/buildDiskImageCpm80.py`, `tools/include/diskImageCpm.py`, `tools/cpm80/diskImageCpm80.py` | Build and manipulate raw CP/M images on a development computer. |
 
 Third-party source licenses do not determine distribution rights for separately obtained application programs. Retain provenance and rights information for every independently sourced CP/M application.
 
@@ -239,7 +239,7 @@ These Python tools run on a development computer. They are not run by the ESP32 
 
 ### Raw CP/M image operations
 
-`tools/diskImage.py --os cpm80` dispatches to the CP/M-80 profile definitions in `tools/include/diskImageCpm80.py` and shared directory/extents logic in `tools/include/diskImageCpm.py`.
+`tools/diskImage.py --os cpm80` dispatches to the CP/M-80 profile definitions in `tools/cpm80/diskImageCpm80.py` and shared directory/extents logic in `tools/include/diskImageCpm.py`.
 
 - `create` creates an empty image for a selected profile; it refuses to replace an existing image unless `--force` is given.
 - `add` imports host files after validating CP/M 8.3 names, duplicate entries, extents, allocation blocks, directory capacity, and disk capacity. It updates the image atomically after validation.
@@ -250,7 +250,7 @@ The supported utility operates on raw CP/M images. It does not convert ImageDisk
 
 ### System image construction
 
-`tools/buildDiskImage.py --os cpm80` dispatches to `tools/include/buildDiskImageCpm80.py`. It combines the checked-in CCP and BDOS binaries, utility files, and support files into a deterministic SYSTEM image. It places the directory after the two reserved tracks, uses 32-byte CP/M directory entries, allocates file data in 1 KiB blocks, and rejects invalid names, empty files, directory overflow, or block overflow.
+`tools/buildDiskImage.py --os cpm80` dispatches to `tools/cpm80/buildDiskImageCpm80.py`. It combines the checked-in CCP and BDOS binaries, utility files, and support files into a deterministic SYSTEM image. It places the directory after the two reserved tracks, uses 32-byte CP/M directory entries, allocates file data in 1 KiB blocks, and rejects invalid names, empty files, directory overflow, or block overflow.
 
 `tools/createSystemDsk.py --os cpm80 --profile SMALL|LARGE` creates a CP/M-80 boot image with the selected boot profile and can add files from a supplied source directory. SMALL selects SYSTEM; SYSTEM and LARGE retain the CCP/BDOS/header offsets described above, with profile-specific exact image sizes.
 

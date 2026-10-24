@@ -12,6 +12,8 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / "tools" / "include"))
 sys.path.insert(0, str(root / "tools"))
+sys.path.insert(0, str(root / "tools" / "cpm80"))
+sys.path.insert(0, str(root / "tools" / "cpm86"))
 
 import diskImageCpm
 import diskImageCpm80

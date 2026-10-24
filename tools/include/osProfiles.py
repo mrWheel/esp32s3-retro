@@ -1,12 +1,13 @@
 """Shared operating-system registry and command-line helpers for the host tools.
 
-To add an OS: add diskImage<Os>.py and buildDiskImage<Os>.py, then an OsInfo entry
-(with their module names) to OS_REGISTRY. Tools refuse OSes whose
+To add an OS: add diskImage<Os>.py and buildDiskImage<Os>.py under tools/<os>/,
+then an OsInfo entry (with their module names) to OS_REGISTRY. Tools refuse OSes whose
 `supported` flag is False, so planned systems are already visible in --help.
 """
 
 import argparse
 import importlib
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,13 +26,19 @@ class OsInfo:
     details: str = ""
     build_only: bool = False
 
+    def _import_os_module(self, module_name):
+        os_directory = PROJECT_ROOT / "tools" / self.key
+        if str(os_directory) not in sys.path:
+            sys.path.insert(0, str(os_directory))
+        return importlib.import_module(module_name)
+
     def image(self):
         """The OS image module (diskImageCpm80, ...) exposing PROFILES and create/add/list."""
-        return importlib.import_module(self.image_module)
+        return self._import_os_module(self.image_module)
 
     def builder(self):
         """The OS build module (buildDiskImageCpm80, ...) exposing add_arguments() and build()."""
-        return importlib.import_module(self.build_module)
+        return self._import_os_module(self.build_module)
 
     @property
     def buildable(self):

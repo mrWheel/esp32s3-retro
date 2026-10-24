@@ -21,7 +21,7 @@ EXAMPLES = """examples:
 Without --output the image is written to <sd-root>/retro/images/<os>/system.dsk
 (Apple II: data<size>.po).
 An existing image is replaced (the build is deterministic).
-The work is done by tools/include/buildDiskImage<Os>.py (e.g. buildDiskImageCpm80.py)."""
+The work is done by tools/<os>/buildDiskImage<Os>.py (e.g. tools/cpm80/buildDiskImageCpm80.py)."""
 OS_EXAMPLES = {
     "cpm80": """examples:
   buildDiskImage.py --os cpm80

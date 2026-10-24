@@ -4,7 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "include"))
+TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
+sys.path.insert(0, str(TOOLS_DIR / "include"))
+sys.path.insert(0, str(TOOLS_DIR / "ucsd"))
 
 import diskImageApple2Pascal as pascal
 from diskImageCommon import DiskImageError

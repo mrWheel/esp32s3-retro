@@ -3,7 +3,7 @@
 
   build <dir>      create Python-built DOS 3.3 images (.do/.dsk DOS order, .po ProDOS order), the expected
                    images after the C test adds the same files, and manifests
-  real <dir>       dump the files of real DOS 3.3 images (read with tools/extractApple2Files.py)
+  real <dir>       dump the files of real DOS 3.3 images (read with tools/apple2/extractApple2Files.py)
   verify <dir>     strictly check images written by guestFsDos33Tests (structure, bitmap, file contents)
 
 The writer below is an independent implementation of the DOS 3.3 layout described at the top of
@@ -17,6 +17,7 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / "tools"))
+sys.path.insert(0, str(root / "tools" / "apple2"))
 
 import extractApple2Files as x
 

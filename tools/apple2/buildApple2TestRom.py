@@ -139,7 +139,7 @@ def main():
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "apple2-diagnostic.rom",
+        default=Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "apple2-diagnostic.rom",
     )
     arguments = parser.parse_args()
     arguments.output.parent.mkdir(parents=True, exist_ok=True)

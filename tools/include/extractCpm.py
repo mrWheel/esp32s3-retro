@@ -1,6 +1,6 @@
 """CP/M (80 and 86) disk operations; menu options 7 and 10 use Dest. Path.
 
-Without an image or action the interactive menu of extractApple2Files.py starts,
+Without an image or action the interactive menu of tools/apple2/extractApple2Files.py starts,
 with CP/M images (user area 0) as source and destination.
 """
 
@@ -8,6 +8,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+for os_directory in ("apple2", "cpm80", "cpm86"):
+    module_directory = Path(__file__).resolve().parents[1] / os_directory
+    if str(module_directory) not in sys.path:
+        sys.path.insert(0, str(module_directory))
 
 import diskImageCpm
 import diskImageCpm80

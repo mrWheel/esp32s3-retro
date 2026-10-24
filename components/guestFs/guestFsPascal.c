@@ -7,8 +7,8 @@
 #include <string.h>
 
 //-- UCSD Pascal volumes on 140K / 640K / 800K Apple II images (ProDOS 512-byte blocks).
-//-- Reference: tools/extractApple2Files.py PascalVolume. The directory is re-read from the image
-//for every
+//-- Reference: tools/apple2/extractApple2Files.py PascalVolume. The directory is re-read from the
+//image for every
 //-- operation, so the volume object holds no cached view that could go stale.
 enum
 {
@@ -35,7 +35,7 @@ typedef struct
 } pascalVolume;
 
 //-- Image of the directory blocks 2..dirEnd-1; entry slot i (0 based) is at raw + slotBytes * (i +
-//1).
+// 1).
 typedef struct
 {
   uint8_t* raw;
@@ -133,7 +133,7 @@ static bool namesEqual(const uint8_t* slot, const char* canonical, size_t canoni
 }
 
 //-- Reads and fully validates the directory. guestFsErrUnsupported (detail untouched) means "not a
-//Pascal
+// Pascal
 //-- volume"; guestFsErrCorrupt means it is one but the directory cannot be trusted.
 static guestFsStatus loadDirectory(const pascalVolume* volume, pascalDirectory* directory,
                                    char* detail, size_t detailCapacity)
@@ -273,7 +273,7 @@ static guestFsStatus loadDirectory(const pascalVolume* volume, pascalDirectory* 
 }
 
 //-- Lookup is lenient (any listed name, case-insensitive); creating names are checked by
-//parseNewName.
+// parseNewName.
 static uint32_t findEntry(const pascalDirectory* directory, const char* name)
 {
   size_t length = strlen(name);
@@ -297,7 +297,7 @@ static uint32_t findEntry(const pascalDirectory* directory, const char* name)
 }
 
 //-- Same rule as extractApple2Files.sanitizePascalName, but invalid names are refused instead of
-//cleaned.
+// cleaned.
 static bool parseNewName(const char* text, char canonical[maxNameLength + 1])
 {
   size_t length = strlen(text);
@@ -574,9 +574,9 @@ static guestFsStatus pascalReadAt(guestFsVolume* base, uint8_t user, const char*
 }
 
 //-- Rebuild the directory blocks: the entries sorted by first block (as
-//extractApple2Files.writeDirectory),
+// extractApple2Files.writeDirectory),
 //-- optionally without skipIndex and with newSlot inserted. Header and entry bytes are copied
-//verbatim.
+// verbatim.
 static void buildDirectory(const pascalDirectory* directory, uint8_t* newRaw, uint32_t skipIndex,
                            const uint8_t* newSlot)
 {

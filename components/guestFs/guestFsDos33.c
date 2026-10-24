@@ -5,30 +5,30 @@
 #include <string.h>
 
 //-- DOS 3.3 adapter for 140K Apple II images (either sector order, handled by guestFsApple.c).
-//-- Reference for the read side: tools/extractApple2Files.py Dos33Volume. The write side has no
-//Python
+//-- Reference for the read side: tools/apple2/extractApple2Files.py Dos33Volume. The write side has
+//no Python
 //-- counterpart; tests/guestFsDos33Fixture.py carries an independent writer and checker.
 //--
 //-- Layout: VTOC at track 17 sector 0 (catalog start +1/+2, bitmap at +0x38, 4 bytes per track:
-//byte 0 holds
+// byte 0 holds
 //-- sectors 15..8, byte 1 holds sectors 7..0, bit 7 = highest sector, 1 = free). Catalog sectors
-//hold seven
+// hold seven
 //-- 35-byte entries at +0x0B: track/sector of the first T/S list, file type (bit 7 = locked), 30
-//name bytes with
+// name bytes with
 //-- the high bit set and padded with 0xA0, and the sector count (little endian). A T/S list holds
-//122 pairs
+// 122 pairs
 //-- from +0x0C, the next list at +1/+2, the file position of its first sector at +5/+6 (written,
-//but the
+// but the
 //-- reader like the Python tool simply concatenates 122 pairs per list).
 //--
 //-- Writing: free sectors are searched on tracks 1..34 (track 17 skipped, it is the catalog track)
-//with
+// with
 //-- sectors 15..0 inside a track, and finally on track 0. Each T/S list sector is allocated right
-//before the
+// before the
 //-- (up to) 122 data sectors it describes. Names for NEW files: 1..30 characters, upper case,
-//0x20..0x5F, no
+// 0x20..0x5F, no
 //-- comma, first character a letter, last character not a space. Existing names are matched
-//case-insensitively
+// case-insensitively
 //-- on the name with trailing blanks removed.
 
 _Static_assert(guestFsNameCapacity >= 31, "DOS 3.3 names need 30 characters plus a terminator");
@@ -133,7 +133,7 @@ static void setDetail(char* detail, size_t capacity, const char* text)
   }
 }
 
-//-- Same conditions as Dos33Volume.probe in tools/extractApple2Files.py.
+//-- Same conditions as Dos33Volume.probe in tools/apple2/extractApple2Files.py.
 static bool vtocLooksValid(const uint8_t* vtoc)
 {
   return vtoc[3] >= 1 && vtoc[3] <= 3 && vtoc[0x27] == 122 && vtoc[0x34] == 35 &&
@@ -327,9 +327,9 @@ static bool slotInUse(const catalogSlot* slot)
 }
 
 //-- Visits the T/S list sectors (isList) and every non-sparse data sector (dataIndex = position in
-//the file).
+// the file).
 //-- Returns guestFsErrDamagedFile for loops and out-of-range pointers, guestFsErrIo for read
-//errors.
+// errors.
 typedef void (*fileVisitFn)(void* context, uint32_t track, uint32_t sector, bool isList,
                             uint32_t dataIndex);
 
@@ -939,7 +939,7 @@ static guestFsStatus dosReadAt(guestFsVolume* base, uint8_t user, const char* na
 }
 
 //-- Mutation prerequisites: the VTOC is sane and every sector is claimed at most once, and every
-//claimed
+// claimed
 //-- sector is marked used in the bitmap. Anything else is guestFsErrCorrupt (fail closed).
 typedef struct
 {
@@ -1061,7 +1061,7 @@ typedef struct
 } newFileType;
 
 //-- ProDOS file type / aux type are the interchange currency (see Dos33Volume.exportFile for the
-//reverse).
+// reverse).
 static void chooseType(const guestFsAttributes* attributes, newFileType* type)
 {
   type->rawType = typeText;
@@ -1123,7 +1123,7 @@ static void buildListSector(uint8_t* list, uint32_t listNumber, const uint8_t (*
 }
 
 //-- Writes the T/S list and data sectors of a new file into the allocated (still unreferenced)
-//sectors.
+// sectors.
 static guestFsStatus writeFileSectors(const dosVolume* volume, const newFileType* type,
                                       uint32_t length, uint8_t (*alloc)[2], uint32_t listCount,
                                       uint32_t dataSectors, guestFsSourceFn source, void* context)

@@ -44,9 +44,9 @@ typedef struct
 } guestFsIo;
 
 //-- Interchange attributes used when a file moves between file systems. The ProDOS file type and
-//aux type
-//-- are the common currency (the same as tools/extractApple2Files.py Exported); pascalKind is the
-//UCSD kind.
+// aux type
+//-- are the common currency (the same as tools/apple2/extractApple2Files.py Exported); pascalKind
+//is the UCSD kind.
 typedef struct
 {
   uint16_t prodosType;

@@ -744,19 +744,20 @@ Detailed options and current examples are maintained in [`tools/README.md`](tool
 | `tools/createSystemDsk.py` | Compose a machine system disk from its checked-in resources and optional source directory. Use `--os`, `--profile`, and optional `--source-dir` / `--output`; the selected image is replaced when the build succeeds. |
 | `tools/prepareSd.py` | Prepare the Retro directory tree and marker on an already formatted FAT32 volume, optionally for one `--os`. It does not format the card, remove files, create disk images, or overwrite existing drive configuration. |
 | `tools/extractFiles.py` | List, add, extract, or remove files through the operating-system-specific image adapters. Choose the target with `--os`; available actions differ by filesystem. |
-| `tools/extractApple2Files.py` | Interactively browse Apple II disk images and copy/remove files between disk images and host folders. |
+| `tools/apple2/extractApple2Files.py` | Interactively browse Apple II disk images and copy/remove files between disk images and host folders; also used by the Apple II, CP/M, and UCSD adapters. |
 | `tools/fetchCpm80Software.py` | Optional CP/M-80 resource importer. Lists archive links and imports only explicitly selected files or ZIP members; the user must supply rights evidence, which the program does not verify. See `designCPM80.md` for CP/M-80 profiles and resource rules. |
-| `tools/buildApple2DiskBootRom.py` | Generate the project-authored Apple II Disk II boot-ROM header used by the firmware. |
-| `tools/buildApple2PascalCardRom.py` | Generate the project-authored Apple Pascal-compatible slot-3 80-column card firmware header used by the Apple II implementation. |
-| `tools/buildApple2TestRom.py` | Generate the minimal Apple II diagnostic ROM fixture for host tests; test-only. |
+| `tools/apple2/buildApple2DiskBootRom.py` | Generate the project-authored Apple II Disk II boot-ROM header used by the firmware. |
+| `tools/ucsd/buildApple2PascalCardRom.py` | Generate the project-authored Apple Pascal-compatible slot-3 80-column card firmware header used by the Apple II implementation. |
+| `tools/apple2/buildApple2TestRom.py` | Generate the minimal Apple II diagnostic ROM fixture for host tests; test-only. |
 | `tools/transferTest.py` | Exercise File Transfer on a deliberately selected running device; creates and removes uniquely named test files. Do not run during ordinary manual transfers. |
 
-`tools/include/` contains internal per-OS disk builders, image-format
-implementations, extraction adapters, shared helpers, and the OS registry.
-These modules are imported by the top-level command-line tools and are not
-normally invoked directly. `tools/cpm86/diskdefs` provides optional
-definitions for external CP/M-86 image tools. The host-side CP/M-80-specific
-modules and their profiles are documented in `designCPM80.md`.
+`tools/<os>/` contains internal per-OS disk builders, image-format
+implementations, and extraction adapters. Shared helpers and the OS registry
+remain in `tools/include/`. These modules are imported by the top-level
+command-line tools and are not normally invoked directly.
+`tools/cpm86/diskdefs` provides optional definitions for external CP/M-86
+image tools. The host-side CP/M-80-specific modules and their profiles are
+documented in `designCPM80.md`.
 
 Typical preparation commands:
 

@@ -7,6 +7,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+INCLUDE_DIR = Path(__file__).resolve().parents[1] / "include"
+if str(INCLUDE_DIR) not in sys.path:
+    sys.path.insert(0, str(INCLUDE_DIR))
+
 import diskImageApple2Pascal
 from diskImageCommon import DiskImageError
 
@@ -17,7 +21,7 @@ DETAILS = (
     "140K (280 blocks). It is a work volume, not a boot disk: the Pascal boot disk is a separate image.\n"
     "Without --output the volume is written to <sd-root>/retro/images/ucsd/<name>.po (name as typed,\n"
     "'pietJe' gives pietJe.po; the volume name inside the image is upper-cased).\n"
-    "Add files afterwards with extractApple2Files.py."
+    "Add files afterwards with tools/apple2/extractApple2Files.py."
 )
 
 

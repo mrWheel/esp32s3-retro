@@ -6,6 +6,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+INCLUDE_DIR = Path(__file__).resolve().parents[1] / "include"
+if str(INCLUDE_DIR) not in sys.path:
+    sys.path.insert(0, str(INCLUDE_DIR))
+
 import diskImageApple2Prodos
 from diskImageCommon import DiskImageError
 

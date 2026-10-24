@@ -1029,7 +1029,7 @@ def removeFiles(dest, name):
   print(f"{removed} of {len(matches)} files removed")
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 pathPromptActive = False
 pathBaseDir = ""
 
@@ -1314,7 +1314,7 @@ def getOneFileFromSource(session):
   nameOut = input(f"Name in destination [{Path(entry.path).name}]: ").strip() or Path(entry.path).name
   exported = source.exportFile(entry)
   if isinstance(source, PascalVolume) and exported.pascalKind == 3:
-    sys.path.insert(0, str(Path(__file__).resolve().parent / "include"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ucsd"))
     import extractUcsd
     exported.data = extractUcsd.ucsdTextToHost(exported.data)
   target = FolderDestination(targetPath).importFile(nameOut, exported)
@@ -1371,7 +1371,7 @@ def addHostFileToDestination(dest, hostPath, nameOut):
   suffix = hostPath.suffix.upper()
   pascalKind = {".TEXT": 3, ".CODE": 2}.get(suffix, 5)
   if isinstance(dest, PascalVolume) and suffix == ".TEXT":
-    sys.path.insert(0, str(Path(__file__).resolve().parent / "include"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ucsd"))
     import extractUcsd
     data = extractUcsd.hostTextToUcsd(data)
   prodosType = 0x04 if suffix in (".TXT", ".TEXT") else 0x06

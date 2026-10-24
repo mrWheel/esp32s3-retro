@@ -6,6 +6,10 @@ import struct
 import sys
 from pathlib import Path
 
+INCLUDE_DIR = Path(__file__).resolve().parents[1] / "include"
+if str(INCLUDE_DIR) not in sys.path:
+    sys.path.insert(0, str(INCLUDE_DIR))
+
 import apple2Basic
 from diskImageCommon import DiskImageError
 

@@ -10,6 +10,7 @@ from unittest.mock import patch
 repositoryRoot = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repositoryRoot / "tools" / "include"))
 sys.path.insert(0, str(repositoryRoot / "tools"))
+sys.path.insert(0, str(repositoryRoot / "tools" / "cpm80"))
 
 import diskImageCpm80
 import extractCpm

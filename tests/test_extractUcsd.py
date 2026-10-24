@@ -11,6 +11,8 @@ from unittest.mock import patch
 repositoryRoot = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repositoryRoot / "tools" / "include"))
 sys.path.insert(0, str(repositoryRoot / "tools"))
+sys.path.insert(0, str(repositoryRoot / "tools" / "apple2"))
+sys.path.insert(0, str(repositoryRoot / "tools" / "ucsd"))
 
 import diskImageApple2Pascal
 import extractFiles

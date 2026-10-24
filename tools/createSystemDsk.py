@@ -10,6 +10,12 @@ INCLUDE_DIR = Path(__file__).resolve().parent / "include"
 if str(INCLUDE_DIR) not in sys.path:
     sys.path.insert(0, str(INCLUDE_DIR))
 
+TOOLS_DIR = Path(__file__).resolve().parent
+for os_directory in ("apple2", "cpm80", "cpm86"):
+    module_directory = TOOLS_DIR / os_directory
+    if str(module_directory) not in sys.path:
+        sys.path.insert(0, str(module_directory))
+
 import buildDiskImageCpm80
 import diskImageApple2Prodos
 import diskImageCpm80

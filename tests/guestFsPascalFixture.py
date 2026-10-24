@@ -14,6 +14,8 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / "tools" / "include"))
 sys.path.insert(0, str(root / "tools"))
+sys.path.insert(0, str(root / "tools" / "apple2"))
+sys.path.insert(0, str(root / "tools" / "ucsd"))
 
 import extractApple2Files as tool
 import diskImageApple2Pascal

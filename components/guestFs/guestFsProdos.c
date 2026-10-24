@@ -7,16 +7,16 @@
 #include <string.h>
 
 //-- ProDOS 8 volumes on 140K / 640K / 800K Apple II images (512-byte blocks), root directory only.
-//-- Reference: tools/include/diskImageApple2Prodos.py (add_file layout) and
-//tools/extractApple2Files.py
+//-- Reference: tools/apple2/diskImageApple2Prodos.py (add_file layout) and
+// tools/apple2/extractApple2Files.py
 //-- ProDosVolume. The directory and bitmap are re-read from the image for every operation, so the
-//volume
+// volume
 //-- object holds no cached view that could go stale. Mutations validate the whole volume first
 //(every file
 //-- block claimed exactly once and marked used in the bitmap) and fail closed with
-//guestFsErrCorrupt.
+// guestFsErrCorrupt.
 //-- The ProDOS access byte ("locked") is reported but not enforced: remove, rename and overwrite
-//ignore it.
+// ignore it.
 enum
 {
   entryBytes = 0x27,
@@ -185,7 +185,7 @@ static uint32_t blocksForBytes(uint32_t bytes)
 }
 
 //-- A readable file: seedling / sapling / tree whose end of file fits what its index structure can
-//address.
+// address.
 static bool fileUsable(const uint8_t* entry)
 {
   uint8_t storage = entry[0] >> 4;
@@ -229,7 +229,7 @@ static uint32_t indexPointer(const uint8_t* index, uint32_t position)
 
 //-- Visits every block a file owns (key, index and data blocks; sparse zero pointers skipped).
 //-- Returns guestFsErrCorrupt when the visitor refuses a block or a pointer lies outside the
-//volume.
+// volume.
 static guestFsStatus walkFile(const prodosVolume* volume, uint32_t totalBlocks,
                               const uint8_t* entry, blockVisitor visit, void* context)
 {
@@ -432,9 +432,9 @@ static guestFsStatus validateClaims(const prodosVolume* volume, prodosView* view
 }
 
 //-- Reads and validates the root directory and the volume bitmap. guestFsErrUnsupported (detail
-//untouched)
+// untouched)
 //-- means "not a ProDOS volume"; guestFsErrCorrupt means it is one but cannot be trusted. full adds
-//the
+// the
 //-- block ownership check required before a mutation.
 static guestFsStatus loadView(const prodosVolume* volume, prodosView* view, bool full, char* detail,
                               size_t detailCapacity)
@@ -591,7 +591,7 @@ static guestFsStatus loadView(const prodosVolume* volume, prodosView* view, bool
 }
 
 //-- Lookup is lenient (any listed name, case-insensitive); creating names are checked by
-//parseNewName.
+// parseNewName.
 static uint32_t findSlot(const prodosView* view, const char* name)
 {
   size_t length = strlen(name);

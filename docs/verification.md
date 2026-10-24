@@ -36,7 +36,7 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 
 ## CP/M utility image and writable work drive — 2026-10-04
 
-- Generated `littlefs/cpm80/system.dsk` with `tools/include/buildDiskImageCpm80.py`. Image size is 256,256 bytes.
+- Generated `littlefs/cpm80/system.dsk` with `tools/cpm80/buildDiskImageCpm80.py`. Image size is 256,256 bytes.
 - Independently inspected its CP/M directory/extents and reconstructed data blocks: 20 directory extents for 19 files, all required source files match their padded 128-byte records, 147 allocated blocks are within the DPB's valid blocks 2–242, and the image header/size are correct.
 - Host command: `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`.
 - Result: PASS under ASan/UBSan. The genuine guest lists the utilities, exercises resident `TYPE` and `USER`, performs `PIP E:=A:HELLO.COM`, then `REN` and `ERA` on E:. BIOS tests also verify E: record writes and A: write rejection. This is a host fixture, not a physical SD card.

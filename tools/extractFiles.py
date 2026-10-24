@@ -16,7 +16,17 @@ import importlib
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "include"))
+TOOLS_DIR = Path(__file__).resolve().parent
+for module_directory in (
+    TOOLS_DIR / "include",
+    TOOLS_DIR / "apple2",
+    TOOLS_DIR / "cpm80",
+    TOOLS_DIR / "cpm86",
+    TOOLS_DIR / "swtpc",
+    TOOLS_DIR / "ucsd",
+):
+    if str(module_directory) not in sys.path:
+        sys.path.insert(0, str(module_directory))
 
 OS_MODULES = {
     "cpm": "extractCpm",

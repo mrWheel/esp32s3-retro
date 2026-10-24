@@ -7,9 +7,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "include"))
+TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
+sys.path.insert(0, str(TOOLS_DIR / "include"))
+sys.path.insert(0, str(TOOLS_DIR / "ucsd"))
 
-extractorPath = Path(__file__).resolve().parents[1] / "tools" / "extractApple2Files.py"
+extractorPath = TOOLS_DIR / "apple2" / "extractApple2Files.py"
 extractorSpec = importlib.util.spec_from_file_location("extractApple2Files", extractorPath)
 if extractorSpec is None or extractorSpec.loader is None:
     raise RuntimeError(f"cannot load {extractorPath}")

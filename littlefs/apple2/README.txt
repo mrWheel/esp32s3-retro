@@ -29,7 +29,7 @@ instead of substituting another disk.
 
 The separate project-authored diagnostic test fixture is at
 tests/fixtures/apple2-diagnostic.rom and can be regenerated with:
-  python3 tools/buildApple2TestRom.py
+  python3 tools/apple2/buildApple2TestRom.py
 
 More disks: /littlefs/apple2/drives.cfg (littlefs/apple2/drives.cfg in the project)
 maps images to slots 4..7, drives 1..2, for example the 800K read/write ProDOS data volumes
