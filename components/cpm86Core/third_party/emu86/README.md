@@ -23,8 +23,8 @@ memory:
 - Opcode disassembly text uses a bounded buffer. Compiler diagnostics needed
   for the ESP-IDF toolchain have also been addressed.
 - The project adapter supplies port I/O and invokes one instruction at a time.
-- The adapter preserves F8h/F9h for `hostExchange` and accepts optional,
-  byte-wide callbacks for other guest I/O ports. Word I/O remains rejected.
+- The adapter accepts optional byte-wide callbacks for guest I/O ports. Word
+  I/O remains rejected.
 - The 8086 DAA instruction is implemented and covered by the host regression
   test that reproduces the reported `ADC AL, imm8; DAA` sequence.
 - ADD/ADC, SUB/SBB/CMP, logical operations, INC/DEC and NEG update their

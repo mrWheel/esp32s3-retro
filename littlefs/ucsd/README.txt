@@ -1,13 +1,9 @@
-ApplePascal1-140K.dsk is the alternate 140K Apple Pascal 1.3 128K system disk.
-It boots through Disk II on the host Apple IIe model and holds HOST.CODE
-(20 blocks), the native file-exchange utility: set the Filer prefix to a
-writable volume (P, WORK1:), then X(ecute) APPLE1:HOST. Host-emulator tested
-only; see ucsdHostLog.md. It is not the active menu option 3 boot image.
+system.po is the Apple Pascal 1.3 3.5-inch, 800K system disk currently mapped
+as SD6.1 by drives.cfg. It is restored from the clean source image without the
+project-added guest transfer utility.
 
-The active profile boots the 800K `Apple Pascal 1.3 3.5.po` image from SD6.1.
-Copy that file from `assets/ucsd/ucsdDiskImages/` to
-`/retro/images/ucsd/` on the SD card. ESP32-S3 behaviour and writes to the 800K
-boot volume have not been verified.
+The source image is `assets/ucsd/ucsdDiskImages/Apple Pascal 1.3 3.5.po`.
+ESP32-S3 behaviour and writes to the 800K boot volume have not been verified.
 
 ApplePascal2-680-0005-00.dsk is a compiler/tools disk, not a system boot disk.
 Its source image remains in assets/apple2Downloads/appleDisks/.

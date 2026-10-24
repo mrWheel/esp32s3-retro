@@ -326,12 +326,7 @@ de al gecompileerde `.CODE`-units. Een compile van `LOANCALC.TEXT` voordat
 | Compile `LOANCALC.TEXT` naar `LOANCALC.CODE` met beide units beschikbaar | GEWERKT: compiler meldde `121 lines`, zonder fout. De `USES`-syntax en `$U`-paden zijn hiermee bevestigd. |
 | Link `LOANCALC` met libraries `LOANBASE` en `LOANRPT` naar `LOANX` | GEWERKT: linker meldde `Linking LOANBASE # 7`, `LOANRPT # 8` en `LOANCALC # 1`; `LOANX.CODE` is aangemaakt. |
 | Execute van `LOANX` en functionele menutest | NIET BEVESTIGD: de eerste testsessie stopte op een verkeerde verwachte prompt (`Execute what codefile`; de Filer toont `Execute what file`). De gecorrigeerde poging meldde daarna `Required library files are not present`. Dus compile en link zijn bewezen, maar starten en werking nog niet; hier niet als geslaagd rapporteren. |
-| Gemelde `Line 2, error 187` op `USES` | GEREPRODUCEERD wanneer `USES HOST` geen `$U`-bibliotheekpad had: de compiler kon de unit niet vinden via zijn standaardbibliotheek. Dezelfde kleine test compileerde WEL met `(*$U WORK1:LOANBASE.CODE *)` vóór de unitnaam. De definitieve `LOANCALC.TEXT` met beide paden compileerde ook WEL, nadat beide units eerst gebouwd waren. Controleer dus pad, prefix en compileervolgorde; verander de `USES`-syntaxis niet opnieuw. |
-
-Emulator-scriptinterface voor geautomatiseerde tests:
-`UCSD_SKIP_STAGE=1 apple2DiskTests --pascal-script <boot.dsk> <rom>
-<tools.po> <work.po> HOST.PAS HOSTIO.ASM <script> <out.po>`.
-Volgorde van de vier media-argumenten: boot, ROM, tools, work.
+| Gemelde `Line 2, error 187` op `USES` | GEREPRODUCEERD wanneer een unit zonder `$U`-bibliotheekpad niet via de standaardbibliotheek kon worden gevonden. Dezelfde kleine test compileerde WEL met `(*$U WORK1:LOANBASE.CODE *)` vóór de unitnaam. De definitieve `LOANCALC.TEXT` met beide paden compileerde ook WEL, nadat beide units eerst gebouwd waren. Controleer dus pad, prefix en compileervolgorde; verander de `USES`-syntaxis niet opnieuw. |
 
 ## Open
 - Run-test in emulator en vergelijken met loancalc.py.

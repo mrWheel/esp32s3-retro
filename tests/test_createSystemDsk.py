@@ -30,9 +30,8 @@ class CreateSystemDskTests(unittest.TestCase):
         (self.source_dir / "ZED.COM").write_bytes(b"program")
         (self.source_dir / "WELCOME.TXT").write_bytes(b"welcome")
         (self.source_dir / "ASM.COM").write_bytes(b"assembler")
-        (self.source_dir / "HOST.COM").write_bytes(b"unverified host")
 
-        skipped, overridden = createSystemDsk.create_system_disk(
+        skipped = createSystemDsk.create_system_disk(
             "cpm80",
             "SMALL",
             self.output_path,
@@ -40,24 +39,18 @@ class CreateSystemDskTests(unittest.TestCase):
         )
 
         self.assertEqual(skipped, [])
-        self.assertEqual(overridden, ["HOST.COM"])
         self.assertEqual(self.output_path.stat().st_size, diskImageCpm80.IMAGE_SIZE)
         image = self.output_path.read_bytes()
         entries, _, _ = diskImageCpm80.inspect_image(image)
         self.assertEqual(
             [entry["filename"] for entry in entries],
-            ["ASM.COM", "HOST.COM", "ZED.COM", "WELCOME.TXT", "ZHELP.HLP"],
+            ["ASM.COM", "ZED.COM", "WELCOME.TXT", "ZHELP.HLP"],
         )
         header_offset = buildDiskImageCpm80.CCP_SIZE + buildDiskImageCpm80.BDOS_SIZE
         self.assertEqual(
             image[header_offset : header_offset + len(buildDiskImageCpm80.HEADER)],
             buildDiskImageCpm80.HEADER,
         )
-        project_host = PROJECT_ROOT / "guest" / "cpm80" / "host" / "HOST.COM"
-        padded_host = project_host.read_bytes().ljust(
-            ((project_host.stat().st_size + 127) // 128) * 128, b"\x1a"
-        )
-        self.assertEqual(diskImageCpm80.extract_file(self.output_path, "HOST.COM"), padded_host)
         self.assertEqual(diskImageCpm80.extract_file(self.output_path, "ZED.COM"), b"program".ljust(128, b"\x1a"))
 
     def test_cpm80_large_profile_uses_large_geometry(self):
@@ -100,12 +93,11 @@ class CreateSystemDskTests(unittest.TestCase):
         self.assertIn("MANUAL.HLP", result.stderr)
         filenames = [entry["filename"] for entry in diskImageCpm80.inspect_image(self.output_path.read_bytes())[0]]
         self.assertIn("RUNME.COM", filenames)
-        self.assertIn("HOST.COM", filenames)
         self.assertNotIn("MANUAL.HLP", filenames)
 
     def test_cpm86_small_preserves_boot_files_and_adds_source_files(self):
         (self.source_dir / "EXTRA.CMD").write_bytes(b"extra command")
-        (self.source_dir / "HOST.CMD").write_bytes(b"host command")
+        (self.source_dir / "EXTRA2.CMD").write_bytes(b"another command")
         output = self.root / "cpm86-system.dsk"
 
         createSystemDsk.create_system_disk(
@@ -119,7 +111,7 @@ class CreateSystemDskTests(unittest.TestCase):
         filenames = [entry["filename"] for entry in diskImageCpm86.inspect_image(image)[0]]
         self.assertEqual(len(image), diskImageCpm86.IMAGE_SIZE)
         self.assertNotIn("CPM.SYS", filenames)
-        self.assertIn("HOST.CMD", filenames)
+        self.assertIn("EXTRA2.CMD", filenames)
         self.assertIn("EXTRA.CMD", filenames)
         runtime_system_file = PROJECT_ROOT / "littlefs" / "cpm86" / "cpm.sys"
         self.assertEqual(runtime_system_file.stat().st_size, 10240)
@@ -141,7 +133,6 @@ class CreateSystemDskTests(unittest.TestCase):
         self.assertEqual(len(image), diskImageCpm86.LARGE_IMAGE_SIZE)
         self.assertIn("ASM86.CMD", filenames)
         self.assertNotIn("CPM.SYS", filenames)
-        self.assertIn("HOST.CMD", filenames)
 
     def test_cli_large_does_not_claim_it_is_unbootable(self):
         for os_name in ("cpm80", "cpm86"):
@@ -180,7 +171,7 @@ class CreateSystemDskTests(unittest.TestCase):
             for profile, expected_size in sizes.items():
                 with self.subTest(os=os_name, profile=profile):
                     output = self.root / f"{os_name}-{profile}.dsk"
-                    skipped, _ = createSystemDsk.create_system_disk(os_name, profile, output)
+                    skipped = createSystemDsk.create_system_disk(os_name, profile, output)
                     self.assertEqual(skipped, [])
                     image = output.read_bytes()
                     self.assertEqual(len(image), expected_size)

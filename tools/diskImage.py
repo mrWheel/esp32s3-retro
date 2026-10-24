@@ -19,7 +19,7 @@ EXAMPLES = """examples:
   diskImage.py create --os cpm80 --profile BIG big.dsk
   diskImage.py add    --os cpm80 work.dsk ~/cpm/*.COM 'utils/*.HLP'
   diskImage.py list   --os cpm86 work86.dsk
-  diskImage.py extract --os cpm86 work86.dsk HOST.CMD --output HOST.CMD
+  diskImage.py extract --os cpm86 work86.dsk ASM86.CMD --output ASM86.CMD
 
 A bare image name is placed in <sd-root>/retro/images/<os>/ (default sd-root:
 the project's sdcard/ directory). Give a path to use another location.

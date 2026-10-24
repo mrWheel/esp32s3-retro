@@ -42,19 +42,17 @@ typedef enum
 
 typedef struct
 {
-  bool (*consoleAvailable)(void *context);
-  int (*consoleRead)(void *context);
-  void (*consoleWrite)(void *context, uint8_t character);
-  bool (*diskDriveAvailable)(void *context, uint8_t drive);
-  bool (*diskDriveProfile)(void *context, uint8_t drive, cpm80DiskProfile *profile);
-  bool (*diskReadRecord)(void *context, uint8_t drive, uint16_t track, uint16_t sector,
+  bool (*consoleAvailable)(void* context);
+  int (*consoleRead)(void* context);
+  void (*consoleWrite)(void* context, uint8_t character);
+  bool (*diskDriveAvailable)(void* context, uint8_t drive);
+  bool (*diskDriveProfile)(void* context, uint8_t drive, cpm80DiskProfile* profile);
+  bool (*diskReadRecord)(void* context, uint8_t drive, uint16_t track, uint16_t sector,
                          uint8_t record[cpm80DiskSectorSize]);
-  bool (*diskWriteRecord)(void *context, uint8_t drive, uint16_t track, uint16_t sector,
+  bool (*diskWriteRecord)(void* context, uint8_t drive, uint16_t track, uint16_t sector,
                           const uint8_t record[cpm80DiskSectorSize]);
-  uint8_t (*exchangePortInput)(void *context, uint8_t port);
-  void (*exchangePortOutput)(void *context, uint8_t port, uint8_t value);
-  void (*yield)(void *context);
-  void *context;
+  void (*yield)(void* context);
+  void* context;
 } cpm80HostOps;
 
 typedef struct
@@ -77,11 +75,12 @@ typedef struct
 uint16_t cpm80DiskProfileSectorsPerTrack(cpm80DiskProfile profile);
 uint16_t cpm80DiskProfileTracks(cpm80DiskProfile profile);
 uint64_t cpm80DiskProfileImageSize(cpm80DiskProfile profile);
-const char *cpm80DiskProfileName(cpm80DiskProfile profile);
+const char* cpm80DiskProfileName(cpm80DiskProfile profile);
 
-//— Initialize guest instances with {0}; destroy them before initializing them again.
-bool cpm80GuestInitialize(cpm80Guest *guest, const cpm80HostOps *host, const uint8_t *ccpImage, const uint8_t *bdosImage);
-void cpm80GuestDestroy(cpm80Guest *guest);
-bool cpm80GuestColdBoot(cpm80Guest *guest);
-bool cpm80GuestStep(cpm80Guest *guest);
-size_t cpm80GuestRunFor(cpm80Guest *guest, size_t instructionBudget);
+// — Initialize guest instances with {0}; destroy them before initializing them again.
+bool cpm80GuestInitialize(cpm80Guest* guest, const cpm80HostOps* host, const uint8_t* ccpImage,
+                          const uint8_t* bdosImage);
+void cpm80GuestDestroy(cpm80Guest* guest);
+bool cpm80GuestColdBoot(cpm80Guest* guest);
+bool cpm80GuestStep(cpm80Guest* guest);
+size_t cpm80GuestRunFor(cpm80Guest* guest, size_t instructionBudget);

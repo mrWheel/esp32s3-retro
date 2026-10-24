@@ -14,14 +14,13 @@
 
 struct cpm86Core
 {
-  uint8_t *memory;
+  uint8_t* memory;
   size_t ramSize;
-  hostExchange *exchange;
   cpm86PortRead portRead;
   cpm86PortWrite portWrite;
-  void *portContext;
+  void* portContext;
   hostReadMilliseconds readMilliseconds;
-  void *clockContext;
+  void* clockContext;
   uint32_t millisecondsSnapshot;
   bool captureInstructionTrace;
   op_desc_t instruction;
@@ -43,7 +42,7 @@ struct cpm86Core
   bool halted;
 };
 
-static cpm86Core *activeCore;
+static cpm86Core* activeCore;
 int info_level;
 int _int_cpu;
 byte_t _break_int_flag;
@@ -63,7 +62,7 @@ static bool isTimerPort(word_t port)
   return port >= cpm86TimerCapabilityPort && port <= cpm86TimerHighPort;
 }
 
-static void resetDecodeState(cpm86Core *core)
+static void resetDecodeState(cpm86Core* core)
 {
   core->instructionCount = 0;
   core->decoded = false;
@@ -91,20 +90,7 @@ static cpm86CoreResult validateRange(uint32_t address, size_t length, size_t ram
   return cpm86CoreOk;
 }
 
-static bool resetExchange(cpm86Core *core)
-{
-  if (core->exchange == NULL)
-  {
-    return true;
-  }
-  char root[sizeof(core->exchange->root)];
-  memcpy(root, core->exchange->root, sizeof(root));
-  root[sizeof(root) - 1] = '\0';
-  hostExchangeClose(core->exchange);
-  return hostExchangeInitialize(core->exchange, root);
-}
-
-cpm86CoreResult cpm86CoreCreate(cpm86Core **core, hostExchange *exchange, const cpm86CoreConfig *config)
+cpm86CoreResult cpm86CoreCreate(cpm86Core** core, const cpm86CoreConfig* config)
 {
   if (core == NULL)
   {
@@ -120,7 +106,7 @@ cpm86CoreResult cpm86CoreCreate(cpm86Core **core, hostExchange *exchange, const 
     return cpm86CoreBusy;
   }
 
-  cpm86Core *created = calloc(1, sizeof(*created));
+  cpm86Core* created = calloc(1, sizeof(*created));
   if (created == NULL)
   {
     return cpm86CoreNoMemory;
@@ -148,7 +134,6 @@ cpm86CoreResult cpm86CoreCreate(cpm86Core **core, hostExchange *exchange, const 
     return cpm86CoreNoMemory;
   }
 
-  created->exchange = exchange;
   activeCore = created;
   mem_stat = created->memory;
   mem_set_size(created->ramSize);
@@ -168,7 +153,7 @@ cpm86CoreResult cpm86CoreCreate(cpm86Core **core, hostExchange *exchange, const 
   return result;
 }
 
-void cpm86CoreDestroy(cpm86Core *core)
+void cpm86CoreDestroy(cpm86Core* core)
 {
   if (core == NULL)
   {
@@ -176,7 +161,6 @@ void cpm86CoreDestroy(cpm86Core *core)
   }
   if (core == activeCore)
   {
-    resetExchange(core);
     op_set_text_enabled(1);
     activeCore = NULL;
     mem_stat = NULL;
@@ -190,13 +174,9 @@ void cpm86CoreDestroy(cpm86Core *core)
   free(core);
 }
 
-cpm86CoreResult cpm86CoreReset(cpm86Core *core)
+cpm86CoreResult cpm86CoreReset(cpm86Core* core)
 {
   if (core == NULL || core != activeCore || core->memory == NULL)
-  {
-    return cpm86CoreInvalidState;
-  }
-  if (!resetExchange(core))
   {
     return cpm86CoreInvalidState;
   }
@@ -217,7 +197,7 @@ cpm86CoreResult cpm86CoreReset(cpm86Core *core)
   return cpm86CoreOk;
 }
 
-cpm86CoreResult cpm86CoreSetEntry(cpm86Core *core, uint16_t segment, uint16_t offset)
+cpm86CoreResult cpm86CoreSetEntry(cpm86Core* core, uint16_t segment, uint16_t offset)
 {
   if (core == NULL || core != activeCore || core->halted)
   {
@@ -229,7 +209,7 @@ cpm86CoreResult cpm86CoreSetEntry(cpm86Core *core, uint16_t segment, uint16_t of
   return cpm86CoreOk;
 }
 
-cpm86CoreResult cpm86CoreLoad(cpm86Core *core, uint32_t address, const void *data, size_t length)
+cpm86CoreResult cpm86CoreLoad(cpm86Core* core, uint32_t address, const void* data, size_t length)
 {
   if (core == NULL || core != activeCore || (length > 0 && data == NULL))
   {
@@ -247,7 +227,7 @@ cpm86CoreResult cpm86CoreLoad(cpm86Core *core, uint32_t address, const void *dat
   return cpm86CoreOk;
 }
 
-cpm86CoreResult cpm86CoreRead(cpm86Core *core, uint32_t address, void *data, size_t length)
+cpm86CoreResult cpm86CoreRead(cpm86Core* core, uint32_t address, void* data, size_t length)
 {
   if (core == NULL || core != activeCore || (length > 0 && data == NULL))
   {
@@ -265,12 +245,13 @@ cpm86CoreResult cpm86CoreRead(cpm86Core *core, uint32_t address, void *data, siz
   return cpm86CoreOk;
 }
 
-cpm86CoreResult cpm86CoreWrite(cpm86Core *core, uint32_t address, const void *data, size_t length)
+cpm86CoreResult cpm86CoreWrite(cpm86Core* core, uint32_t address, const void* data, size_t length)
 {
   return cpm86CoreLoad(core, address, data, length);
 }
 
-cpm86CoreResult cpm86CoreSetExecuteGuard(cpm86Core *core, uint32_t startAddress, uint32_t endAddress)
+cpm86CoreResult cpm86CoreSetExecuteGuard(cpm86Core* core, uint32_t startAddress,
+                                         uint32_t endAddress)
 {
   if (core == NULL || endAddress < startAddress)
   {
@@ -281,7 +262,7 @@ cpm86CoreResult cpm86CoreSetExecuteGuard(cpm86Core *core, uint32_t startAddress,
   return cpm86CoreOk;
 }
 
-cpm86CoreResult cpm86CoreStep(cpm86Core *core)
+cpm86CoreResult cpm86CoreStep(cpm86Core* core)
 {
   if (core == NULL || core != activeCore)
   {
@@ -296,7 +277,8 @@ cpm86CoreResult cpm86CoreStep(cpm86Core *core)
   op_code_off = reg16_get(REG_IP);
   mem_fault = 0;
   uint32_t fetchPhysical = (((uint32_t)op_code_seg << 4) + op_code_off) & 0x000FFFFF;
-  if (core->guardEnd > core->guardStart && fetchPhysical >= core->guardStart && fetchPhysical < core->guardEnd)
+  if (core->guardEnd > core->guardStart && fetchPhysical >= core->guardStart &&
+      fetchPhysical < core->guardEnd)
   {
     return cpm86CoreInvalidInstruction;
   }
@@ -311,14 +293,14 @@ cpm86CoreResult cpm86CoreStep(cpm86Core *core)
                         core->memory[tracePhysical + 1] == 0;
       size_t previousIndex = (core->traceNext + cpm86CoreTraceDepth - 1) % cpm86CoreTraceDepth;
       //-- Collapse runs of 00 00 so the trace keeps the code that led into them.
-      bool collapse =
-          zeroOpcode && core->traceCount > 0 && strcmp(core->trace[previousIndex].instruction, "00 00") == 0;
+      bool collapse = zeroOpcode && core->traceCount > 0 &&
+                      strcmp(core->trace[previousIndex].instruction, "00 00") == 0;
       //-- Keep only control-flow changes so the trace spans the path that led here.
       bool sequential = core->expectedValid && op_code_seg == core->expectedSegment &&
                         reg16_get(REG_IP) == core->expectedOffset;
       if (!collapse && !sequential)
       {
-        cpm86CoreTraceEntry *traceEntry = &core->trace[core->traceNext];
+        cpm86CoreTraceEntry* traceEntry = &core->trace[core->traceNext];
         traceEntry->segment = op_code_seg;
         traceEntry->offset = reg16_get(REG_IP);
         traceEntry->stackSegment = seg_get(SEG_SS);
@@ -386,7 +368,8 @@ cpm86CoreResult cpm86CoreStep(cpm86Core *core)
   return cpm86CoreOk;
 }
 
-cpm86CoreResult cpm86CoreRun(cpm86Core *core, size_t instructionBudget, size_t *instructionsExecuted)
+cpm86CoreResult cpm86CoreRun(cpm86Core* core, size_t instructionBudget,
+                             size_t* instructionsExecuted)
 {
   if (instructionsExecuted != NULL)
   {
@@ -416,12 +399,13 @@ cpm86CoreResult cpm86CoreRun(cpm86Core *core, size_t instructionBudget, size_t *
   return cpm86CoreOk;
 }
 
-uint64_t cpm86CoreInstructionCount(const cpm86Core *core)
+uint64_t cpm86CoreInstructionCount(const cpm86Core* core)
 {
   return core != NULL ? core->instructionCount : 0;
 }
 
-cpm86CoreResult cpm86CoreGetProgramCounter(const cpm86Core *core, uint16_t *segment, uint16_t *offset)
+cpm86CoreResult cpm86CoreGetProgramCounter(const cpm86Core* core, uint16_t* segment,
+                                           uint16_t* offset)
 {
   if (core == NULL || segment == NULL || offset == NULL)
   {
@@ -436,8 +420,8 @@ cpm86CoreResult cpm86CoreGetProgramCounter(const cpm86Core *core, uint16_t *segm
   return cpm86CoreOk;
 }
 
-cpm86CoreResult cpm86CoreGetRecentTrace(const cpm86Core *core, cpm86CoreTraceEntry *entries, size_t capacity,
-                                        size_t *count)
+cpm86CoreResult cpm86CoreGetRecentTrace(const cpm86Core* core, cpm86CoreTraceEntry* entries,
+                                        size_t capacity, size_t* count)
 {
   if (core == NULL || entries == NULL || count == NULL || capacity == 0)
   {
@@ -448,7 +432,8 @@ cpm86CoreResult cpm86CoreGetRecentTrace(const cpm86Core *core, cpm86CoreTraceEnt
     return cpm86CoreInvalidState;
   }
   size_t entriesToCopy = core->traceCount < capacity ? core->traceCount : capacity;
-  size_t oldestIndex = (core->traceNext + cpm86CoreTraceDepth - entriesToCopy) % cpm86CoreTraceDepth;
+  size_t oldestIndex =
+      (core->traceNext + cpm86CoreTraceDepth - entriesToCopy) % cpm86CoreTraceDepth;
   for (size_t index = 0; index < entriesToCopy; ++index)
   {
     entries[index] = core->trace[(oldestIndex + index) % cpm86CoreTraceDepth];
@@ -457,8 +442,8 @@ cpm86CoreResult cpm86CoreGetRecentTrace(const cpm86Core *core, cpm86CoreTraceEnt
   return cpm86CoreOk;
 }
 
-cpm86CoreResult cpm86CoreGetHeadTrace(const cpm86Core *core, cpm86CoreTraceEntry *entries, size_t capacity,
-                                      size_t *count)
+cpm86CoreResult cpm86CoreGetHeadTrace(const cpm86Core* core, cpm86CoreTraceEntry* entries,
+                                      size_t capacity, size_t* count)
 {
   if (core == NULL || entries == NULL || count == NULL || core != activeCore)
   {
@@ -490,7 +475,7 @@ void mem_write_word(addr_t address, word_t value, byte_t init)
   (void)mem_write_word_0(address, value, init);
 }
 
-int io_read_byte(word_t port, byte_t *value)
+int io_read_byte(word_t port, byte_t* value)
 {
   if (activeCore == NULL || value == NULL)
   {
@@ -506,20 +491,15 @@ int io_read_byte(word_t port, byte_t *value)
   {
     if (port == cpm86TimerLowPort)
     {
-      activeCore->millisecondsSnapshot = activeCore->readMilliseconds == NULL
-                                             ? 0
-                                             : activeCore->readMilliseconds(activeCore->clockContext);
+      activeCore->millisecondsSnapshot =
+          activeCore->readMilliseconds == NULL
+              ? 0
+              : activeCore->readMilliseconds(activeCore->clockContext);
     }
     *value = (byte_t)(activeCore->millisecondsSnapshot >> ((port - cpm86TimerLowPort) * 8));
     return 0;
   }
-  if (port == 0x00F8 && activeCore->exchange != NULL)
-  {
-    *value = hostExchangePortInput(activeCore->exchange, (uint8_t)port);
-    return 0;
-  }
-  if (activeCore->portRead != NULL &&
-      activeCore->portRead(activeCore->portContext, port, value))
+  if (activeCore->portRead != NULL && activeCore->portRead(activeCore->portContext, port, value))
   {
     return 0;
   }
@@ -539,13 +519,7 @@ int io_write_byte(word_t port, byte_t value)
     ioFault = true;
     return -1;
   }
-  if ((port == 0x00F8 || port == 0x00F9) && activeCore->exchange != NULL)
-  {
-    hostExchangePortOutput(activeCore->exchange, (uint8_t)port, value);
-    return 0;
-  }
-  if (activeCore->portWrite != NULL &&
-      activeCore->portWrite(activeCore->portContext, port, value))
+  if (activeCore->portWrite != NULL && activeCore->portWrite(activeCore->portContext, port, value))
   {
     return 0;
   }
@@ -553,7 +527,7 @@ int io_write_byte(word_t port, byte_t value)
   return -1;
 }
 
-int io_read_word(word_t port, word_t *value)
+int io_read_word(word_t port, word_t* value)
 {
   (void)port;
   (void)value;

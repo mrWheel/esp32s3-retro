@@ -1,7 +1,6 @@
 #include "cpm80Machine.h"
 #include "cpm80Guest.h"
 #include "cpm80DriveConfig.h"
-#include "hostExchange.h"
 #include "hostConsole.h"
 #include "imageFile.h"
 #include "diskActivity.h"
@@ -18,7 +17,6 @@ static const uint8_t systemHeader[cpm80SystemHeaderSize] = {
 static imageFile diskImages[cpm80DiskDriveCount];
 static cpm80DriveConfig driveTable[cpm80DiskDriveCount];
 static cpm80Guest guest;
-static hostExchange exchangeService;
 static bool guestReady;
 
 static bool consoleAvailable(void* context)
@@ -96,16 +94,6 @@ static void guestYield(void* context)
 {
   (void)context;
   vTaskDelay(1);
-}
-
-static uint8_t exchangePortInput(void* context, uint8_t port)
-{
-  return hostExchangePortInput(context, port);
-}
-
-static void exchangePortOutput(void* context, uint8_t port, uint8_t value)
-{
-  hostExchangePortOutput(context, port, value);
 }
 
 static void loadDriveConfig(void)
@@ -278,13 +266,6 @@ esp_err_t cpm80MachineInitialize(void)
 
   openOptionalDiskImages();
 
-  if (!hostExchangeInitialize(&exchangeService, "/microSD/retro/exchange/cpm80"))
-  {
-    ESP_LOGE(tag, "Could not initialize the CP/M exchange service");
-    closeDiskImages();
-    return ESP_FAIL;
-  }
-
   const cpm80HostOps host = {.consoleAvailable = consoleAvailable,
                              .consoleRead = consoleRead,
                              .consoleWrite = consoleWrite,
@@ -292,17 +273,14 @@ esp_err_t cpm80MachineInitialize(void)
                              .diskDriveProfile = diskDriveProfile,
                              .diskReadRecord = diskReadRecord,
                              .diskWriteRecord = diskWriteRecord,
-                             .exchangePortInput = exchangePortInput,
-                             .exchangePortOutput = exchangePortOutput,
                              .yield = guestYield,
-                             .context = &exchangeService};
+                             .context = NULL};
   bool guestInitialized =
       cpm80GuestInitialize(&guest, &host, systemBinaries, systemBinaries + cpm80CcpSize);
   free(systemBinaries);
   if (!guestInitialized)
   {
     ESP_LOGE(tag, "Could not allocate or initialize CP/M guest memory");
-    hostExchangeClose(&exchangeService);
     closeDiskImages();
     return ESP_ERR_NO_MEM;
   }
@@ -331,6 +309,5 @@ void cpm80MachineRun(void)
   puts("\nCP/M stopped.");
   cpm80GuestDestroy(&guest);
   guestReady = false;
-  hostExchangeClose(&exchangeService);
   closeDiskImages();
 }

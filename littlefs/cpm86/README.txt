@@ -19,7 +19,7 @@ retro86bios.h86
 system.dsk
   Raw, 160 KiB, 40 tracks, 8 physical 512-byte sectors per track. Track 0 is
   reserved; CP/M-86 uses 32 128-byte records per track and DPB OFF=1.
-  Contains ASM86.CMD, ED.CMD, GENCMD.CMD, HOST.CMD, and PIP.CMD. CPM.SYS is
+  Contains ASM86.CMD, ED.CMD, GENCMD.CMD, and PIP.CMD. CPM.SYS is
   deliberately kept outside the disk at /littlefs/cpm86/cpm.sys; the firmware
   loads that file directly. The system-disk builder verifies the external
   kernel and BIOS overlay and does not put either on A:.
@@ -28,16 +28,6 @@ system.dsk
   The firmware picks the DPB from the size of system.dsk (163,840 or 528,384
   bytes), so drives.cfg only needs A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM.
   Any other size is reported as an error and A: is not mounted.
-
-HOST.CMD
-  Project-authored native CP/M-86 HOST DIR/GET/PUT utility (7,424 bytes,
-  including final CP/M record padding). Built from guest/cpm86/host/HOST.A86
-  with the supplied ASM86.CMD and GENCMD.CMD. Supports CP/M `*` and `?`
-  wildcards for GET and PUT, reports per-file errors, and continues.
-  Add an O after a GET (for example A:HOST GET *.* O) to overwrite existing
-  files and their NAME.HST sidecars. Add an O after a PUT (A:HOST PUT NAME.EXT O)
-  to overwrite an existing exchange file. Dots show transfer progress; "disk
-  full" means the CP/M drive is too small for the file.
 
 Resource sizes, the on-disk directory, the BIOS overlay and the
 RETRO86_V1 boot prompt plus DIR listing are checked by tests/hostTests.c. This
@@ -51,9 +41,3 @@ assets/cmp86.img was not used or modified.
 The system disk defaults to read-only, but may be configured read/write in
 /littlefs/cpm86/drives.cfg. Writes persist in LittleFS until the firmware
 rebuilds the generated system image. Use disposable images for writable disks.
-
-HOST.CMD is installed on system.dsk. The host CP/M-86 fixture assembles the
-source in a guest and passes DIR/GET/PUT tests, including wildcard matching,
-per-file errors with continued processing, and exact-byte round trips for a
-43-record file. Hardware transfer testing remains open. See docs/cpm86/host.md
-for the build procedure and verification details.

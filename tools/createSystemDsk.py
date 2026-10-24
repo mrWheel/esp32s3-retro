@@ -259,21 +259,11 @@ def create_system_disk(
             volume_name,
             volume_profile,
         )
-        return [], []
+        return []
 
     source_files = _read_source_files(source_dir)
 
     if os_name == "cpm80":
-        host_path = project_root / "guest" / "cpm80" / "host" / "HOST.COM"
-        if not host_path.is_file():
-            raise DiskImageError(f"Project CP/M-80 HOST.COM is missing: {host_path}")
-        host_data = host_path.read_bytes()
-        overridden_files = (
-            ["HOST.COM"]
-            if "HOST.COM" in source_files and source_files["HOST.COM"] != host_data
-            else []
-        )
-        source_files["HOST.COM"] = host_data
         profile_name = PROFILE_MAP[os_name][profile]
         create_base = lambda staging_path: _create_cpm80_base(staging_path, profile_name, project_root)
         system_files = source_files
@@ -283,10 +273,7 @@ def create_system_disk(
             raise DiskImageError(
                 f"CPM.SYS is loaded from LittleFS at {system_file_path}; do not put it in the source directory"
             )
-        if "HOST.CMD" not in source_files:
-            raise DiskImageError(f"HOST.CMD is missing in the system disk source directory: {source_dir}")
         system_files = source_files
-        overridden_files = []
         profile_name = PROFILE_MAP[os_name][profile]
         create_base = lambda staging_path: diskImageCpm86.create_image(
             staging_path, force=True, profile=profile_name
@@ -300,7 +287,7 @@ def create_system_disk(
         image_module = IMAGE_MODULES[os_name]
         image_module.write_image(output_path, staging_path.read_bytes(), force=True)
 
-    return skipped_files, overridden_files
+    return skipped_files
 
 
 def print_firmware_notice(os_name, profile, output_path):
@@ -360,7 +347,7 @@ def main(argv=None):
 
     output_path = arguments.output or PROJECT_ROOT / "littlefs" / arguments.os / "system.dsk"
     try:
-        skipped_files, overridden_files = create_system_disk(
+        skipped_files = create_system_disk(
             arguments.os,
             arguments.profile,
             output_path,
@@ -388,8 +375,6 @@ def main(argv=None):
             f"{PROJECT_ROOT / 'littlefs' / 'cpm86' / 'retro86bios.h86'}."
         )
     print_firmware_notice(arguments.os, arguments.profile, output_path)
-    for filename in overridden_files:
-        print(f"Using the project HOST program instead of source-directory {filename}.")
     if skipped_files:
         print(
             f"Disk too small: skipped non-executable files: {', '.join(skipped_files)}",

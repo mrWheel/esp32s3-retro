@@ -4,7 +4,6 @@
 #include "apple2DriveConfig.h"
 #include "apple2Keyboard.h"
 #include "diskActivity.h"
-#include "hostExchange.h"
 #include "hostConsole.h"
 #include "storage.h"
 #include "esp_err.h"
@@ -22,14 +21,9 @@ static const char* romPath = "/littlefs/apple2/apple2.rom";
 static const char* iieRomPath = "/littlefs/apple2/apple2e.rom";
 static const char* apple2ConfigPath = "/littlefs/apple2/drives.cfg";
 static const char* ucsdConfigPath = "/littlefs/ucsd/drives.cfg";
-static const char* apple2ExchangeRoot = "/microSD/retro/exchange/apple2";
-static const char* ucsdExchangeRoot = "/microSD/retro/exchange/ucsd";
 static char driveConfigPath[apple2DriveConfigPathCapacity];
 static const size_t bootSlotIndex = 6 - apple2DriveConfigFirstSlot;
-static const uint8_t exchangeSlot = 2;
 static apple2Core* guestCore;
-static hostExchange exchangeService;
-static bool exchangeServiceInitialized;
 static apple2DiskImage guestDisks[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
 static uint8_t renderedCells[apple2TextRows][apple2VidexTextColumns];
 static bool screenRendered;
@@ -42,44 +36,6 @@ static int64_t lastTerminalByteUs;
 static const int64_t escapeTimeoutUs = 50000;
 static bool renderedVidexMode;
 static bool renderedVidexModeKnown;
-
-static const char* exchangeRootForConfig(const char* configPath)
-{
-  if (configPath == NULL)
-  {
-    return NULL;
-  }
-  if (strcmp(configPath, ucsdConfigPath) == 0)
-  {
-    return ucsdExchangeRoot;
-  }
-  if (strcmp(configPath, apple2ConfigPath) == 0)
-  {
-    return apple2ExchangeRoot;
-  }
-  return NULL;
-}
-
-static uint8_t readExchangeRegister(void* context, uint8_t registerIndex)
-{
-  if (registerIndex == 0)
-  {
-    return hostExchangePortInput(context, hostExchangePort);
-  }
-  return 0xFF;
-}
-
-static void writeExchangeRegister(void* context, uint8_t registerIndex, uint8_t value)
-{
-  if (registerIndex == 0)
-  {
-    hostExchangePortOutput(context, hostExchangePort, value);
-  }
-  else if (registerIndex == 1)
-  {
-    hostExchangePortOutput(context, hostExchangeAbortPort, 0);
-  }
-}
 
 static bool appendText(char* buffer, size_t capacity, size_t* length, const char* text)
 {
@@ -435,12 +391,6 @@ static void releaseDisk(void)
   if (guestCore != NULL)
   {
     apple2CoreDetachDisk(guestCore);
-    apple2CoreDetachSlotIoDevice(guestCore, exchangeSlot);
-  }
-  if (exchangeServiceInitialized)
-  {
-    hostExchangeClose(&exchangeService);
-    exchangeServiceInitialized = false;
   }
   for (size_t slotIndex = 0; slotIndex < apple2DriveConfigSlotCount; ++slotIndex)
   {
@@ -670,10 +620,10 @@ static uint32_t totalWriteFailures(void)
 
 esp_err_t apple2MachineInitializeWithConfig(const char* configPath)
 {
-  const char* exchangeRoot = exchangeRootForConfig(configPath);
-  if (exchangeRoot == NULL)
+  if (configPath == NULL ||
+      (strcmp(configPath, ucsdConfigPath) != 0 && strcmp(configPath, apple2ConfigPath) != 0))
   {
-    ESP_LOGE(tag, "No host exchange directory is configured for profile %s",
+    ESP_LOGE(tag, "No drive configuration is available for profile %s",
              configPath == NULL ? "(null)" : configPath);
     return ESP_ERR_INVALID_ARG;
   }
@@ -751,28 +701,6 @@ esp_err_t apple2MachineInitializeWithConfig(const char* configPath)
     apple2CoreDestroy(guestCore);
     guestCore = NULL;
     return ESP_ERR_INVALID_RESPONSE;
-  }
-  bool exchangeReady = exchangeRoot == ucsdExchangeRoot
-                           ? hostExchangeInitializeUcsd(&exchangeService, exchangeRoot)
-                           : hostExchangeInitializeProdos(&exchangeService, exchangeRoot);
-  if (!exchangeReady)
-  {
-    ESP_LOGE(tag, "Host exchange service could not be initialized for %s", exchangeRoot);
-    apple2CoreDestroy(guestCore);
-    guestCore = NULL;
-    return ESP_ERR_INVALID_STATE;
-  }
-  exchangeServiceInitialized = true;
-  coreResult = apple2CoreAttachSlotIoDevice(guestCore, exchangeSlot, readExchangeRegister,
-                                            writeExchangeRegister, &exchangeService);
-  if (coreResult != apple2CoreOk)
-  {
-    ESP_LOGE(tag, "Apple II host exchange interface could not be attached to slot %u",
-             (unsigned)exchangeSlot);
-    releaseDisk();
-    apple2CoreDestroy(guestCore);
-    guestCore = NULL;
-    return ESP_ERR_INVALID_STATE;
   }
   esp_err_t attachResult = attachDisks();
   if (attachResult != ESP_OK)

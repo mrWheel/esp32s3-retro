@@ -154,7 +154,7 @@ The design is organized into five phases. Each phase has an observable outcome a
 2. **Whole-image management:** Provide image discovery and mapping information, host upload/download, SD-to-SD copy, rename, delete, explicit replacement handling, recovery, and `drives.cfg` transfer.
 3. **Guest filesystem adapters:** Implement safe probe/list/read/write/delete/rename behavior for each supported guest filesystem, preserving its geometry, naming rules, metadata, allocation semantics, and recovery requirements. Unsupported profiles must fail closed.
 4. **End-to-end transfer workflows:** Connect browser-selected host files, guest images, ordinary SD files, and image-to-image operations where representable. Add conflict handling, upload previews, metadata policy, progress, and per-item outcomes without using whole-file RAM buffers.
-5. **Acceptance and legacy transfer retirement:** Verify supported formats, interruption and recovery behavior, capacity limits, browser compatibility, and bootability on the target device. Retire guest HOST/exchange dependencies only after equivalent browser transfers are verified and the emulator SD-layout requirements are safely updated.
+5. **Acceptance and staging cleanup:** Verify supported formats, interruption and recovery behavior, capacity limits, browser compatibility, and bootability on the target device. `/retro/exchange/` remains only as browser file-staging storage; emulators do not depend on it.
 
 ## 9. Known limitations
 
@@ -167,7 +167,7 @@ The design is organized into five phases. Each phase has an observable outcome a
 - The image browser is restricted to the flat `/retro/images/<OS>/` layout. General SD directory management is not provided.
 - Upload previews are not yet a common review step for every multi-item copy, rename, move, and delete operation. They are advisory and do not reserve SD or guest capacity.
 - Replacement backup and guest journal recovery provide explicit recovery mechanisms, but power-loss behavior and full crash durability across all SD/FAT32 failure modes are not guaranteed by the interface alone.
-- The existing guest-side HOST/exchange functionality and `/retro/exchange/<OS>/` SD layout remain part of emulator operation until their replacement is verified. The manager does not remove or bypass those dependencies.
+- Guest-file operations are handled by the browser GUI and guest filesystem adapters. `/retro/exchange/<OS>/` remains available for staging files from the browser; emulators no longer depend on it.
 - File Transfer uses unauthenticated HTTP on the configured Wi-Fi network. It is not intended for exposure to an untrusted network.
 - Browser file pickers and save behavior vary by browser and operating system. The application cannot choose arbitrary host paths or guarantee a save dialog for every download.
 - Firmware build or host-side tests alone do not establish acceptance on a physical ESP32-S3, SD card, or browser.

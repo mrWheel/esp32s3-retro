@@ -3,7 +3,7 @@ CP/M-80 LittleFS A: image.
 system.dsk is a 256,256-byte raw image with 77 tracks, 26 128-byte sectors per
 track, two reserved tracks and the 8-inch SSSD DPB.
 It contains the genuine CCP and BDOS, resident ERA/REN/TYPE/USER/DIR commands,
-HELLO.COM, WELCOME.TXT, the custom HOST.COM guest transfer utility and the CP/M utility set documented in
+HELLO.COM, WELCOME.TXT and the CP/M utility set documented in
 components/cpm80Core/os/utilities/README.md. The 16-byte RETROCPM resource header
 is in the reserved area; the BIOS is implemented in the guest adapter.
 
@@ -29,23 +29,9 @@ path configured for E:, then safely eject the card. A: remains available from
 LittleFS even when the SD card or drives.cfg is missing or invalid. See
 tools/README.md for configuration, image creation and software rights details.
 
-HOST DIR lists files in /retro/exchange/cpm. HOST GET NAME.EXT copies a host
-file into the current CP/M drive; HOST PUT NAME.EXT copies it back. Transfer
-works only in USER 0; HOST DIR works in all user areas. If A: is read-only,
-from E: run the utility with A:HOST GET NAME.EXT or A:HOST PUT NAME.EXT. HOST
-returns to the drive it was started from. HOST uses exact byte lengths and a visible NAME.HST
-sidecar to preserve the length of imported files; the sidecar is reserved for
-HOST and should not be edited or deleted separately. Modified files fall back
-to full 128-byte CP/M records. No WiFi connection is required.
-Add an O after a GET (for example A:HOST GET *.* O) to overwrite existing files
-and their NAME.HST sidecars. Add an O after a PUT (A:HOST PUT NAME.EXT O) to
-overwrite an existing exchange file. Dots show the progress of each transfer;
-"disk full" means the CP/M drive is too small (A: has only about 486 KB free).
-
 Build the A: image from the files in bootDisks/cpm80/systemDsk with
 python3 tools/createSystemDsk.py --os cpm80 --profile SMALL. Executable files
-are installed first; the project HOST.COM is used instead of any conflicting
-HOST.COM in that source folder. The LARGE profile creates a 512,512-byte image
+are installed first. The LARGE profile creates a 512,512-byte image
 (2 KiB blocks, 128 directory entries) that boots as A: as well. The firmware
 decides SMALL or LARGE from the size of littlefs/cpm80/system.dsk, so drives.cfg
 only needs A=/littlefs/cpm80/system.dsk,RO,SYSTEM. A size that matches neither

@@ -60,14 +60,14 @@ class DiskImageCliTests(unittest.TestCase):
             root = Path(temporary)
             common = ("--os", "cpm86", "--sd-root", str(root))
             run("diskImage.py", "create", *common, "work.dsk")
-            source = root / "HOST.CMD"
+            source = root / "EXAMPLE.CMD"
             data = bytes(index % 256 for index in range(17003))
             source.write_bytes(data)
             run("diskImage.py", "add", *common, "work.dsk", str(source))
 
             image = root / "retro" / "images" / "cpm86" / "work.dsk"
-            output = root / "extracted" / "HOST.CMD"
-            run("diskImage.py", "extract", *common, "work.dsk", "HOST.CMD", "--output", str(output))
+            output = root / "extracted" / "EXAMPLE.CMD"
+            run("diskImage.py", "extract", *common, "work.dsk", "EXAMPLE.CMD", "--output", str(output))
             self.assertEqual(output.read_bytes(), data.ljust(17024, b"\x1a"))
 
             output.write_bytes(b"keep")
@@ -76,7 +76,7 @@ class DiskImageCliTests(unittest.TestCase):
                 "extract",
                 *common,
                 "work.dsk",
-                "HOST.CMD",
+                "EXAMPLE.CMD",
                 "--output",
                 str(output),
                 check=False,

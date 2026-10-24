@@ -2,7 +2,6 @@
 #include "cpm86BiosOverlay.h"
 #include "cpm86Core.h"
 #include "cpm86DriveConfig.h"
-#include "hostExchange.h"
 #include "hostConsole.h"
 #include "imageFile.h"
 #include "diskActivity.h"
@@ -50,7 +49,6 @@ typedef struct
 
 static cpm86Core* guestCore;
 static cpm86Disk diskController;
-static hostExchange exchangeService;
 static bool guestReady;
 static bool guestStopRequested;
 
@@ -472,12 +470,6 @@ esp_err_t cpm86MachineInitialize(void)
     ESP_LOGE(tag, "CP/M-86 A: system disk is unavailable: %s", systemDiskPath);
     return ESP_FAIL;
   }
-  if (!hostExchangeInitialize(&exchangeService, "/microSD/retro/exchange/cpm86"))
-  {
-    ESP_LOGE(tag, "Could not initialize the CP/M-86 exchange service");
-    closeDiskImages();
-    return ESP_FAIL;
-  }
   cpm86CoreConfig config = {
       .ramSize = 640 * 1024,
       .portRead = portRead,
@@ -491,7 +483,7 @@ esp_err_t cpm86MachineInitialize(void)
       .captureInstructionTrace = false,
 #endif
   };
-  cpm86CoreResult result = cpm86CoreCreate(&guestCore, &exchangeService, &config);
+  cpm86CoreResult result = cpm86CoreCreate(&guestCore, &config);
   if (result != cpm86CoreOk)
   {
     if (result == cpm86CoreNoMemory)
@@ -509,7 +501,6 @@ esp_err_t cpm86MachineInitialize(void)
     {
       ESP_LOGE(tag, "Could not create CP/M-86 CPU core: result=%d", result);
     }
-    hostExchangeClose(&exchangeService);
     closeDiskImages();
     guestCore = NULL;
     return result == cpm86CoreNoMemory ? ESP_ERR_NO_MEM : ESP_FAIL;
@@ -518,7 +509,6 @@ esp_err_t cpm86MachineInitialize(void)
   {
     cpm86CoreDestroy(guestCore);
     guestCore = NULL;
-    hostExchangeClose(&exchangeService);
     closeDiskImages();
     return ESP_ERR_INVALID_STATE;
   }
@@ -660,6 +650,5 @@ void cpm86MachineRun(void)
   cpm86CoreDestroy(guestCore);
   guestCore = NULL;
   guestReady = false;
-  hostExchangeClose(&exchangeService);
   closeDiskImages();
 }

@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "hostClock.h"
-#include "hostExchange.h"
 
 enum
 {
@@ -16,17 +15,17 @@ enum
 
 typedef struct cpm86Core cpm86Core;
 
-typedef bool (*cpm86PortRead)(void *context, uint16_t port, uint8_t *value);
-typedef bool (*cpm86PortWrite)(void *context, uint16_t port, uint8_t value);
+typedef bool (*cpm86PortRead)(void* context, uint16_t port, uint8_t* value);
+typedef bool (*cpm86PortWrite)(void* context, uint16_t port, uint8_t value);
 
 typedef struct
 {
   size_t ramSize;
   cpm86PortRead portRead;
   cpm86PortWrite portWrite;
-  void *portContext;
+  void* portContext;
   hostReadMilliseconds readMilliseconds;
-  void *clockContext;
+  void* clockContext;
   bool captureInstructionTrace;
 } cpm86CoreConfig;
 
@@ -54,20 +53,23 @@ typedef enum
   cpm86CoreHalted
 } cpm86CoreResult;
 
-cpm86CoreResult cpm86CoreCreate(cpm86Core **core, hostExchange *exchange, const cpm86CoreConfig *config);
-void cpm86CoreDestroy(cpm86Core *core);
-cpm86CoreResult cpm86CoreReset(cpm86Core *core);
-cpm86CoreResult cpm86CoreSetEntry(cpm86Core *core, uint16_t segment, uint16_t offset);
-cpm86CoreResult cpm86CoreLoad(cpm86Core *core, uint32_t address, const void *data, size_t length);
-cpm86CoreResult cpm86CoreRead(cpm86Core *core, uint32_t address, void *data, size_t length);
-cpm86CoreResult cpm86CoreWrite(cpm86Core *core, uint32_t address, const void *data, size_t length);
+cpm86CoreResult cpm86CoreCreate(cpm86Core** core, const cpm86CoreConfig* config);
+void cpm86CoreDestroy(cpm86Core* core);
+cpm86CoreResult cpm86CoreReset(cpm86Core* core);
+cpm86CoreResult cpm86CoreSetEntry(cpm86Core* core, uint16_t segment, uint16_t offset);
+cpm86CoreResult cpm86CoreLoad(cpm86Core* core, uint32_t address, const void* data, size_t length);
+cpm86CoreResult cpm86CoreRead(cpm86Core* core, uint32_t address, void* data, size_t length);
+cpm86CoreResult cpm86CoreWrite(cpm86Core* core, uint32_t address, const void* data, size_t length);
 //-- Debug aid: stop with InvalidInstruction when code is fetched from [start, end).
-cpm86CoreResult cpm86CoreSetExecuteGuard(cpm86Core *core, uint32_t startAddress, uint32_t endAddress);
-cpm86CoreResult cpm86CoreStep(cpm86Core *core);
-cpm86CoreResult cpm86CoreRun(cpm86Core *core, size_t instructionBudget, size_t *instructionsExecuted);
-cpm86CoreResult cpm86CoreGetProgramCounter(const cpm86Core *core, uint16_t *segment, uint16_t *offset);
-cpm86CoreResult cpm86CoreGetRecentTrace(const cpm86Core *core, cpm86CoreTraceEntry *entries, size_t capacity,
-                                        size_t *count);
-cpm86CoreResult cpm86CoreGetHeadTrace(const cpm86Core *core, cpm86CoreTraceEntry *entries, size_t capacity,
-                                      size_t *count);
-uint64_t cpm86CoreInstructionCount(const cpm86Core *core);
+cpm86CoreResult cpm86CoreSetExecuteGuard(cpm86Core* core, uint32_t startAddress,
+                                         uint32_t endAddress);
+cpm86CoreResult cpm86CoreStep(cpm86Core* core);
+cpm86CoreResult cpm86CoreRun(cpm86Core* core, size_t instructionBudget,
+                             size_t* instructionsExecuted);
+cpm86CoreResult cpm86CoreGetProgramCounter(const cpm86Core* core, uint16_t* segment,
+                                           uint16_t* offset);
+cpm86CoreResult cpm86CoreGetRecentTrace(const cpm86Core* core, cpm86CoreTraceEntry* entries,
+                                        size_t capacity, size_t* count);
+cpm86CoreResult cpm86CoreGetHeadTrace(const cpm86Core* core, cpm86CoreTraceEntry* entries,
+                                      size_t capacity, size_t* count);
+uint64_t cpm86CoreInstructionCount(const cpm86Core* core);

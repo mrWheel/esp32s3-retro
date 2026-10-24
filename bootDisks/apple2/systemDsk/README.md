@@ -3,8 +3,6 @@
 Place files for the Apple II system disk in this directory. `createSystemDsk.py --os apple2 --profile PRODOS`
 (run by `idf.py build` as well) writes every file to a copy of the bootable ProDOS volume
 `bootDisks/apple2/prodosEmpty.po` and stores the result as `littlefs/apple2/system.dsk` (volume `/SYSTEM`).
-To get the transfer utility on the disk, copy `bootDisks/apple2/utilities/HOST.SYS` into this directory (it becomes
-ProDOS file `HOST`); the builder adds nothing by itself.
 
 - `.BAS` numbered ASCII Applesoft source (tokenized by the builder, type BAS; `LOAD TEST.NONGR`, then `RUN`)
 - `.TXT` plain text

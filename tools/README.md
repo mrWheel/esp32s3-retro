@@ -61,8 +61,6 @@ python3 tools/diskImage.py --os cpm86 -h
 
   `tools/include/buildDiskImageCpm80.py` deterministically composes the read-only CP/M A: image from the checked-in CCP/BDOS outputs and pinned utility binaries. It validates input sizes, CP/M 8.3 names and allocation-block capacity against the DPB, and creates directory extents for larger files. It does not assemble the CCP/BDOS sources; the upstream Macro Assembler AS and `p2bin` are needed for that step. Utility provenance and non-commercial use scope are in `components/cpm80Core/os/utilities/README.md`. No SD work image is generated; E: requires a separately prepared matching CP/M image.
 
-  `HOST.COM` is project-authored 8080 source at `guest/cpm80/host/HOST.ASM` (CR+LF line endings), written for the standard CP/M-80 `ASM.COM` and `LOAD.COM`. It is built inside the emulated CP/M-80, not with a host assembler: copy `HOST.ASM` to a writable drive (for example E:) with `diskImage.py add`, then run `A:ASM HOST` and `A:LOAD HOST` there and extract `HOST.COM` with `diskImage.py extract`. `CPM80_HOST_ASM_OUTPUT=<path> ./build-host/hostTests` does exactly this headless and stores the result at `<path>`; the normal `hostTests` run fails when `bootDisks/cpm80/systemDsk/HOST.COM` differs from a fresh build. Copy the result to `bootDisks/cpm80/systemDsk/HOST.COM` and `guest/cpm80/host/HOST.COM`, then rebuild the system image with `python3 tools/createSystemDsk.py --os cpm80 --profile LARGE`.
-
 ### Create a SYSTEM.DSK on LittleFS
 
 `createSystemDsk.py` builds `littlefs/<os>/system.dsk` from OS resources and
@@ -83,8 +81,7 @@ Executable files (`.COM` for CP/M-80 and `.CMD` for CP/M-86) are installed
 before other files. If remaining non-executable files do not fit, the builder
 keeps the executables, skips the files that do not fit, and prints
 `Disk too small`. If an executable itself cannot fit, the build fails rather
-than producing a disk missing a program. The project HOST program is used in
-preference to a different `HOST.COM`/`HOST.CMD` in the source folder.
+than producing a disk missing a program.
 
 `SMALL` uses 256,256 bytes for CP/M-80 and 163,840 bytes for CP/M-86. `LARGE`
 uses 512,512 bytes for CP/M-80 and 528,384 bytes for CP/M-86. Both profiles boot
@@ -92,8 +89,7 @@ as A:: the firmware detects the layout from the size of
 `littlefs/<os>/system.dsk`, so `drives.cfg` needs only `SYSTEM` (CP/M-80) or
 `RETRO86_SYSTEM` (CP/M-86) for A:. A size that matches no system profile is
 reported as an error and A: is not mounted. CP/M-86 is built from an empty
-image plus the source directory only (never from an older `system.dsk`), so
-`HOST.CMD` must be in `bootDisks/cpm86/systemDsk`. It requires
+image plus the source directory only (never from an older `system.dsk`). It requires
 `littlefs/cpm86/cpm.sys` and `littlefs/cpm86/retro86bios.h86` to remain in place.
 The builder validates these runtime files but does not put them on A::
 firmware loads them directly from LittleFS. In particular, the duplicate

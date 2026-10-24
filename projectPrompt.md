@@ -39,7 +39,7 @@ This snapshot describes repository status, not a change to the machine-specific 
 
 | System | Current status |
 | --- | --- |
-| CP/M-80 | Firmware integration and host-side guest tests are present. The user reports CP/M boot, SD-drive operation, BIG-profile behavior, BIOS/PIP behavior and HOST transfers working on the ESP32-S3 setup; detailed reproducible hardware evidence and broad compatibility acceptance remain outstanding. |
+| CP/M-80 | Firmware integration and host-side guest tests are present. The user reports CP/M boot, SD-drive operation, BIG-profile behavior and BIOS/PIP behavior working on the ESP32-S3 setup; detailed reproducible hardware evidence and broad compatibility acceptance remain outstanding. |
 | CP/M-86 | Firmware machine integration, genuine guest boot tests on the host and an ESP-IDF build are present. The firmware has not been flashed; hardware boot, performance and broad compatibility remain unverified. |
 | UCSD Pascal | Menu option 3 selects the sibling `/littlefs/ucsd/` and `/retro/images/ucsd/` profile and runs the shared Apple II 6502 emulator. Pascal 1.3 128K boot is host-tested. A prior fixture listed three volumes and opened a `.TEXT` file, but the current modified image set fails the `DATA3:` guest-test assertion; compiler, writes and ESP32-S3 behavior remain unverified. |
 | Apple II | Motherboard implementation, a host-tested slot-0 16 KiB Language Card, and a Videx-compatible slot-3 80×24 text-card model with project-authored firmware are integrated. Host tests cover Language Card switching, complete Applesoft `LIST` keywords, clean `PR#0`/`PR#3` screen transitions, cursor bounds, and the 80-column path and scrolling; primary hardware-reference comparison, guest Language Card use, hardware acceptance and system-ROM redistribution rights remain unverified. |
@@ -343,60 +343,10 @@ The browser does not need to understand CP/M-80, CP/M-86, UCSD, ProDOS, etc.
 
 The File Transfer GUI also manages files directly on the SD card. The user selects a machine and transfer type:
 
-- Loose files use `/retro/exchange/<machine>/` and are visible to that machine's guest transfer utility. For CP/M-80, `HOST DIR` lists `/retro/exchange/cpm80/`.
+- Loose files are staged under `/retro/exchange/<machine>/`; supported guest filesystems are managed through the browser GUI.
 - Disk images use `/retro/images/<machine>/`, for example `/retro/images/cpm80/`.
 
 These are separate destinations on the same physical SD card; disk images are not staged through the exchange directory.
-
-## 15. Guest transfer contract
-
-Each machine may provide a small native guest utility, referred to here
-generically as the `HOST` utility. Its purpose is to copy files between the
-guest operating system's own filesystem and that machine's directory under
-`/retro/exchange/<machine>/`. It is not the browser File Transfer server,
-does not start WiFi, and does not access a guest disk image as a host-side
-filesystem.
-
-The guest-side utility uses the machine's native file APIs to create/read
-guest files. The common host supplies an emulator-neutral exchange service;
-the machine-specific adapter transports the service operations while the
-guest utility handles guest filenames, files, and record-oriented length
-rules. The host must not edit guest filesystem directory structures to
-implement individual file transfers.
-
-The common command model is:
-
-```text
-HOST
-HOST> DIR
-HOST> GET <file> <options>
-HOST> PUT <file>
-HOST> QUIT
-```
-
-Invoking `HOST` without arguments may start an interactive prompt. A guest
-utility may also support one-shot command-tail forms such as `HOST DIR`.
-`DIR` lists permitted exchange files, `GET` copies a host exchange file into
-the guest filesystem, `PUT` copies a guest file to the host exchange
-directory, and `QUIT` returns to the guest operating system. Exact command
-syntax, wildcard support, overwrite options, and user-area restrictions are
-machine-specific and belong in that machine's design document.
-
-The common protocol operations are `QUERY`, `DIR`, `GET`, `PUT`, `QUIT`,
-and `ABORT`. `QUERY` negotiates the protocol version and capability bits
-before other operations. Transfers use a 32-bit exact byte length and
-CRC-32, and must be streamed rather than buffered as complete files.
-`GET` reports a final status after data and checksum. `PUT` carries the
-expected checksum, writes to a temporary file, verifies the received length
-and checksum, and publishes the final file only on success. Existing host
-targets are never overwritten implicitly. The adapter validates guest
-filenames and confines access to that machine's exchange directory. Missing
-media, invalid names, existing targets, I/O/checksum failures, and
-cancellation must have distinguishable results for the guest.
-
-Each machine design specifies its concrete guest utility, transport,
-filename rules, status mapping, record-length handling, overwrite behavior,
-and tests. CP/M-80's implementation is specified in `designCPM80.md`.
 
 ## 16. File Transfer menu mode
 
@@ -516,7 +466,7 @@ Do not delay the first working version for optional features.
 
 ### Scope and security
 
-The general browser file-transfer area exposes only `/retro/exchange/` and `/retro/images/` on the physical SD card; it must not access other SD paths or provide general LittleFS file browsing. Dedicated Disk Image Manager workflows may access LittleFS only for `drives.cfg`, guest-file operations, and read-only complete-image downloads of disk-image files directly inside a known `/littlefs/<OS>/` directory. They must not upload, replace, copy, rename or delete a LittleFS image as a complete image. The GUI must let the user select a machine (`cpm80`, `cpm86`, `ucsd`, `apple2` or `swtpc`) and a transfer type. Loose files go under `/retro/exchange/<machine>/` so the selected guest can access them (CP/M `HOST DIR` reads `/retro/exchange/cpm80/`); disk images go under `/retro/images/<machine>/`. The GUI must show each item's full VFS path (for example `/microSD/retro/exchange/cpm80/FILE.TXT`) beside its name. File Transfer runs separately from emulators, so browser writes cannot modify an active guest disk image.
+The browser file-transfer area exposes only `/retro/exchange/` and `/retro/images/` on the physical SD card; it must not access other SD paths or provide general LittleFS file browsing. Dedicated Disk Image Manager workflows may access LittleFS only for `drives.cfg`, guest-file operations, and read-only complete-image downloads of disk-image files directly inside a known `/littlefs/<OS>/` directory. They must not upload, replace, copy, rename or delete a LittleFS image as a complete image. The GUI must let the user select a machine (`cpm80`, `cpm86`, `ucsd`, `apple2` or `swtpc`) and a transfer type. Loose files are staged under `/retro/exchange/<machine>/`; disk images go under `/retro/images/<machine>/`. The GUI must show each item's full VFS path (for example `/microSD/retro/exchange/cpm80/FILE.TXT`) beside its name. File Transfer runs separately from emulators, so browser writes cannot modify an active guest disk image.
 
 Normalize and validate every requested path. Reject ../, encoded traversal, absolute-path escape, and any resolved path outside the permitted SD roots or the explicitly allowlisted LittleFS paths above.
 
@@ -555,7 +505,7 @@ Initial architecture intentionally prevents dangerous concurrent modification:
 
 Never let the browser modify an active guest disk image.
 
-Future live guest exchange access requires explicit ownership/locking rules.
+Guest files in disk images are managed through the browser GUI's filesystem adapters while guest execution is stopped.
 
 ## 22. Partition table and NVS
 
@@ -668,7 +618,7 @@ File Transfer:
 - page loads;
 - text upload/download;
 - binary SD-card disk-image upload/download + byte-for-byte equality;
-- CP/M-86 loose-file upload to `/retro/exchange/cpm86/` is visible to `HOST DIR`;
+- guest files can be listed, uploaded, downloaded, copied, renamed and deleted in supported disk images through the GUI;
 - selected-machine loose files and disk images reach their respective `/retro/exchange/<machine>/` and `/retro/images/<machine>/` directories;
 - every listed file shows its full `/microSD/retro/...` path;
 - upload/download progress is displayed while bytes are transferred;

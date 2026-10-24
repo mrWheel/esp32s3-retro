@@ -52,30 +52,6 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 - Result: PASS, 13 tests covering image creation, CP/M file extents, duplicate/disk-full preservation, CLI operation, archive link parsing, host restrictions, Microsoft-download blocking and provenance retention.
 - SD card formatting/mounting, Finder copy, firmware mounting and hardware PIP execution remain untested. Raw disk images are size/structure-checked only; source documentation must establish geometry and sector ordering. IMD/TD0 conversion is unsupported.
 
-## CP/M HOST transfer utility — 2026-10-04
-
-- Reassembled `components/cpm80Core/os/host/HOST.ASM` with z80asm 1.8; a second assembly was byte-identical to the checked-in `HOST.COM` (3,267 bytes).
-- Regenerated `littlefs/cpm80/system.dsk` with `tools/include/buildDiskImageCpm80.py`; its size is 256,256 bytes.
-- Host test command: `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`.
-- Result: PASS under AddressSanitizer and UndefinedBehaviorSanitizer. The genuine CCP/BDOS guest ran `HOST DIR`; imported and exported a 777-byte binary containing NUL, `0x1A`, high-bit bytes and CR/LF with exact-byte equality; refused a duplicate destination; and refused an existing `.HST` sidecar while the E: directory still showed that sidecar afterward.
-- ESP-IDF 6.0.2 ESP32-S3 `build`: PASS. `retroHost.bin` is 0xDEA00 bytes, within the 3 MiB app partition.
-- This verifies the host guest emulator path only. USER-area rejection after launching HOST in USER 1, cancellation/error cleanup, full E: media, physical SD and ESP32 transfer remain separate acceptance items. No device was flashed.
-
-## CP/M-80 guest utility relocation — 2026-10-07
-
-- Moved project-authored `HOST.ASM` and `HOST.COM` from `components/cpm80Core/os/host/` to `guest/cpm80/host/`; updated the system-image builder and documentation to use the guest-owned location.
-- Reassembled `guest/cpm80/host/HOST.ASM` with z80asm and confirmed the output is byte-identical to `guest/cpm80/host/HOST.COM` (3,267 bytes).
-- `PYTHONPATH=tools python3 -m unittest discover -s tests -p 'test_diskImage.py' -v`: PASS, 7 tests; CP/M-80 system-image output remains byte-identical to the checked-in image.
-- `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`: PASS, including the host-side guest emulator test.
-- ESP-IDF 6.0.2 ESP32-S3 `build`: PASS; `retroHost.bin` is 0xE8410 bytes (70% of the 3 MiB app partition remains free). No device was flashed.
-
-## CP/M-80 HOST CP/M-86 parity — 2026-10-07
-
-- Aligned CP/M-80 `HOST.COM` user-visible behaviour with the CP/M-86 utility for `DIR`, `GET`, and `PUT`: usage/error wording, wildcard result lines, reserved `.HST` handling, no-match/list-full reporting, completion text, and drive-preserving return behaviour. The CP/M-80-only local per-file reason remains `local CP/M-80 file I/O failed.`.
-- The genuine CCP/BDOS host fixture imported multiple exchange files with `HOST GET *.*`, reported and continued after an existing local target, exercised `HOST GET INP?T.BIN`, rejected a pre-existing `.HST` sidecar, and verified the other file appears on E:. `HOST PUT *.BIN` continued after an existing host destination and round-tripped a 257-byte binary exactly; `HOST PUT INP?T.BIN` exercised `?`.
-- `cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`: PASS under ASan/UBSan. `PYTHONPATH=tools python3 -m unittest discover -s tests -p 'test_diskImage.py' -v`: PASS, 7 tests. Reassembly of `guest/cpm80/host/HOST.ASM` matches checked-in `HOST.COM` (6,950 bytes). Rebuilt `littlefs/cpm80/system.dsk` is 256,256 bytes.
-- ESP-IDF 6.0.2 ESP32-S3 `build`: PASS; `retroHost.bin` is 0xE8410 bytes, with 70% of the 3 MiB app partition free. No device was flashed.
-
 ## Guest disk activity RGB indicator — 2026-10-07
 
 - Added WS2812B control on the LOLIN S3 Pro RGB LED GPIO 38 using the ESP-IDF RMT driver. CP/M-80 and CP/M-86 disk-record reads signal green; record writes signal red. A dedicated task handles LED updates and turns the LED off 120 ms after the latest activity. Other host filesystem access is not indicated.
@@ -86,7 +62,7 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 ## Disk-image manager partial implementation — 2026-10-21
 
 - Extended `main/fileTransfer.c` and `main/web.html` with mapped-image reporting and whole-image SD-to-SD copy, rename/move and explicit backup restoration. Copies use bounded buffers, flush a temporary file and compare it byte-for-byte with the source before committing. Replacements retain the old destination as `manager-replace-backup.tmp` in that destination directory until commit succeeds; no automatic recovery-file deletion is performed. The UI uses a browser-native file picker for uploads and normal attachment downloads instead of buffering downloaded image blobs in browser JavaScript.
-- The browser explicitly reports that guest files inside disk images are not yet supported. CP/M-80, CP/M-86, Apple/ProDOS, and UCSD Pascal filesystem adapters, guest file operations, direct guest-image-to-image file copy, and the unified path/copy workflow have not been implemented. Existing `/retro/exchange/` and guest HOST paths remain required.
+- The browser explicitly reports that guest files inside disk images are not yet supported. CP/M-80, CP/M-86, Apple/ProDOS, and UCSD Pascal filesystem adapters, guest file operations, direct guest-image-to-image file copy, and the unified path/copy workflow have not been implemented. `/retro/exchange/` remains a browser staging area.
 - `source "$HOME/.espressif/tools/activate_idf_v6.0.2.sh" && idf.py build && idf.py size`: PASS; final `retroHost.bin` 0x100F90 bytes, within the 0x300000-byte app partition. The linker report listed 759,372 bytes flash code, 177,308 bytes flash data and 132,293 bytes DIRAM use. No device was flashed.
 - Focused host test `ctest --test-dir /tmp/esp32s3-retro-build-host --output-on-failure -R '^hostCore$'`: PASS, 1/1.
 - Full host CTest: 6/14 passed, 8/14 failed. Failures concern current Apple ROM/image fixture availability and a stale expected Pascal drive path; see `designDiskImageManager.md` checkpoint 2026-10-21 for command and failure detail. These tests do not cover the new HTTP operations.
@@ -95,7 +71,7 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 
 ## Disk-image manager GUI visibility — 2026-10-21
 
-- The initial File Transfer page selected the legacy `/retro/exchange/` view by default, so the previously added whole-image controls were not visible on first load. `main/web.html` now selects `/retro/images/` by default and labels the implemented whole-image scope directly on the page. The legacy exchange view remains available as an alternate mode because current guest HOST integrations still depend on it.
+- The initial File Transfer page selected the legacy `/retro/exchange/` view by default, so the previously added whole-image controls were not visible on first load. `main/web.html` now selects `/retro/images/` by default and labels the implemented whole-image scope directly on the page. The exchange view remains available for browser staging.
 - `main/CMakeLists.txt` embeds `web.html` in the application, and the page response sets `Cache-Control: no-store`. After the UI change, `source "$HOME/.espressif/tools/activate_idf_v6.0.2.sh" && idf.py build && idf.py size`: PASS; `build/retroHost.bin` is 0x100F90 bytes. `strings build/retroHost.bin` confirmed the new heading, default-mode message and image-mode option are in the generated firmware.
 - The coding agent did not flash the device and did not run a browser/device test. For the next manual flash, use the freshly generated `build/retroHost.bin`; expected visible text is “Retro SD Disk Image Manager” and the selected browse mode “Whole disk images (/retro/images/)”. If the device still shows the previous page, first verify the exact binary and programmed app partition rather than repeating source edits.
 - Guest filesystems, guest-file operations, the unified Source Path / Copy From / Destination Path / Copy To interface and hardware acceptance remain unimplemented/unverified.
@@ -125,7 +101,7 @@ No device was flashed or exercised. Do not interpret implemented functionality o
 ## Flat image layout / exchange removed from manager
 
 - `main/web.html`: subdirectory fields, Browse buttons, directory picker and the legacy exchange screen removed; manager uses an OS selector. `main/fileTransfer.c`: exchange area removed; image paths limited to `<OS>/<file>`.
-- Emulator-side HOST exchange and SD layout requirements intentionally unchanged (see design doc revision 5).
+- Browser staging and SD layout requirements remain documented separately from emulator filesystem access.
 
 ## Guest file access, CP/M-80/86 slice — 2026-10-22
 

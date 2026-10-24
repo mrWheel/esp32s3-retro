@@ -1,5 +1,4 @@
 #include "hostCore.h"
-#include "hostExchange.h"
 #include "imageFile.h"
 #include "cpm80Cpu.h"
 #include "cpm80Guest.h"
@@ -76,52 +75,9 @@ static void testApple2SlotIoDevice(void)
   apple2CoreDestroy(core);
 }
 
-static uint8_t readHostExchangeSlot(void* context, uint8_t registerIndex)
-{
-  return registerIndex == 0 ? hostExchangePortInput(context, hostExchangePort) : 0xFF;
-}
-
-static void writeHostExchangeSlot(void* context, uint8_t registerIndex, uint8_t value)
-{
-  if (registerIndex == 0)
-  {
-    hostExchangePortOutput(context, hostExchangePort, value);
-  }
-  else if (registerIndex == 1)
-  {
-    hostExchangePortOutput(context, hostExchangeAbortPort, value);
-  }
-}
-
-static void testApple2HostExchangeSlot(void)
-{
-  char directoryPath[] = "/tmp/apple2-host-exchange-XXXXXX";
-  assert(mkdtemp(directoryPath) != NULL);
-  hostExchange exchange = {0};
-  assert(hostExchangeInitializeProdos(&exchange, directoryPath));
-
-  apple2Core* core = NULL;
-  assert(apple2CoreCreate(&core) == apple2CoreOk);
-  assert(apple2CoreAttachSlotIoDevice(core, 2, readHostExchangeSlot, writeHostExchangeSlot,
-                                      &exchange) == apple2CoreOk);
-  assert(apple2CoreWriteMemory(core, 0xC0A0, hostExchangeCommandQuery) == apple2CoreOk);
-
-  uint8_t value;
-  assert(apple2CoreReadMemory(core, 0xC0A0, &value) == apple2CoreOk &&
-         value == hostExchangeStatusOk);
-  assert(apple2CoreReadMemory(core, 0xC0A0, &value) == apple2CoreOk && value == 1);
-  assert(apple2CoreReadMemory(core, 0xC0A0, &value) == apple2CoreOk && value == 0x07);
-
-  assert(apple2CoreDetachSlotIoDevice(core, 2) == apple2CoreOk);
-  apple2CoreDestroy(core);
-  hostExchangeClose(&exchange);
-  assert(rmdir(directoryPath) == 0);
-}
-
 static void testApple2Core(void)
 {
   testApple2SlotIoDevice();
-  testApple2HostExchangeSlot();
   apple2Core* core = NULL;
   uint8_t value;
   assert(apple2CoreCreate(&core) == apple2CoreOk);
@@ -833,7 +789,7 @@ static void testApple2Keyboard(void)
 }
 
 //-- Applesoft LIST wraps long lines at CH >= 33; on the 80-column card the wrap moves to the right
-//edge.
+// edge.
 static void testApple2ListWrap(const uint8_t* rom)
 {
   const char* listedLine =
@@ -1001,41 +957,6 @@ static void testPaths(void)
   }
 }
 
-static uint32_t testCrc32(const uint8_t* data, size_t length)
-{
-  uint32_t crc = 0xFFFFFFFFU;
-  for (size_t index = 0; index < length; ++index)
-  {
-    crc ^= data[index];
-    for (uint8_t bit = 0; bit < 8; ++bit)
-    {
-      crc = (crc >> 1) ^ ((crc & 1) ? 0xEDB88320U : 0);
-    }
-  }
-  return crc ^ 0xFFFFFFFFU;
-}
-
-static void writeCpm80Filename(hostExchange* exchange, const char* name, const char* extension)
-{
-  uint8_t rawName[11];
-  memset(rawName, ' ', sizeof(rawName));
-  memcpy(rawName, name, strlen(name));
-  memcpy(rawName + 8, extension, strlen(extension));
-  for (size_t index = 0; index < sizeof(rawName); ++index)
-  {
-    hostExchangePortOutput(exchange, hostExchangePort, rawName[index]);
-  }
-}
-
-static void writeProdosFilename(hostExchange* exchange, const char* name)
-{
-  for (size_t index = 0; name[index] != '\0'; ++index)
-  {
-    hostExchangePortOutput(exchange, hostExchangePort, (uint8_t)name[index]);
-  }
-  hostExchangePortOutput(exchange, hostExchangePort, 0);
-}
-
 typedef struct
 {
   uint8_t input;
@@ -1086,468 +1007,8 @@ static uint32_t cpm86TestReadMilliseconds(void* context)
   return fixture->milliseconds;
 }
 
-static void testHostExchange(void)
-{
-  char directoryPath[] = "/tmp/cpm80-exchange-test-XXXXXX";
-  assert(mkdtemp(directoryPath) != NULL);
-  char sourcePath[absolutePathCapacity];
-  assert(snprintf(sourcePath, sizeof(sourcePath), "%s/ALPHA.BIN", directoryPath) <
-         (int)sizeof(sourcePath));
-  const uint8_t sourceBytes[] = {0x00, 0x1A, 0x7F, 0x80, 0xFF, 0x0D, 0x0A};
-  FILE* source = fopen(sourcePath, "wb");
-  assert(source != NULL);
-  assert(fwrite(sourceBytes, 1, sizeof(sourceBytes), source) == sizeof(sourceBytes));
-  assert(fclose(source) == 0);
-
-  hostExchange exchange = {0};
-  assert(!hostExchangeInitialize(&exchange, "/"));
-  assert(!hostExchangeInitialize(&exchange, "/tmp/../"));
-  assert(hostExchangeInitialize(&exchange, directoryPath));
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandQuery);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == 1);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == 0x07);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandDirectory);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  char listedName[13];
-  size_t listedLength = 0;
-  uint8_t character;
-  while ((character = hostExchangePortInput(&exchange, hostExchangePort)) != 0)
-  {
-    assert(listedLength + 1 < sizeof(listedName));
-    listedName[listedLength++] = (char)character;
-  }
-  listedName[listedLength] = '\0';
-  assert(strcmp(listedName, "ALPHA.BIN") == 0);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == 0);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
-  writeCpm80Filename(&exchange, "MISSING", "BIN");
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusUnavailable);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
-  writeCpm80Filename(&exchange, "ALPHA", "BIN");
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  uint32_t sourceLength = 0;
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    sourceLength |= (uint32_t)hostExchangePortInput(&exchange, hostExchangePort) << (index * 8);
-  }
-  assert(sourceLength == sizeof(sourceBytes));
-  uint8_t received[sizeof(sourceBytes)];
-  for (size_t index = 0; index < sizeof(received); ++index)
-  {
-    received[index] = hostExchangePortInput(&exchange, hostExchangePort);
-  }
-  uint32_t receivedCrc = 0;
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    receivedCrc |= (uint32_t)hostExchangePortInput(&exchange, hostExchangePort) << (index * 8);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  assert(memcmp(received, sourceBytes, sizeof(received)) == 0);
-  assert(receivedCrc == testCrc32(sourceBytes, sizeof(sourceBytes)));
-
-  const uint8_t destinationBytes[] = {0xA5, 0x00, 0x1A, 0xFE, 0x55};
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeCpm80Filename(&exchange, "RESULT", "TXT");
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort,
-                           (uint8_t)(sizeof(destinationBytes) >> (index * 8)));
-  }
-  uint32_t destinationCrc = testCrc32(destinationBytes, sizeof(destinationBytes));
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, (uint8_t)(destinationCrc >> (index * 8)));
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  for (size_t index = 0; index < sizeof(destinationBytes); ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, destinationBytes[index]);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  char destinationPath[absolutePathCapacity];
-  assert(snprintf(destinationPath, sizeof(destinationPath), "%s/RESULT.TXT", directoryPath) <
-         (int)sizeof(destinationPath));
-  uint8_t actualBytes[sizeof(destinationBytes)];
-  FILE* destination = fopen(destinationPath, "rb");
-  assert(destination != NULL);
-  assert(fread(actualBytes, 1, sizeof(actualBytes), destination) == sizeof(actualBytes));
-  assert(fgetc(destination) == EOF);
-  assert(fclose(destination) == 0);
-  assert(memcmp(actualBytes, destinationBytes, sizeof(actualBytes)) == 0);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeCpm80Filename(&exchange, "BADCRC", "BIN");
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort,
-                           (uint8_t)(sizeof(destinationBytes) >> (index * 8)));
-  }
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort,
-                           (uint8_t)((destinationCrc ^ 1U) >> (index * 8)));
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  for (size_t index = 0; index < sizeof(destinationBytes); ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, destinationBytes[index]);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusIoError);
-  char badCrcPath[absolutePathCapacity];
-  assert(snprintf(badCrcPath, sizeof(badCrcPath), "%s/BADCRC.BIN", directoryPath) <
-         (int)sizeof(badCrcPath));
-  struct stat info;
-  assert(stat(badCrcPath, &info) != 0);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeCpm80Filename(&exchange, "EMPTY", "DAT");
-  for (uint8_t index = 0; index < 8; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, 0);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  char emptyPath[absolutePathCapacity];
-  assert(snprintf(emptyPath, sizeof(emptyPath), "%s/EMPTY.DAT", directoryPath) <
-         (int)sizeof(emptyPath));
-  FILE* empty = fopen(emptyPath, "rb");
-  assert(empty != NULL);
-  assert(fgetc(empty) == EOF);
-  assert(fclose(empty) == 0);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeCpm80Filename(&exchange, "RESULT", "TXT");
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort,
-                           (uint8_t)(sizeof(destinationBytes) >> (index * 8)));
-  }
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, (uint8_t)(destinationCrc >> (index * 8)));
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusExists);
-
-  //-- PUT with overwrite: a bad CRC keeps the old file, a good transfer replaces it, and the flag
-  // is not sticky.
-  const uint8_t replacementBytes[] = {0x11, 0x22, 0x33};
-  uint32_t replacementCrc = testCrc32(replacementBytes, sizeof(replacementBytes));
-  for (int attempt = 0; attempt < 2; ++attempt)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPutOverwrite);
-    writeCpm80Filename(&exchange, "RESULT", "TXT");
-    for (uint8_t index = 0; index < 4; ++index)
-    {
-      hostExchangePortOutput(&exchange, hostExchangePort,
-                             (uint8_t)(sizeof(replacementBytes) >> (index * 8)));
-    }
-    uint32_t sentCrc = attempt == 0 ? replacementCrc ^ 1U : replacementCrc;
-    for (uint8_t index = 0; index < 4; ++index)
-    {
-      hostExchangePortOutput(&exchange, hostExchangePort, (uint8_t)(sentCrc >> (index * 8)));
-    }
-    assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-    for (size_t index = 0; index < sizeof(replacementBytes); ++index)
-    {
-      hostExchangePortOutput(&exchange, hostExchangePort, replacementBytes[index]);
-    }
-    assert(hostExchangePortInput(&exchange, hostExchangePort) ==
-           (attempt == 0 ? hostExchangeStatusIoError : hostExchangeStatusOk));
-    uint8_t currentBytes[sizeof(destinationBytes)];
-    destination = fopen(destinationPath, "rb");
-    assert(destination != NULL);
-    size_t currentLength = fread(currentBytes, 1, sizeof(currentBytes), destination);
-    assert(fclose(destination) == 0);
-    if (attempt == 0)
-    {
-      assert(currentLength == sizeof(destinationBytes) &&
-             memcmp(currentBytes, destinationBytes, currentLength) == 0);
-    }
-    else
-    {
-      assert(currentLength == sizeof(replacementBytes) &&
-             memcmp(currentBytes, replacementBytes, currentLength) == 0);
-    }
-  }
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeCpm80Filename(&exchange, "RESULT", "TXT");
-  for (uint8_t index = 0; index < 8; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, 0);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusExists);
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPutOverwrite);
-  writeCpm80Filename(&exchange, "NEWONE", "DAT");
-  for (uint8_t index = 0; index < 8; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, 0);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  char newOnePath[absolutePathCapacity];
-  assert(snprintf(newOnePath, sizeof(newOnePath), "%s/NEWONE.DAT", directoryPath) <
-         (int)sizeof(newOnePath));
-  assert(stat(newOnePath, &info) == 0 && info.st_size == 0);
-  assert(unlink(newOnePath) == 0);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
-  const uint8_t invalidName[11] = {'/', '.', '.', '.', '.', '.', '.', '.', 'T', 'X', 'T'};
-  for (size_t index = 0; index < sizeof(invalidName); ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, invalidName[index]);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusInvalid);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeCpm80Filename(&exchange, "PARTIAL", "TMP");
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, 10);
-  }
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, 0);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  hostExchangePortOutput(&exchange, hostExchangePort, 0xCC);
-  hostExchangePortOutput(&exchange, hostExchangeAbortPort, 0);
-  char partialPath[absolutePathCapacity];
-  assert(snprintf(partialPath, sizeof(partialPath), "%s/PARTIAL.TMP", directoryPath) <
-         (int)sizeof(partialPath));
-  assert(stat(partialPath, &info) != 0);
-
-  hostExchangeClose(&exchange);
-  assert(unlink(sourcePath) == 0);
-  assert(unlink(destinationPath) == 0);
-  assert(unlink(emptyPath) == 0);
-  assert(rmdir(directoryPath) == 0);
-}
-
-static void testHostExchangeProdos(void)
-{
-  char directoryPath[] = "/tmp/apple2-exchange-test-XXXXXX";
-  assert(mkdtemp(directoryPath) != NULL);
-  char sourcePath[absolutePathCapacity];
-  assert(snprintf(sourcePath, sizeof(sourcePath), "%s/apple.longname", directoryPath) <
-         (int)sizeof(sourcePath));
-  const uint8_t sourceBytes[] = {0x00, 0x1A, 0x7F, 0x80, 0xFF, 0x0D, 0x0A};
-  FILE* source = fopen(sourcePath, "wb");
-  assert(source != NULL);
-  assert(fwrite(sourceBytes, 1, sizeof(sourceBytes), source) == sizeof(sourceBytes));
-  assert(fclose(source) == 0);
-
-  hostExchange exchange = {0};
-  assert(hostExchangeInitializeProdos(&exchange, directoryPath));
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandQuery);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == 1);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == 0x07);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandDirectory);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  char listedName[16];
-  size_t listedLength = 0;
-  uint8_t character;
-  while ((character = hostExchangePortInput(&exchange, hostExchangePort)) != 0)
-  {
-    assert(listedLength + 1 < sizeof(listedName));
-    listedName[listedLength++] = (char)character;
-  }
-  listedName[listedLength] = '\0';
-  assert(strcmp(listedName, "APPLE.LONGNAME") == 0);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == 0);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
-  writeProdosFilename(&exchange, "APPLE.LONGNAME");
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  uint32_t sourceLength = 0;
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    sourceLength |= (uint32_t)hostExchangePortInput(&exchange, hostExchangePort) << (index * 8);
-  }
-  assert(sourceLength == sizeof(sourceBytes));
-  uint8_t received[sizeof(sourceBytes)];
-  for (size_t index = 0; index < sizeof(received); ++index)
-  {
-    received[index] = hostExchangePortInput(&exchange, hostExchangePort);
-  }
-  uint32_t receivedCrc = 0;
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    receivedCrc |= (uint32_t)hostExchangePortInput(&exchange, hostExchangePort) << (index * 8);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  assert(memcmp(received, sourceBytes, sizeof(received)) == 0);
-  assert(receivedCrc == testCrc32(sourceBytes, sizeof(sourceBytes)));
-
-  const uint8_t destinationBytes[] = {0xA5, 0x00, 0x1A, 0xFE, 0x55};
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeProdosFilename(&exchange, "NEW.PRODOS.FILE");
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort,
-                           (uint8_t)(sizeof(destinationBytes) >> (index * 8)));
-  }
-  uint32_t destinationCrc = testCrc32(destinationBytes, sizeof(destinationBytes));
-  for (uint8_t index = 0; index < 4; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, (uint8_t)(destinationCrc >> (index * 8)));
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  for (size_t index = 0; index < sizeof(destinationBytes); ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, destinationBytes[index]);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-
-  char destinationPath[absolutePathCapacity];
-  assert(snprintf(destinationPath, sizeof(destinationPath), "%s/NEW.PRODOS.FILE", directoryPath) <
-         (int)sizeof(destinationPath));
-  uint8_t actualBytes[sizeof(destinationBytes)];
-  FILE* destination = fopen(destinationPath, "rb");
-  assert(destination != NULL);
-  assert(fread(actualBytes, 1, sizeof(actualBytes), destination) == sizeof(actualBytes));
-  assert(fgetc(destination) == EOF);
-  assert(fclose(destination) == 0);
-  assert(memcmp(actualBytes, destinationBytes, sizeof(actualBytes)) == 0);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeProdosFilename(&exchange, "new.prodos.file");
-  for (uint8_t index = 0; index < 8; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, 0);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusExists);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPutOverwrite);
-  writeProdosFilename(&exchange, "new.prodos.file");
-  for (uint8_t index = 0; index < 8; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, 0);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  destination = fopen(destinationPath, "rb");
-  assert(destination != NULL);
-  assert(fgetc(destination) == EOF);
-  assert(fclose(destination) == 0);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
-  writeProdosFilename(&exchange, "../ESCAPE");
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusInvalid);
-
-  hostExchangeClose(&exchange);
-  assert(unlink(sourcePath) == 0);
-  assert(unlink(destinationPath) == 0);
-  assert(rmdir(directoryPath) == 0);
-}
-
-static void testHostExchangeUcsd(void)
-{
-  char directoryPath[] = "/tmp/ucsd-exchange-test-XXXXXX";
-  assert(mkdtemp(directoryPath) != NULL);
-  const char* validNames[] = {"ANNU-READ.TEXT", "my_file.text"};
-  const char* hiddenNames[] = {"ANNUITY.PAS.TEXT", "BAD NAME.TXT", "A=B.TXT"};
-  char path[absolutePathCapacity];
-  for (size_t index = 0; index < 2; ++index)
-  {
-    assert(snprintf(path, sizeof(path), "%s/%s", directoryPath, validNames[index]) <
-           (int)sizeof(path));
-    FILE* file = fopen(path, "wb");
-    assert(file != NULL && fclose(file) == 0);
-  }
-  for (size_t index = 0; index < 3; ++index)
-  {
-    assert(snprintf(path, sizeof(path), "%s/%s", directoryPath, hiddenNames[index]) <
-           (int)sizeof(path));
-    FILE* file = fopen(path, "wb");
-    assert(file != NULL && fclose(file) == 0);
-  }
-
-  hostExchange exchange = {0};
-  assert(hostExchangeInitializeUcsd(&exchange, directoryPath));
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandDirectory);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  size_t listed = 0;
-  bool sawDash = false;
-  bool sawUnderscore = false;
-  for (;;)
-  {
-    char name[16];
-    size_t length = 0;
-    uint8_t character;
-    while ((character = hostExchangePortInput(&exchange, hostExchangePort)) != 0)
-    {
-      assert(length + 1 < sizeof(name));
-      name[length++] = (char)character;
-    }
-    if (length == 0)
-    {
-      break;
-    }
-    name[length] = '\0';
-    sawDash = sawDash || strcmp(name, "ANNU-READ.TEXT") == 0;
-    sawUnderscore = sawUnderscore || strcmp(name, "MY_FILE.TEXT") == 0;
-    ++listed;
-  }
-  assert(listed == 2 && sawDash && sawUnderscore);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
-  writeProdosFilename(&exchange, "annu-read.text");
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandPut);
-  writeProdosFilename(&exchange, "NEW-FILE.TEXT");
-  for (uint8_t index = 0; index < 8; ++index)
-  {
-    hostExchangePortOutput(&exchange, hostExchangePort, 0);
-  }
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusOk);
-  assert(snprintf(path, sizeof(path), "%s/NEW-FILE.TEXT", directoryPath) < (int)sizeof(path));
-  assert(unlink(path) == 0);
-
-  hostExchangePortOutput(&exchange, hostExchangePort, hostExchangeCommandGet);
-  writeProdosFilename(&exchange, "../ESCAPE");
-  assert(hostExchangePortInput(&exchange, hostExchangePort) == hostExchangeStatusInvalid);
-  hostExchangeClose(&exchange);
-
-  hostExchange prodos = {0};
-  assert(hostExchangeInitializeProdos(&prodos, directoryPath));
-  hostExchangePortOutput(&prodos, hostExchangePort, hostExchangeCommandGet);
-  writeProdosFilename(&prodos, "ANNU-READ.TEXT");
-  assert(hostExchangePortInput(&prodos, hostExchangePort) == hostExchangeStatusInvalid);
-  hostExchangeClose(&prodos);
-
-  for (size_t index = 0; index < 2; ++index)
-  {
-    assert(snprintf(path, sizeof(path), "%s/%s", directoryPath, validNames[index]) <
-           (int)sizeof(path));
-    assert(unlink(path) == 0);
-  }
-  for (size_t index = 0; index < 3; ++index)
-  {
-    assert(snprintf(path, sizeof(path), "%s/%s", directoryPath, hiddenNames[index]) <
-           (int)sizeof(path));
-    assert(unlink(path) == 0);
-  }
-  assert(rmdir(directoryPath) == 0);
-}
-
 static void testCpm86Core(void)
 {
-  char exchangeDirectoryPath[] = "/tmp/cpm86-exchange-test-XXXXXX";
-  assert(mkdtemp(exchangeDirectoryPath) != NULL);
-  hostExchange exchange = {0};
-  assert(hostExchangeInitialize(&exchange, exchangeDirectoryPath));
-
   cpm86Core* core = NULL;
   cpm86PortFixture portFixture = {.input = 0xA5};
   const cpm86CoreConfig coreConfig = {.ramSize = 128 * 1024,
@@ -1557,9 +1018,9 @@ static void testCpm86Core(void)
                                       .readMilliseconds = NULL,
                                       .clockContext = NULL,
                                       .captureInstructionTrace = true};
-  assert(cpm86CoreCreate(&core, &exchange, &coreConfig) == cpm86CoreOk);
+  assert(cpm86CoreCreate(&core, &coreConfig) == cpm86CoreOk);
   cpm86Core* secondCore = NULL;
-  assert(cpm86CoreCreate(&secondCore, &exchange, &coreConfig) == cpm86CoreBusy);
+  assert(cpm86CoreCreate(&secondCore, &coreConfig) == cpm86CoreBusy);
   assert(secondCore == NULL);
 
   const uint8_t arithmeticProgram[] = {0xB8, 0x34, 0x12, 0xBB, 0x00, 0x02,
@@ -1701,34 +1162,6 @@ static void testCpm86Core(void)
   assert(wrappedResult[0] == 0x78 && wrappedResult[1] == 0x56);
 
   assert(cpm86CoreReset(core) == cpm86CoreOk);
-  const uint8_t queryProgram[] = {0xB0, 0x00, 0xE6, 0xF8, 0xE4, 0xF8, 0xA2, 0x00, 0x03, 0xE4,
-                                  0xF8, 0xA2, 0x01, 0x03, 0xE4, 0xF8, 0xA2, 0x02, 0x03, 0xF4};
-  assert(cpm86CoreLoad(core, 0, queryProgram, sizeof(queryProgram)) == cpm86CoreOk);
-  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
-  assert(cpm86CoreRun(core, 16, &executed) == cpm86CoreHalted);
-  assert(executed == 9);
-  uint8_t queryResult[3];
-  assert(cpm86CoreRead(core, 0x0300, queryResult, sizeof(queryResult)) == cpm86CoreOk);
-  assert(queryResult[0] == hostExchangeStatusOk);
-  assert(queryResult[1] == 1);
-  assert(queryResult[2] == 0x07);
-
-  assert(cpm86CoreReset(core) == cpm86CoreOk);
-  const uint8_t wordIoProgram[] = {0xB0, 0x00, 0xE6, 0xF8, 0xE4, 0xF8, 0xE5,
-                                   0xF8, 0xE4, 0xF8, 0xA2, 0x00, 0x03, 0xF4};
-  assert(cpm86CoreLoad(core, 0, wordIoProgram, sizeof(wordIoProgram)) == cpm86CoreOk);
-  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
-  assert(cpm86CoreStep(core) == cpm86CoreOk);
-  assert(cpm86CoreStep(core) == cpm86CoreOk);
-  assert(cpm86CoreStep(core) == cpm86CoreOk);
-  assert(cpm86CoreStep(core) == cpm86CoreIoError);
-  assert(cpm86CoreStep(core) == cpm86CoreOk);
-  assert(cpm86CoreStep(core) == cpm86CoreOk);
-  uint8_t version = 0;
-  assert(cpm86CoreRead(core, 0x0300, &version, sizeof(version)) == cpm86CoreOk);
-  assert(version == 1);
-
-  assert(cpm86CoreReset(core) == cpm86CoreOk);
   const uint8_t targetPortProgram[] = {0xE4, 0xF6, 0xA2, 0x00, 0x03, 0xB0, 0x5A, 0xE6, 0xF7, 0xF4};
   assert(cpm86CoreLoad(core, 0, targetPortProgram, sizeof(targetPortProgram)) == cpm86CoreOk);
   assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
@@ -1759,8 +1192,6 @@ static void testCpm86Core(void)
   assert(traceCount == 1 && trace[0].segment == 0 && trace[0].offset == 0x0020);
 
   cpm86CoreDestroy(core);
-  hostExchangeClose(&exchange);
-  assert(rmdir(exchangeDirectoryPath) == 0);
 }
 
 static void testCpm86TimerPorts(void)
@@ -1779,7 +1210,7 @@ static void testCpm86TimerPorts(void)
       .captureInstructionTrace = false,
   };
   cpm86Core* core = NULL;
-  assert(cpm86CoreCreate(&core, NULL, &config) == cpm86CoreOk);
+  assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);
 
   const uint8_t capabilityProgram[] = {0xE4, 0xF0, 0xA2, 0x00, 0x03, 0xF4};
   assert(cpm86CoreLoad(core, 0, capabilityProgram, sizeof(capabilityProgram)) == cpm86CoreOk);
@@ -1905,7 +1336,7 @@ static void testCpm86TimerPorts(void)
       .clockContext = NULL,
       .captureInstructionTrace = false,
   };
-  assert(cpm86CoreCreate(&core, NULL, &noClockConfig) == cpm86CoreOk);
+  assert(cpm86CoreCreate(&core, &noClockConfig) == cpm86CoreOk);
   const uint8_t unavailableProgram[] = {0xE4, 0xF0, 0xA2, 0x00, 0x03, 0xE4, 0xF1, 0xA2, 0x01,
                                         0x03, 0xE4, 0xF2, 0xA2, 0x02, 0x03, 0xE4, 0xF3, 0xA2,
                                         0x03, 0x03, 0xE4, 0xF4, 0xA2, 0x04, 0x03, 0xF4};
@@ -2107,7 +1538,7 @@ static bool runCpm86UntilPrompt(cpm86Core* core, cpm86BootFixture* fixture, cons
                                 size_t promptCount)
 {
   size_t instructions = 0;
-  size_t instructionBudget = getenv("CPM86_HOST_BUILD_DISK") == NULL ? 5000000 : 100000000;
+  size_t instructionBudget = 5000000;
   while (countOccurrences(fixture->output, prompt) < promptCount &&
          instructions < instructionBudget)
   {
@@ -2292,42 +1723,6 @@ static void testCpm86Boot(void)
   assert(imageOpen(&disk, temporaryDiskPath, false));
   cpm86BootFixture fixture = {.disks = {[0] = &disk, [1] = &disk},
                               .largeDisks = {[0] = true, [1] = true}};
-  const char* hostBuildDiskPath = getenv("CPM86_HOST_BUILD_DISK");
-  assert((hostBuildDiskPath == NULL) == (hostSystemDiskPath == NULL));
-  imageFile hostBuildDisk = {0};
-  hostExchange exchange = {0};
-  char exchangeDirectoryPath[] = "/tmp/cpm86-host-exchange-XXXXXX";
-  char exchangeSourcePath[sizeof(exchangeDirectoryPath) + sizeof("/HELLO.A86")];
-  char exchangeOtherPath[sizeof(exchangeDirectoryPath) + sizeof("/OTHER.A86")];
-  char exchangeHostPath[sizeof(exchangeDirectoryPath) + sizeof("/HOST.A86")];
-  static const uint8_t otherSource[] = {0x00, 0x01, 0x7F, 0x80, 0xFE, 0xFF, 0x0D, 0x0A, 0x1A};
-  if (hostBuildDiskPath != NULL)
-  {
-    assert(imageOpen(&hostBuildDisk, hostBuildDiskPath, false));
-    assert(imageSize(&hostBuildDisk) == cpm86LargeDiskSize);
-    fixture.disks[4] = &hostBuildDisk;
-    fixture.largeDisks[4] = true;
-
-    assert(mkdtemp(exchangeDirectoryPath) != NULL);
-    assert(hostExchangeInitialize(&exchange, exchangeDirectoryPath));
-    snprintf(exchangeSourcePath, sizeof(exchangeSourcePath), "%s/HELLO.A86", exchangeDirectoryPath);
-    snprintf(exchangeOtherPath, sizeof(exchangeOtherPath), "%s/OTHER.A86", exchangeDirectoryPath);
-    snprintf(exchangeHostPath, sizeof(exchangeHostPath), "%s/HOST.A86", exchangeDirectoryPath);
-    uint8_t exchangeSource[43 * 128];
-    for (size_t index = 0; index < sizeof(exchangeSource); ++index)
-    {
-      exchangeSource[index] = (uint8_t)(index * 37U + (index >> 3));
-    }
-    FILE* exchangeSourceFile = fopen(exchangeSourcePath, "wb");
-    assert(exchangeSourceFile != NULL);
-    assert(fwrite(exchangeSource, 1, sizeof(exchangeSource), exchangeSourceFile) ==
-           sizeof(exchangeSource));
-    assert(fclose(exchangeSourceFile) == 0);
-    FILE* exchangeOtherFile = fopen(exchangeOtherPath, "wb");
-    assert(exchangeOtherFile != NULL);
-    assert(fwrite(otherSource, 1, sizeof(otherSource), exchangeOtherFile) == sizeof(otherSource));
-    assert(fclose(exchangeOtherFile) == 0);
-  }
   const cpm86CoreConfig config = {
       .ramSize = 640 * 1024,
       .portRead = cpm86BootPortRead,
@@ -2338,8 +1733,7 @@ static void testCpm86Boot(void)
       .captureInstructionTrace = true,
   };
   cpm86Core* core = NULL;
-  assert(cpm86CoreCreate(&core, hostBuildDiskPath == NULL ? NULL : &exchange, &config) ==
-         cpm86CoreOk);
+  assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);
   size_t payloadOffset = 0;
   const size_t payloadSize = sizeof(systemImage) - 128;
   while (payloadOffset < payloadSize)
@@ -2496,284 +1890,6 @@ static void testCpm86Boot(void)
   assert(imageClose(&bigDisk));
   assert(unlink(bigDiskPath) == 0);
   fixture.bigDisks[3] = false;
-
-  if (hostBuildDiskPath != NULL)
-  {
-    fixture.input = "E:\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 1));
-
-    fixture.input = "A:ASM86 E:HOST.A86\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 2));
-    if (strstr(fixture.output, "NUMBER OF ERRORS:   0") == NULL)
-    {
-      fprintf(stderr, "CP/M-86 ASM86 failed:\n%s\n", fixture.output);
-    }
-    assert(strstr(fixture.output, "NUMBER OF ERRORS:   0") != NULL);
-
-    fixture.input = "A:GENCMD E:HOST\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 3));
-
-    if (getenv("CPM86_HOST_COMPILE_ONLY") != NULL)
-    {
-      assert(imageClose(&hostBuildDisk));
-      hostExchangeClose(&exchange);
-      assert(unlink(exchangeSourcePath) == 0);
-      assert(unlink(exchangeOtherPath) == 0);
-      assert(rmdir(exchangeDirectoryPath) == 0);
-      cpm86CoreDestroy(core);
-      assert(imageClose(&disk));
-      assert(unlink(temporaryDiskPath) == 0);
-      return;
-    }
-
-    fixture.input = "A:HOST DIR\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 4));
-    if (strstr(fixture.output, "HELLO.A86") == NULL)
-    {
-      fprintf(stderr, "CP/M-86 HOST DIR output:\n%s\n", fixture.output);
-    }
-    assert(strstr(fixture.output, "HELLO.A86") != NULL);
-
-    fixture.input = "A:HOST GET HELLO.A86\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 5));
-    if (strstr(fixture.output, "GET complete.") == NULL)
-    {
-      fprintf(stderr, "CP/M-86 HOST GET output:\n%s\n", fixture.output);
-    }
-    assert(strstr(fixture.output, "GET complete.") != NULL);
-    assert(unlink(exchangeSourcePath) == 0);
-
-    fixture.input = "A:HOST PUT HELLO.A86\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 6));
-    if (strstr(fixture.output, "PUT complete.") == NULL)
-    {
-      fprintf(stderr, "CP/M-86 HOST PUT output:\n%s\n", fixture.output);
-    }
-    assert(strstr(fixture.output, "PUT complete.") != NULL);
-
-    uint8_t actualResult[43 * 128];
-    FILE* exchangeResultFile = fopen(exchangeSourcePath, "rb");
-    assert(exchangeResultFile != NULL);
-    assert(fread(actualResult, 1, sizeof(actualResult), exchangeResultFile) ==
-           sizeof(actualResult));
-    assert(fgetc(exchangeResultFile) == EOF);
-    assert(fclose(exchangeResultFile) == 0);
-    for (size_t index = 0; index < sizeof(actualResult); ++index)
-    {
-      assert(actualResult[index] == (uint8_t)(index * 37U + (index >> 3)));
-    }
-
-    fixture.input = "A:HOST GET *.A86\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 7));
-    if (strstr(fixture.output, "GET HELLO.A86: target file already exists.") == NULL ||
-        strstr(fixture.output, "GET OTHER.A86: complete.") == NULL)
-    {
-      fprintf(stderr, "CP/M-86 HOST wildcard GET output:\n%s\n", fixture.output);
-    }
-    assert(strstr(fixture.output, "GET HELLO.A86: target file already exists.") != NULL);
-    assert(strstr(fixture.output, "GET OTHER.A86: complete.") != NULL);
-
-    fixture.input = "A:HOST GET H?LLO.A86\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 8));
-    assert(strstr(fixture.output, "GET HELLO.A86: target file already exists.") != NULL);
-    assert(unlink(exchangeOtherPath) == 0);
-    FILE* exchangeHostFile = fopen(exchangeHostPath, "wb");
-    assert(exchangeHostFile != NULL);
-    assert(fputc(0xA5, exchangeHostFile) == 0xA5);
-    assert(fclose(exchangeHostFile) == 0);
-
-    fixture.input = "A:HOST PUT *.A86\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 9));
-    if (strstr(fixture.output, "PUT HELLO.A86: exchange destination already exists.") == NULL ||
-        strstr(fixture.output, "PUT OTHER.A86: complete.") == NULL ||
-        strstr(fixture.output, "PUT HOST.A86: exchange destination already exists.") == NULL ||
-        countOccurrences(fixture.output, "PUT HOST.A86:") != 1)
-    {
-      fprintf(stderr, "CP/M-86 HOST wildcard PUT output:\n%s\n", fixture.output);
-    }
-    assert(strstr(fixture.output, "PUT HELLO.A86: exchange destination already exists.") != NULL);
-    assert(strstr(fixture.output, "PUT OTHER.A86: complete.") != NULL);
-    assert(strstr(fixture.output, "PUT HOST.A86: exchange destination already exists.") != NULL);
-    assert(countOccurrences(fixture.output, "PUT HOST.A86:") == 1);
-
-    FILE* exchangeOtherResultFile = fopen(exchangeOtherPath, "rb");
-    assert(exchangeOtherResultFile != NULL);
-    uint8_t actualOtherResult[sizeof(otherSource)];
-    assert(fread(actualOtherResult, 1, sizeof(actualOtherResult), exchangeOtherResultFile) ==
-           sizeof(actualOtherResult));
-    assert(fgetc(exchangeOtherResultFile) == EOF);
-    assert(fclose(exchangeOtherResultFile) == 0);
-    assert(memcmp(actualOtherResult, otherSource, sizeof(otherSource)) == 0);
-
-    fixture.input = "A:HOST PUT H?LLO.A86\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 10));
-    assert(strstr(fixture.output, "PUT HELLO.A86: exchange destination already exists.") != NULL);
-
-    fixture.input = "A:HOST GET HELLO.A86 O\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 11));
-    if (countOccurrences(fixture.output, "GET HELLO.A86: .. GET complete.") != 2 ||
-        strstr(fixture.output, "sidecar metadata file already exists") != NULL)
-    {
-      fprintf(stderr, "CP/M-86 HOST GET O output:\n%s\n", fixture.output);
-    }
-    assert(countOccurrences(fixture.output, "GET HELLO.A86: .. GET complete.") == 2);
-    assert(strstr(fixture.output, "sidecar metadata file already exists") == NULL);
-
-    fixture.input = "A:HOST GET *.A86 O\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 12));
-    if (countOccurrences(fixture.output, "GET HELLO.A86: .. complete.") != 1 ||
-        countOccurrences(fixture.output, "GET OTHER.A86: complete.") != 2 ||
-        countOccurrences(fixture.output, "GET HOST.A86: complete.") != 1 ||
-        strstr(fixture.output, "sidecar metadata file already exists") != NULL)
-    {
-      fprintf(stderr, "CP/M-86 HOST wildcard GET O output:\n%s\n", fixture.output);
-    }
-    assert(countOccurrences(fixture.output, "GET HELLO.A86: .. complete.") == 1);
-    assert(countOccurrences(fixture.output, "GET OTHER.A86: complete.") == 2);
-    assert(countOccurrences(fixture.output, "GET HOST.A86: complete.") == 1);
-    assert(strstr(fixture.output, "sidecar metadata file already exists") == NULL);
-
-    //-- PUT without O is refused while the exchange file exists; PUT O replaces it and shows
-    // progress dots.
-    exchangeHostFile = fopen(exchangeSourcePath, "wb");
-    assert(exchangeHostFile != NULL);
-    assert(fputc(0x55, exchangeHostFile) == 0x55);
-    assert(fclose(exchangeHostFile) == 0);
-    fixture.input = "A:HOST PUT HELLO.A86\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 13));
-    assert(strstr(fixture.output, "PUT HELLO.A86: exchange destination already exists.") != NULL);
-    fixture.input = "A:HOST PUT HELLO.A86 O\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 14));
-    if (strstr(fixture.output, "PUT HELLO.A86: .. PUT complete.") == NULL)
-    {
-      fprintf(stderr, "CP/M-86 HOST PUT O output:\n%s\n", fixture.output);
-    }
-    assert(strstr(fixture.output, "PUT HELLO.A86: .. PUT complete.") != NULL);
-    exchangeResultFile = fopen(exchangeSourcePath, "rb");
-    assert(exchangeResultFile != NULL);
-    assert(fread(actualResult, 1, sizeof(actualResult), exchangeResultFile) ==
-           sizeof(actualResult));
-    assert(fgetc(exchangeResultFile) == EOF);
-    assert(fclose(exchangeResultFile) == 0);
-    for (size_t index = 0; index < sizeof(actualResult); ++index)
-    {
-      assert(actualResult[index] == (uint8_t)(index * 37U + (index >> 3)));
-    }
-
-    //-- Real binaries (several KiB up to 26 KiB) copied with PIP are sent with wildcard PUT and
-    // must arrive byte for byte.
-    {
-      static const char* const binaryNames[] = {"ASM86.CMD", "ED.CMD", "GENCMD.CMD", "PIP.CMD",
-                                                "HOST.CMD"};
-      fixture.input =
-          "A:PIP E:=A:ASM86.CMD\rA:PIP E:=A:ED.CMD\rA:PIP E:=A:GENCMD.CMD\rA:PIP E:=A:PIP.CMD\r";
-      fixture.inputLength = strlen(fixture.input);
-      fixture.inputPosition = 0;
-      assert(runCpm86UntilPrompt(core, &fixture, "E>", 18));
-      fixture.input = "A:HOST PUT *.CMD O\r";
-      fixture.inputLength = strlen(fixture.input);
-      fixture.inputPosition = 0;
-      assert(runCpm86UntilPrompt(core, &fixture, "E>", 19));
-      assert(strstr(fixture.output, "transfer failed") == NULL);
-      assert(countOccurrences(fixture.output, "complete (no valid HST metadata") == 5);
-      for (size_t nameIndex = 0; nameIndex < sizeof(binaryNames) / sizeof(binaryNames[0]);
-           ++nameIndex)
-      {
-        char expectedPath[256];
-        char actualPath[sizeof(exchangeDirectoryPath) + 32];
-        snprintf(expectedPath, sizeof(expectedPath), "bootDisks/cpm86/systemDsk/%s",
-                 binaryNames[nameIndex]);
-        snprintf(actualPath, sizeof(actualPath), "%s/%s", exchangeDirectoryPath,
-                 binaryNames[nameIndex]);
-        FILE* expectedFile = fopen(expectedPath, "rb");
-        FILE* actualFile = fopen(actualPath, "rb");
-        if (expectedFile == NULL || actualFile == NULL)
-        {
-          fprintf(stderr, "missing %s or %s\n", expectedPath, actualPath);
-        }
-        assert(expectedFile != NULL && actualFile != NULL);
-        int expectedByte;
-        size_t position = 0;
-        while ((expectedByte = fgetc(expectedFile)) != EOF)
-        {
-          int actualByte = fgetc(actualFile);
-          if (actualByte != expectedByte)
-          {
-            fprintf(stderr, "%s differs at byte %zu\n", binaryNames[nameIndex], position);
-          }
-          assert(actualByte == expectedByte);
-          ++position;
-        }
-        assert(fgetc(actualFile) == EOF);
-        assert(fclose(expectedFile) == 0);
-        assert(fclose(actualFile) == 0);
-        assert(unlink(actualPath) == 0);
-      }
-    }
-
-    //-- A file larger than the free space of the CP/M drive reports "disk full" and leaves nothing
-    // behind.
-    char exchangeBigPath[sizeof(exchangeDirectoryPath) + sizeof("/BIGFILE.DAT")];
-    snprintf(exchangeBigPath, sizeof(exchangeBigPath), "%s/BIGFILE.DAT", exchangeDirectoryPath);
-    FILE* exchangeBigFile = fopen(exchangeBigPath, "wb");
-    assert(exchangeBigFile != NULL);
-    for (size_t index = 0; index < 400000; ++index)
-    {
-      assert(fputc((int)(index * 31U), exchangeBigFile) != EOF);
-    }
-    assert(fclose(exchangeBigFile) == 0);
-    fixture.input = "A:HOST GET BIGFILE.DAT\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 20));
-    if (strstr(fixture.output, "BIGFILE.DAT: ") == NULL ||
-        strstr(fixture.output, "disk full") == NULL)
-    {
-      fprintf(stderr, "CP/M-86 HOST GET disk full output:\n%s\n", fixture.output);
-    }
-    assert(strstr(fixture.output, "disk full") != NULL);
-    fixture.input = "DIR BIGFILE.*\r";
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    assert(runCpm86UntilPrompt(core, &fixture, "E>", 21));
-    assert(strstr(fixture.output, "NO FILE") != NULL);
-    assert(unlink(exchangeBigPath) == 0);
-
-    assert(imageClose(&hostBuildDisk));
-    hostExchangeClose(&exchange);
-    assert(unlink(exchangeSourcePath) == 0);
-    assert(unlink(exchangeOtherPath) == 0);
-    assert(unlink(exchangeHostPath) == 0);
-    assert(rmdir(exchangeDirectoryPath) == 0);
-  }
 
   cpm86CoreDestroy(core);
   assert(imageClose(&disk));
@@ -3145,7 +2261,6 @@ typedef struct
   bool availableDrives[cpm80DiskDriveCount];
   bool writableDrives[cpm80DiskDriveCount];
   cpm80DiskProfile diskProfiles[cpm80DiskDriveCount];
-  hostExchange* exchange;
   const char* input;
   size_t inputLength;
   size_t inputPosition;
@@ -3241,18 +2356,6 @@ static void cpm80TestYield(void* context)
   (void)context;
 }
 
-static uint8_t cpm80TestExchangePortInput(void* context, uint8_t port)
-{
-  cpm80GuestFixture* fixture = context;
-  return hostExchangePortInput(fixture->exchange, port);
-}
-
-static void cpm80TestExchangePortOutput(void* context, uint8_t port, uint8_t value)
-{
-  cpm80GuestFixture* fixture = context;
-  hostExchangePortOutput(fixture->exchange, port, value);
-}
-
 static size_t countOccurrences(const char* text, const char* needle)
 {
   size_t count = 0;
@@ -3267,43 +2370,6 @@ static size_t countOccurrences(const char* text, const char* needle)
 
 static void testCpm80GuestBoot(void)
 {
-  char exchangeDirectoryPath[] = "/tmp/cpm80-guest-exchange-test-XXXXXX";
-  assert(mkdtemp(exchangeDirectoryPath) != NULL);
-  hostExchange exchange = {0};
-  assert(hostExchangeInitialize(&exchange, exchangeDirectoryPath));
-  char exchangeFilePath[absolutePathCapacity];
-  assert(snprintf(exchangeFilePath, sizeof(exchangeFilePath), "%s/INPUT.BIN",
-                  exchangeDirectoryPath) < (int)sizeof(exchangeFilePath));
-  char exchangeOtherFilePath[absolutePathCapacity];
-  assert(snprintf(exchangeOtherFilePath, sizeof(exchangeOtherFilePath), "%s/OTHER.BIN",
-                  exchangeDirectoryPath) < (int)sizeof(exchangeOtherFilePath));
-  uint8_t exchangeFileBytes[777];
-  for (size_t index = 0; index < sizeof(exchangeFileBytes); ++index)
-  {
-    exchangeFileBytes[index] = (uint8_t)(index * 37U + 11U);
-  }
-  exchangeFileBytes[0] = 0x00;
-  exchangeFileBytes[1] = 0x1A;
-  exchangeFileBytes[2] = 0x7F;
-  exchangeFileBytes[3] = 0x80;
-  exchangeFileBytes[4] = 0xFF;
-  exchangeFileBytes[5] = 0x0D;
-  exchangeFileBytes[6] = 0x0A;
-  FILE* exchangeFile = fopen(exchangeFilePath, "wb");
-  assert(exchangeFile != NULL);
-  assert(fwrite(exchangeFileBytes, 1, sizeof(exchangeFileBytes), exchangeFile) ==
-         sizeof(exchangeFileBytes));
-  assert(fclose(exchangeFile) == 0);
-  uint8_t exchangeOtherFileBytes[257];
-  for (size_t index = 0; index < sizeof(exchangeOtherFileBytes); ++index)
-  {
-    exchangeOtherFileBytes[index] = (uint8_t)(index * 19U + 5U);
-  }
-  exchangeFile = fopen(exchangeOtherFilePath, "wb");
-  assert(exchangeFile != NULL);
-  assert(fwrite(exchangeOtherFileBytes, 1, sizeof(exchangeOtherFileBytes), exchangeFile) ==
-         sizeof(exchangeOtherFileBytes));
-  assert(fclose(exchangeFile) == 0);
   imageFile disk = {0};
   char writableDiskPath[] = "cpm-write-test-XXXXXX";
   int writableDiskDescriptor = mkstemp(writableDiskPath);
@@ -3373,8 +2439,7 @@ static void testCpm80GuestBoot(void)
       .diskProfiles = {[0] = cpm80DiskProfileLarge,
                        [1] = cpm80DiskProfileLarge,
                        [3] = cpm80DiskProfileBig,
-                       [5] = cpm80DiskProfileLarge},
-      .exchange = &exchange};
+                       [5] = cpm80DiskProfileLarge}};
   const cpm80HostOps host = {.consoleAvailable = cpm80TestConsoleAvailable,
                              .consoleRead = cpm80TestConsoleRead,
                              .consoleWrite = cpm80TestConsoleWrite,
@@ -3382,34 +2447,10 @@ static void testCpm80GuestBoot(void)
                              .diskDriveProfile = cpm80TestDiskDriveProfile,
                              .diskReadRecord = cpm80TestDiskRead,
                              .diskWriteRecord = cpm80TestDiskWrite,
-                             .exchangePortInput = cpm80TestExchangePortInput,
-                             .exchangePortOutput = cpm80TestExchangePortOutput,
                              .yield = cpm80TestYield,
                              .context = &fixture};
   cpm80Guest guest = {0};
   assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage));
-  const uint8_t exchangePortProgram[] = {0x3E,
-                                         hostExchangeCommandDirectory,
-                                         0xD3,
-                                         hostExchangePort,
-                                         0xDB,
-                                         hostExchangePort,
-                                         0x32,
-                                         0xFF,
-                                         0x02,
-                                         0x3E,
-                                         0x00,
-                                         0xD3,
-                                         hostExchangeAbortPort,
-                                         0x76};
-  assert(cpm80CpuLoad(&guest.cpu, 0x0100, exchangePortProgram, sizeof(exchangePortProgram)));
-  guest.cpu.processor.pc = 0x0100;
-  guest.cpu.processor.sp = 0x0200;
-  while (!guest.cpu.processor.halted)
-  {
-    assert(cpm80GuestStep(&guest));
-  }
-  assert(guest.cpu.memory[0x02FF] == hostExchangeStatusOk);
   assert(cpm80GuestColdBoot(&guest));
   assert(guest.cpu.memory[0x0000] == 0xC3 && guest.cpu.memory[0x0001] == 0x03 &&
          guest.cpu.memory[0x0002] == 0xDA);
@@ -3466,9 +2507,9 @@ static void testCpm80GuestBoot(void)
   assert(countOccurrences(fixture.output, "A>") == 2);
   assert(strstr(fixture.output, "HELLO    COM") != NULL);
   const char* expectedUtilities[] = {
-      "ASM.COM",    "DDT.COM",     "DUMP.COM", "ED.COM",   "HELP.COM", "HELP.HLP", "LIB.COM",
-      "LINK.COM",   "HOST.COM",    "LOAD.COM", "MAC.COM",  "PIP.COM",  "RMAC.COM", "STAT.COM",
-      "SUBMIT.COM", "WELCOME.TXT", "XREF.COM", "XSUB.COM", "ZSID.COM",
+      "ASM.COM",  "DDT.COM",    "DUMP.COM",    "ED.COM",   "HELP.COM", "HELP.HLP",
+      "LIB.COM",  "LINK.COM",   "LOAD.COM",    "MAC.COM",  "PIP.COM",  "RMAC.COM",
+      "STAT.COM", "SUBMIT.COM", "WELCOME.TXT", "XREF.COM", "XSUB.COM", "ZSID.COM",
   };
   for (size_t index = 0; index < sizeof(expectedUtilities) / sizeof(expectedUtilities[0]); ++index)
   {
@@ -3484,336 +2525,6 @@ static void testCpm80GuestBoot(void)
     assert(strstr(fixture.output, expectedEntry) != NULL);
   }
 
-  priorSystemPrompts = countOccurrences(fixture.output, "A>");
-  fixture.input = "HOST DIR\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "A>") < priorSystemPrompts + 1 && instructions < 6000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 6000000);
-  assert(strstr(fixture.output, "INPUT.BIN") != NULL);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "E:\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 7000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 7000000);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "A:HOST GET INPUT.BIN\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 10000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 10000000);
-  assert(strstr(fixture.output, "GET complete.") != NULL);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "E:\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 11000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 11000000);
-
-  instructions = 0;
-  assert(guest.selectedDrive == 4);
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "A:HOST GET *.*\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 3000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 3000000);
-  if (strstr(fixture.output, "GET INPUT.BIN: target file already exists.") == NULL ||
-      strstr(fixture.output, "GET OTHER.BIN: complete.") == NULL)
-  {
-    fprintf(stderr, "CP/M-80 HOST wildcard GET output:\n%s\n", fixture.output);
-  }
-  assert(strstr(fixture.output, "GET INPUT.BIN: target file already exists.") != NULL);
-  assert(strstr(fixture.output, "GET OTHER.BIN: complete.") != NULL);
-  assert(strstr(fixture.output, "GET complete.") != NULL);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "A:HOST GET INP?T.BIN\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 5000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 5000000);
-  assert(strstr(fixture.output, "GET INPUT.BIN: target file already exists.") != NULL);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "E:\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 11000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 11000000);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "DIR\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 12000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 12000000);
-  assert(strstr(fixture.output, "OTHER    BIN") != NULL);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "A:PIP E:INPUT2.HST=E:INPUT.HST\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 12000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 12000000);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "E:\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 13000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 13000000);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "A:HOST GET INPUT2.BIN\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 15000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 15000000);
-  assert(strstr(fixture.output, "GET INPUT2.BIN: sidecar metadata file already exists.") != NULL);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "E:\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 16000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 16000000);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "DIR\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 17000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 17000000);
-  assert(strstr(fixture.output, "INPUT2   HST") != NULL);
-
-  instructions = 0;
-  const char* overwriteCommands[] = {"A:HOST GET INPUT.BIN O\r", "ERA E:INPUT.BIN\r",
-                                     "A:HOST GET INPUT.BIN\r", "A:HOST GET INPUT.BIN O\r"};
-  size_t completeCountBefore = countOccurrences(fixture.output, "GET complete.");
-  size_t sidecarCountBefore =
-      countOccurrences(fixture.output, "GET INPUT.BIN: sidecar metadata file already exists.");
-  for (size_t commandIndex = 0; commandIndex < 4; ++commandIndex)
-  {
-    priorWorkPrompts = countOccurrences(fixture.output, "E>");
-    fixture.input = overwriteCommands[commandIndex];
-    fixture.inputLength = strlen(fixture.input);
-    fixture.inputPosition = 0;
-    while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 10000000)
-    {
-      size_t executed = cpm80GuestRunFor(&guest, 10000);
-      assert(executed > 0);
-      instructions += executed;
-    }
-    assert(instructions < 10000000);
-    if (commandIndex == 0)
-    {
-      assert(countOccurrences(fixture.output, "GET complete.") == completeCountBefore + 1);
-    }
-    if (commandIndex == 2)
-    {
-      assert(countOccurrences(fixture.output,
-                              "GET INPUT.BIN: sidecar metadata file already exists.") ==
-             sidecarCountBefore + 1);
-    }
-    if (commandIndex == 3)
-    {
-      assert(countOccurrences(fixture.output, "GET complete.") == completeCountBefore + 2);
-    }
-  }
-  instructions = 0;
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "A:HOST GET INPUT.BIN\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 18000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 18000000);
-  assert(strstr(fixture.output, "GET INPUT.BIN: target file already exists.") != NULL);
-  assert(unlink(exchangeFilePath) == 0);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "E:\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 19000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 19000000);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "A:HOST PUT INPUT.BIN\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 22000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 22000000);
-  if (strstr(fixture.output, "PUT complete.") == NULL)
-  {
-    fprintf(stderr, "CP/M-80 HOST PUT output:\n%s\n", fixture.output);
-  }
-  assert(strstr(fixture.output, "PUT complete.") != NULL);
-  exchangeFile = fopen(exchangeFilePath, "rb");
-  assert(exchangeFile != NULL);
-  uint8_t roundTripBytes[sizeof(exchangeFileBytes)];
-  assert(fread(roundTripBytes, 1, sizeof(roundTripBytes), exchangeFile) == sizeof(roundTripBytes));
-  assert(fgetc(exchangeFile) == EOF);
-  assert(fclose(exchangeFile) == 0);
-  assert(memcmp(roundTripBytes, exchangeFileBytes, sizeof(roundTripBytes)) == 0);
-  instructions = 0;
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "E:\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 2000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 2000000);
-  assert(guest.selectedDrive == 4);
-
-  assert(unlink(exchangeOtherFilePath) == 0);
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "A:HOST PUT *.BIN\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 7000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 7000000);
-  if (strstr(fixture.output, "PUT INPUT.BIN: exchange destination already exists.") == NULL ||
-      strstr(fixture.output, "PUT OTHER.BIN: complete.") == NULL)
-  {
-    fprintf(stderr, "CP/M-80 HOST wildcard PUT output:\n%s\n", fixture.output);
-  }
-  assert(strstr(fixture.output, "PUT INPUT.BIN: exchange destination already exists.") != NULL);
-  assert(strstr(fixture.output, "PUT OTHER.BIN: complete.") != NULL);
-  assert(strstr(fixture.output, "PUT complete.") != NULL);
-  exchangeFile = fopen(exchangeOtherFilePath, "rb");
-  assert(exchangeFile != NULL);
-  uint8_t wildcardPutBytes[sizeof(exchangeOtherFileBytes)];
-  assert(fread(wildcardPutBytes, 1, sizeof(wildcardPutBytes), exchangeFile) ==
-         sizeof(wildcardPutBytes));
-  assert(fgetc(exchangeFile) == EOF);
-  assert(fclose(exchangeFile) == 0);
-  assert(memcmp(wildcardPutBytes, exchangeOtherFileBytes, sizeof(wildcardPutBytes)) == 0);
-  instructions = 0;
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "E:\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 2000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 2000000);
-  assert(guest.selectedDrive == 4);
-
-  priorWorkPrompts = countOccurrences(fixture.output, "E>");
-  fixture.input = "A:HOST PUT INP?T.BIN\r";
-  fixture.inputLength = strlen(fixture.input);
-  fixture.inputPosition = 0;
-  while (countOccurrences(fixture.output, "E>") < priorWorkPrompts + 1 && instructions < 4000000)
-  {
-    size_t executed = cpm80GuestRunFor(&guest, 10000);
-    assert(executed > 0);
-    instructions += executed;
-  }
-  assert(instructions < 4000000);
-  assert(strstr(fixture.output, "PUT INPUT.BIN: exchange destination already exists.") != NULL);
-
-  instructions = 0;
   priorSystemPrompts = countOccurrences(fixture.output, "A>");
   fixture.input = "A:\r";
   fixture.inputLength = strlen(fixture.input);
@@ -4173,10 +2884,6 @@ static void testCpm80GuestBoot(void)
   unlink(bigDiskPath);
   unlink(writableDiskPath);
   unlink(largeDiskPath);
-  hostExchangeClose(&exchange);
-  assert(unlink(exchangeFilePath) == 0);
-  assert(unlink(exchangeOtherFilePath) == 0);
-  assert(rmdir(exchangeDirectoryPath) == 0);
 }
 
 //-- Builds a LARGE system.dsk with tools/createSystemDsk.py from bootDisks/<os>/systemDsk into a
@@ -4251,8 +2958,6 @@ static void testCpm80LargeSystemBoot(void)
                              .diskDriveProfile = cpm80TestDiskDriveProfile,
                              .diskReadRecord = cpm80TestDiskRead,
                              .diskWriteRecord = cpm80TestDiskWrite,
-                             .exchangePortInput = cpm80TestExchangePortInput,
-                             .exchangePortOutput = cpm80TestExchangePortOutput,
                              .yield = cpm80TestYield,
                              .context = &fixture};
   cpm80Guest guest = {0};
@@ -4279,7 +2984,6 @@ static void testCpm80LargeSystemBoot(void)
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;
   runCpm80UntilPrompt(&guest, &fixture, "A>", 2);
-  assert(strstr(fixture.output, "HOST     COM") != NULL);
   assert(strstr(fixture.output, "ASM      COM") != NULL);
   assert(strstr(fixture.output, "ZSID     COM") != NULL);
   assert(strstr(fixture.output, "WELCOME  TXT") != NULL);
@@ -4325,7 +3029,7 @@ static void testCpm86LargeSystemBoot(void)
       .captureInstructionTrace = true,
   };
   cpm86Core* core = NULL;
-  assert(cpm86CoreCreate(&core, NULL, &config) == cpm86CoreOk);
+  assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);
   assert(cpm86CoreLoad(core, 0x00510, systemImage + 128, sizeof(systemImage) - 128) == cpm86CoreOk);
   const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
   assert(cpm86CoreWrite(core, 0x00380, bdosVector, sizeof(bdosVector)) == cpm86CoreOk);
@@ -4339,7 +3043,6 @@ static void testCpm86LargeSystemBoot(void)
   assert(runCpm86UntilPrompt(core, &fixture, "A>", 2));
   assert(strstr(fixture.output, "ASM86") != NULL);
   assert(strstr(fixture.output, "PIP") != NULL);
-  assert(strstr(fixture.output, "HOST") != NULL);
   assert(strstr(fixture.output, "STAT") != NULL);
   assert(fixture.diskReadRequests > 0);
   assert(fixture.diskReadFailures == 0);
@@ -4368,276 +3071,6 @@ static size_t runCpm80Command(cpm80Guest* guest, cpm80GuestFixture* fixture, con
     instructions += executed;
   }
   return instructions;
-}
-
-//-- GET and PUT of one big file between a BIG/LARGE/SYSTEM E: drive and the exchange directory.
-//-- fullDisk: the file is larger than the drive, so GET must fail with a "disk full" reason and
-// leave nothing behind.
-static void runCpm80TransferCase(cpm80DiskProfile transferProfile, size_t transferBytes,
-                                 bool fullDisk)
-{
-  char largeSystemPath[256];
-  createLargeSystemDisk("cpm80", largeSystemPath, sizeof(largeSystemPath));
-  imageFile disk = {0};
-  assert(imageOpen(&disk, largeSystemPath, true));
-  uint8_t ccpImage[cpm80CcpSize];
-  uint8_t bdosImage[cpm80BdosSize];
-  assert(imageReadAt(&disk, 0, ccpImage, sizeof(ccpImage)));
-  assert(imageReadAt(&disk, sizeof(ccpImage), bdosImage, sizeof(bdosImage)));
-
-  char transferDiskPath[] = "cpm-transfer-test-XXXXXX";
-  int transferDiskDescriptor = mkstemp(transferDiskPath);
-  assert(transferDiskDescriptor >= 0);
-  assert(ftruncate(transferDiskDescriptor, (off_t)cpm80DiskProfileImageSize(transferProfile)) == 0);
-  close(transferDiskDescriptor);
-  imageFile transferDisk = {0};
-  assert(imageOpen(&transferDisk, transferDiskPath, false));
-  uint8_t emptyDirectory[cpm80BigDiskDirectoryEntries * 32];
-  memset(emptyDirectory, 0xE5, sizeof(emptyDirectory));
-  assert(imageWriteAt(&transferDisk,
-                      2U * cpm80DiskProfileSectorsPerTrack(transferProfile) * cpm80DiskSectorSize,
-                      emptyDirectory, sizeof(emptyDirectory)));
-  assert(imageFlush(&transferDisk));
-
-  char exchangeDirectoryPath[] = "/tmp/cpm80-transfer-exchange-XXXXXX";
-  assert(mkdtemp(exchangeDirectoryPath) != NULL);
-  hostExchange exchange = {0};
-  assert(hostExchangeInitialize(&exchange, exchangeDirectoryPath));
-  char exchangeFilePath[absolutePathCapacity];
-  assert(snprintf(exchangeFilePath, sizeof(exchangeFilePath), "%s/BIGFILE.BIN",
-                  exchangeDirectoryPath) < (int)sizeof(exchangeFilePath));
-  uint8_t* expected = malloc(transferBytes);
-  uint8_t* actual = malloc(transferBytes + 1);
-  assert(expected != NULL && actual != NULL);
-  for (size_t index = 0; index < transferBytes; ++index)
-  {
-    expected[index] = (uint8_t)(index * 31U + (index >> 7) + 3U);
-  }
-  FILE* exchangeFile = fopen(exchangeFilePath, "wb");
-  assert(exchangeFile != NULL);
-  assert(fwrite(expected, 1, transferBytes, exchangeFile) == transferBytes);
-  assert(fclose(exchangeFile) == 0);
-
-  cpm80GuestFixture fixture = {.disks = {[0] = &disk, [4] = &transferDisk},
-                               .availableDrives = {[0] = true, [4] = true},
-                               .writableDrives = {[4] = true},
-                               .diskProfiles = {[0] = cpm80DiskProfileLarge, [4] = transferProfile},
-                               .exchange = &exchange};
-  const cpm80HostOps host = {.consoleAvailable = cpm80TestConsoleAvailable,
-                             .consoleRead = cpm80TestConsoleRead,
-                             .consoleWrite = cpm80TestConsoleWrite,
-                             .diskDriveAvailable = cpm80TestDiskDriveAvailable,
-                             .diskDriveProfile = cpm80TestDiskDriveProfile,
-                             .diskReadRecord = cpm80TestDiskRead,
-                             .diskWriteRecord = cpm80TestDiskWrite,
-                             .exchangePortInput = cpm80TestExchangePortInput,
-                             .exchangePortOutput = cpm80TestExchangePortOutput,
-                             .yield = cpm80TestYield,
-                             .context = &fixture};
-  cpm80Guest guest = {0};
-  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage));
-  assert(cpm80GuestColdBoot(&guest));
-  const size_t limit = 2000000000U;
-  runCpm80Command(&guest, &fixture, "", "A>", limit);
-  runCpm80Command(&guest, &fixture, "E:\r", "E>", limit);
-
-  runCpm80Command(&guest, &fixture, "A:HOST\r", "HOST> ", limit);
-  assert(countOccurrences(fixture.output, "HOST> ") == 1);
-  runCpm80Command(&guest, &fixture, "\r", "HOST> ", limit);
-  assert(!fixture.outputOverflow);
-  assert(countOccurrences(fixture.output, "Commands:") == 1);
-  assert(strstr(fixture.output, "  GET name.ext [O]") != NULL);
-  assert(strstr(fixture.output, "  PUT name.ext [O]") != NULL);
-  assert(strstr(fixture.output, "  QUIT") != NULL);
-  runCpm80Command(&guest, &fixture, "UNKNOWN\r", "HOST> ", limit);
-  assert(countOccurrences(fixture.output, "Commands:") == 1);
-  assert(strstr(fixture.output, "  GET name.ext [O]") != NULL);
-  assert(strstr(fixture.output, "  PUT name.ext [O]") != NULL);
-  runCpm80Command(&guest, &fixture, "DIR\r", "HOST> ", limit);
-  assert(strstr(fixture.output, "BIGFILE.BIN") != NULL);
-  runCpm80Command(&guest, &fixture, "QUIT\r", "E>", limit);
-  assert(strstr(fixture.output, "E>") != NULL);
-
-  //-- One dot per 16 records (2 KiB) between the "GET name: " prefix and the final message.
-  size_t expectedDots = transferBytes / 2048;
-  runCpm80Command(&guest, &fixture, "A:HOST\r", "HOST> ", limit);
-  runCpm80Command(&guest, &fixture, "GET BIGFILE.BIN\r", "HOST> ", limit);
-  assert(!fixture.outputOverflow);
-  assert(countOccurrences(fixture.output, "HOST> ") == 1);
-  if (fullDisk)
-  {
-    assert(strstr(fixture.output, "disk full") != NULL);
-    assert(strstr(fixture.output, "complete") == NULL);
-    runCpm80Command(&guest, &fixture, "QUIT\r", "E>", limit);
-    assert(strstr(fixture.output, "E>") != NULL);
-    runCpm80Command(&guest, &fixture, "DIR\r", "E>", limit);
-    assert(strstr(fixture.output, "BIGFILE") == NULL);
-    goto finished;
-  }
-  assert(strstr(fixture.output, "GET BIGFILE.BIN: ") != NULL);
-  assert(strstr(fixture.output, "GET complete.") != NULL);
-  assert(countOccurrences(fixture.output, ".") >= expectedDots);
-  assert(strstr(fixture.output, "...") != NULL || expectedDots < 3);
-  runCpm80Command(&guest, &fixture, "QUIT\r", "E>", limit);
-  assert(strstr(fixture.output, "E>") != NULL);
-  runCpm80Command(&guest, &fixture, "DIR\r", "E>", limit);
-  assert(strstr(fixture.output, "BIGFILE  BIN") != NULL &&
-         strstr(fixture.output, "BIGFILE  HST") != NULL);
-
-  //-- PUT: refused while the exchange file exists, and replaced when O is given.
-  runCpm80Command(&guest, &fixture, "A:HOST PUT BIGFILE.BIN\r", "E>", limit);
-  assert(strstr(fixture.output, "already exists") != NULL);
-  exchangeFile = fopen(exchangeFilePath, "wb");
-  assert(exchangeFile != NULL);
-  assert(fwrite("old", 1, 3, exchangeFile) == 3);
-  assert(fclose(exchangeFile) == 0);
-  runCpm80Command(&guest, &fixture, "A:HOST\r", "HOST> ", limit);
-  runCpm80Command(&guest, &fixture, "PUT BIGFILE.BIN O\r", "HOST> ", limit);
-  assert(countOccurrences(fixture.output, "HOST> ") == 1);
-  assert(strstr(fixture.output, "PUT BIGFILE.BIN: ") != NULL);
-  assert(strstr(fixture.output, "PUT complete.") != NULL);
-  assert(countOccurrences(fixture.output, ".") >= expectedDots);
-  runCpm80Command(&guest, &fixture, "QUIT\r", "E>", limit);
-  assert(strstr(fixture.output, "E>") != NULL);
-  exchangeFile = fopen(exchangeFilePath, "rb");
-  assert(exchangeFile != NULL);
-  size_t actualBytes = fread(actual, 1, transferBytes + 1, exchangeFile);
-  assert(fclose(exchangeFile) == 0);
-  assert(actualBytes == transferBytes);
-  assert(memcmp(actual, expected, transferBytes) == 0);
-
-finished:
-  free(actual);
-  free(expected);
-  cpm80GuestDestroy(&guest);
-  hostExchangeClose(&exchange);
-  assert(imageClose(&disk));
-  assert(imageClose(&transferDisk));
-  unlink(transferDiskPath);
-  removeLargeSystemDisk(largeSystemPath);
-  unlink(exchangeFilePath);
-  rmdir(exchangeDirectoryPath);
-}
-
-static void testCpm80LargeTransfer(void)
-{
-  runCpm80TransferCase(cpm80DiskProfileBig, 70000, false);
-  runCpm80TransferCase(cpm80DiskProfileSystem, 250000, true);
-}
-
-//-- Assembles guest/cpm80/host/HOST.ASM inside the emulated CP/M-80 with the standard ASM.COM and
-// LOAD.COM and
-//-- checks that the resulting HOST.COM is identical to the one installed in
-// bootDisks/cpm80/systemDsk.
-//-- CPM80_HOST_ASM_OUTPUT=<path> runs only this test and stores the freshly built HOST.COM there
-// instead of comparing.
-static void testCpm80HostAssemble(void)
-{
-  char largeSystemPath[256];
-  createLargeSystemDisk("cpm80", largeSystemPath, sizeof(largeSystemPath));
-  imageFile disk = {0};
-  assert(imageOpen(&disk, largeSystemPath, true));
-  uint8_t ccpImage[cpm80CcpSize];
-  uint8_t bdosImage[cpm80BdosSize];
-  assert(imageReadAt(&disk, 0, ccpImage, sizeof(ccpImage)));
-  assert(imageReadAt(&disk, sizeof(ccpImage), bdosImage, sizeof(bdosImage)));
-
-  char workDirectory[] = "/tmp/cpm80-host-asm-XXXXXX";
-  assert(mkdtemp(workDirectory) != NULL);
-  char workDiskPath[300];
-  char builtPath[300];
-  assert(snprintf(workDiskPath, sizeof(workDiskPath), "%s/work.dsk", workDirectory) <
-         (int)sizeof(workDiskPath));
-  assert(snprintf(builtPath, sizeof(builtPath), "%s/HOST.COM", workDirectory) <
-         (int)sizeof(builtPath));
-  char defaultSourcePath[300];
-  assert(snprintf(defaultSourcePath, sizeof(defaultSourcePath), "%s/guest/cpm80/host/HOST.ASM",
-                  PROJECT_ROOT_PATH) < (int)sizeof(defaultSourcePath));
-  const char* sourcePath =
-      getenv("CPM80_HOST_ASM_SOURCE") != NULL ? getenv("CPM80_HOST_ASM_SOURCE") : defaultSourcePath;
-  char command[1400];
-  assert(snprintf(command, sizeof(command),
-                  "python3 \"%s/tools/diskImage.py\" create --os cpm80 --profile LARGE \"%s\" "
-                  ">/dev/null && "
-                  "python3 \"%s/tools/diskImage.py\" add --os cpm80 \"%s\" --name HOST.ASM "
-                  "\"%s\" >/dev/null",
-                  PROJECT_ROOT_PATH, workDiskPath, PROJECT_ROOT_PATH, workDiskPath,
-                  sourcePath) < (int)sizeof(command));
-  assert(system(command) == 0);
-
-  imageFile workDisk = {0};
-  assert(imageOpen(&workDisk, workDiskPath, false));
-  cpm80GuestFixture fixture = {
-      .disks = {[0] = &disk, [4] = &workDisk},
-      .availableDrives = {[0] = true, [4] = true},
-      .writableDrives = {[4] = true},
-      .diskProfiles = {[0] = cpm80DiskProfileLarge, [4] = cpm80DiskProfileLarge}};
-  const cpm80HostOps host = {.consoleAvailable = cpm80TestConsoleAvailable,
-                             .consoleRead = cpm80TestConsoleRead,
-                             .consoleWrite = cpm80TestConsoleWrite,
-                             .diskDriveAvailable = cpm80TestDiskDriveAvailable,
-                             .diskDriveProfile = cpm80TestDiskDriveProfile,
-                             .diskReadRecord = cpm80TestDiskRead,
-                             .diskWriteRecord = cpm80TestDiskWrite,
-                             .exchangePortInput = cpm80TestExchangePortInput,
-                             .exchangePortOutput = cpm80TestExchangePortOutput,
-                             .yield = cpm80TestYield,
-                             .context = &fixture};
-  cpm80Guest guest = {0};
-  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage));
-  assert(cpm80GuestColdBoot(&guest));
-  const size_t limit = 2000000000U;
-  runCpm80Command(&guest, &fixture, "", "A>", limit);
-  runCpm80Command(&guest, &fixture, "E:\r", "E>", limit);
-  runCpm80Command(&guest, &fixture, "A:ASM HOST\r", "E>", limit);
-  if (getenv("CPM80_HOST_ASM_VERBOSE") != NULL)
-  {
-    printf("--- ASM HOST ---\n%s\n", fixture.output);
-  }
-  assert(strstr(fixture.output, "END OF ASSEMBLY") != NULL ||
-         strstr(fixture.output, "USE FACTOR") != NULL);
-  bool assembled =
-      strstr(fixture.output, "ERROR") == NULL && strstr(fixture.output, "ILLEGAL") == NULL;
-  if (assembled)
-  {
-    runCpm80Command(&guest, &fixture, "A:LOAD HOST\r", "E>", limit);
-    if (getenv("CPM80_HOST_ASM_VERBOSE") != NULL)
-    {
-      printf("--- LOAD HOST ---\n%s\n", fixture.output);
-    }
-    assembled = strstr(fixture.output, "RECORDS WRITTEN") != NULL;
-  }
-  cpm80GuestDestroy(&guest);
-  assert(imageClose(&disk));
-  assert(imageClose(&workDisk));
-  removeLargeSystemDisk(largeSystemPath);
-  if (!assembled)
-  {
-    fprintf(stderr, "ASM/LOAD of HOST.ASM failed; work disk kept in %s\n", workDirectory);
-    assert(false);
-  }
-
-  assert(snprintf(command, sizeof(command),
-                  "python3 \"%s/tools/diskImage.py\" extract --os cpm80 \"%s\" HOST.COM --output "
-                  "\"%s\" >/dev/null",
-                  PROJECT_ROOT_PATH, workDiskPath, builtPath) < (int)sizeof(command));
-  assert(system(command) == 0);
-  const char* outputPath = getenv("CPM80_HOST_ASM_OUTPUT");
-  if (outputPath != NULL)
-  {
-    assert(snprintf(command, sizeof(command), "cp \"%s\" \"%s\"", builtPath, outputPath) <
-           (int)sizeof(command));
-    assert(system(command) == 0);
-  }
-  else
-  {
-    assert(snprintf(command, sizeof(command),
-                    "cmp \"%s\" \"%s/bootDisks/cpm80/systemDsk/HOST.COM\"", builtPath,
-                    PROJECT_ROOT_PATH) < (int)sizeof(command));
-    assert(system(command) == 0);
-  }
-  assert(snprintf(command, sizeof(command), "rm -rf \"%s\"", workDirectory) < (int)sizeof(command));
-  assert(system(command) == 0);
 }
 
 //-- Writes a text file of lineCount short lines ("line NNN ...") for the MORE pager test.
@@ -4729,8 +3162,6 @@ static void testCpm80More(void)
                              .diskDriveProfile = cpm80TestDiskDriveProfile,
                              .diskReadRecord = cpm80TestDiskRead,
                              .diskWriteRecord = cpm80TestDiskWrite,
-                             .exchangePortInput = cpm80TestExchangePortInput,
-                             .exchangePortOutput = cpm80TestExchangePortOutput,
                              .yield = cpm80TestYield,
                              .context = &fixture};
   cpm80Guest guest = {0};
@@ -4883,17 +3314,9 @@ int main(int argc, char** argv)
     puts("PASS: CP/M-80 MORE pager");
     return 0;
   }
-  if (getenv("CPM80_HOST_ASM_OUTPUT") != NULL)
-  {
-    testCpm80HostAssemble();
-    return 0;
-  }
   testPaths();
   testApple2Core();
   testApple2Keyboard();
-  testHostExchange();
-  testHostExchangeProdos();
-  testHostExchangeUcsd();
   testCpm86Core();
   testCpm86Boot();
   testLayout();
@@ -4906,11 +3329,9 @@ int main(int argc, char** argv)
   testCpm80Cpu();
   testCpm80GuestBoot();
   testCpm86TimerPorts();
-  testCpm80LargeTransfer();
-  testCpm80HostAssemble();
   testCpm80More();
   testCpm80LargeSystemBoot();
   testCpm86LargeSystemBoot();
-  puts("PASS: host utilities, 6502/Z80/8086 CPU fixtures, CP/M-86 boot and DIR");
+  puts("PASS: CPU fixtures, CP/M boot and disk tests");
   return 0;
 }
