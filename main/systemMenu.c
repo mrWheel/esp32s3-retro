@@ -5,6 +5,8 @@
 #include "storage.h"
 #include "network.h"
 #include "fileTransfer.h"
+#include "esp_heap_caps.h"
+#include "esp_psram.h"
 #include "esp_timer.h"
 #include <stdio.h>
 #include <string.h>
@@ -32,7 +34,9 @@ static void showMenu(void)
     putchar('=');
   }
   printf("=====\n");
-  printf("SD: %s\n\n", storageStatus());
+  printf("SD: %s\n", storageStatus());
+  printf("PSRAM: %u KiB, free %u KiB\n\n", (unsigned)(esp_psram_get_size() / 1024),
+         (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) / 1024));
   for (size_t index = 0; index < machineCount(); ++index)
   {
     const retroMachine* machine = machineGet(index);

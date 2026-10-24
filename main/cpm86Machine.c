@@ -8,6 +8,7 @@
 #include "storage.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_psram.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -486,6 +487,12 @@ esp_err_t cpm86MachineInitialize(void)
     guestCore = NULL;
     return result == cpm86CoreNoMemory ? ESP_ERR_NO_MEM : ESP_FAIL;
   }
+  ESP_LOGI(tag,
+           "PSRAM size=%u bytes, free=%u bytes, largest block=%u bytes; guest RAM=%u KiB allocated",
+           (unsigned)esp_psram_get_size(),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+           (unsigned)(config.ramSize / 1024));
   if (!loadSystemFile())
   {
     cpm86CoreDestroy(guestCore);

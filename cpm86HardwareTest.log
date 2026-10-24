@@ -1,0 +1,363 @@
+
+Invalid selection. Enter one digit from 1 to 6, followed by ENTER.
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]: 
+Invalid selection. Enter one digit from 1 to 6, followed by ENTER.
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]: 2
+
+CP/M-86
+========
+
+Starting CP/M-86.
+
+A>DIR
+
+A: ASM86    CMD : BENCH86  CMD : ED       CMD : GENCMD   CMD
+A: HELP     CMD : PIP      CMD : STAT     CMD : SUBMIT   CMD
+A: ASM86    HLP : ED       HLP : GENCMD   HLP : HELP     HLP
+A: PIP      HLP : STAT     HLP
+A>STAT
+
+
+A: RW, Free Space:       408k
+
+A>B:
+
+B>DIR
+
+B: STAT     CMD : STAT     HST
+B>C:
+
+C>DIR
+
+C: ACCESS3  BOX : CALC     HLP : CALC     PAS : CALCDEMO MCS
+C: CALCMAIN PAS : CMDLIN   PAS : LISTER   PAS : READ     ME 
+C: TINST    CMD : TINST    DTA : TINST    MSG : TURBO    CMD
+C: TURBO    MSG : HELP     CMD : HELP     HLP : HELP     A86
+C: HELP     HST : HWTEST   CMD
+C>D:
+
+D>DIR
+
+D: ASM86    CMD : CPM      SYS : ED       CMD : GENCMD   CMD
+D: HOST     A86 : PIP      CMD : BENCH86  CMD : BENCH86  HST
+D: HOST     HST : HOST     LST : HOST     H86 : HOST     SYM
+D: HOST     CMD
+D>E:
+
+E:?
+
+D>F:
+
+F:?
+
+D>A:
+
+A>ERA D:HWTEST.CMD
+
+NO FILE
+A>PIP D:HWTEST.CMD=A:PIP.CMD
+
+
+A>DIR D:HWTEST.CMD
+
+D: HWTEST   CMD
+A>PIP B:NUL.TMP=D:HWTEST.CMD
+
+
+A>ERA B:NUL.TMP
+
+A>ERA B:NUL.TMP
+
+NO FILE
+A>CP/M-86 stopped by Ctrl+].
+Press ENTER to return to the main menu.
+
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]: 
+Invalid selection. Enter one digit from 1 to 6, followed by ENTER.
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]: 2
+
+CP/M-86
+========
+
+Starting CP/M-86.
+
+A>DIR D:HWTEST.CMD
+
+D: HWTEST   CMD
+A>ERA D:HWTEST.CMD
+
+A>DIR D:HWTEST.CMD
+
+NO FILE
+A>CP/M-86 stopped by Ctrl+].
+Press ENTER to return to the main menu.
+
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]: 
+Invalid selection. Enter one digit from 1 to 6, followed by ENTER.
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]: 2
+
+CP/M-86
+========
+
+Starting CP/M-86.
+
+A>CP/M-86 stopped by Ctrl+].
+Press ENTER to return to the main menu.
+
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]: 
+Invalid selection. Enter one digit from 1 to 6, followed by ENTER.
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]: 2
+
+CP/M-86
+========
+
+Starting CP/M-86.
+
+A>CP/M-86 stopped by Ctrl+].
+Press ENTER to return to the main menu.
+
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]: 
+Invalid selection. Enter one digit from 1 to 6, followed by ENTER.
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]: 2
+
+CP/M-86
+========
+
+Starting CP/M-86.
+
+A>A:
+
+A>PIP A:HWRO.TMP=A:PIP.CMD
+
+
+Bdos Err On A: Bad Sector
+A>DIR A:HWRO.TMP
+
+NO FILE
+A>DIR
+
+A: ASM86    CMD : BENCH86  CMD : ED       CMD : GENCMD   CMD
+A: HELP     CMD : PIP      CMD : STAT     CMD : SUBMIT   CMD
+A: ASM86    HLP : ED       HLP : GENCMD   HLP : HELP     HLP
+A: PIP      HLP : STAT     HLP
+A>CP/M-86 stopped by Ctrl+].
+Press ENTER to return to the main menu.
+
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]: 
+Invalid selection. Enter one digit from 1 to 6, followed by ENTER.
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+SD: FAT32 SD present; retro layout v1 valid
+
+python3 tools/cpm86/hardwareTest.py
+Using /dev/cu.usbmodem202401
+PASS  host menu reachable
+PASS  cold boot reaches A> prompt
+PASS  DIR on A: lists ASM86 and PIP
+PASS  STAT runs on A:
+PASS  DIR on B:
+PASS  DIR on C:
+PASS  DIR on D:
+PASS  unconfigured drive E: is rejected cleanly
+PASS  unconfigured drive F: is rejected cleanly
+PASS  PIP copy A:PIP.CMD to D:
+PASS  copied file visible on D:
+PASS  copy back D: -> B: (read + write on two drives)
+PASS  Ctrl+] returns to host menu
+PASS  relaunch after Ctrl+]
+PASS  file persists after close/reopen
+PASS  ERA removes file
+PASS  3 repeated stop/launch cycles
+PASS  write to read-only A: is refused (Bdos Err)
+PASS  recovery after Bdos error (Ctrl-C returns to A>)
+PASS  DIR completes in < 10 s  -- 0.4 s
+SKIP  PSRAM size / guest memory at boot  -- visible only in the boot log; reset the board and read the log
+SKIP  millisecond timer F1h-F4h 900-1100 ms  -- needs a guest 8086 test program
+SKIP  editor/assembler/compiler workflow  -- run manually (ASM86, ED, TurboP)
+SKIP  terminal escape/cursor behaviour  -- run an editor manually
+
+==== SUMMARY ====
+passed 20, failed 0, skipped(manual) 4
+Raw console log: cpm86HardwareTest.log
+
+I (24) boot: ESP-IDF v6.0.2 2nd stage bootloader
+I (24) boot: compile time Oct 23 2026 11:53:02
+I (25) boot: Multicore bootloader
+I (25) boot: chip revision: v0.2
+I (25) boot: efuse block revision: v1.3
+I (25) boot.esp32s3: Boot SPI Speed : 80MHz
+I (25) boot.esp32s3: SPI Mode       : DIO
+I (26) boot.esp32s3: SPI Flash Size : 16MB
+I (26) boot: Enabling RNG early entropy source...
+I (26) boot: Partition Table:
+I (26) boot: ## Label            Usage          Type ST Offset   Length
+I (26) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (27) boot:  1 phyInit          RF data          01 01 0000f000 00001000
+I (27) boot:  2 factory          factory app      00 00 00010000 00300000
+I (28) boot:  3 bootfs           Unknown data     01 83 00310000 00400000
+I (28) boot: End of partition table
+I (28) esp_image: segment 0: paddr=00010020 vaddr=3c0c0020 size=4298ch (272780) map
+I (79) esp_image: segment 1: paddr=000529b4 vaddr=3fca2100 size=05b38h ( 23352) load
+I (84) esp_image: segment 2: paddr=000584f4 vaddr=40374000 size=07b24h ( 31524) load
+I (92) esp_image: segment 3: paddr=00060020 vaddr=42000020 size=bd080h (774272) map
+I (233) esp_image: segment 4: paddr=0011d0a8 vaddr=4037bb24 size=16558h ( 91480) load
+I (254) esp_image: segment 5: paddr=00133608 vaddr=50000000 size=00024h (    36) load
+I (267) boot: Loaded app from partition at offset 0x10000
+I (267) boot: Disabling RNG early entropy source...
+/littlefs/cpm80: directory present; design: designCPM80.md
+/littlefs/cpm86: directory present; design: designCPM86.md
+/littlefs/ucsd: directory present; design: designUCSD.md
+/littlefs/apple2: directory present; design: designApple2.md
+/littlefs/swtpc: directory present; design: designSWTPC.md
+
+ESP32-S3 Retro Computer Version [v0.4.11]
+By Willem Aandewiel
+==============================================
+
+>>>> I (26) boot.esp32s3: SPI Flash Size : 16MB <<<<
+

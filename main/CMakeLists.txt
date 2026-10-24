@@ -3,7 +3,7 @@ idf_component_register(
     "fileTransfer.c" "cpm80Machine.c" "cpm86Machine.c" "apple2Machine.c"
   INCLUDE_DIRS "."
   PRIV_REQUIRES hostCore guestFs cpm80Core cpm86Core apple2Core esp_driver_usb_serial_jtag esp_driver_spi esp_driver_sdspi esp_driver_rmt
-    sdmmc fatfs esp_http_server esp_netif esp_event esp_wifi esp_timer esp_system mbedtls
+    sdmmc fatfs esp_http_server esp_netif esp_event esp_wifi esp_timer esp_system esp_psram mbedtls
     log
   EMBED_TXTFILES "web.html"
 )
