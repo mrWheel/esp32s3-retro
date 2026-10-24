@@ -11,4 +11,4 @@ idf_component_register(
 #-- ESP-IDF defaults to -fno-jump-tables; the 256-way opcode switch needs a jump table.
 #-- With the noflash mapping the tables live in internal RAM, so this is cache-safe.
 set_source_files_properties(tiny8086/tiny8086.c PROPERTIES COMPILE_OPTIONS
-  "-O2;-fjump-tables;-ftree-switch-conversion")
+  "-O2;-fjump-tables;-ftree-switch-conversion;-fno-bit-tests;--param=jump-table-max-growth-ratio-for-speed=2000")

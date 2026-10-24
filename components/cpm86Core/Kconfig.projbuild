@@ -1,17 +1,11 @@
 menu "CP/M-86 (tiny8086 core)"
 
     config CPM86_TINY8086_IRAM
-        bool "Place the 8086 interpreter loop in IRAM"
-        default n
+        bool "Place the 8086 interpreter in internal RAM"
+        default y
         help
-            Puts tiny8086Step() in internal IRAM instead of flash-cached code.
-            Costs roughly 15-25 KB of IRAM; enable after measuring on hardware.
-
-    config CPM86_SELFTEST_BENCH
-        bool "Print a raw CPU speed benchmark when CP/M-86 starts"
-        default n
-        help
-            Runs a small loop on the 8086 core with guest RAM in PSRAM and in
-            internal RAM and prints the kIPS on the console. Diagnostic only.
+            Puts the whole tiny8086 object (code and its jump/parity tables) in IRAM/DRAM
+            instead of flash-cached memory. Costs roughly 30 KB of IRAM; measured as
+            clearly faster on the ESP32-S3.
 
 endmenu

@@ -1016,8 +1016,7 @@ static void testCpm86Core(void)
                                       .portWrite = cpm86TestPortWrite,
                                       .portContext = &portFixture,
                                       .readMilliseconds = NULL,
-                                      .clockContext = NULL,
-                                      .captureInstructionTrace = true};
+                                      .clockContext = NULL};
   assert(cpm86CoreCreate(&core, &coreConfig) == cpm86CoreOk);
   cpm86Core* secondCore = NULL;
   assert(cpm86CoreCreate(&secondCore, &coreConfig) == cpm86CoreBusy);
@@ -1186,10 +1185,6 @@ static void testCpm86Core(void)
   assert(cpm86CoreGetProgramCounter(core, &programCounterSegment, &programCounterOffset) ==
          cpm86CoreOk);
   assert(programCounterSegment == 0 && programCounterOffset == 0x0020);
-  cpm86CoreTraceEntry trace[cpm86CoreTraceDepth];
-  size_t traceCount = 0;
-  assert(cpm86CoreGetRecentTrace(core, trace, cpm86CoreTraceDepth, &traceCount) == cpm86CoreOk);
-  assert(traceCount == 1 && trace[0].segment == 0 && trace[0].offset == 0x0020);
 
   cpm86CoreDestroy(core);
 }
@@ -1207,7 +1202,6 @@ static void testCpm86TimerPorts(void)
       .portContext = &clockFixture,
       .readMilliseconds = cpm86TestReadMilliseconds,
       .clockContext = &clockFixture,
-      .captureInstructionTrace = false,
   };
   cpm86Core* core = NULL;
   assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);
@@ -1221,10 +1215,6 @@ static void testCpm86TimerPorts(void)
   assert(cpm86CoreRead(core, 0x0300, &capability, sizeof(capability)) == cpm86CoreOk);
   assert(capability == 0xB1);
   assert(clockFixture.readMillisecondsCalls == 0);
-  cpm86CoreTraceEntry trace[cpm86CoreTraceDepth];
-  size_t traceCount = 0;
-  assert(cpm86CoreGetRecentTrace(core, trace, cpm86CoreTraceDepth, &traceCount) == cpm86CoreOk);
-  assert(traceCount == 0);
 
   assert(cpm86CoreReset(core) == cpm86CoreOk);
   const uint8_t invalidOpcode = 0x0F;
@@ -1334,7 +1324,6 @@ static void testCpm86TimerPorts(void)
       .portContext = NULL,
       .readMilliseconds = NULL,
       .clockContext = NULL,
-      .captureInstructionTrace = false,
   };
   assert(cpm86CoreCreate(&core, &noClockConfig) == cpm86CoreOk);
   const uint8_t unavailableProgram[] = {0xE4, 0xF0, 0xA2, 0x00, 0x03, 0xE4, 0xF1, 0xA2, 0x01,
@@ -1549,26 +1538,16 @@ static bool runCpm86UntilPrompt(cpm86Core* core, cpm86BootFixture* fixture, cons
     {
       uint16_t segment;
       uint16_t offset;
-      cpm86CoreTraceEntry trace[cpm86CoreTraceDepth];
-      size_t traceCount = 0;
       uint8_t codeBytes[8];
       assert(cpm86CoreGetProgramCounter(core, &segment, &offset) == cpm86CoreOk);
-      assert(cpm86CoreGetRecentTrace(core, trace, cpm86CoreTraceDepth, &traceCount) == cpm86CoreOk);
       uint32_t physicalAddress = (((uint32_t)segment << 4) + offset) & 0x000FFFFF;
       assert(cpm86CoreRead(core, physicalAddress, codeBytes, sizeof(codeBytes)) == cpm86CoreOk);
       fprintf(stderr, "CP/M-86 run failed: result=%d count=%llu output=%s\n", result,
               (unsigned long long)cpm86CoreInstructionCount(core), fixture->output);
       fprintf(stderr,
-              "CP/M-86 failure at %04X:%04X bytes=%02X %02X %02X %02X %02X %02X %02X %02X; "
-              "recent instructions:\n",
+              "CP/M-86 failure at %04X:%04X bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n",
               segment, offset, codeBytes[0], codeBytes[1], codeBytes[2], codeBytes[3], codeBytes[4],
               codeBytes[5], codeBytes[6], codeBytes[7]);
-      for (size_t index = 0; index < traceCount; ++index)
-      {
-        fprintf(stderr, "  %04X:%04X SS:SP=%04X:%04X %s\n", trace[index].segment,
-                trace[index].offset, trace[index].stackSegment, trace[index].stackPointer,
-                trace[index].instruction);
-      }
       return false;
     }
   }
@@ -1730,7 +1709,6 @@ static void testCpm86Boot(void)
       .portContext = &fixture,
       .readMilliseconds = NULL,
       .clockContext = NULL,
-      .captureInstructionTrace = true,
   };
   cpm86Core* core = NULL;
   assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);
@@ -3026,7 +3004,6 @@ static void testCpm86LargeSystemBoot(void)
       .portContext = &fixture,
       .readMilliseconds = NULL,
       .clockContext = NULL,
-      .captureInstructionTrace = true,
   };
   cpm86Core* core = NULL;
   assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);

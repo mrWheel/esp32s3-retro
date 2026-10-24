@@ -2,7 +2,7 @@
 #include <string.h>
 
 //-- Small helpers must be inlined: every out-of-line call costs a windowed-ABI entry/retw on
-//Xtensa.
+// Xtensa.
 #define TINY8086_INLINE static inline __attribute__((always_inline))
 
 //-- Layout assumption: little-endian host (Xtensa LX7) so that the byte registers
@@ -29,7 +29,7 @@ static inline uint32_t physicalAddress(uint16_t segment, uint16_t offset)
   return (((uint32_t)segment << 4) + offset) & tiny8086AddressMask;
 }
 
-static inline uint8_t readByte(tiny8086* cpu, uint32_t address)
+TINY8086_INLINE uint8_t readByte(tiny8086* cpu, uint32_t address)
 {
   if (__builtin_expect(address >= cpu->memorySize, 0))
   {
@@ -39,7 +39,7 @@ static inline uint8_t readByte(tiny8086* cpu, uint32_t address)
   return cpu->memory[address];
 }
 
-static inline void writeByte(tiny8086* cpu, uint32_t address, uint8_t value)
+TINY8086_INLINE void writeByte(tiny8086* cpu, uint32_t address, uint8_t value)
 {
   if (__builtin_expect(address >= cpu->memorySize, 0))
   {
@@ -119,7 +119,7 @@ static inline uint8_t* reg8Pointer(tiny8086* cpu, uint8_t index)
   return ((uint8_t*)&cpu->reg[index & 3]) + (index >> 2);
 }
 
-static inline void setFlag(tiny8086* cpu, uint16_t mask, bool condition)
+TINY8086_INLINE void setFlag(tiny8086* cpu, uint16_t mask, bool condition)
 {
   if (condition)
   {
@@ -163,7 +163,8 @@ static inline void setResultFlags(tiny8086* cpu, uint32_t result, bool wide)
 //-- ALU operation order matches opcode bits 5..3 and group-1 /r:
 //-- 0 ADD, 1 OR, 2 ADC, 3 SBB, 4 AND, 5 SUB, 6 XOR, 7 CMP.
 //-- All six status flags are computed together and written with a single store.
-static uint16_t aluOperation(tiny8086* cpu, uint8_t operation, uint16_t a, uint16_t b, bool wide)
+TINY8086_INLINE uint16_t aluOperation(tiny8086* cpu, uint8_t operation, uint16_t a, uint16_t b,
+                                      bool wide)
 {
   const uint32_t mask = wide ? 0xFFFFu : 0xFFu;
   const uint32_t carryShift = wide ? 16 : 8;
@@ -723,7 +724,9 @@ static void stringOperation(tiny8086* cpu, uint8_t opcode, int segmentOverride, 
   }
 }
 
-tiny8086Result tiny8086Step(tiny8086* cpu)
+//-- Inlined into tiny8086Run so the hot loop has no call (and no register-window rotation) per
+//-- instruction. tiny8086Step() is a one-instruction Run.
+TINY8086_INLINE tiny8086Result stepImpl(tiny8086* cpu)
 {
   if (cpu == NULL)
   {
@@ -1504,7 +1507,7 @@ tiny8086Result tiny8086Run(tiny8086* cpu, size_t instructionBudget, size_t* inst
 
   while (executed < instructionBudget)
   {
-    result = tiny8086Step(cpu);
+    result = stepImpl(cpu);
     if (result == tiny8086Ok)
     {
       ++executed;
@@ -1521,4 +1524,10 @@ tiny8086Result tiny8086Run(tiny8086* cpu, size_t instructionBudget, size_t* inst
     *instructionsExecuted = executed;
   }
   return result;
+}
+
+tiny8086Result tiny8086Step(tiny8086* cpu)
+{
+  size_t executed;
+  return tiny8086Run(cpu, 1, &executed);
 }

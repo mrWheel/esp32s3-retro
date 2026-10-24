@@ -7,10 +7,7 @@
 
 enum
 {
-  cpm86AddressSpaceSize = 0x100000,
-  cpm86CoreTraceDepth = 48,
-  cpm86CoreHeadDepth = 60,
-  cpm86CoreTraceInstructionSize = 20
+  cpm86AddressSpaceSize = 0x100000
 };
 
 typedef struct cpm86Core cpm86Core;
@@ -26,18 +23,7 @@ typedef struct
   void* portContext;
   hostReadMilliseconds readMilliseconds;
   void* clockContext;
-  bool captureInstructionTrace;
 } cpm86CoreConfig;
-
-typedef struct
-{
-  uint16_t segment;
-  uint16_t offset;
-  uint16_t stackSegment;
-  uint16_t stackPointer;
-  uint16_t accumulator;
-  char instruction[cpm86CoreTraceInstructionSize];
-} cpm86CoreTraceEntry;
 
 typedef enum
 {
@@ -60,16 +46,9 @@ cpm86CoreResult cpm86CoreSetEntry(cpm86Core* core, uint16_t segment, uint16_t of
 cpm86CoreResult cpm86CoreLoad(cpm86Core* core, uint32_t address, const void* data, size_t length);
 cpm86CoreResult cpm86CoreRead(cpm86Core* core, uint32_t address, void* data, size_t length);
 cpm86CoreResult cpm86CoreWrite(cpm86Core* core, uint32_t address, const void* data, size_t length);
-//-- Debug aid: stop with InvalidInstruction when code is fetched from [start, end).
-cpm86CoreResult cpm86CoreSetExecuteGuard(cpm86Core* core, uint32_t startAddress,
-                                         uint32_t endAddress);
 cpm86CoreResult cpm86CoreStep(cpm86Core* core);
 cpm86CoreResult cpm86CoreRun(cpm86Core* core, size_t instructionBudget,
                              size_t* instructionsExecuted);
 cpm86CoreResult cpm86CoreGetProgramCounter(const cpm86Core* core, uint16_t* segment,
                                            uint16_t* offset);
-cpm86CoreResult cpm86CoreGetRecentTrace(const cpm86Core* core, cpm86CoreTraceEntry* entries,
-                                        size_t capacity, size_t* count);
-cpm86CoreResult cpm86CoreGetHeadTrace(const cpm86Core* core, cpm86CoreTraceEntry* entries,
-                                      size_t capacity, size_t* count);
 uint64_t cpm86CoreInstructionCount(const cpm86Core* core);
