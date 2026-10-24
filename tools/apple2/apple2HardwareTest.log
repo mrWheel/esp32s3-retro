@@ -1,0 +1,42 @@
+Apple II hardware test - 2026-10-24 18:24:55
+
+<<<RESET>>>
+PASS  board reset reaches host menu
+PASS  menu reports PSRAM line
+PASS  cold boot reaches ProDOS BASIC ] prompt
+PASS  basic: STARTUP banner shown (80 columns)
+PASS  basic: Applesoft evaluates PRINT 2+3
+PASS  read: list volume /SYSTEM
+PASS  read: list volume /TEST1
+PASS  read: list volume /DATA1
+PASS  read: list volume /DATA2
+PASS  write: create file on /TEST1
+PASS  write: file visible on /TEST1
+PASS  write: copy /TEST1 -> /DATA1
+PASS  write: file visible on /DATA1
+<<<RESET>>>
+PASS  persistence: board reset reaches host menu
+PASS  persistence: cold boot after reset
+PASS  persistence: file survives reset on /TEST1
+PASS  persistence: file survives reset on /DATA1
+PASS  delete: file removed from /TEST1
+PASS  delete: file removed from /DATA1
+PASS  disk full: filling /TEST1 ends with a disk-full error  -- after 8 files
+PASS  disk full: volume reports (almost) no free space  -- free before 250, when full 0
+PASS  disk full: deleting the fill files restores all free space  -- before 250, after 250
+PASS  disk full: writing works again
+PASS  read-only: write to /SYSTEM is refused
+PASS  read-only: system recovers to a prompt
+PASS  read-only: no file created on /SYSTEM
+FAIL  read-only: free space on /SYSTEM CHANGED  -- before 1157, after 0
+PASS  timing: volume listing completes in < 10 s  -- 3.1 s
+PASS  unconfigured: missing volume gives PATH NOT FOUND
+<<<RESET>>>
+PASS  final reset returns to menu
+SKIP  editor / compiler workflow  -- manual: write and run a larger BASIC program
+SKIP  terminal escape sequences / keyboard (Ctrl-C, Ctrl-Reset, arrows)  -- manual
+SKIP  apple2: graphics / lo-res / hi-res output  -- manual: run a graphics BASIC program
+
+==== SUMMARY ====
+passed 29, failed 1, skipped(manual) 3
+  FAILED: read-only: free space on /SYSTEM CHANGED -- before 1157, after 0

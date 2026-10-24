@@ -1,0 +1,44 @@
+CP/M-86 hardware test - 2026-10-24 17:46:15
+
+<<<RESET>>>
+PASS  board reset reaches host menu
+PASS  menu reports PSRAM line
+PASS  cold boot reaches A> prompt
+PASS  basic: DIR on A: lists ASM86 and PIP
+PASS  basic: STAT runs on A:
+PASS  read: list volume A:
+PASS  read: list volume B:
+PASS  read: list volume C:
+PASS  read: list volume D:
+PASS  write: create file on D:
+PASS  write: file visible on D:
+PASS  write: copy D: -> B:
+PASS  write: file visible on B:
+<<<RESET>>>
+PASS  persistence: board reset reaches host menu
+PASS  persistence: cold boot after reset
+PASS  persistence: file survives reset on D:
+PASS  persistence: file survives reset on B:
+PASS  delete: file removed from D:
+PASS  delete: file removed from B:
+PASS  disk full: filling D: ends with a disk-full error  -- after 30 files
+PASS  disk full: volume reports (almost) no free space  -- free before 234, when full 0
+PASS  disk full: deleting the fill files restores all free space  -- before 234, after 234
+PASS  disk full: writing works again
+PASS  read-only: write to A: is refused
+PASS  read-only: system recovers to a prompt
+PASS  read-only: no file created on A:
+PASS  read-only: free space on A: unchanged  -- before 408, after 408
+PASS  timing: volume listing completes in < 10 s  -- 0.4 s
+PASS  unconfigured: drive E: is rejected cleanly
+PASS  cpm86: Ctrl+] returns to host menu
+PASS  cpm86: relaunch after Ctrl+]
+PASS  cpm86: 3 repeated stop/launch cycles
+<<<RESET>>>
+PASS  final reset returns to menu
+SKIP  editor / compiler workflow  -- manual
+SKIP  terminal escape sequences (full-screen editors)  -- manual
+SKIP  cpm86: millisecond timer F1h-F4h 900-1100 ms  -- needs a guest 8086 test program
+
+==== SUMMARY ====
+passed 33, failed 0, skipped(manual) 3

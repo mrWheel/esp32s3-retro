@@ -1,0 +1,41 @@
+UCSD Pascal hardware test - 2026-10-24 18:37:30
+
+<<<RESET>>>
+PASS  board reset reaches host menu
+PASS  menu reports PSRAM line
+PASS  cold boot reaches Pascal Command: prompt
+PASS  basic: Apple Pascal 1.3 banner shown
+PASS  basic: F enters the Filer
+PASS  basic: V(ols lists PASCAL: BACKUP: WORK1: WORK2:
+PASS  read: list volume PASCAL:  -- 30.4 s
+PASS  read: list volume BACKUP:  -- 30.4 s
+PASS  read: list volume WORK1:  -- 10.8 s
+PASS  read: list volume WORK2:  -- 12.9 s
+PASS  write: create file on WORK1:
+PASS  write: file visible on WORK1:
+PASS  write: copy WORK1: -> WORK2:
+PASS  write: file visible on WORK2:
+<<<RESET>>>
+PASS  persistence: board reset reaches host menu
+PASS  persistence: cold boot after reset
+PASS  persistence: file survives reset on WORK1:
+PASS  persistence: file survives reset on WORK2:
+PASS  delete: file removed from WORK1:
+PASS  delete: file removed from WORK2:
+PASS  disk full: filling WORK1: ends with a disk-full error  -- after 15 files
+PASS  disk full: volume reports (almost) no free space  -- free before 1119, when full 27
+PASS  disk full: deleting the fill files restores all free space  -- before 1119, after 1119
+PASS  disk full: writing works again
+PASS  read-only: write to BACKUP: is refused
+PASS  read-only: system recovers to a prompt
+PASS  read-only: no file created on BACKUP:
+PASS  read-only: free space on BACKUP: unchanged  -- before 645, after 645
+PASS  timing: volume listing completes in < 10 s  -- 5.7 s
+PASS  unconfigured: missing volume is rejected cleanly  -- ate P(refix K(rnch Z(ero V(ols Q(uit ? | NOSUCH: - No such volume on-line <source>
+<<<RESET>>>
+PASS  final reset returns to menu
+SKIP  editor / compiler workflow  -- manual: E(dit, C(omp, R(un a small program
+SKIP  terminal escape sequences / cursor keys in the editor  -- manual
+
+==== SUMMARY ====
+passed 31, failed 0, skipped(manual) 2

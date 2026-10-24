@@ -1,0 +1,45 @@
+CP/M-80 hardware test - 2026-10-24 17:45:15
+
+<<<RESET>>>
+PASS  board reset reaches host menu
+PASS  menu reports PSRAM line
+PASS  cold boot reaches A> prompt
+PASS  basic: DIR on A: lists PIP.COM and STAT.COM
+PASS  basic: STAT runs on A:
+PASS  basic: TYPE WELCOME.TXT shows text
+PASS  basic: transient program HELLO.COM runs and warm-boots
+PASS  read: list volume A:
+PASS  read: list volume B:
+PASS  read: list volume C:
+PASS  read: list volume D:
+PASS  read: list volume E:
+PASS  write: create file on B:
+PASS  write: file visible on B:
+PASS  write: copy B: -> C:
+PASS  write: file visible on C:
+<<<RESET>>>
+PASS  persistence: board reset reaches host menu
+PASS  persistence: cold boot after reset
+PASS  persistence: file survives reset on B:
+PASS  persistence: file survives reset on C:
+PASS  delete: file removed from B:
+PASS  delete: file removed from C:
+PASS  disk full: filling B: ends with a disk-full error  -- after 18 files
+PASS  disk full: volume reports (almost) no free space  -- free before 138, when full 2
+PASS  disk full: deleting the fill files restores all free space  -- before 138, after 138
+PASS  disk full: writing works again
+PASS  read-only: write to A: is refused
+PASS  read-only: system recovers to a prompt
+PASS  read-only: no file created on A:
+PASS  read-only: free space on A: unchanged  -- before 304, after 304
+PASS  timing: volume listing completes in < 10 s  -- 0.7 s
+PASS  unconfigured: drive F: reports Bdos Err Select once
+FAIL  unconfigured: a key after the Select error returns to a prompt (no endless loop)  -- Bdos Err repeated 1 times in 4 s; reset needed
+<<<RESET>>>
+PASS  final reset returns to menu
+SKIP  editor / compiler workflow  -- manual
+SKIP  terminal escape sequences (full-screen editors)  -- manual
+
+==== SUMMARY ====
+passed 33, failed 1, skipped(manual) 2
+  FAILED: unconfigured: a key after the Select error returns to a prompt (no endless loop) -- Bdos Err repeated 1 times in 4 s; reset needed
