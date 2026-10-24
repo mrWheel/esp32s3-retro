@@ -9,13 +9,7 @@ add_executable(
   ../components/cpm80Core/cpm80Cpu.c
   ../components/cpm80Core/cpm80Guest.c
   ../components/cpm86Core/cpm86Core.c
-  ../components/cpm86Core/third_party/emu86/emu-mem-io.c
-  ../components/cpm86Core/third_party/emu86/emu-proc.c
-  ../components/cpm86Core/third_party/emu86/op-class.c
-  ../components/cpm86Core/third_party/emu86/op-common.c
-  ../components/cpm86Core/third_party/emu86/op-exec.c
-  ../components/cpm86Core/third_party/emu86/op-id-name.c
-  ../components/cpm86Core/third_party/emu86/op-print-intel.c
+  ../components/cpm86Core/tiny8086/tiny8086.c
   ../components/apple2Core/apple2Core.c
   ../components/apple2Core/apple2Disk.c
   ../components/z80/z80.c
@@ -27,7 +21,7 @@ add_executable(
   ../main/apple2Keyboard.c
 )
 target_include_directories(hostTests PRIVATE ../components/hostCore/include ../components/cpm80Core/include
-  ../components/cpm86Core/include ../components/cpm86Core/third_party/emu86 ../components/apple2Core/include
+  ../components/cpm86Core/include ../components/cpm86Core/tiny8086 ../components/apple2Core/include
   ../components/apple2Core ../components/apple2Core/third_party/chips ../components/z80 ../main)
 target_compile_options(hostTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
 target_compile_definitions(

@@ -1,0 +1,10 @@
+menu "CP/M-86 (tiny8086 core)"
+
+    config CPM86_TINY8086_IRAM
+        bool "Place the 8086 interpreter loop in IRAM"
+        default n
+        help
+            Puts tiny8086Step() in internal IRAM instead of flash-cached code.
+            Costs roughly 15-25 KB of IRAM; enable after measuring on hardware.
+
+endmenu
