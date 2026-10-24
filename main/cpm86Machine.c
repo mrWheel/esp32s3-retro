@@ -1,6 +1,7 @@
 #include "cpm86Machine.h"
 #include "cpm86BiosOverlay.h"
 #include "cpm86Core.h"
+#include "tiny8086.h"
 #include "cpm86DriveConfig.h"
 #include "hostConsole.h"
 #include "imageFile.h"
@@ -516,6 +517,41 @@ esp_err_t cpm86MachineInitialize(void)
   return ESP_OK;
 }
 
+#ifdef CONFIG_CPM86_SELFTEST_BENCH
+//-- Diagnostic: raw interpreter speed on the board, guest RAM in PSRAM versus internal RAM.
+static void benchmarkCpuCore(void)
+{
+  static const uint8_t program[] = {0xB9, 0x00, 0x00, 0x01, 0xD8, 0x43,
+                                    0x89, 0x04, 0xE2, 0xF9, 0xEB, 0xF4};
+  const uint32_t memorySize = 64 * 1024;
+  const uint32_t caps[2] = {MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT};
+  const char* names[2] = {"PSRAM", "internal"};
+  for (int index = 0; index < 2; ++index)
+  {
+    uint8_t* memory = heap_caps_calloc(1, memorySize, caps[index]);
+    if (memory == NULL)
+    {
+      continue;
+    }
+    memcpy(memory, program, sizeof(program));
+    tiny8086 cpu;
+    tiny8086Config config = {.memory = memory, .memorySize = memorySize};
+    size_t executed = 0;
+    if (tiny8086Init(&cpu, &config) == tiny8086Ok)
+    {
+      int64_t startUs = esp_timer_get_time();
+      (void)tiny8086Run(&cpu, 2000000, &executed);
+      int64_t elapsedUs = esp_timer_get_time() - startUs;
+      printf("CPU bench (%s RAM): %u instructions in %lld us = %llu kIPS\n", names[index],
+             (unsigned)executed, (long long)elapsedUs,
+             (unsigned long long)(elapsedUs > 0 ? (uint64_t)executed * 1000ULL / elapsedUs : 0));
+    }
+    heap_caps_free(memory);
+  }
+}
+#endif
+
 void cpm86MachineRun(void)
 {
   if (!guestReady || guestCore == NULL)
@@ -529,6 +565,9 @@ void cpm86MachineRun(void)
   {
     (void)hostConsoleGetChar();
   }
+#ifdef CONFIG_CPM86_SELFTEST_BENCH
+  benchmarkCpuCore();
+#endif
   puts("\nStarting CP/M-86.");
   guestStopRequested = false;
   const int64_t measurementStartUs = esp_timer_get_time();
@@ -537,6 +576,10 @@ void cpm86MachineRun(void)
   uint64_t delayTimeUs = 0;
   uint64_t instructionCount = 0;
   uint64_t batchCount = 0;
+  //-- Yield only after a time slice: with a 100 Hz tick every vTaskDelay(1) can sleep up
+  //-- to 10 ms, so yielding per small batch would leave the CPU idle most of the time.
+  const int64_t yieldSliceUs = 50000;
+  int64_t sliceStartUs = measurementStartUs;
   while (true)
   {
     if (hostConsolePeekChar() == 0x1D)
@@ -559,9 +602,14 @@ void cpm86MachineRun(void)
     if (result == cpm86CoreOk)
     {
       int64_t delayStartUs = esp_timer_get_time();
+      if (delayStartUs - sliceStartUs < yieldSliceUs)
+      {
+        continue;
+      }
       vTaskDelay(1);
       int64_t delayEndUs = esp_timer_get_time();
       delayTimeUs += (uint64_t)(delayEndUs - delayStartUs);
+      sliceStartUs = delayEndUs;
       if (delayEndUs - lastMetricsLogUs >= 10000000)
       {
         logExecutionMetrics((uint64_t)(delayEndUs - measurementStartUs), runTimeUs, delayTimeUs,
@@ -647,6 +695,13 @@ void cpm86MachineRun(void)
   }
   logExecutionMetrics((uint64_t)(esp_timer_get_time() - measurementStartUs), runTimeUs, delayTimeUs,
                       instructionCount, batchCount);
+  //-- The log is not visible when the console shows the guest, so also print it on the console.
+  printf("CP/M-86 timing: elapsed=%llu ms run=%llu ms delay=%llu ms instructions=%llu "
+         "(%llu kIPS while running)\n",
+         (unsigned long long)((uint64_t)(esp_timer_get_time() - measurementStartUs) / 1000ULL),
+         (unsigned long long)(runTimeUs / 1000ULL), (unsigned long long)(delayTimeUs / 1000ULL),
+         (unsigned long long)instructionCount,
+         (unsigned long long)(runTimeUs > 0 ? (instructionCount * 1000ULL) / runTimeUs : 0));
   cpm86CoreDestroy(guestCore);
   guestCore = NULL;
   guestReady = false;

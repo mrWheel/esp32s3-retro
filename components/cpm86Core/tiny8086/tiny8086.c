@@ -1,17 +1,9 @@
 #include "tiny8086.h"
 #include <string.h>
 
-#ifdef ESP_PLATFORM
-#include "esp_attr.h"
-//-- Keep the interpreter in internal IRAM: avoids flash-cache misses in the hot loop.
-#ifdef CONFIG_CPM86_TINY8086_IRAM
-#define TINY8086_HOT IRAM_ATTR
-#else
-#define TINY8086_HOT
-#endif
-#else
-#define TINY8086_HOT
-#endif
+//-- Small helpers must be inlined: every out-of-line call costs a windowed-ABI entry/retw on
+//Xtensa.
+#define TINY8086_INLINE static inline __attribute__((always_inline))
 
 //-- Layout assumption: little-endian host (Xtensa LX7) so that the byte registers
 //-- AL/CL/DL/BL and AH/CH/DH/BH are reached with a plain byte pointer into reg[].
@@ -58,7 +50,7 @@ static inline void writeByte(tiny8086* cpu, uint32_t address, uint8_t value)
 }
 
 //-- The offset wraps inside the 64 KiB segment, the physical address wraps at 20 bits.
-static inline uint16_t readWord(tiny8086* cpu, uint16_t segment, uint16_t offset)
+TINY8086_INLINE uint16_t readWord(tiny8086* cpu, uint16_t segment, uint16_t offset)
 {
   uint32_t address = physicalAddress(segment, offset);
   //-- Fast path: no 64 KiB offset wrap, no 20-bit wrap, fully inside populated RAM.
@@ -72,7 +64,7 @@ static inline uint16_t readWord(tiny8086* cpu, uint16_t segment, uint16_t offset
   return (uint16_t)(low | (high << 8));
 }
 
-static inline void writeWord(tiny8086* cpu, uint16_t segment, uint16_t offset, uint16_t value)
+TINY8086_INLINE void writeWord(tiny8086* cpu, uint16_t segment, uint16_t offset, uint16_t value)
 {
   uint32_t address = physicalAddress(segment, offset);
   if (__builtin_expect(offset != 0xFFFF && address + 1 < cpu->memorySize, 1))
@@ -86,12 +78,12 @@ static inline void writeWord(tiny8086* cpu, uint16_t segment, uint16_t offset, u
   writeByte(cpu, physicalAddress(segment, (uint16_t)(offset + 1)), (uint8_t)(value >> 8));
 }
 
-static inline uint8_t fetchByte(tiny8086* cpu)
+TINY8086_INLINE uint8_t fetchByte(tiny8086* cpu)
 {
   return readByte(cpu, physicalAddress(cpu->seg[tiny8086SegCs], cpu->ip++));
 }
 
-static inline uint16_t fetchWord(tiny8086* cpu)
+TINY8086_INLINE uint16_t fetchWord(tiny8086* cpu)
 {
   uint32_t address = physicalAddress(cpu->seg[tiny8086SegCs], cpu->ip);
   if (__builtin_expect(cpu->ip < 0xFFFE && address + 1 < cpu->memorySize, 1))
@@ -105,13 +97,13 @@ static inline uint16_t fetchWord(tiny8086* cpu)
   return (uint16_t)(low | (high << 8));
 }
 
-static inline void push16(tiny8086* cpu, uint16_t value)
+TINY8086_INLINE void push16(tiny8086* cpu, uint16_t value)
 {
   cpu->reg[tiny8086RegSp] -= 2;
   writeWord(cpu, cpu->seg[tiny8086SegSs], cpu->reg[tiny8086RegSp], value);
 }
 
-static inline uint16_t pop16(tiny8086* cpu)
+TINY8086_INLINE uint16_t pop16(tiny8086* cpu)
 {
   uint16_t value = readWord(cpu, cpu->seg[tiny8086SegSs], cpu->reg[tiny8086RegSp]);
   cpu->reg[tiny8086RegSp] += 2;
@@ -139,62 +131,81 @@ static inline void setFlag(tiny8086* cpu, uint16_t mask, bool condition)
   }
 }
 
+//-- PF for every byte value (even parity -> 0x04), kept in internal RAM by the noflash mapping.
+static const uint8_t parityFlagTable[256] = {
+    0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04,
+    0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00,
+    0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00,
+    0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04,
+    0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00,
+    0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04,
+    0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04,
+    0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00,
+    0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00,
+    0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04,
+    0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04,
+    0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00,
+    0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04,
+    0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00,
+    0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00,
+    0x04, 0x00, 0x00, 0x04, 0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x04};
+
 static inline void setResultFlags(tiny8086* cpu, uint32_t result, bool wide)
 {
-  uint32_t signBit = wide ? 0x8000u : 0x80u;
-  setFlag(cpu, tiny8086FlagZf, result == 0);
-  setFlag(cpu, tiny8086FlagSf, (result & signBit) != 0);
-  setFlag(cpu, tiny8086FlagPf, __builtin_parity(result & 0xFF) == 0);
+  //-- Branch-free ZF/SF/PF; result must already be masked to the operand width.
+  uint32_t zero = result == 0 ? tiny8086FlagZf : 0u;
+  uint32_t sign = (result >> (wide ? 8 : 0)) & tiny8086FlagSf;
+  uint32_t flags = parityFlagTable[result & 0xFF] | zero | sign;
+  cpu->flags =
+      (uint16_t)((cpu->flags & ~(tiny8086FlagZf | tiny8086FlagSf | tiny8086FlagPf)) | flags);
 }
 
 //-- ALU operation order matches opcode bits 5..3 and group-1 /r:
 //-- 0 ADD, 1 OR, 2 ADC, 3 SBB, 4 AND, 5 SUB, 6 XOR, 7 CMP.
+//-- All six status flags are computed together and written with a single store.
 static uint16_t aluOperation(tiny8086* cpu, uint8_t operation, uint16_t a, uint16_t b, bool wide)
 {
-  uint32_t mask = wide ? 0xFFFFu : 0xFFu;
-  uint32_t signBit = wide ? 0x8000u : 0x80u;
-  uint32_t carryIn = (cpu->flags & tiny8086FlagCf) ? 1u : 0u;
+  const uint32_t mask = wide ? 0xFFFFu : 0xFFu;
+  const uint32_t carryShift = wide ? 16 : 8;
+  const uint32_t signShift = wide ? 15 : 7;
+  const uint32_t carryIn = cpu->flags & tiny8086FlagCf;
   uint32_t result;
+  uint32_t flags;
+  const uint32_t statusMask = tiny8086FlagCf | tiny8086FlagPf | tiny8086FlagAf | tiny8086FlagZf |
+                              tiny8086FlagSf | tiny8086FlagOf;
 
   switch (operation)
   {
   case 0:
   case 2:
-  {
-    uint32_t carry = operation == 2 ? carryIn : 0;
-    result = (uint32_t)a + b + carry;
-    setFlag(cpu, tiny8086FlagCf, result > mask);
-    setFlag(cpu, tiny8086FlagAf, ((a ^ b ^ result) & 0x10) != 0);
-    setFlag(cpu, tiny8086FlagOf, (~(a ^ b) & (a ^ result) & signBit) != 0);
+    result = (uint32_t)a + b + (operation == 2 ? carryIn : 0u);
+    flags = ((result >> carryShift) & 1u) | (((a ^ b ^ result) & 0x10u)) |
+            ((((~(a ^ b) & (a ^ result)) >> signShift) & 1u) << 11);
     break;
-  }
   case 3:
   case 5:
   case 7:
-  {
-    uint32_t borrow = operation == 3 ? carryIn : 0;
-    result = (uint32_t)a - b - borrow;
-    setFlag(cpu, tiny8086FlagCf, (uint32_t)a < (uint32_t)b + borrow);
-    setFlag(cpu, tiny8086FlagAf, ((a ^ b ^ result) & 0x10) != 0);
-    setFlag(cpu, tiny8086FlagOf, ((a ^ b) & (a ^ result) & signBit) != 0);
+    result = (uint32_t)a - b - (operation == 3 ? carryIn : 0u);
+    flags = ((result >> carryShift) & 1u) | (((a ^ b ^ result) & 0x10u)) |
+            ((((a ^ b) & (a ^ result)) >> signShift) & 1u) << 11;
     break;
-  }
   case 1:
     result = a | b;
-    goto logic;
+    flags = 0;
+    break;
   case 4:
     result = a & b;
-    goto logic;
+    flags = 0;
+    break;
   default:
     result = a ^ b;
-  logic:
-    setFlag(cpu, tiny8086FlagCf, false);
-    setFlag(cpu, tiny8086FlagOf, false);
-    setFlag(cpu, tiny8086FlagAf, false);
+    flags = 0;
     break;
   }
   result &= mask;
-  setResultFlags(cpu, result, wide);
+  flags |= parityFlagTable[result & 0xFF] | (result == 0 ? tiny8086FlagZf : 0u) |
+           ((result >> (wide ? 8 : 0)) & tiny8086FlagSf);
+  cpu->flags = (uint16_t)((cpu->flags & ~statusMask) | flags);
   return (uint16_t)result;
 }
 
@@ -242,7 +253,7 @@ static bool conditionTrue(const tiny8086* cpu, uint8_t condition)
 //-- ModRM decoding and operand access
 //-- ---------------------------------------------------------------------------
 
-static void decodeModRm(tiny8086* cpu, modRmInfo* info, int segmentOverride)
+TINY8086_INLINE void decodeModRm(tiny8086* cpu, modRmInfo* info, int segmentOverride)
 {
   uint8_t modRm = fetchByte(cpu);
   info->mod = modRm >> 6;
@@ -305,7 +316,7 @@ static void decodeModRm(tiny8086* cpu, modRmInfo* info, int segmentOverride)
   info->seg = segmentOverride >= 0 ? cpu->seg[segmentOverride] : defaultSegment;
 }
 
-static uint16_t readRm(tiny8086* cpu, const modRmInfo* info, bool wide)
+TINY8086_INLINE uint16_t readRm(tiny8086* cpu, const modRmInfo* info, bool wide)
 {
   if (info->isReg)
   {
@@ -315,7 +326,7 @@ static uint16_t readRm(tiny8086* cpu, const modRmInfo* info, bool wide)
               : readByte(cpu, physicalAddress(info->seg, info->off));
 }
 
-static void writeRm(tiny8086* cpu, const modRmInfo* info, uint16_t value, bool wide)
+TINY8086_INLINE void writeRm(tiny8086* cpu, const modRmInfo* info, uint16_t value, bool wide)
 {
   if (info->isReg)
   {
@@ -339,12 +350,12 @@ static void writeRm(tiny8086* cpu, const modRmInfo* info, uint16_t value, bool w
   }
 }
 
-static inline uint16_t readRegField(tiny8086* cpu, uint8_t index, bool wide)
+TINY8086_INLINE uint16_t readRegField(tiny8086* cpu, uint8_t index, bool wide)
 {
   return wide ? cpu->reg[index] : *reg8Pointer(cpu, index);
 }
 
-static inline void writeRegField(tiny8086* cpu, uint8_t index, uint16_t value, bool wide)
+TINY8086_INLINE void writeRegField(tiny8086* cpu, uint8_t index, uint16_t value, bool wide)
 {
   if (wide)
   {
@@ -712,7 +723,7 @@ static void stringOperation(tiny8086* cpu, uint8_t opcode, int segmentOverride, 
   }
 }
 
-TINY8086_HOT tiny8086Result tiny8086Step(tiny8086* cpu)
+tiny8086Result tiny8086Step(tiny8086* cpu)
 {
   if (cpu == NULL)
   {
@@ -748,7 +759,7 @@ TINY8086_HOT tiny8086Result tiny8086Step(tiny8086* cpu)
   }
 
   bool wide = (opcode & 1) != 0;
-  modRmInfo modRm;
+  modRmInfo modRm = {0};
   if (cpu->fault != tiny8086Ok)
   {
     return cpu->fault;

@@ -1,0 +1,5 @@
+[mapping:cpm86Core]
+archive: libcpm86Core.a
+entries:
+    if CPM86_TINY8086_IRAM = y:
+        tiny8086 (noflash)

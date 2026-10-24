@@ -7,4 +7,11 @@ menu "CP/M-86 (tiny8086 core)"
             Puts tiny8086Step() in internal IRAM instead of flash-cached code.
             Costs roughly 15-25 KB of IRAM; enable after measuring on hardware.
 
+    config CPM86_SELFTEST_BENCH
+        bool "Print a raw CPU speed benchmark when CP/M-86 starts"
+        default n
+        help
+            Runs a small loop on the 8086 core with guest RAM in PSRAM and in
+            internal RAM and prints the kIPS on the console. Diagnostic only.
+
 endmenu
