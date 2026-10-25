@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "cpm80Cpu.h"
+#include "hostClock.h"
 
 enum
 {
@@ -12,6 +13,13 @@ enum
   cpm80BdosSize = 0x0E00,
   cpm80BiosAddress = 0xDA00,
   cpm80BiosServicePort = 0xFE,
+  //-- RETRO80_TIMER_B1: 8-bit IN ports, same register layout and values as RETRO86_TIMER_B1.
+  //-- F0 = capability (B1 with a clock callback, else 00); F1 = latch a fresh count and return
+  //-- bits 0-7; F2/F3/F4 = bits 8-15/16-23/24-31 of the latch without calling the callback.
+  cpm80TimerCapabilityPort = 0xF0,
+  cpm80TimerLowPort = 0xF1,
+  cpm80TimerHighPort = 0xF4,
+  cpm80TimerCapability = 0xB1,
   cpm80SystemImageSize = 256256,
   cpm80LargeImageSize = 512512,
   cpm80BigImageSize = 8421376,
@@ -53,6 +61,9 @@ typedef struct
                           const uint8_t record[cpm80DiskSectorSize]);
   void (*yield)(void* context);
   void* context;
+  //-- Optional monotonic millisecond source; NULL disables the guest timer.
+  hostReadMilliseconds readMilliseconds;
+  void* clockContext;
 } cpm80HostOps;
 
 typedef struct
@@ -69,6 +80,7 @@ typedef struct
   uint8_t keyboardCharacter;
   bool keyboardCharacterAvailable;
   bool skipLineFeed;
+  uint32_t millisecondsSnapshot;
   bool initialized;
 } cpm80Guest;
 

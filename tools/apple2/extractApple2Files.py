@@ -1369,7 +1369,7 @@ def addHostFile(session):
 def addHostFileToDestination(dest, hostPath, nameOut):
   data = hostPath.read_bytes()
   suffix = hostPath.suffix.upper()
-  pascalKind = {".TEXT": 3, ".CODE": 2}.get(suffix, 5)
+  pascalKind = {".TEXT": 3, ".CODE": 2, ".PASCAL": 2}.get(suffix, 5)
   if isinstance(dest, PascalVolume) and suffix == ".TEXT":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ucsd"))
     import extractUcsd

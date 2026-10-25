@@ -3,11 +3,11 @@
 ## Purpose and scope
 
 This document defines a reusable host-side time source for emulator code and
-records the first guest-facing implementation, CP/M-86's
-`RETRO86_TIMER_B1` extension. The callback contract is generic and may be
-injected into other CPU emulators. A guest-visible timer protocol is not
-automatically shared: each emulator must explicitly integrate and document its
-own guest API.
+records its guest-facing integrations: CP/M-86's `RETRO86_TIMER_B1`, CP/M-80's
+`RETRO80_TIMER_B1`, and the shared Apple II/UCSD `APPLE2_TIMER_C1` virtual
+device. The callback contract is generic and may be injected into other CPU
+emulators. A guest-visible timer protocol is not automatically shared: each
+emulator must explicitly integrate and document its own guest API.
 
 This is elapsed-time measurement, not a calendar clock. It does not provide a
 date or time of day, and does not require network access or clock
@@ -42,7 +42,7 @@ their own monotonic source without changing the callback type.
 
 ## ESP32-S3 source
 
-The CP/M-86 ESP32 adapter uses ESP-IDF ESP Timer:
+The CP/M-86, CP/M-80, and Apple II ESP32 adapters use ESP-IDF ESP Timer:
 
 ```c
 #include "esp_timer.h"
@@ -67,8 +67,7 @@ dependencies to a portable CPU core.
 
 ## CP/M-86 guest protocol: RETRO86_TIMER_B1
 
-The initial guest-facing binding is implemented only by the CP/M-86 machine.
-It uses byte-wide 8086 `IN` operations on ports F0h–F4h:
+The CP/M-86 binding uses byte-wide 8086 `IN` operations on ports F0h–F4h:
 
 | Port | Direction | Meaning |
 |---|---|---|
@@ -119,6 +118,48 @@ preserve flags. Save a start value and subtract it from a later result using
 handles one counter wrap for measurements shorter than 2^32 ms, unless the
 underlying time source was reset.
 
+## CP/M-80 guest protocol: RETRO80_TIMER_B1
+
+The CP/M-80 binding uses byte-wide Z80 `IN A,(n)` operations on ports
+F0h–F4h. It has the same capability value, byte order, snapshot semantics,
+wraparound, and missing-source values as the CP/M-86 protocol:
+
+| Port | Direction | Meaning |
+|---|---|---|
+| F0h | IN byte | B1h when a time callback is configured; otherwise 00h. |
+| F1h | IN byte | Take a fresh snapshot and return bits 0–7. |
+| F2h | IN byte | Return bits 8–15 of the F1h snapshot. |
+| F3h | IN byte | Return bits 16–23 of the F1h snapshot. |
+| F4h | IN byte | Return bits 24–31 of the F1h snapshot. |
+
+The capability port does not change the snapshot. Reads of F2h–F4h do not
+sample the callback. Cold boot clears the snapshot; CP/M warm boot preserves
+it. With no callback, the capability and time bytes are zero. Writes to these
+ports retain CP/M-80's existing no-op behavior. The API is an emulator
+extension, not a CP/M or BDOS feature.
+
+## Apple II and UCSD guest protocol: APPLE2_TIMER_C1
+
+The Apple II CPU exposes one virtual timer card in slot 2 at $C0A0–$C0A4.
+UCSD Pascal and Apple II use the same Apple II emulator, so they share this
+device and callback:
+
+| Address | Direction | Meaning |
+|---|---|---|
+| $C0A0 | Read byte | C1h when a callback is configured; otherwise 00h. |
+| $C0A1 | Read byte | Take a fresh snapshot and return bits 0–7. |
+| $C0A2 | Read byte | Return bits 8–15 of the $C0A1 snapshot. |
+| $C0A3 | Read byte | Return bits 16–23 of the $C0A1 snapshot. |
+| $C0A4 | Read byte | Return bits 24–31 of the $C0A1 snapshot. |
+
+The capability address does not change the snapshot. Reads of $C0A2–$C0A4
+do not sample the callback. Reset clears the snapshot but does not reset ESP
+Timer. With no callback, the capability and time bytes are zero. Writes to the
+timer addresses are ignored. Enabling the timer reserves slot 2 from other
+slot-I/O devices; it is a project virtual-device extension, not standard Apple
+II hardware. Only check capability on firmware that implements
+`APPLE2_TIMER_C1`; older firmware returns the slot's open-bus value.
+
 ## Integration guidance for other emulators
 
 The callback may be reused by any emulator that needs a host-provided elapsed
@@ -139,9 +180,9 @@ time source. For each new integration:
    separately run that emulator's existing regression tests and platform
    build.
 
-Do not expose the CP/M-86 F0h–F4h protocol in another emulator merely by
-reusing the callback. Such a binding requires its own explicit integration and
-compatibility decision.
+Do not expose one of these guest protocols in another emulator merely by
+reusing the callback. Such a binding requires its own explicit integration
+and compatibility decision.
 
 ## Verification record
 
@@ -168,3 +209,24 @@ compatibility decision.
 
 These are distinct results: desktop tests passed, the firmware build passed,
 and physical hardware verification remains open.
+
+### CP/M-80 and Apple II timer integrations — 2026-10-24
+
+- **Host tests:** the focused CTest entries `cpm80Timer`, `hostCore`, and
+  `apple2Core` passed. The timer tests exercise capability reporting,
+  little-endian snapshots, callback counts, reset, no-callback behavior,
+  wraparound, and guest CPU execution. Apple II timer execution is checked on
+  both the original Apple II and Apple IIe core paths.
+- **Benchmark assets:** `assets/cpm80/BENCH80/` includes source and a
+  guest-tested `.COM`; `assets/apple2/BENCH2/` includes Applesoft source and
+  a tokenized ProDOS BASIC program; `assets/ucsd/BENCHUCSD/` includes Pascal
+  source to compile into a `.CODE` file using the guest compiler.
+- **Additional checks:** BENCH2 tokenization/ProDOS metadata and UCSD TEXT
+  conversion round-trips passed. The CP/M-80 benchmark was run in its host
+  guest test. UCSD compilation and guest execution, Apple II guest execution,
+  and all hardware tests remain unverified.
+- **Regression state:** the entire CTest run was not clean because existing
+  image-dependent tests could not open missing Apple II/UCSD disk images.
+  These failures are separate from the focused timer tests.
+- **Firmware:** no new target firmware build or hardware test was performed
+  after these changes; no firmware was flashed.

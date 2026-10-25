@@ -26,6 +26,19 @@ typedef struct
   size_t writes;
 } apple2SlotIoFixture;
 
+typedef struct
+{
+  uint32_t milliseconds;
+  size_t reads;
+} apple2TimerFixture;
+
+static uint32_t readApple2TimerMilliseconds(void* context)
+{
+  apple2TimerFixture* fixture = context;
+  ++fixture->reads;
+  return fixture->milliseconds;
+}
+
 static uint8_t readApple2SlotIo(void* context, uint8_t registerIndex)
 {
   apple2SlotIoFixture* fixture = context;
@@ -75,9 +88,146 @@ static void testApple2SlotIoDevice(void)
   apple2CoreDestroy(core);
 }
 
+static void testApple2Timer(void)
+{
+  apple2Core* core = NULL;
+  uint8_t value;
+  apple2TimerFixture fixture = {.milliseconds = 0x12345678};
+  apple2SlotIoFixture slotFixture = {0};
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreAttachSlotIoDevice(core, apple2TimerSlot, readApple2SlotIo, writeApple2SlotIo,
+                                      &slotFixture) == apple2CoreOk);
+  assert(apple2CoreSetTimeSource(core, readApple2TimerMilliseconds, &fixture) ==
+         apple2CoreInvalidArgument);
+  apple2CoreDestroy(core);
+
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetTimeSource(core, NULL, NULL) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, apple2TimerCapabilityAddress, &value) == apple2CoreOk &&
+         value == 0);
+  for (uint16_t address = apple2TimerLowAddress; address <= apple2TimerHighAddress; ++address)
+  {
+    assert(apple2CoreReadMemory(core, address, &value) == apple2CoreOk && value == 0);
+    assert(apple2CoreWriteMemory(core, address, 0xA5) == apple2CoreOk);
+  }
+  assert(apple2CoreReadMemory(core, apple2TimerLowAddress, &value) == apple2CoreOk && value == 0);
+  apple2CoreDestroy(core);
+
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetTimeSource(core, readApple2TimerMilliseconds, &fixture) == apple2CoreOk);
+  assert(apple2CoreAttachSlotIoDevice(core, apple2TimerSlot, readApple2SlotIo, writeApple2SlotIo,
+                                      &slotFixture) == apple2CoreInvalidArgument);
+  assert(apple2CoreReadMemory(core, apple2TimerCapabilityAddress, &value) == apple2CoreOk &&
+         value == apple2TimerCapability && fixture.reads == 0);
+  assert(apple2CoreReadMemory(core, apple2TimerHighAddress, &value) == apple2CoreOk && value == 0 &&
+         fixture.reads == 0);
+  assert(apple2CoreReadMemory(core, apple2TimerLowAddress, &value) == apple2CoreOk &&
+         value == 0x78 && fixture.reads == 1);
+
+  fixture.milliseconds = 0xDEADBEEF;
+  const uint8_t expectedSnapshot[] = {0x78, 0x56, 0x34, 0x12};
+  for (uint16_t address = apple2TimerLowAddress + 1; address <= apple2TimerHighAddress; ++address)
+  {
+    assert(apple2CoreReadMemory(core, address, &value) == apple2CoreOk);
+    assert(value == expectedSnapshot[address - apple2TimerLowAddress]);
+  }
+  assert(fixture.reads == 1);
+
+  fixture.milliseconds = 0xFFFFFFF0;
+  assert(apple2CoreReadMemory(core, apple2TimerLowAddress, &value) == apple2CoreOk &&
+         value == 0xF0 && fixture.reads == 2);
+  uint32_t beforeWrap = value;
+  for (uint16_t address = apple2TimerLowAddress + 1; address <= apple2TimerHighAddress; ++address)
+  {
+    assert(apple2CoreReadMemory(core, address, &value) == apple2CoreOk);
+    beforeWrap |= (uint32_t)value << ((address - apple2TimerLowAddress) * 8);
+  }
+  fixture.milliseconds = 0x00000018;
+  assert(apple2CoreReadMemory(core, apple2TimerLowAddress, &value) == apple2CoreOk &&
+         value == 0x18 && fixture.reads == 3);
+  uint32_t afterWrap = value;
+  for (uint16_t address = apple2TimerLowAddress + 1; address <= apple2TimerHighAddress; ++address)
+  {
+    assert(apple2CoreReadMemory(core, address, &value) == apple2CoreOk);
+    afterWrap |= (uint32_t)value << ((address - apple2TimerLowAddress) * 8);
+  }
+  assert(afterWrap - beforeWrap == 40);
+  assert(fixture.reads == 3);
+
+  uint8_t rom[apple2RomSize];
+  memset(rom, 0xEA, sizeof(rom));
+  const uint8_t guestProgram[] = {0xAD, 0xA0, 0xC0, 0x8D, 0x00, 0x04, 0xAD, 0xA1, 0xC0, 0x8D, 0x01,
+                                  0x04, 0xAD, 0xA2, 0xC0, 0x8D, 0x02, 0x04, 0xAD, 0xA3, 0xC0, 0x8D,
+                                  0x03, 0x04, 0xAD, 0xA4, 0xC0, 0x8D, 0x04, 0x04, 0x4C, 0x1E, 0xD0};
+  memcpy(rom, guestProgram, sizeof(guestProgram));
+  rom[0x2FFC] = 0x00;
+  rom[0x2FFD] = 0xD0;
+  assert(apple2CoreLoadRom(core, rom, sizeof(rom)) == apple2CoreOk);
+  fixture.milliseconds = 0x87654321;
+  assert(apple2CoreRunCycles(core, 100) == apple2CoreOk);
+  const uint8_t expectedGuestBytes[] = {apple2TimerCapability, 0x21, 0x43, 0x65, 0x87};
+  for (size_t index = 0; index < sizeof(expectedGuestBytes); ++index)
+  {
+    assert(apple2CoreReadMemory(core, (uint16_t)(0x0400 + index), &value) == apple2CoreOk);
+    assert(value == expectedGuestBytes[index]);
+  }
+  assert(fixture.reads > 3);
+
+  size_t readsBeforeWrites = fixture.reads;
+  assert(apple2CoreWriteMemory(core, apple2TimerCapabilityAddress, 0xFF) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, apple2TimerLowAddress, 0x00) == apple2CoreOk);
+  assert(apple2CoreWriteMemory(core, apple2TimerHighAddress, 0x00) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, apple2TimerHighAddress, &value) == apple2CoreOk &&
+         value == 0x87 && fixture.reads == readsBeforeWrites);
+  assert(apple2CoreWriteMemory(core, apple2TimerHighAddress + 1, 0x44) == apple2CoreOk);
+  assert(apple2CoreReadMemory(core, apple2TimerHighAddress + 1, &value) == apple2CoreOk &&
+         value == 0x44);
+  assert(fixture.reads == readsBeforeWrites);
+
+  fixture.milliseconds = 0xA1B2C3D4;
+  assert(apple2CoreReadMemory(core, apple2TimerLowAddress, &value) == apple2CoreOk &&
+         value == 0xD4);
+  assert(apple2CoreReset(core) == apple2CoreOk);
+  size_t readsAfterReset = fixture.reads;
+  const uint8_t zeroSnapshot[] = {0, 0, 0, 0};
+  for (uint16_t address = apple2TimerLowAddress + 1; address <= apple2TimerHighAddress; ++address)
+  {
+    assert(apple2CoreReadMemory(core, address, &value) == apple2CoreOk);
+    assert(value == zeroSnapshot[address - apple2TimerLowAddress]);
+  }
+  assert(fixture.reads == readsAfterReset);
+  assert(apple2CoreReadMemory(core, apple2TimerLowAddress, &value) == apple2CoreOk &&
+         value == 0xD4 && fixture.reads == readsAfterReset + 1);
+  apple2CoreDestroy(core);
+
+  fixture = (apple2TimerFixture){.milliseconds = 0x87654321};
+  assert(apple2CoreCreate(&core) == apple2CoreOk);
+  assert(apple2CoreSetTimeSource(core, readApple2TimerMilliseconds, &fixture) == apple2CoreOk);
+  assert(apple2CoreEnableIIe(core) == apple2CoreOk);
+  uint8_t iieRom[apple2IIeRomSize];
+  memset(iieRom, 0xEA, sizeof(iieRom));
+  const uint8_t iieProgram[] = {0xAD, 0xA0, 0xC0, 0x8D, 0x00, 0x04, 0xAD, 0xA1, 0xC0, 0x8D, 0x01,
+                                0x04, 0xAD, 0xA2, 0xC0, 0x8D, 0x02, 0x04, 0xAD, 0xA3, 0xC0, 0x8D,
+                                0x03, 0x04, 0xAD, 0xA4, 0xC0, 0x8D, 0x04, 0x04, 0x4C, 0x1E, 0xD0};
+  memcpy(&iieRom[0x1000], iieProgram, sizeof(iieProgram));
+  iieRom[0x3FFC] = 0x00;
+  iieRom[0x3FFD] = 0xD0;
+  assert(apple2CoreLoadRom(core, iieRom, sizeof(iieRom)) == apple2CoreOk);
+  assert(apple2CoreRunCycles(core, 100) == apple2CoreOk);
+  const uint8_t expectedIIeBytes[] = {apple2TimerCapability, 0x21, 0x43, 0x65, 0x87};
+  for (size_t index = 0; index < sizeof(expectedIIeBytes); ++index)
+  {
+    assert(apple2CoreReadMemory(core, (uint16_t)(0x0400 + index), &value) == apple2CoreOk);
+    assert(value == expectedIIeBytes[index]);
+  }
+  assert(fixture.reads > 0);
+  apple2CoreDestroy(core);
+}
+
 static void testApple2Core(void)
 {
   testApple2SlotIoDevice();
+  testApple2Timer();
   apple2Core* core = NULL;
   uint8_t value;
   assert(apple2CoreCreate(&core) == apple2CoreOk);

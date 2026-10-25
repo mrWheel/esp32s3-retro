@@ -160,7 +160,7 @@ static void installBios(cpm80Guest* guest)
     if (drive == 0 && profile != cpm80DiskProfileSystem)
     {
       //-- The SYSTEM-sized CSV/ALV slots of A: are too small for a LARGE or BIG layout; use the
-      //free area above drive F:.
+      // free area above drive F:.
       csvAddress = cpm80BiosLargeSystemCsvAddress;
       alvAddress = cpm80BiosLargeSystemAlvAddress;
     }
@@ -263,6 +263,7 @@ static void installSystem(cpm80Guest* guest, bool coldBoot)
   {
     guest->keyboardCharacterAvailable = false;
     guest->skipLineFeed = false;
+    guest->millisecondsSnapshot = 0;
   }
   resetProcessor(guest, cpm80CcpAddress);
   guest->cpu.processor.c = currentDisk;
@@ -475,8 +476,23 @@ static void serviceBios(cpm80Guest* guest, uint8_t function)
 
 static uint8_t readPort(void* context, uint8_t port)
 {
-  (void)context;
-  (void)port;
+  cpm80Guest* guest = context;
+  if (port == cpm80TimerCapabilityPort)
+  {
+    return guest->host.readMilliseconds == NULL ? 0x00 : cpm80TimerCapability;
+  }
+  if (port >= cpm80TimerLowPort && port <= cpm80TimerHighPort)
+  {
+    if (guest->host.readMilliseconds == NULL)
+    {
+      return 0x00;
+    }
+    if (port == cpm80TimerLowPort)
+    {
+      guest->millisecondsSnapshot = guest->host.readMilliseconds(guest->host.clockContext);
+    }
+    return (uint8_t)(guest->millisecondsSnapshot >> ((port - cpm80TimerLowPort) * 8));
+  }
   return 0xFF;
 }
 
@@ -542,6 +558,7 @@ bool cpm80GuestColdBoot(cpm80Guest* guest)
   {
     return false;
   }
+  guest->millisecondsSnapshot = 0;
   resetProcessor(guest, cpm80BiosAddress);
   return true;
 }

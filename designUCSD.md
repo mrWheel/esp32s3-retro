@@ -8,6 +8,12 @@ This design replaces the independent Z80 p-System proposal with **native Apple P
 
 The guest's Apple II 6502 p-code interpreter executes its matching Pascal system and compiled p-code. The ESP32 does not implement a replacement p-code VM or simulate the Pascal command environment. Boot original, matching Apple Pascal system images through the existing Apple II slot-controller interface and their own on-disk loaders. Add only the disk-format, boot and terminal support that reproducible evidence shows is missing.
 
+The Apple II and UCSD menu profiles share the Apple II slot-2
+`APPLE2_TIMER_C1` virtual timer at `$C0A0–$C0A4`. `assets/ucsd/BENCHUCSD/`
+contains Pascal source that is intended to be compiled into a guest `.CODE`
+file with the native Pascal compiler; no host-side p-code compiler is
+integrated.
+
 The original design rebaseline did not inspect the repository or run tests. The subsequent implementation inspected the current project contract and Apple II launch, drive-config and registry code; it built the ESP-IDF firmware and ran Apple II host regressions. Pascal 1.3 128K booted in the host IIe harness. A prior fixture also listed and opened files from three block volumes, but the current focused test does not pass with the current worktree media. No desktop reference run or ESP32 execution was performed. The owner's report that Apple II and large ProDOS disks work is a user report; it does not independently prove native Pascal compatibility.
 
 ### Authority and conflict resolution
@@ -172,7 +178,7 @@ Use the existing `drives.cfg` line grammar:
 SD<slot>.<drive>=<image>,<RO-or-RW>,<profile>
 ```
 
-Accepted baseline: Disk II slots 4–7 have drives 1–2; SmartPort block devices can be configured as `SP<slot>.<unit>` on slots 4–7, units 1–4. Pascal 1.3's ProDOS block interface exposes only units 1 and 2 per slot, so Pascal volumes beyond the first two must be assigned to another free slot. Slot 0 is Language Card, slot 2 has no transfer adapter, and slot 3 is video. `PR6.1`, lettered CP/M mappings and Disk II drives 3–99 are not supported configuration extensions. Guest `PR#n` is a separate command, unchanged.
+Accepted baseline: Disk II slots 4–7 have drives 1–2; SmartPort block devices can be configured as `SP<slot>.<unit>` on slots 4–7, units 1–4. Pascal 1.3's ProDOS block interface exposes only units 1 and 2 per slot, so Pascal volumes beyond the first two must be assigned to another free slot. Slot 0 is Language Card, slot 2 is reserved for the `APPLE2_TIMER_C1` virtual timer (not a transfer adapter), and slot 3 is video. `PR6.1`, lettered CP/M mappings and Disk II drives 3–99 are not supported configuration extensions. Guest `PR#n` is a separate command, unchanged.
 
 The checked-in UCSD `drives.cfg` maps the 800K boot disk to a block-device
 autostart slot and distributes three additional block images across slots 4
@@ -216,7 +222,7 @@ Each effective `drives.cfg` has one explicit SD6.1 mapping; do not combine these
 | `/littlefs/apple2/` | Existing ROM and ProDOS master |
 | `/littlefs/ucsd/` | UCSD profile and alternate 140K Pascal boot image |
 | `/retro/images/apple2/` | Apple II media root |
-| `/retro/exchange/apple2/` | Existing slot-2 adapter root and browser staging |
+| `/retro/exchange/apple2/` | Host-side file-exchange root and browser staging; not a guest slot-2 adapter |
 | `/retro/images/ucsd/` | UCSD writable images; selected directly by File Transfer |
 | `/retro/exchange/ucsd/` | Browser file-staging directory |
 
@@ -394,6 +400,7 @@ All following rows are design decisions from this request/document comparison, n
 | UCSD-DEC-018 | 2026-10-12, implemented. Mount 640K Pascal work volumes as slot-5 SmartPort block devices (SP5.1/SP5.2), not Disk II sector drives (SD5.1/SD5.2). A host IIe test reproduces `ERROR: Reading file` for `WORK1:SPIRODEMO.TEXT` through Disk II and opens and displays its source through SmartPort. Keep the 140K Pascal boot disk on SD6.1. This does not establish ESP32-S3 compatibility or guest write support. |
 | UCSD-DEC-019 | SUPERSEDED 2026-10-12 by UCSD-DEC-020. Original decision: extend slot-5 SmartPort to four 640K units and keep the active Pascal volumes on units 1–3. |
 | UCSD-DEC-020 | 2026-10-12, implemented. Pascal 1.3's ProDOS block interface uses unit identifiers 1 and 2 per slot; more than two volumes on one slot are not enumerated. Keep DATA3 and WORK1 on SP5.1/SP5.2, and mount additional Pascal volumes on another free slot (SP4.1 in the tested profile). The emulator and config parser still support four SmartPort units per slot for software using the SmartPort command interface. Host Filer enumeration and file-open tests pass; firmware/hardware remains unverified. |
+| UCSD-DEC-021 | 2026-10-25, implemented. `createSystemDsk.py --os ucsd --profile PASCAL_800K` composes `littlefs/ucsd/system.po` from `assets/ucsd/ucsdDiskImages/Apple Pascal 1.3 3.5.po` plus `bootDisks/ucsd/systemDsk/`; `128K.APPLE`/`128K.PASCAL` are placed as `SYSTEM.APPLE`/`SYSTEM.PASCAL` (the names the boot loader looks for), making the 128K (IIe) system variant the active system of the firmware disk. A source file named like an existing destination file always overwrites it, also for Apple II ProDOS system disks (a source `PRODOS.SYS` replaces the boot `PRODOS`). Evidence: `tests/test_createSystemDsk.py` (ucsd replace, apple2 boot-file replace) and `tests/test_bootDisksBench.py` (generated disks contain BENCHUCSD). Host-only change; ESP32-S3 behaviour remains unverified. |
 
 ### 128 KiB memory: Apple IIe model and Saturn 128K card (2026-10-12)
 

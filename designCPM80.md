@@ -73,6 +73,26 @@ There is no implemented cycle-accurate peripheral timing model. The guest schedu
 
 The guest depends on these callbacks rather than on ESP-IDF APIs. This keeps the CPU and BIOS logic host-testable and leaves SD and console ownership with the common host.
 
+### Guest-visible monotonic timer
+
+`RETRO80_TIMER_B1` exposes the optional host millisecond callback through
+byte-wide Z80 `IN A,(n)` operations on ports F0h–F4h. F0h reports B1h when a
+callback is configured and 00h otherwise. F1h captures one unsigned 32-bit
+millisecond value and returns its low byte; F2h–F4h return the remaining
+little-endian bytes from that snapshot. Reading F0h or F2h–F4h does not sample
+the callback. With no callback, all four counter bytes are zero.
+
+The snapshot is guest-instance state. Cold boot clears it, while CP/M warm
+boot preserves it. Writes remain no-ops as in the existing CP/M-80 I/O adapter.
+The extension is not part of CP/M-80 or BDOS and does not affect the BIOS
+service port at FEh. Its capability byte is safe to check only on firmware
+that implements `RETRO80_TIMER_B1`.
+
+The ESP32 machine adapter supplies the monotonic source from ESP Timer. The
+portable CPU/guest code depends only on `hostReadMilliseconds`, so host tests
+can inject deterministic values. `assets/cpm80/BENCH80/` contains the Z80
+source and executable benchmark.
+
 ## 5. Memory map and boot system
 
 ### Guest address map

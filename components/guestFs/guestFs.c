@@ -1,4 +1,5 @@
 #include "guestFs.h"
+#include "guestFsConvert.h"
 #include "guestFsInternal.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -11,7 +12,7 @@ bool (*guestFsFaultHook)(const char* stage) = NULL;
 #endif
 
 //-- Adapters are tried in order; an adapter returns guestFsErrUnsupported when the image is not its
-//kind.
+// kind.
 static const guestFsOps* const adapters[] = {&guestFsCpmOps, &guestFsProdosOps, &guestFsPascalOps,
                                              &guestFsDos33Ops};
 static const size_t adapterCount = sizeof(adapters) / sizeof(adapters[0]);
@@ -626,11 +627,79 @@ guestFsStatus guestFsCopy(guestFsVolume* source, uint8_t sourceUser, const char*
   return status;
 }
 
-guestFsStatus guestFsExportToFile(guestFsVolume* volume, uint8_t user, const char* name,
-                                  FILE* output, guestFsPollFn poll, void* pollContext)
+static bool suffixIs(const char* name, const char* suffix)
+{
+  size_t nameLength = strlen(name);
+  size_t suffixLength = strlen(suffix);
+  return nameLength >= suffixLength && strcasecmp(name + nameLength - suffixLength, suffix) == 0;
+}
+
+guestFsConvertKind guestFsConvertKindFor(guestFsVolume* volume, const char* name,
+                                         const guestFsAttributes* attributes)
+{
+  guestFsInfo info;
+  if (volume == NULL || name == NULL)
+  {
+    return guestFsConvertNone;
+  }
+  guestFsInfoGet(volume, &info);
+  if (info.nameRule == NULL)
+  {
+    return guestFsConvertNone;
+  }
+  if (strcmp(info.nameRule, "pascal") == 0)
+  {
+    if (attributes != NULL && attributes->pascalKind >= 2)
+    {
+      return attributes->pascalKind == 3 ? guestFsConvertPascalText : guestFsConvertNone;
+    }
+    return suffixIs(name, ".TEXT") ? guestFsConvertPascalText : guestFsConvertNone;
+  }
+  if (strcmp(info.nameRule, "prodos") == 0 || strcmp(info.nameRule, "dos33") == 0)
+  {
+    if (attributes != NULL)
+    {
+      return attributes->prodosType == 0xFC ? guestFsConvertApplesoft : guestFsConvertNone;
+    }
+    return suffixIs(name, ".BAS") ? guestFsConvertApplesoft : guestFsConvertNone;
+  }
+  return guestFsConvertNone;
+}
+
+typedef struct
+{
+  const uint8_t* data;
+  size_t length;
+  size_t position;
+} memorySource;
+
+static bool memorySourceRead(void* context, void* buffer, size_t length)
+{
+  memorySource* source = context;
+  if (length > source->length - source->position)
+  {
+    return false;
+  }
+  memcpy(buffer, source->data + source->position, length);
+  source->position += length;
+  return true;
+}
+
+static void exportDetail(char* detail, size_t capacity, const char* text)
+{
+  if (detail != NULL && capacity > 0)
+  {
+    snprintf(detail, capacity, "%s", text);
+  }
+}
+
+guestFsStatus guestFsExportStream(guestFsVolume* volume, uint8_t user, const char* name,
+                                  bool convert, guestFsSinkFn sink, void* sinkContext,
+                                  guestFsPollFn poll, void* pollContext, char* detail,
+                                  size_t detailCapacity)
 {
   guestFsEntry entry;
-  if (output == NULL)
+  if (sink == NULL)
   {
     return guestFsErrInvalidArgument;
   }
@@ -643,11 +712,22 @@ guestFsStatus guestFsExportToFile(guestFsVolume* volume, uint8_t user, const cha
   {
     return guestFsErrDamagedFile;
   }
-  uint8_t* buffer = malloc(copyChunkSize);
+  guestFsConvertKind kind =
+      convert ? guestFsConvertKindFor(volume, name, entry.hasAttributes ? &entry.attributes : NULL)
+              : guestFsConvertNone;
+  if (kind == guestFsConvertApplesoft && entry.size > guestFsConvertMaxBasic)
+  {
+    exportDetail(detail, detailCapacity, "The Applesoft program is too large to convert");
+    return guestFsErrUnsupported;
+  }
+  size_t chunkSize = kind == guestFsConvertApplesoft ? entry.size : copyChunkSize;
+  uint8_t* buffer = guestFsConvertAlloc(chunkSize == 0 ? 1 : chunkSize);
   if (buffer == NULL)
   {
     return guestFsErrIo;
   }
+  guestFsTextDecoder decoder;
+  guestFsTextDecoderInit(&decoder);
   uint32_t offset = 0;
   while (offset < entry.size && status == guestFsOk)
   {
@@ -656,16 +736,139 @@ guestFsStatus guestFsExportToFile(guestFsVolume* volume, uint8_t user, const cha
       status = guestFsErrAborted;
       break;
     }
-    size_t wanted = entry.size - offset > copyChunkSize ? copyChunkSize : entry.size - offset;
+    size_t wanted = entry.size - offset > chunkSize ? chunkSize : entry.size - offset;
     size_t got = 0;
-    status = guestFsReadAt(volume, user, name, offset, buffer, wanted, &got);
-    if (status == guestFsOk && (got == 0 || fwrite(buffer, 1, got, output) != got))
+    //-- Applesoft is read into one buffer; the other kinds stream through a fixed chunk.
+    uint8_t* target = kind == guestFsConvertApplesoft ? buffer + offset : buffer;
+    status = guestFsReadAt(volume, user, name, offset, target, wanted, &got);
+    if (status != guestFsOk)
+    {
+      break;
+    }
+    if (got == 0)
+    {
+      status = guestFsErrIo;
+      break;
+    }
+    offset += (uint32_t)got;
+    if (kind == guestFsConvertPascalText)
+    {
+      if (!guestFsTextDecode(&decoder, buffer, got, sink, sinkContext))
+      {
+        status = guestFsErrIo;
+      }
+    }
+    else if (kind == guestFsConvertNone && !sink(sinkContext, buffer, got))
     {
       status = guestFsErrIo;
     }
-    offset += (uint32_t)got;
+  }
+  if (status == guestFsOk && kind == guestFsConvertApplesoft)
+  {
+    status = guestFsBasicDetokenize(buffer, entry.size, sink, sinkContext, detail, detailCapacity);
+    if (status == guestFsErrAborted)
+    {
+      status = guestFsErrIo;
+    }
   }
   free(buffer);
+  return status;
+}
+
+typedef struct
+{
+  FILE* output;
+} fileSink;
+
+static bool fileSinkWrite(void* context, const void* data, size_t length)
+{
+  fileSink* sink = context;
+  return fwrite(data, 1, length, sink->output) == length;
+}
+
+guestFsStatus guestFsExportToFileEx(guestFsVolume* volume, uint8_t user, const char* name,
+                                    FILE* output, bool convert, guestFsPollFn poll,
+                                    void* pollContext, char* detail, size_t detailCapacity)
+{
+  if (output == NULL)
+  {
+    return guestFsErrInvalidArgument;
+  }
+  fileSink sink = {output};
+  return guestFsExportStream(volume, user, name, convert, fileSinkWrite, &sink, poll, pollContext,
+                             detail, detailCapacity);
+}
+
+guestFsStatus guestFsExportToFile(guestFsVolume* volume, uint8_t user, const char* name,
+                                  FILE* output, guestFsPollFn poll, void* pollContext)
+{
+  return guestFsExportToFileEx(volume, user, name, output, false, poll, pollContext, NULL, 0);
+}
+
+guestFsStatus guestFsImportStream(guestFsVolume* volume, uint8_t user, const char* name,
+                                  uint32_t length, guestFsSourceFn source, void* sourceContext,
+                                  bool overwrite, const guestFsAttributes* attributes, bool convert,
+                                  char* detail, size_t detailCapacity)
+{
+  if (volume == NULL || name == NULL || source == NULL)
+  {
+    return guestFsErrInvalidArgument;
+  }
+  guestFsConvertKind kind =
+      convert ? guestFsConvertKindFor(volume, name, attributes) : guestFsConvertNone;
+  if (kind == guestFsConvertNone)
+  {
+    return guestFsWriteEx(volume, user, name, length, source, sourceContext, overwrite, attributes);
+  }
+  if (length == 0)
+  {
+    return guestFsErrEmptyFile;
+  }
+  if (length > (kind == guestFsConvertApplesoft ? guestFsConvertMaxBasic * 4U
+                                                : (uint32_t)guestFsConvertMaxSource))
+  {
+    exportDetail(detail, detailCapacity, "The file is too large to convert");
+    return guestFsErrUnsupported;
+  }
+  uint8_t* input = guestFsConvertAlloc(length);
+  if (input == NULL)
+  {
+    return guestFsErrIo;
+  }
+  if (!source(sourceContext, input, length))
+  {
+    free(input);
+    return guestFsErrIo;
+  }
+  uint8_t* converted = NULL;
+  size_t convertedLength = 0;
+  guestFsStatus status = guestFsOk;
+  bool alreadyNative = kind == guestFsConvertPascalText
+                           ? memchr(input, 0, length) != NULL
+                           : !guestFsBasicLooksLikeSource(input, length);
+  if (alreadyNative)
+  {
+    //-- A file that is already in the native format (it holds NULs / is no listing) is stored as
+    //is.
+    converted = input;
+    convertedLength = length;
+  }
+  else
+  {
+    status =
+        kind == guestFsConvertPascalText
+            ? guestFsTextEncode(input, length, &converted, &convertedLength, detail, detailCapacity)
+            : guestFsBasicTokenize(input, length, &converted, &convertedLength, detail,
+                                   detailCapacity);
+    free(input);
+  }
+  if (status == guestFsOk)
+  {
+    memorySource memory = {converted, convertedLength, 0};
+    status = guestFsWriteEx(volume, user, name, (uint32_t)convertedLength, memorySourceRead,
+                            &memory, overwrite, attributes);
+    free(converted);
+  }
   return status;
 }
 
@@ -694,17 +897,18 @@ static bool fileSourceRead(void* context, void* buffer, size_t length)
   return true;
 }
 
-guestFsStatus guestFsImportFromFile(guestFsVolume* volume, uint8_t user, const char* name,
-                                    FILE* input, uint32_t length, bool overwrite,
-                                    guestFsPollFn poll, void* pollContext)
+guestFsStatus guestFsImportFromFileEx(guestFsVolume* volume, uint8_t user, const char* name,
+                                      FILE* input, uint32_t length, bool overwrite, bool convert,
+                                      guestFsPollFn poll, void* pollContext, char* detail,
+                                      size_t detailCapacity)
 {
   if (input == NULL)
   {
     return guestFsErrInvalidArgument;
   }
   fileSource source = {input, poll, pollContext, false, false};
-  guestFsStatus status =
-      guestFsWrite(volume, user, name, length, fileSourceRead, &source, overwrite);
+  guestFsStatus status = guestFsImportStream(volume, user, name, length, fileSourceRead, &source,
+                                             overwrite, NULL, convert, detail, detailCapacity);
   if (status != guestFsOk && source.cancelled)
   {
     return guestFsErrAborted;
@@ -714,4 +918,12 @@ guestFsStatus guestFsImportFromFile(guestFsVolume* volume, uint8_t user, const c
     return guestFsErrIo;
   }
   return status;
+}
+
+guestFsStatus guestFsImportFromFile(guestFsVolume* volume, uint8_t user, const char* name,
+                                    FILE* input, uint32_t length, bool overwrite,
+                                    guestFsPollFn poll, void* pollContext)
+{
+  return guestFsImportFromFileEx(volume, user, name, input, length, overwrite, false, poll,
+                                 pollContext, NULL, 0);
 }

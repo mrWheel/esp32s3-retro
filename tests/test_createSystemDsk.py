@@ -182,7 +182,7 @@ class CreateSystemDskTests(unittest.TestCase):
 
     def test_unimplemented_os_is_rejected(self):
         with self.assertRaisesRegex(createSystemDsk.DiskImageError, "not implemented"):
-            createSystemDsk.create_system_disk("ucsd", "SMALL", self.output_path)
+            createSystemDsk.create_system_disk("swtpc", "SMALL", self.output_path)
 
     def test_applesoft_token_values_follow_the_rom_token_order(self):
         names = (
@@ -230,6 +230,35 @@ class CreateSystemDskTests(unittest.TestCase):
                 names = [entry["name"] for entry in prodos.list_files(image)]
                 self.assertEqual(names[:4], list(prodos.BOOT_FILES))
                 self.assertIn("STARTUP", names)
+
+    def test_apple2_source_file_replaces_existing_boot_file(self):
+        import diskImageApple2Prodos as prodos
+
+        source_dir = self.root / "apple2-source"
+        source_dir.mkdir()
+        (source_dir / "PRODOS.SYS").write_bytes(b"replaced prodos")
+        output_path = self.root / "apple2-collision.dsk"
+        createSystemDsk.create_system_disk("apple2", "PRODOS_640K", output_path, source_dir=source_dir)
+        image = prodos.load_volume(output_path)
+        names = [entry["name"] for entry in prodos.list_files(image)]
+        self.assertEqual(names.count("PRODOS"), 1)
+        self.assertEqual(prodos.read_file(image, "PRODOS")[0], b"replaced prodos")
+        for boot_name in prodos.BOOT_FILES:
+            self.assertIn(boot_name, names)
+
+    def test_ucsd_source_file_replaces_existing_destination_file(self):
+        source_dir = self.root / "ucsd-source"
+        source_dir.mkdir()
+        (source_dir / "128K.PASCAL").write_bytes(b"overwritten pascal")
+        output_path = self.root / "ucsd" / "system.po"
+        createSystemDsk.create_system_disk("ucsd", "PASCAL_800K", output_path, source_dir=source_dir)
+        sys.path.insert(0, str(PROJECT_ROOT / "tools" / "apple2"))
+        import extractApple2Files
+        volume = extractApple2Files.openVolume(extractApple2Files.DiskImage(output_path))
+        entries = [entry for entry in volume.listFiles() if entry.path.upper() == "SYSTEM.PASCAL"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].typeText, "CODE")
+        self.assertEqual(volume.exportFile(entries[0]).data, b"overwritten pascal")
 
     def test_apple2_prodos_cli_tells_the_user_to_rebuild_and_flash(self):
         output_path = self.root / "apple2-prodos-cli.dsk"

@@ -69,7 +69,7 @@ typedef struct
 } apple2SlotIoDevice;
 
 //-- CRTC register values programmed by the slot-3 firmware init ($C800); the boot activation
-//applies the same set.
+// applies the same set.
 static const uint8_t videxInitRegisters[16] = {0x62, 0x50, 0x50, 0x28, 0x19, 0x00, 0x18, 0x18,
                                                0x00, 0x0F, 0x20, 0x0F, 0x00, 0x00, 0x00, 0x00};
 
@@ -145,6 +145,10 @@ struct apple2Core
   uint8_t rom[apple2RomSize];
   uint8_t busValue;
   uint8_t keyboardData;
+  hostReadMilliseconds readMilliseconds;
+  void* clockContext;
+  uint32_t millisecondsSnapshot;
+  bool timerEnabled;
   bool keyboardStrobe;
   bool lowercaseEchoPending;
   uint16_t lowercaseEchoCycles;
@@ -197,6 +201,26 @@ static bool isVidexFirmwareProgramCounter(uint16_t programCounter)
           programCounter < apple2PascalFirmwareBase + apple2PascalFirmwareSize);
 }
 
+static bool isTimerAddress(const apple2Core* core, uint16_t address)
+{
+  return core->timerEnabled && address >= apple2TimerCapabilityAddress &&
+         address <= apple2TimerHighAddress;
+}
+
+static uint8_t readTimerAddress(apple2Core* core, uint16_t address)
+{
+  if (address == apple2TimerCapabilityAddress)
+  {
+    return core->readMilliseconds == NULL ? 0 : apple2TimerCapability;
+  }
+  if (address == apple2TimerLowAddress)
+  {
+    core->millisecondsSnapshot =
+        core->readMilliseconds == NULL ? 0 : core->readMilliseconds(core->clockContext);
+  }
+  return (uint8_t)(core->millisecondsSnapshot >> ((address - apple2TimerLowAddress) * 8));
+}
+
 static bool isVidexFirmwareAccess(const apple2Core* core)
 {
   return core->cpuBusAccess && isVidexFirmwareProgramCounter(core->cpu.PC);
@@ -209,7 +233,7 @@ static void beginVidexWorkspace(apple2Core* core)
     memcpy(core->videxSavedWorkspace, &core->ram[0x0006], sizeof(core->videxSavedWorkspace));
     core->videxWorkspaceActive = true;
     //-- HTAB/VTAB (and the monitor) move the cursor through CH/CV; the card follows them like real
-    //80-column firmware.
+    // 80-column firmware.
     //-- Under Apple Pascal $24/$25 are ordinary Pascal data and the card keeps its own cursor.
     if (!core->pascalCardActive)
     {
@@ -267,14 +291,14 @@ static bool isTransientOutputVector(uint16_t vector)
 //-- Apple DOS 3.3 (48K) swaps the output vector for its own hook ($9EBD) and keeps the real one at
 //$AA53/$AA54.
 //-- Half-written vectors are ignored so a hook swap never looks like a switch between the two
-//screens.
+// screens.
 static bool updateVidexOutputSelection(apple2Core* core)
 {
   uint16_t vector = (uint16_t)(core->ram[0x0036] | ((uint16_t)core->ram[0x0037] << 8));
   bool dosHoldsVidex = core->ram[0xAA53] == 0xB3 && core->ram[0xAA54] == 0xC8;
   bool selected = core->videxOutputSelected;
   //-- ProDOS BASIC.SYSTEM keeps the real output vector at $BE30/$BE31 while its own hook (somewhere
-  //in $9000-$BEFF)
+  // in $9000-$BEFF)
   //-- is installed in CSW.
   bool proDosHoldsVidex =
       vector >= 0x9000 && vector < 0xBF00 && core->ram[0xBE30] == 0xB3 && core->ram[0xBE31] == 0xC8;
@@ -318,7 +342,7 @@ static void clearSelectedDisplay(apple2Core* core, bool videxSelected)
 }
 
 //-- Equivalent of PR#3 done by the host at reset: same CRTC registers, output vector and cleared
-//screen.
+// screen.
 static void activateVidexAtBoot(apple2Core* core)
 {
   memcpy(core->videxRegisters, videxInitRegisters, sizeof(videxInitRegisters));
@@ -429,7 +453,7 @@ static uint8_t preserveLowercaseEcho(apple2Core* core, uint8_t value, bool videx
 }
 
 //-- The controller that answers the I/O range $C0n0..$C0nF (slot n), or NULL when no drive is
-//attached there.
+// attached there.
 static apple2Disk* diskForIo(apple2Core* core, uint16_t address)
 {
   if (address < 0xC080 + apple2DiskFirstSlot * 0x10 ||
@@ -442,7 +466,7 @@ static apple2Disk* diskForIo(apple2Core* core, uint16_t address)
 }
 
 //-- The controller whose boot ROM is mapped at $Cn00..$CnFF (slot n), or NULL when no drive is
-//attached there.
+// attached there.
 static apple2Disk* diskForRom(apple2Core* core, uint16_t address)
 {
   if (address < 0xC000 + apple2DiskFirstSlot * 0x100 ||
@@ -873,7 +897,7 @@ static void setVideoSwitch(apple2Core* core, uint16_t address)
 }
 
 //-- Apple IIe memory map ($0000-$BFFF): ALTZP, RAMRD/RAMWRT and 80STORE (+PAGE2, +HIRES) choose
-//main or auxiliary RAM.
+// main or auxiliary RAM.
 static uint8_t* iieRamPointer(apple2Core* core, uint16_t address, bool isWrite)
 {
   bool useAux;
@@ -984,7 +1008,7 @@ static void writeIIeSoftSwitch(apple2Core* core, uint16_t address)
 }
 
 //-- $C100-$CFFF: built-in firmware or the slot cards, following INTCXROM, SLOTC3ROM and the
-//INTC8ROM latch.
+// INTC8ROM latch.
 static uint8_t readIIeSlotRom(apple2Core* core, uint16_t address)
 {
   if (address >= 0xC800)
@@ -1036,6 +1060,10 @@ static uint8_t readAddressIIe(apple2Core* core, uint16_t address)
   }
   if (address >= 0xC090 && address <= 0xC0AF)
   {
+    if (isTimerAddress(core, address))
+    {
+      return readTimerAddress(core, address);
+    }
     uint8_t slot = (uint8_t)((address - 0xC080) / 0x10);
     if (slot >= 1 && slot <= 2 && core->slotIoDevices[slot - 1].attached)
     {
@@ -1099,6 +1127,10 @@ static void writeAddressIIe(apple2Core* core, uint16_t address, uint8_t value)
       core->intC8Rom = false;
     }
   }
+  else if (address >= 0xC090 && address <= 0xC0AF && isTimerAddress(core, address))
+  {
+    //-- APPLE2_TIMER_C1 registers are read-only; writes do not sample or alter the snapshot.
+  }
   else if (address >= 0xC090 && address <= 0xC0AF &&
            core->slotIoDevices[(address - 0xC080) / 0x10 - 1].attached)
   {
@@ -1139,6 +1171,12 @@ static uint8_t readAddress(apple2Core* core, uint16_t address)
   }
   if (address >= 0xC090 && address <= 0xC0AF)
   {
+    if (isTimerAddress(core, address))
+    {
+      value = readTimerAddress(core, address);
+      core->busValue = value;
+      return value;
+    }
     uint8_t slot = (uint8_t)((address - 0xC080) / 0x10);
     if (slot >= 1 && slot <= 2 && core->slotIoDevices[slot - 1].attached)
     {
@@ -1229,7 +1267,7 @@ static uint8_t readAddress(apple2Core* core, uint16_t address)
                                           : core->rom[address - 0xD000];
     //-- Applesoft LIST wraps at CH >= 33 (CMP #$21 at $D707) and indents the continuation by 5.
     //-- With the 80-column card selected move that wrap column to the right edge, keeping the same
-    //7 column margin.
+    // 7 column margin.
     if (address == apple2ApplesoftListWrapOperand && !core->languageCardReadEnabled &&
         value == apple2ApplesoftListWrapColumn40 && core->videxOutputSelected &&
         core->video.videxTextMode && !core->pascalCardActive)
@@ -1256,6 +1294,11 @@ static void writeAddress(apple2Core* core, uint16_t address, uint8_t value)
   }
   if (address >= 0xC090 && address <= 0xC0AF)
   {
+    if (isTimerAddress(core, address))
+    {
+      core->busValue = value;
+      return;
+    }
     uint8_t slot = (uint8_t)((address - 0xC080) / 0x10);
     if (slot >= 1 && slot <= 2 && core->slotIoDevices[slot - 1].attached)
     {
@@ -1278,15 +1321,15 @@ static void writeAddress(apple2Core* core, uint16_t address, uint8_t value)
   else if (address < apple2RamSize)
   {
     //-- While the monitor SETVID routine runs the default video output is the 80-column card, not
-    //the 40-column screen.
+    // the 40-column screen.
     if (!core->pascalCardActive && core->setvidActive && (address == 0x0036 || address == 0x0037))
     {
       value = address == 0x0036 ? 0xB3 : 0xC8;
     }
     //-- In 80-column boot mode the card is the default screen: ProDOS BASIC.SYSTEM resets CSW to
-    //COUT1 ($FDF0) itself,
+    // COUT1 ($FDF0) itself,
     //-- which is not a PR#0. Only the monitor (PR#0 through OUTPORT) may select the 40-column
-    //screen.
+    // screen.
     if (core->bootIn80Columns && !core->pascalCardActive && !isMonitorRomExecuting(core))
     {
       if (address == 0x0037 && value == 0xFD && core->ram[0x0036] == 0xF0)
@@ -1394,6 +1437,20 @@ apple2CoreResult apple2CoreCreate(apple2Core** core)
     apple2DiskInitialize(&created->disks[slot]);
   }
   *core = created;
+  return apple2CoreOk;
+}
+
+apple2CoreResult apple2CoreSetTimeSource(apple2Core* core, hostReadMilliseconds readMilliseconds,
+                                         void* context)
+{
+  if (core == NULL || (!core->timerEnabled && core->slotIoDevices[apple2TimerSlot - 1].attached))
+  {
+    return apple2CoreInvalidArgument;
+  }
+  core->readMilliseconds = readMilliseconds;
+  core->clockContext = context;
+  core->millisecondsSnapshot = 0;
+  core->timerEnabled = true;
   return apple2CoreOk;
 }
 
@@ -1541,6 +1598,7 @@ apple2CoreResult apple2CoreReset(apple2Core* core)
   core->videxRegisterAddress = 0;
   core->keyboardData = 0;
   core->keyboardStrobe = false;
+  core->millisecondsSnapshot = 0;
   core->lowercaseEchoPending = false;
   core->lowercaseEchoCycles = 0;
   core->languageCardBank2 = true;
@@ -1600,7 +1658,7 @@ apple2CoreResult apple2CoreRunCycles(apple2Core* core, size_t cycles)
       continue;
     }
     //-- Monitor SETVID ($FE93, also called by the DOS boot code) is told apart from PR#n, which
-    //enters at OUTPORT ($FE95).
+    // enters at OUTPORT ($FE95).
     if ((core->pins & M6502_SYNC) != 0 && core->bootIn80Columns)
     {
       if (address == apple2MonitorSetvidAddress)
@@ -1614,9 +1672,9 @@ apple2CoreResult apple2CoreRunCycles(apple2Core* core, size_t cycles)
       }
     }
     //-- Apple Pascal 1.1 found the card through its firmware protocol and initialises it at $C320:
-    //from here on the
+    // from here on the
     //-- card is the console and Pascal's zero page and screen memory are not touched by the
-    //80-column emulation.
+    // 80-column emulation.
     if ((core->pins & M6502_SYNC) != 0 && address == apple2PascalInitEntry &&
         !core->pascalCardActive)
     {
@@ -1625,7 +1683,7 @@ apple2CoreResult apple2CoreRunCycles(apple2Core* core, size_t cycles)
       core->videxOutputSelected = true;
     }
     //-- The monitor HOME routine only knows the 40-column page; clear the card screen when it is
-    //selected.
+    // selected.
     //-- With the Language Card read-enabled $FC58 is ProDOS code, not the monitor.
     if ((core->pins & M6502_SYNC) != 0 && address == 0xFC58 && core->videxOutputSelected &&
         !core->pascalCardActive && !core->languageCardReadEnabled)
@@ -1957,7 +2015,7 @@ apple2CoreResult apple2CoreAttachSlotIoDevice(apple2Core* core, uint8_t slot,
                                               void* context)
 {
   if (core == NULL || slot < 1 || slot > 2 || readRegister == NULL || writeRegister == NULL ||
-      core->slotIoDevices[slot - 1].attached)
+      core->slotIoDevices[slot - 1].attached || (core->timerEnabled && slot == apple2TimerSlot))
   {
     return apple2CoreInvalidArgument;
   }

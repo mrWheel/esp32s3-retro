@@ -2,6 +2,7 @@
 #include "hostCore.h"
 #include "storage.h"
 #include "guestFs.h"
+#include "guestFsConvert.h"
 #include "guestFsImage.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
@@ -1918,6 +1919,17 @@ static esp_err_t guestFilesHandler(httpd_req_t* request)
   return state.result == ESP_OK ? httpd_resp_send_chunk(request, NULL, 0) : state.result;
 }
 
+//-- Streams (converted) guest file data to the browser as chunked HTTP.
+static bool guestDownloadSink(void* context, const void* data, size_t length)
+{
+  if (atomic_load(&stopping) ||
+      httpd_resp_send_chunk((httpd_req_t*)context, (const char*)data, length) != ESP_OK)
+  {
+    return false;
+  }
+  return true;
+}
+
 static esp_err_t guestFileHandler(httpd_req_t* request)
 {
   if (!acceptingRequests(request))
@@ -1945,7 +1957,6 @@ static esp_err_t guestFileHandler(httpd_req_t* request)
     return respond(request, failure, message);
   }
   esp_err_t response = ESP_OK;
-  uint8_t* buffer = NULL;
   guestFsEntry entry;
   guestFsStatus status = guestFsStat(session.volume, user, name, &entry);
   if (status == guestFsOk && entry.damaged)
@@ -1955,12 +1966,6 @@ static esp_err_t guestFileHandler(httpd_req_t* request)
   if (status != guestFsOk)
   {
     response = respondGuestStatus(request, status, "");
-    goto done;
-  }
-  buffer = malloc(guestTransferChunk);
-  if (buffer == NULL)
-  {
-    response = respond(request, "500 Internal Server Error", "Out of memory");
     goto done;
   }
   char safeName[guestFsNameCapacity];
@@ -1983,23 +1988,10 @@ static esp_err_t guestFileHandler(httpd_req_t* request)
   httpd_resp_set_hdr(request, "X-Guest-Size", sizeText);
   httpd_resp_set_hdr(request, "X-Content-Type-Options", "nosniff");
   httpd_resp_set_hdr(request, "Cache-Control", "no-store");
-  uint32_t offset = 0;
-  while (offset < entry.size && !atomic_load(&stopping))
-  {
-    size_t wanted =
-        entry.size - offset > guestTransferChunk ? guestTransferChunk : entry.size - offset;
-    size_t got = 0;
-    status = guestFsReadAt(session.volume, user, name, offset, buffer, wanted, &got);
-    if (status != guestFsOk || got == 0 ||
-        httpd_resp_send_chunk(request, (const char*)buffer, got) != ESP_OK)
-    {
-      response = ESP_FAIL;
-      break;
-    }
-    offset += (uint32_t)got;
-    vTaskDelay(1);
-  }
-  if (response == ESP_OK && (offset < entry.size || atomic_load(&stopping)))
+  guestFsStatus exportStatus = guestFsExportStream(
+      session.volume, user, name, !guestQueryFlag(query, "raw"), guestDownloadSink, request,
+      guestPoll, NULL, session.detail, sizeof(session.detail));
+  if (exportStatus != guestFsOk || atomic_load(&stopping))
   {
     response = ESP_FAIL;
   }
@@ -2009,7 +2001,6 @@ static esp_err_t guestFileHandler(httpd_req_t* request)
   }
 
 done:
-  free(buffer);
   guestSessionClose(&session);
   atomic_flag_clear(&imageOperationActive);
   return response;
@@ -2089,9 +2080,11 @@ static esp_err_t guestUploadHandler(httpd_req_t* request)
     return respond(request, failure, message);
   }
   guestUploadState state = {request, request->content_len};
-  guestFsStatus status =
-      guestFsWriteEx(session.volume, user, name, (uint32_t)request->content_len, guestUploadSource,
-                     &state, overwrite, attributesPresent ? &attributes : NULL);
+  session.detail[0] = '\0';
+  guestFsStatus status = guestFsImportStream(
+      session.volume, user, name, (uint32_t)request->content_len, guestUploadSource, &state,
+      overwrite, attributesPresent ? &attributes : NULL, !guestQueryFlag(query, "raw"),
+      session.detail, sizeof(session.detail));
   guestSessionClose(&session);
   atomic_flag_clear(&imageOperationActive);
   if (status != guestFsOk)
@@ -2310,6 +2303,8 @@ static esp_err_t guestCopyHandler(httpd_req_t* request)
         "required; an SD file cannot be copied to an SD file here");
   }
   bool overwrite = guestQueryFlag(query, "overwrite");
+  //-- raw=1 stores/exports the bytes as they are (no UCSD .TEXT or Applesoft conversion).
+  bool raw = guestQueryFlag(query, "raw");
   char sdRelative[relativePathCapacity];
   char sdAbsolute[absolutePathCapacity];
   if ((fromFile && !guestResolveSdFile(query, "fromFile", sdRelative, sizeof(sdRelative),
@@ -2407,7 +2402,9 @@ static esp_err_t guestCopyHandler(httpd_req_t* request)
       goto done;
     }
     temporaryCreated = true;
-    status = guestFsExportToFile(source.volume, fromUser, fromName, file, guestPoll, NULL);
+    source.detail[0] = '\0';
+    status = guestFsExportToFileEx(source.volume, fromUser, fromName, file, !raw, guestPoll, NULL,
+                                   source.detail, sizeof(source.detail));
     bool flushed = fflush(file) == 0 && fsync(fileno(file)) == 0;
     bool closed = fclose(file) == 0;
     file = NULL;
@@ -2417,7 +2414,7 @@ static esp_err_t guestCopyHandler(httpd_req_t* request)
     }
     if (status != guestFsOk)
     {
-      response = respondGuestStatus(request, status, "");
+      response = respondGuestStatus(request, status, source.detail);
       goto done;
     }
     if (!guestCommitSdFile(sdAbsolute, exists))
@@ -2454,8 +2451,10 @@ static esp_err_t guestCopyHandler(httpd_req_t* request)
     response = respond(request, "500 Internal Server Error", "Cannot open the SD file");
     goto done;
   }
-  status = guestFsImportFromFile(destination.volume, toUser, toName, file, (uint32_t)info.st_size,
-                                 overwrite, guestPoll, NULL);
+  destination.detail[0] = '\0';
+  status = guestFsImportFromFileEx(destination.volume, toUser, toName, file, (uint32_t)info.st_size,
+                                   overwrite, !raw, guestPoll, NULL, destination.detail,
+                                   sizeof(destination.detail));
   response = status == guestFsOk
                  ? respond(request, "201 Created", "File copied into the disk image")
                  : respondGuestStatus(request, status, destination.detail);

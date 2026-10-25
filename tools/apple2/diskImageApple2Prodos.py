@@ -336,6 +336,48 @@ def add_file(image, name, data, file_type, aux_type=0, access=0xC3, version=0, m
     struct.pack_into("<H", image, header + 0x25, count + 1)
 
 
+def remove_file(image, name):
+    """Remove a file from the volume directory and free its data and index blocks. The disk is left unchanged on error."""
+    name = normalize_file_name(name)
+    entry = next((file for file in list_files(image) if file["name"] == name), None)
+    if entry is None:
+        raise DiskImageError(f"ProDOS file not found: {name}")
+    if entry["storage"] == STORAGE_SEEDLING:
+        index_blocks = []
+    elif entry["storage"] == STORAGE_SAPLING:
+        index_blocks = [entry["key"]]
+    else:
+        master = _block(image, entry["key"])
+        subindex = [master[i] | (master[256 + i] << 8) for i in range(128)]
+        index_blocks = [entry["key"]] + [block for block in subindex if block]
+    all_blocks = index_blocks + [block for block in _file_blocks(image, entry) if block]
+    snapshot = bytes(image)
+    try:
+        bitmap_block, total_blocks = _bitmap_geometry(image)
+        if any(block >= total_blocks for block in all_blocks):
+            raise DiskImageError(f"ProDOS file {name} points outside the volume")
+        bitmap = memoryview(image)[bitmap_block * BLOCK_SIZE:]
+        for block in all_blocks:
+            bitmap[block // 8] &= ~(0x80 >> (block & 7)) & 0xFF
+        found = False
+        for block, offset in _directory_entries(image):
+            base = block * BLOCK_SIZE + offset
+            if image[base] >> 4 == 0:
+                continue
+            length = image[base] & 0x0F
+            if bytes(image[base + 1:base + 1 + length]).decode("ascii", "replace") == name:
+                image[base:base + ENTRY_SIZE] = bytes(ENTRY_SIZE)
+                found = True
+                break
+        if not found:
+            raise DiskImageError(f"ProDOS file {name} not found in the directory")
+        header = VOLUME_DIRECTORY_BLOCK * BLOCK_SIZE
+        struct.pack_into("<H", image, header + 0x25, struct.unpack_from("<H", image, header + 0x25)[0] - 1)
+    except DiskImageError:
+        image[:] = snapshot
+        raise
+
+
 def copy_boot_files(image, source, names=BOOT_FILES):
     """Copy the boot blocks 0 and 1 and the named system files from a bootable ProDOS image into a volume."""
     image[:2 * BLOCK_SIZE] = source[:2 * BLOCK_SIZE]

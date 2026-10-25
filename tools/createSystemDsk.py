@@ -26,6 +26,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APPLE2_PRODOS_BASE_IMAGE = Path("bootDisks") / "apple2" / "prodosEmpty.po"
 PRODOS_VOLUME_NAME = "SYSTEM"
 PRODOS_ORDER_SUFFIXES = {".PO", ".HDV"}
+UCSD_BASE_IMAGE = Path("assets") / "ucsd" / "ucsdDiskImages" / "Apple Pascal 1.3 3.5.po"
+#-- The 128K system files are placed under the SYSTEM.* names that the boot loader looks for.
+UCSD_NAME_MAP = {
+    "128K.APPLE": "SYSTEM.APPLE",
+    "128K.PASCAL": "SYSTEM.PASCAL",
+}
 EXECUTABLE_EXTENSIONS = {
     "cpm80": {".COM"},
     "cpm86": {".CMD", ".SYS"},
@@ -38,6 +44,7 @@ PROFILE_MAP = {
         "PRODOS_640K": "640K",
         "PRODOS_800K": "800K",
     },
+    "ucsd": {"PASCAL_800K": "800K"},
 }
 IMAGE_MODULES = {
     "cpm80": diskImageCpm80,
@@ -118,12 +125,17 @@ def _read_prodos_source_files(source_dir, binary_load_address):
     names = set()
     source_paths = sorted(source_dir.iterdir(), key=lambda item: item.name.upper())
     for path in source_paths:
-        if path.name in (".DS_Store", "README.md"):
+        if path.name in (".DS_Store", "README.md") or path.suffix.upper() == ".ADDR":
             continue
         if path.is_symlink() or path.is_dir() or not path.is_file():
             raise DiskImageError(f"Only regular files are supported in the system disk source: {path}")
+        loadAddress = binary_load_address
+        addressFile = path.with_suffix(".ADDR")
+        if loadAddress is None and path.suffix.upper() == ".BIN" and addressFile.is_file():
+            #-- NAME.ADDR next to NAME.BIN holds that file's load address (hex, e.g. 6000)
+            loadAddress = int(addressFile.read_text().strip(), 16)
         name, file_type, aux_type, payload = diskImageApple2Prodos.prepare_source_file(
-            path.name, path.read_bytes(), binary_load_address
+            path.name, path.read_bytes(), loadAddress
         )
         if name in names:
             raise DiskImageError(f"Duplicate ProDOS filename in system disk source: {name}")
@@ -147,6 +159,9 @@ def _create_prodos_system_disk(output_path, source_dir, project_root, base_image
     for source_name, name, file_type, aux_type, payload in _read_prodos_source_files(
         source_dir, binary_load_address
     ):
+        #-- A source file replaces a destination file with the same name
+        if any(existing["name"] == name for existing in diskImageApple2Prodos.list_files(image)):
+            diskImageApple2Prodos.remove_file(image, name)
         diskImageApple2Prodos.add_file(image, name, payload, file_type, aux_type)
         names.append((source_name, name))
     data = bytes(image)
@@ -156,6 +171,39 @@ def _create_prodos_system_disk(output_path, source_dir, project_root, base_image
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(data)
     return names
+
+
+def _create_ucsd_system_disk(output_path, source_dir, project_root):
+    """Copy the clean Apple Pascal 1.3 boot volume and add the files from the source directory."""
+    import shutil
+
+    import extractApple2Files
+
+    base_image = project_root / UCSD_BASE_IMAGE
+    if not base_image.is_file():
+        raise DiskImageError(f"UCSD base image does not exist: {base_image}")
+    if not source_dir.is_dir():
+        raise DiskImageError(f"System disk source directory does not exist: {source_dir}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(base_image, output_path)
+    sys.path.insert(0, str(TOOLS_DIR / "ucsd"))
+    try:
+        image = extractApple2Files.DiskImage(output_path)
+        volume = extractApple2Files.openVolume(image)
+        for path in sorted(source_dir.iterdir(), key=lambda item: item.name.upper()):
+            if path.name in (".DS_Store", "README.md"):
+                continue
+            if path.is_symlink() or not path.is_file():
+                raise DiskImageError(f"Only regular files are supported in the system disk source: {path}")
+            destinationName = UCSD_NAME_MAP.get(path.name.upper(), path.name)
+            #-- A source file replaces a destination file with the same name
+            for entry in volume.listFiles():
+                if extractApple2Files.sameName(entry.path, destinationName):
+                    volume.removeFile(entry)
+            extractApple2Files.addHostFileToDestination(volume, path, destinationName)
+        image.save()
+    except extractApple2Files.ToolError as error:
+        raise DiskImageError(str(error)) from error
 
 
 def _validate_cpm86_runtime_resources(project_root):
@@ -245,15 +293,18 @@ def create_system_disk(
 ):
     os_name = os_name.lower()
     profile = profile.upper()
-    if os_name not in IMAGE_MODULES and os_name != "apple2":
+    if os_name not in IMAGE_MODULES and os_name not in ("apple2", "ucsd"):
         raise DiskImageError(f"Operating system is not implemented for system disks: {os_name}")
     if profile not in PROFILE_MAP[os_name]:
         raise DiskImageError(f"Unsupported {os_name} system disk profile: {profile}")
-    if os_name != "apple2" and (base_image is not None or binary_load_address is not None):
+    if os_name not in ("apple2",) and (base_image is not None or binary_load_address is not None):
         raise DiskImageError("--base-image and --binary-load-address are Apple II-only options")
 
     output_path = Path(output_path)
     source_dir = _source_directory(os_name, source_dir)
+    if os_name == "ucsd":
+        _create_ucsd_system_disk(output_path, source_dir, project_root)
+        return []
     if os_name == "apple2":
         volume_profile = PROFILE_MAP[os_name][profile]
         _create_prodos_system_disk(
@@ -306,8 +357,9 @@ def print_firmware_notice(os_name, profile, output_path):
         print("Run: idf.py build, then flash the firmware.")
     else:
         print("Run: idf.py build, then flash the firmware.")
-    if output_path.resolve() != (PROJECT_ROOT / "littlefs" / os_name / "system.dsk").resolve():
-        print(f"Note: {output_path} is not littlefs/{os_name}/system.dsk, so the firmware does not use it as it is.")
+    systemName = "system.po" if os_name == "ucsd" else "system.dsk"
+    if output_path.resolve() != (PROJECT_ROOT / "littlefs" / os_name / systemName).resolve():
+        print(f"Note: {output_path} is not littlefs/{os_name}/{systemName}, so the firmware does not use it as it is.")
 
 
 def main(argv=None):
@@ -330,10 +382,10 @@ def main(argv=None):
         argv = _without_os_argument(argv)
         parser.set_defaults(os=os_name)
     else:
-        parser.add_argument("--os", required=True, choices=("cpm80", "cpm86", "apple2"))
+        parser.add_argument("--os", required=True, choices=("cpm80", "cpm86", "apple2", "ucsd"))
     parser.add_argument("--profile", required=True, choices=profile_choices)
     parser.add_argument("--source-dir", type=Path, help="directory containing files to add to the system disk")
-    parser.add_argument("--output", type=Path, help="output path (default: littlefs/<os>/system.dsk)")
+    parser.add_argument("--output", type=Path, help="output path (default: littlefs/<os>/system.dsk, system.po for ucsd)")
     parser.add_argument(
         "--base-image",
         type=Path,
@@ -351,7 +403,8 @@ def main(argv=None):
     )
     arguments = parser.parse_args(argv)
 
-    output_path = arguments.output or PROJECT_ROOT / "littlefs" / arguments.os / "system.dsk"
+    systemName = "system.po" if arguments.os == "ucsd" else "system.dsk"
+    output_path = arguments.output or PROJECT_ROOT / "littlefs" / arguments.os / systemName
     try:
         skipped_files = create_system_disk(
             arguments.os,

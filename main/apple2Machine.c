@@ -37,6 +37,12 @@ static const int64_t escapeTimeoutUs = 50000;
 static bool renderedVidexMode;
 static bool renderedVidexModeKnown;
 
+static uint32_t readMilliseconds(void* context)
+{
+  (void)context;
+  return (uint32_t)((uint64_t)esp_timer_get_time() / 1000ULL);
+}
+
 static bool appendText(char* buffer, size_t capacity, size_t* length, const char* text)
 {
   size_t textLength = strlen(text);
@@ -671,6 +677,14 @@ esp_err_t apple2MachineInitializeWithConfig(const char* configPath)
   {
     free(rom);
     return coreResult == apple2CoreNoMemory ? ESP_ERR_NO_MEM : ESP_ERR_INVALID_STATE;
+  }
+  coreResult = apple2CoreSetTimeSource(guestCore, readMilliseconds, NULL);
+  if (coreResult != apple2CoreOk)
+  {
+    apple2CoreDestroy(guestCore);
+    guestCore = NULL;
+    free(rom);
+    return ESP_ERR_INVALID_STATE;
   }
   coreResult = iie ? apple2CoreEnableIIe(guestCore) : apple2CoreOk;
   if (coreResult == apple2CoreOk)

@@ -65,7 +65,7 @@ add_executable(
   ../main/storagePath.c
   ../main/imageFile.c
 )
-target_include_directories(apple2MultiDiskTests PRIVATE ../components/apple2Core/include ../components/apple2Core
+target_include_directories(apple2MultiDiskTests PRIVATE ../components/hostCore/include ../components/apple2Core/include ../components/apple2Core
   ../components/apple2Core/third_party/chips ../main)
 target_compile_options(apple2MultiDiskTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
 target_compile_definitions(apple2MultiDiskTests PRIVATE PROJECT_ROOT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/..")
@@ -73,6 +73,12 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(apple2MultiDiskTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(apple2MultiDiskTests PRIVATE -fsanitize=address,undefined)
 endif()
+add_executable(cpm80TimerTests cpm80TimerTests.c ../components/cpm80Core/cpm80Cpu.c ../components/cpm80Core/cpm80Guest.c
+  ../components/z80/z80.c)
+target_include_directories(cpm80TimerTests PRIVATE ../components/hostCore/include ../components/cpm80Core/include ../components/z80)
+target_compile_options(cpm80TimerTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
+target_compile_definitions(cpm80TimerTests PRIVATE BENCH80_COM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/cpm80/BENCH80/BENCH80.COM")
+add_test(NAME cpm80Timer COMMAND cpm80TimerTests)
 add_test(NAME hostCore COMMAND hostTests)
 add_test(NAME apple2Core COMMAND hostTests --apple2-core)
 add_test(NAME apple2LanguageCard COMMAND hostTests --apple2-language-card)
@@ -114,6 +120,7 @@ set(guestFsSources
   ../components/guestFs/guestFsProdos.c
   ../components/guestFs/guestFsPascal.c
   ../components/guestFs/guestFsDos33.c
+  ../components/guestFs/guestFsConvert.c
   ../main/guestFsImage.c
   ../main/imageFile.c
 )
@@ -162,3 +169,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_link_options(guestFsAppleOrderTests PRIVATE -fsanitize=address,undefined)
 endif()
 add_test(NAME guestFsAppleOrder COMMAND guestFsAppleOrderTests ${CMAKE_CURRENT_SOURCE_DIR}/..)
+add_executable(guestFsConvertTests guestFsConvertTests.c ../components/guestFs/guestFsConvert.c)
+target_include_directories(guestFsConvertTests PRIVATE ../components/guestFs/include)
+target_compile_options(guestFsConvertTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
+add_test(NAME guestFsConvert COMMAND guestFsConvertTests)

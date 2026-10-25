@@ -5,6 +5,7 @@
 #include "imageFile.h"
 #include "diskActivity.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdlib.h>
@@ -88,6 +89,12 @@ static bool diskWriteRecord(void* context, uint8_t drive, uint16_t track, uint16
   return imageWriteAt(&diskImages[drive], recordIndex * cpm80DiskSectorSize, record,
                       cpm80DiskSectorSize) &&
          imageFlush(&diskImages[drive]);
+}
+
+static uint32_t readMilliseconds(void* context)
+{
+  (void)context;
+  return (uint32_t)((uint64_t)esp_timer_get_time() / 1000ULL);
 }
 
 static void guestYield(void* context)
@@ -274,7 +281,9 @@ esp_err_t cpm80MachineInitialize(void)
                              .diskReadRecord = diskReadRecord,
                              .diskWriteRecord = diskWriteRecord,
                              .yield = guestYield,
-                             .context = NULL};
+                             .context = NULL,
+                             .readMilliseconds = readMilliseconds,
+                             .clockContext = NULL};
   bool guestInitialized =
       cpm80GuestInitialize(&guest, &host, systemBinaries, systemBinaries + cpm80CcpSize);
   free(systemBinaries);
