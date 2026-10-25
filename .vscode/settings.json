@@ -28,5 +28,6 @@
       "approve": true,
       "matchCommandLine": true
     }
-  }
+  },
+  "claudeCode.disableLoginPrompt": true
 }
