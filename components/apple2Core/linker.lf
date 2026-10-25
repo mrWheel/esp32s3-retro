@@ -1,0 +1,4 @@
+[mapping:apple2Core]
+archive: libapple2Core.a
+entries:
+    apple2Core:fastRun6502 (noflash)

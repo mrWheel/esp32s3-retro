@@ -73,11 +73,25 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(apple2MultiDiskTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(apple2MultiDiskTests PRIVATE -fsanitize=address,undefined)
 endif()
+add_executable(
+  apple2Fast6502Tests
+  apple2Fast6502Tests.c
+  ../components/hostCore/hostCore.c
+  ../components/apple2Core/apple2Disk.c
+)
+target_include_directories(apple2Fast6502Tests PRIVATE ../components/hostCore/include ../components/apple2Core/include ../components/apple2Core
+  ../components/apple2Core/third_party/chips ../main)
+target_compile_options(apple2Fast6502Tests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(apple2Fast6502Tests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(apple2Fast6502Tests PRIVATE -fsanitize=address,undefined)
+endif()
 add_executable(cpm80TimerTests cpm80TimerTests.c ../components/cpm80Core/cpm80Cpu.c ../components/cpm80Core/cpm80Guest.c
   ../components/z80/z80.c)
 target_include_directories(cpm80TimerTests PRIVATE ../components/hostCore/include ../components/cpm80Core/include ../components/z80)
 target_compile_options(cpm80TimerTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
 target_compile_definitions(cpm80TimerTests PRIVATE BENCH80_COM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/cpm80/BENCH80/BENCH80.COM")
+add_test(NAME apple2Fast6502 COMMAND apple2Fast6502Tests)
 add_test(NAME cpm80Timer COMMAND cpm80TimerTests)
 add_test(NAME hostCore COMMAND hostTests)
 add_test(NAME apple2Core COMMAND hostTests --apple2-core)

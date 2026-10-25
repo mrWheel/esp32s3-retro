@@ -1626,75 +1626,368 @@ apple2CoreResult apple2CoreReset(apple2Core* core)
   return apple2CoreOk;
 }
 
+//-- Hot-path accessors for the 6502 run loop. They handle plain II/II+ RAM and ROM accesses and
+//-- fall back to readAddress/writeAddress for everything with side effects, so behaviour is
+//-- identical to the generic functions.
+static inline __attribute__((always_inline)) uint8_t readAddressFast(apple2Core* core,
+                                                                     uint16_t address)
+{
+  if (!core->iie)
+  {
+    uint8_t value;
+    if (address < apple2RamSize &&
+        (uint16_t)(address - 0x0006U) > (apple2VidexWorkspaceLast - 0x0006U))
+    {
+      value = core->ram[address];
+    }
+    else if (address >= 0xD000 && !core->languageCardReadEnabled &&
+             address != apple2ApplesoftListWrapOperand)
+    {
+      value = core->rom[address - 0xD000];
+    }
+    else
+    {
+      return readAddress(core, address);
+    }
+    core->busValue = value;
+    return value;
+  }
+  return readAddress(core, address);
+}
+
+static inline __attribute__((always_inline)) void writeAddressFast(apple2Core* core,
+                                                                   uint16_t address, uint8_t value)
+{
+  if (!core->iie && address < apple2RamSize &&
+      (uint16_t)(address - 0x0006U) > (apple2VidexWorkspaceLast - 0x0006U) &&
+      (uint16_t)(address - 0x0036U) > 1U && (uint16_t)(address - 0xAA53U) > 1U &&
+      !(core->lowercaseEchoPending && (uint16_t)(address - 0x0400U) <= 0x07FFU))
+  {
+    core->ram[address] = value;
+    core->busValue = value;
+    return;
+  }
+  writeAddress(core, address, value);
+}
+
+//-- Post-fetch checks of the II/II+ (the SYNC cycle of an opcode fetch).
+static inline __attribute__((always_inline)) void syncChecks(apple2Core* core, uint16_t address)
+{
+  //-- Monitor SETVID ($FE93, also called by the DOS boot code) is told apart from PR#n, which
+  // enters at OUTPORT ($FE95).
+  if (core->bootIn80Columns)
+  {
+    if (address == apple2MonitorSetvidAddress)
+    {
+      core->setvidActive = true;
+    }
+    else if (core->setvidActive &&
+             (address < apple2MonitorSetvidAddress || address >= apple2MonitorSetvidEnd))
+    {
+      core->setvidActive = false;
+    }
+  }
+  //-- Apple Pascal 1.1 found the card through its firmware protocol and initialises it at $C320:
+  // from here on the
+  //-- card is the console and Pascal's zero page and screen memory are not touched by the
+  // 80-column emulation.
+  if (address == apple2PascalInitEntry && !core->pascalCardActive)
+  {
+    core->pascalCardActive = true;
+    core->setvidActive = false;
+    core->videxOutputSelected = true;
+  }
+  //-- The monitor HOME routine only knows the 40-column page; clear the card screen when it is
+  // selected.
+  //-- With the Language Card read-enabled $FC58 is ProDOS code, not the monitor.
+  if (address == 0xFC58 && core->videxOutputSelected && !core->pascalCardActive &&
+      !core->languageCardReadEnabled)
+  {
+    clearSelectedDisplay(core, true);
+    core->ram[0x0024] = 0;
+    core->ram[0x0025] = 0;
+  }
+  if (core->videxWorkspaceActive)
+  {
+    endVidexWorkspace(core);
+  }
+}
+
+//-- One bus cycle, cycle-stepped (the reference behaviour; also used wherever the fast core
+// bails out).
+static inline __attribute__((always_inline)) void runOneCycle(apple2Core* core, bool iie)
+{
+  if (core->lowercaseEchoPending && core->lowercaseEchoCycles > 0 &&
+      --core->lowercaseEchoCycles == 0)
+  {
+    core->lowercaseEchoPending = false;
+  }
+  core->cycles++;
+  if (core->pins & M6502_SYNC)
+  {
+    executeSmartPortTrap(core);
+  }
+  core->pins = m6502_tick(&core->cpu, core->pins);
+  uint16_t address = M6502_GET_ADDR(core->pins);
+  if (core->pins & M6502_RW)
+  {
+    M6502_SET_DATA(core->pins, readAddressFast(core, address));
+  }
+  else
+  {
+    writeAddressFast(core, address, M6502_GET_DATA(core->pins));
+  }
+  if (iie)
+  {
+    return;
+  }
+  if (core->pins & M6502_SYNC)
+  {
+    syncChecks(core, address);
+  }
+  else if (core->videxWorkspaceActive)
+  {
+    endVidexWorkspace(core);
+  }
+}
+
+//-- Test/diagnostic switch: non-zero forces the cycle-stepped core everywhere.
+int apple2CoreDisableFast6502 = 0;
+//-- Number of bus cycles executed by the fast core (diagnostics/tests).
+uint64_t apple2CoreFast6502Cycles = 0;
+
+//-- The fast core runs whole instructions from an instruction boundary: the opcode has just been
+// fetched (SYNC pending) and no interrupt/reset sequence is in flight.
+static inline bool fastBoundary(const apple2Core* core)
+{
+  return (core->pins & ~0xFFFFFFULL) == (M6502_SYNC | M6502_RW) && core->cpu.brk_flags == 0 &&
+         core->cpu.irq_pip == 0 && core->cpu.nmi_pip == 0 &&
+         (uint16_t)(M6502_GET_ADDR(core->pins) - 0xC000U) >= 0x1000U &&
+         !core->lowercaseEchoPending && !core->videxWorkspaceActive;
+}
+
+#define FAST_NO_ECHO 0xFFFFFFFFU
+
+//-- Out-of-line bus access of the fast core: everything that is not plain II/II+ RAM. Keeps the
+// per-cycle code in fastRun6502 small (it has to fit the instruction cache).
+static __attribute__((noinline)) uint8_t fastBusRead(apple2Core* core, uint16_t pc, uint32_t now32,
+                                                     uint64_t base, uint16_t address,
+                                                     uint32_t* echoAt)
+{
+  uint8_t value;
+  if (core->iie)
+  {
+    if (address < 0xC000 || address >= 0xD000)
+    {
+      value = address < 0xC000 ? *iieRamPointer(core, address, false)
+                               : (core->languageCardReadEnabled
+                                      ? core->languageCardRam[languageCardOffset(core, address)]
+                                      : core->iieRom[address - 0xC000]);
+      core->busValue = value;
+      return value;
+    }
+  }
+  else if (address >= 0xD000 && !core->languageCardReadEnabled &&
+           address != apple2ApplesoftListWrapOperand)
+  {
+    value = core->rom[address - 0xD000];
+    core->busValue = value;
+    return value;
+  }
+  core->cpu.PC = pc;
+  core->cycles = base + now32;
+  value = readAddress(core, address);
+  if (core->lowercaseEchoPending && *echoAt == FAST_NO_ECHO)
+  {
+    *echoAt = now32;
+  }
+  return value;
+}
+
+static __attribute__((noinline)) void fastBusWrite(apple2Core* core, uint16_t pc, uint32_t now32,
+                                                   uint64_t base, uint16_t address, uint8_t value,
+                                                   uint32_t* echoAt)
+{
+  if (core->iie && address < 0xC000)
+  {
+    *iieRamPointer(core, address, true) = value;
+    core->busValue = value;
+    return;
+  }
+  if (core->iie && address >= 0xD000)
+  {
+    if (core->languageCardWriteEnabled)
+    {
+      core->languageCardRam[languageCardOffset(core, address)] = value;
+    }
+    core->busValue = value;
+    return;
+  }
+  core->cpu.PC = pc;
+  core->cycles = base + now32;
+  writeAddress(core, address, value);
+  if (core->lowercaseEchoPending && *echoAt == FAST_NO_ECHO)
+  {
+    *echoAt = now32;
+  }
+}
+
+//-- Instruction-stepped 6502: apple2Fast6502.inc (generated from m6502.h by
+// tools/genM6502Fast.py) holds one straight-line block per opcode with the same bus-access
+// sequence as m6502_tick(). Returns the number of bus cycles executed; the CPU is left at an
+// instruction boundary again.
+static size_t fastRun6502(apple2Core* core, size_t budget)
+{
+  m6502_t cpuCopy = core->cpu;
+  m6502_t* const c = &cpuCopy;
+  uint8_t* const ram = core->ram;
+  const bool iie = core->iie;
+  const uint64_t base = core->cycles;
+  uint32_t cyc = 0;
+  uint16_t fastAddr = cpuCopy.PC;
+  uint8_t fastData = M6502_GET_DATA(core->pins);
+  bool fastRw = true;
+  bool fastSync = true;
+  unsigned fastSkip = 0;
+  uint32_t echoAt = FAST_NO_ECHO;
+
+#undef _SA
+#undef _SAD
+#undef _FETCH
+#undef _SD
+#undef _GD
+#undef _GA
+#undef _WR
+#undef _NZ
+#define _GA() fastAddr
+#define _SA(a) fastAddr = (uint16_t)(a)
+#define _SAD(a, d)                                                                                 \
+  fastAddr = (uint16_t)(a);                                                                        \
+  fastData = (uint8_t)(d)
+#define _FETCH()                                                                                   \
+  fastAddr = c->PC;                                                                                \
+  fastSync = true
+#define _SD(d) fastData = (uint8_t)(d)
+#define _GD() fastData
+#define _WR() fastRw = false
+#define _NZ(v)                                                                                     \
+  c->P = ((c->P & ~(M6502_NF | M6502_ZF)) | (((v) & 0xFF) ? ((v) & M6502_NF) : M6502_ZF))
+#define FAST_CYCLE_BEGIN()                                                                         \
+  fastRw = true;                                                                                   \
+  fastSync = false
+#define FAST_DONE() goto fastNext
+//-- Plain II/II+ RAM and ROM accesses are handled inline; everything with side effects goes
+// through readAddress/writeAddress with the CPU state they observe (PC, cycle counter) in place.
+#define FAST_BUS()                                                                                 \
+  do                                                                                               \
+  {                                                                                                \
+    cyc++;                                                                                         \
+    if (fastRw)                                                                                    \
+    {                                                                                              \
+      if (!iie && fastAddr < apple2RamSize &&                                                      \
+          (uint16_t)(fastAddr - 0x0006U) > (apple2VidexWorkspaceLast - 0x0006U))                   \
+      {                                                                                            \
+        fastData = ram[fastAddr];                                                                  \
+        core->busValue = fastData;                                                                 \
+      }                                                                                            \
+      else                                                                                         \
+      {                                                                                            \
+        fastData = fastBusRead(core, c->PC, cyc, base, fastAddr, &echoAt);                         \
+      }                                                                                            \
+    }                                                                                              \
+    else if (!iie && fastAddr < apple2RamSize &&                                                   \
+             (uint16_t)(fastAddr - 0x0006U) > (apple2VidexWorkspaceLast - 0x0006U) &&              \
+             (uint16_t)(fastAddr - 0x0036U) > 1U && (uint16_t)(fastAddr - 0xAA53U) > 1U &&         \
+             !core->lowercaseEchoPending)                                                          \
+    {                                                                                              \
+      ram[fastAddr] = fastData;                                                                    \
+      core->busValue = fastData;                                                                   \
+    }                                                                                              \
+    else                                                                                           \
+    {                                                                                              \
+      fastBusWrite(core, c->PC, cyc, base, fastAddr, fastData, &echoAt);                           \
+    }                                                                                              \
+  } while (0)
+
+  for (;;)
+  {
+    if (cyc + 8 > budget || (uint16_t)(fastAddr - 0xC000U) < 0x1000U ||
+        core->lowercaseEchoPending || core->videxWorkspaceActive)
+    {
+      break;
+    }
+    cpuCopy.PC++;
+    echoAt = FAST_NO_ECHO;
+#include "apple2Fast6502.inc"
+  fastBail:
+    cpuCopy.PC--;
+    break;
+  fastNext:
+    if (echoAt != FAST_NO_ECHO)
+    {
+      //-- The cycle-stepped core counts the echo window down once per cycle after it was armed.
+      for (uint32_t elapsed = cyc - echoAt;
+           elapsed > 0 && core->lowercaseEchoPending && core->lowercaseEchoCycles > 0; --elapsed)
+      {
+        if (--core->lowercaseEchoCycles == 0)
+        {
+          core->lowercaseEchoPending = false;
+        }
+      }
+    }
+    if (!iie)
+    {
+      core->cpu.PC = cpuCopy.PC;
+      core->cycles = base + cyc;
+      syncChecks(core, fastAddr);
+    }
+  }
+
+#undef _SA
+#undef _SAD
+#undef _FETCH
+#undef _SD
+#undef _GD
+#undef _GA
+#undef _WR
+#undef _NZ
+#undef FAST_CYCLE_BEGIN
+#undef FAST_DONE
+#undef FAST_BUS
+
+  cpuCopy.PINS = M6502_SYNC | M6502_RW | (uint64_t)fastAddr | ((uint64_t)fastData << 16);
+  core->cpu = cpuCopy;
+  core->cycles = base + cyc;
+  core->pins = M6502_SYNC | M6502_RW | (uint64_t)fastAddr | ((uint64_t)fastData << 16);
+  return cyc;
+}
+
 apple2CoreResult apple2CoreRunCycles(apple2Core* core, size_t cycles)
 {
   if (core == NULL || !core->romLoaded)
   {
     return apple2CoreInvalidArgument;
   }
-  for (size_t index = 0; index < cycles; ++index)
+  const bool iie = core->iie;
+  //-- Only the CPU runs inside this loop, so the flag can stay set for the whole call.
+  core->cpuBusAccess = true;
+  size_t remaining = cycles;
+  while (remaining > 0)
   {
-    if (core->lowercaseEchoPending && core->lowercaseEchoCycles > 0 &&
-        --core->lowercaseEchoCycles == 0)
+    if (remaining >= 8 && !apple2CoreDisableFast6502 && fastBoundary(core))
     {
-      core->lowercaseEchoPending = false;
-    }
-    core->cycles++;
-    core->cpuBusAccess = true;
-    executeSmartPortTrap(core);
-    core->pins = m6502_tick(&core->cpu, core->pins);
-    uint16_t address = M6502_GET_ADDR(core->pins);
-    if (core->pins & M6502_RW)
-    {
-      M6502_SET_DATA(core->pins, readAddress(core, address));
-    }
-    else
-    {
-      writeAddress(core, address, M6502_GET_DATA(core->pins));
-    }
-    if (core->iie)
-    {
-      core->cpuBusAccess = false;
-      continue;
-    }
-    //-- Monitor SETVID ($FE93, also called by the DOS boot code) is told apart from PR#n, which
-    // enters at OUTPORT ($FE95).
-    if ((core->pins & M6502_SYNC) != 0 && core->bootIn80Columns)
-    {
-      if (address == apple2MonitorSetvidAddress)
+      size_t used = fastRun6502(core, remaining);
+      if (used > 0)
       {
-        core->setvidActive = true;
-      }
-      else if (core->setvidActive &&
-               (address < apple2MonitorSetvidAddress || address >= apple2MonitorSetvidEnd))
-      {
-        core->setvidActive = false;
+        apple2CoreFast6502Cycles += used;
+        remaining -= used;
+        continue;
       }
     }
-    //-- Apple Pascal 1.1 found the card through its firmware protocol and initialises it at $C320:
-    // from here on the
-    //-- card is the console and Pascal's zero page and screen memory are not touched by the
-    // 80-column emulation.
-    if ((core->pins & M6502_SYNC) != 0 && address == apple2PascalInitEntry &&
-        !core->pascalCardActive)
-    {
-      core->pascalCardActive = true;
-      core->setvidActive = false;
-      core->videxOutputSelected = true;
-    }
-    //-- The monitor HOME routine only knows the 40-column page; clear the card screen when it is
-    // selected.
-    //-- With the Language Card read-enabled $FC58 is ProDOS code, not the monitor.
-    if ((core->pins & M6502_SYNC) != 0 && address == 0xFC58 && core->videxOutputSelected &&
-        !core->pascalCardActive && !core->languageCardReadEnabled)
-    {
-      clearSelectedDisplay(core, true);
-      core->ram[0x0024] = 0;
-      core->ram[0x0025] = 0;
-    }
-    endVidexWorkspace(core);
-    core->cpuBusAccess = false;
+    runOneCycle(core, iie);
+    --remaining;
   }
+  core->cpuBusAccess = false;
   return apple2CoreOk;
 }
 

@@ -16,6 +16,12 @@
 #include <string.h>
 #include <sys/stat.h>
 
+//-- 1 paces the guest to 1.023 MHz; 0 (default) runs the 6502 as fast as possible.
+#ifndef APPLE2_REALTIME_PACING
+#define APPLE2_REALTIME_PACING 0
+#endif
+static const int64_t apple2YieldSliceUs = 100000;
+
 static const char* tag = "apple2Machine";
 static const char* romPath = "/littlefs/apple2/apple2.rom";
 static const char* iieRomPath = "/littlefs/apple2/apple2e.rom";
@@ -735,7 +741,10 @@ void apple2MachineRun(void)
   }
   screenRendered = false;
   hostConsoleWrite("\x1b[2J\x1b[H\x1b[?25h");
+#if APPLE2_REALTIME_PACING
   TickType_t wakeTime = xTaskGetTickCount();
+#endif
+  int64_t lastYieldUs = esp_timer_get_time();
   TickType_t period = pdMS_TO_TICKS(1);
   if (period == 0)
   {
@@ -774,6 +783,8 @@ void apple2MachineRun(void)
       seenWriteFailures = writeFailures;
       ESP_LOGW(tag, "Disk II sector write failed #%u", (unsigned)writeFailures);
     }
+    int64_t nowUs = esp_timer_get_time();
+#if APPLE2_REALTIME_PACING
     TickType_t currentTime = xTaskGetTickCount();
     if ((TickType_t)(currentTime - wakeTime) >= period)
     {
@@ -784,7 +795,16 @@ void apple2MachineRun(void)
     {
       vTaskDelayUntil(&wakeTime, period);
     }
-    int64_t nowUs = esp_timer_get_time();
+    nowUs = esp_timer_get_time();
+#else
+    //-- Run as fast as the host allows; give the idle task (watchdog) one tick per time slice.
+    if (nowUs - lastYieldUs >= apple2YieldSliceUs)
+    {
+      vTaskDelay(1);
+      nowUs = esp_timer_get_time();
+      lastYieldUs = nowUs;
+    }
+#endif
     if (nowUs - lastRenderUs >= 100000)
     {
       renderScreen(nowUs);
