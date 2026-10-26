@@ -1,4 +1,4 @@
-CP/M-80 hardware test - 2026-10-24 17:45:15
+CP/M-80 hardware test - 2026-10-26 07:31:06
 
 <<<RESET>>>
 PASS  board reset reaches host menu
@@ -8,6 +8,9 @@ PASS  basic: DIR on A: lists PIP.COM and STAT.COM
 PASS  basic: STAT runs on A:
 PASS  basic: TYPE WELCOME.TXT shows text
 PASS  basic: transient program HELLO.COM runs and warm-boots
+PASS  user: DIR lists STAT.COM in user area 0
+PASS  user: USER 3 moves STAT.COM out of the active user area
+PASS  user: USER 0 restores STAT.COM to the active user area
 PASS  read: list volume A:
 PASS  read: list volume B:
 PASS  read: list volume C:
@@ -31,7 +34,7 @@ PASS  disk full: writing works again
 PASS  read-only: write to A: is refused
 PASS  read-only: system recovers to a prompt
 PASS  read-only: no file created on A:
-PASS  read-only: free space on A: unchanged  -- before 304, after 304
+PASS  read-only: free space on A: unchanged  -- before 302, after 302
 PASS  timing: volume listing completes in < 10 s  -- 0.7 s
 PASS  unconfigured: drive F: reports Bdos Err Select once
 FAIL  unconfigured: a key after the Select error returns to a prompt (no endless loop)  -- Bdos Err repeated 1 times in 4 s; reset needed
@@ -41,5 +44,5 @@ SKIP  editor / compiler workflow  -- manual
 SKIP  terminal escape sequences (full-screen editors)  -- manual
 
 ==== SUMMARY ====
-passed 33, failed 1, skipped(manual) 2
+passed 36, failed 1, skipped(manual) 2
   FAILED: unconfigured: a key after the Select error returns to a prompt (no endless loop) -- Bdos Err repeated 1 times in 4 s; reset needed

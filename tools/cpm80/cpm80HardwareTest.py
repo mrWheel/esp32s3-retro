@@ -37,6 +37,22 @@ class Cpm80(hwCpm.CpmAdapter):
     out = self.cmd("HELLO", 20)
     items.append(("basic: transient program HELLO.COM runs and warm-boots",
                   out is not None and "Bdos" not in out and "?" not in out, ""))
+    items += self.userCommand()
+    return items
+
+  def userCommand(self):
+    #-- USER scopes file lookups to the active user area; STAT.COM lives in user area 0 only.
+    out = self.cmd("DIR A:STAT.COM", 40)
+    items = [("user: DIR lists STAT.COM in user area 0",
+              out is not None and "STAT" in hwCpm.body(out) and "NO FILE" not in hwCpm.body(out).upper(), "")]
+    self.cmd("USER 3", 20)
+    out = self.cmd("DIR A:STAT.COM", 40)
+    items.append(("user: USER 3 moves STAT.COM out of the active user area",
+                  out is not None and "NO FILE" in hwCpm.body(out).upper(), ""))
+    self.cmd("USER 0", 20)
+    out = self.cmd("DIR A:STAT.COM", 40)
+    items.append(("user: USER 0 restores STAT.COM to the active user area",
+                  out is not None and "STAT" in hwCpm.body(out) and "NO FILE" not in hwCpm.body(out).upper(), ""))
     return items
 
   def unconfigured(self):

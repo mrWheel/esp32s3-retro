@@ -1,4 +1,4 @@
-CP/M-86 hardware test - 2026-10-24 17:46:15
+CP/M-86 hardware test - 2026-10-26 07:34:59
 
 <<<RESET>>>
 PASS  board reset reaches host menu
@@ -6,6 +6,10 @@ PASS  menu reports PSRAM line
 PASS  cold boot reaches A> prompt
 PASS  basic: DIR on A: lists ASM86 and PIP
 PASS  basic: STAT runs on A:
+PASS  user: DIR lists STAT.CMD in user area 0
+PASS  user: USER displays the current user number
+PASS  user: USER 3 moves STAT.CMD out of the active user area
+PASS  user: USER 0 restores STAT.CMD to the active user area
 PASS  read: list volume A:
 PASS  read: list volume B:
 PASS  read: list volume C:
@@ -21,9 +25,9 @@ PASS  persistence: file survives reset on D:
 PASS  persistence: file survives reset on B:
 PASS  delete: file removed from D:
 PASS  delete: file removed from B:
-PASS  disk full: filling D: ends with a disk-full error  -- after 30 files
-PASS  disk full: volume reports (almost) no free space  -- free before 234, when full 0
-PASS  disk full: deleting the fill files restores all free space  -- before 234, after 234
+PASS  disk full: filling D: ends with a disk-full error  -- after 52 files
+PASS  disk full: volume reports (almost) no free space  -- free before 412, when full 4
+PASS  disk full: deleting the fill files restores all free space  -- before 412, after 412
 PASS  disk full: writing works again
 PASS  read-only: write to A: is refused
 PASS  read-only: system recovers to a prompt
@@ -41,4 +45,4 @@ SKIP  terminal escape sequences (full-screen editors)  -- manual
 SKIP  cpm86: millisecond timer F1h-F4h 900-1100 ms  -- needs a guest 8086 test program
 
 ==== SUMMARY ====
-passed 33, failed 0, skipped(manual) 3
+passed 37, failed 0, skipped(manual) 3

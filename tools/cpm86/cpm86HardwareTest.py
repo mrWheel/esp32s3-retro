@@ -33,6 +33,26 @@ class Cpm86(hwCpm.CpmAdapter):
     items = [("basic: DIR on A: lists ASM86 and PIP", out is not None and "ASM86" in out and "PIP" in out, "")]
     out = self.cmd("STAT", 40)
     items.append(("basic: STAT runs on A:", out is not None and "Bad" not in out, ""))
+    items += self.userCommand()
+    return items
+
+  def userCommand(self):
+    #-- USER scopes file lookups to the active user area; STAT.CMD lives in user area 0 only,
+    #-- and a bare USER displays the current user number.
+    out = self.cmd("DIR A:STAT.CMD", 40)
+    items = [("user: DIR lists STAT.CMD in user area 0",
+              out is not None and "STAT" in hwCpm.body(out) and "NO FILE" not in hwCpm.body(out).upper(), "")]
+    self.cmd("USER 3", 20)
+    out = self.cmd("USER", 20)
+    items.append(("user: USER displays the current user number",
+                  out is not None and hwCpm.body(out).lstrip().startswith("3"), ""))
+    out = self.cmd("DIR A:STAT.CMD", 40)
+    items.append(("user: USER 3 moves STAT.CMD out of the active user area",
+                  out is not None and "NO FILE" in hwCpm.body(out).upper(), ""))
+    self.cmd("USER 0", 20)
+    out = self.cmd("DIR A:STAT.CMD", 40)
+    items.append(("user: USER 0 restores STAT.CMD to the active user area",
+                  out is not None and "STAT" in hwCpm.body(out) and "NO FILE" not in hwCpm.body(out).upper(), ""))
     return items
 
   def unconfigured(self):
