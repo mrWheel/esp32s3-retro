@@ -1,0 +1,138 @@
+///1QSORT
+
+QSORT - Lexicographical Text File Sorter
+  Copyright (C) 1984, Universidad Autonoma de Puebla
+  Harold V. McIntosh, 28 September 1984
+
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+
+///2INTRO
+BRIEF INTRODUCTION by Kirk Lawrence
+
+   The author's original documentation, which follows below, is somewhat
+   convoluted and technical.  So here, in plain language, is what QSORT
+   is all about:
+
+   QSORT takes an ASCII text file, sorts each line of the file into "lexi-
+   cographical" order, then writes the sorted file to disk.
+
+   To QSORT, "lexicographical order" means "ASCII table order."  A line
+   beginning with an ASCII 1 will be placed first in the sorted file; a
+   line beginning with an ASCII 255 will be placed last in the sorted file.
+
+   One result of this approach is that QSORT is case-sensitive...and lines
+   beginning with capital letters will be sorted alphabetically and inserted
+   into the sorted file AHEAD OF lines beginning with lower-case letters.
+
+   Since QSORT begins sorting each line on the basis of the FIRST CHARACTER
+   in the line, any leading "spaces" are interpreted as characters, and the
+   line containing the leading "spaces" is placed into the sorted file on
+   that basis.
+
+   Therefore, to get an accurate sort, every line in the text file to be
+   sorted should begin at the SAME left-margin column, with no varying
+   indentations.
+
+   The file to be sorted is loaded entirely into memory, so there must be
+   sufficient computer memory available to accommodate the file, plus the
+   loaded QSORT program.
+
+
+///2USAGE
+        Syntax: QSORT [d:]filename.ext  <enter>
+
+   The drive letter [d:] is optional.  The input file "filename.ext" will be
+   sorted, and written to disk as a file named "filename.SRT."  The .SRT ex-
+   tension of the sorted file is hard-wired into the program, and cannot be
+   changed unless you change and re-compile the source code.  The original
+   file remains intact, and is not altered in any way.
+
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+
+
+///2TECHNICAL
+Following is the author's original documentation:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Sorting is a frequent application of computer usage, particularly when
+large amounts of data are involved. Many schemes exist to accomplish a
+sort, so many that their discussion occupies the whole third volume of
+Knuth's series on The Art of Computer Programming.
+
+One of the more popular schemes is called Quicksort; it was introduced
+in 1962 by C.A.R. Hoare. The name is descriptive, since it tends to
+complete a sort in a time proportional to N*log N, rather than time N**2
+which is characteristic of more straightforward procedures.
+
+This does not imply that Quicksort is not also straightforward, but it
+required some careful thought to figure it out and establish its speed
+at a time when such things were not always given much consideration.
+
+The basic idea is simple - two pointers are started out at the ends of
+the list that is going to be sorted, and all comparisons are made to
+the first element of the list, which can be set aside during the sort.
+
+The end pointer is moved backward until a smaller element is found than
+the first one. It is put in first place and the beginning pointer moved
+forward until a larger element is found, to be put up with the end pointer.
+
+The pointers are alternately moved, bringing small elements to the front
+of the list and large elements toward the end of the list. Eventually
+the pointers meet, at which point the original element is deposited. Of
+course, the list is probably not in order, but at least it has been split
+into two parts.
+
+The next step depends upon realizing that these two parts can be sorted
+independently, because every element in the lower portion is less than
+every element in the upper portion.
+Here is an ideal recursive process, because the separate portions can
+each be attacked by the same process, which terminates when the segment
+involved consists of only one element which means that the two pointers
+already coincide.
+
+The evaluation of the process is somewhat statistical, because the list
+is not always split evenly - this depends on whether the first element
+lies in the middle of the range or not. In fact if the list is already
+in order, only the first element will be split out each time, and the
+full N*(N-1)/2 steps will be required. However if the list begins in a
+state of disorder, the question is how many times it has to be split in
+half, which is log-base-2 of N. But we still have to run through the list
+so the number of steps averages out N*log N.
+
+QSORT is a Quicksort designed to place the lines of a text file in order.
+It begins by reading the whole file into memory, whose size is therefore
+a limit on the size of the file that can be sorted. This is not much of a
+limitation, because larger files could be broken up, sorted individually,
+and merged. However QSORT does not take this into account.
+
+Since it is too much trouble to move lines around as required by Quicksort,
+an index to the lines is constructed, running back from high memory. It is
+composed of two-byte pointers to the actual lines, and it is the pointers
+which are sorted rather than the lines themselves.
+
+Although Knuth has some hesitation about the recursive aspects of Quicksort,
+it should be noted that he wrote that particular volume before the prevalence
+of computer architectures which facilitate recursion. Nevertheless, it is
+necessary to reserve a rather larger stack than is customary because of the
+number of intermediate pointers that may accumulate.
+
+When the sorting has been finished, the sorted file is written on disk by
+writing the lines into the new file in the order determined by the sorted
+pointers. Since it is likely that the original file should be preserved,
+a new file with the extension .SRT is created. QSORT should therefore be
+used on a disk which has ample space for a new copy of the sorted file.
+
+QSORT was written with a specific purpose in mind. Therefore, it does not
+break up files too large for memory capacity. Nor does it allow the sorted
+file to be placed on another disk. Full lines are ordered lexicographically
+in ASCII order. ASCII order places control characters such as tabs and the
+carriage return before printable characters; it also places numbers and
+most punctuation before letters, but it places uppercase before lower case.
+
+There will most likely be applications in which lines would be sorted by
+partial fields, not necessarily in the order of their appearance on the
+line. The subroutine which evaluates the relative ordering of two lines
+would have to be modified to accomodate a different sorting criterion.
+

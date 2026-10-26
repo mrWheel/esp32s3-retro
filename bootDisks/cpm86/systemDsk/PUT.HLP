@@ -1,0 +1,21 @@
+///1PUT
+
+PUT  Version 1.8 - File Copying Program With User Area Support
+  CP/M-86 version by Angus Bliss and Bill Bolton
+
+
+
+///2USAGE
+Usage:
+        PUT [d:]filename f.t [d:] [-NW] <cr>
+Where:
+        filename - is any valid CP/M-86 file specifier
+        f        - is source user area
+        t        - is destination user area
+        d:       - is optional drive specifier
+        -        - is an option flag
+        N        - is no query to overwrite existing file
+        W        - is force overwrite of R/O file
+
+        Will prompt if destination file is already present.
+

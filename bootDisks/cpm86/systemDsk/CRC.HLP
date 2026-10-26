@@ -1,0 +1,31 @@
+///1CRC
+
+CRC.CMD - CP/M-86 Version 6.4
+by Bill Bolton     (10/30/84)
+
+This program will compute the CRC values of a specified file or
+group of files.  It can display the values to the CRT, check the
+values against a file called CRCKLIST.CRC, create the disk file
+called CRCKLIST.CRC, or all of these.
+
+
+///2USAGE
+To calculate the CRC of a given file use the form:          CRC filename.typ
+
+To calculate the CRC of a group of files use:               CRC *.typ
+
+To calculate the CRC of ALL files on a disk or area use:    CRC *.*
+
+
+///2CREATE
+To create a disk file called CRCKLIST.CRC use:              CRC *.* F
+
+
+///2COMPARE
+To compare the values against the file CRCKLIST.CRC use:    CRC <CR>
+
+...and ALL files will be checked against the original CRC values put
+into the file CRCKLIST.CRC.  If they match, a message "**match**"
+will be displayed for each file.  The total matches will also be
+displayed at the end of the process, as well as "no-matches".
+

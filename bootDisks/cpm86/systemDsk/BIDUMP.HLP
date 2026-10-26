@@ -1,0 +1,29 @@
+///1BIDUMP
+
+BIDUMP Version 1.23
+by Charlie Godet-Ceraolo (10/04/84)
+  IBM customization by Kirk Lawrence
+
+BIDUMP lets you browse through any file at the byte level -- going either
+forward or backward -- one record at a time, in "split-screen" format.
+BIDUMP displays the file's hex code on the left side of the screen, and
+the ASCII equivalent on the right side of the screen ("Norton"-type format).
+Any record can also be sent to the printer, if desired.
+
+
+///2USAGE
+Syntax: BIDUMP filename.ext  <ENTER>
+
+
+///2KEYS
+Once BIDUMP has loaded the file you've specified, the following keys
+control the action within the program:
+
+   F or <SPACE> to go forward.
+   B to go backward.
+   1 for beginning (first record) of file.
+   E for end (last record) of file.
+   C for continuous forward scroll.
+   P to PRINT current sector.
+   Q or X to exit.
+

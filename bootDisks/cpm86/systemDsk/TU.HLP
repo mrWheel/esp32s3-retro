@@ -1,0 +1,27 @@
+///1TU
+
+TU - A bi-directional Type Utility (TU) for CPM86 systems including CCPM.
+Written by: Ken Brassler CIS PPN 72345,46
+
+
+Displays a text file to the screen, a page at a time.
+
+
+///2USAGE
+      Syntax: TU filename.ext  <ENTER>
+
+
+
+///2COMMANDS
+ Available commands:
+    <CR>            Display next page
+    <+2 CR>         Display two pages ahead
+    <+n CR>         Display 'n' pages ahead
+    <- CR>          Display previous page
+    <-n CR>         Display 'n' pages back
+    <P30 CR>        Display Page 30.
+    <Pn CR>         Display Page 'n'
+    CTRL-C          Exit the program
+
+ You can locate the last page by choosing a high number for <Pn CR>.
+

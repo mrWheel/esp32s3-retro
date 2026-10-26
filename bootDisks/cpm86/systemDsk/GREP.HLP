@@ -1,0 +1,74 @@
+///1GREP
+GREP - Search a file for a pattern
+
+
+///2USAGE
+A>grep [-options] pattern [ud:]file [file file ... ] [>output_file]
+
+More than one option may be specified.
+
+'file' may be an ambiguous file name, and may include a user/drive
+specification.  Example: 12b:foo*.?q?
+
+'pattern' may be enclosed in double quotes ("includes blanks ")
+to include white-space.
+
+Grep finds lines in file[s] matching pattern.
+
+
+///2OPTIONS
+Options:
+
+  -v    Variant: all lines except matches
+  -c    Count of matching lines
+  -l    List of filenames containing pattern
+  -n    Line numbers of lines which match
+  -i    Lower case pattern will match only lower case in file
+  -p    Ask for pattern (allows input of mixed case)
+  -t    Verbose, show search detail
+
+
+///2PATTERNS
+The pattern is constructed according to UNIX regular-expression conventions.
+
+The regular-expression defines the pattern to search for. Blank lines
+never match.
+
+'x'     An ordinary character (not mentioned below) matches itself.
+
+'\'     The backslash quotes any character.  "\$" matches a dollar-sign.
+
+'^'     A circumflex at the beginning of an expression matches the
+        beginning of a line.
+
+'$'     A dollar-sign at the end of an expression matches the end of
+        a line.
+
+'.'     A period matches any character except "new-line"
+
+':a'    A colon matches a class of characters described by the following
+':d'    character.  ":a" matches any alphabetic, ":d" matches digits,
+':n'    ":n" matches alphanumerics, ": " matches spaces, tabs, and
+': '    other control characters, such as new-line.
+
+'*'     An expression followed by an asterisk matches zero or more
+        occurrances of that expression: "fo*" matches "f", "fo"
+        "foo", etc.
+
+'+'     An expression followed by a plus sign matches one or more
+        occurrances of that expression: "fo+" matches "fo", etc.
+
+'-'     An expression followed by a minus sign optionally matches
+        the expression.
+
+'[]'    A string enclosed in square brackets matches any character in
+        that string, but no others.  If the first character in the
+        string is a circumflex, the expression matches any character
+        except "new-line" and the characters in the string.  For
+        example, "[xyz]" matches "xx" and "zyx", while "[^xyz]"
+        matches "abc" but not "axb".  A range of characters may be
+        specified by two characters separated by "-".  Note that
+        [a-z] matches alphabetics, while [z-a] never matches.
+
+The concatenation of regular expressions is a regular expression.
+

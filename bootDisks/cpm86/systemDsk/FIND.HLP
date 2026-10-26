@@ -1,0 +1,92 @@
+///1FIND
+
+FIND Version 0.0 - Fast File Finder
+Freeware from Kirk Lawrence
+CP/M-86 Edition
+
+FIND searches all user areas on a drive for a user-specified filespec.
+Files matching the filespec are listed on the screen, along with the
+drive letter and user number where they're located.
+
+
+///2USAGE
+   Syntax: FIND [d:]filespec
+
+The drive letter [d:] is optional.  If the drive is not specified, the
+default drive is assumed.  Wildcards (* or ?) are fully supported.
+
+
+///2EXAMPLES
+Examples:
+
+    FIND MODEM9.CMD  finds all occurences on the default drive of
+                     files named MODEM9.CMD
+
+    FIND A:MOD*.*    finds all occurences on drive A: of filenames
+                     beginning with the letters "M-O-D."
+
+    FIND *.A86       finds all occurences on the default drive of
+                     filenames with the extension ".A86."
+
+    FIND M:*.*       finds ALL files on drive M:.
+
+
+
+///2BACKGROUND
+THE PHILOSOPHY BEHIND "FIND.CMD"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+FIND is roughly based on the CP/M-80 program FILE.ASM, originally written
+by R. Rodman, and translated to CP/M-86 by Alex Soya.  FILE.ASM, in its
+floppy-disk-based simplicity, was a good idea: it searched all user areas
+of all drives for any incidences of a user-specified filespec.
+
+But problems began to occur as others started making "improvements" to the
+original concept.  By the time the program got to me, it had gone through
+so many convoluted incarnations and system-specific alterations, that it had
+become almost totally unusable.  A fresh start was needed.
+
+FIND.CMD is that fresh start.  FIND clears away all the extraneous and
+questionable "features" and customizations which were added over the years,
+and restores the original, simple concept of searching a drive for a user-
+supplied filespec.
+
+In undertaking this revision, I've had to make certain technical and
+aesthetic judgement calls.  You may or may not agree with them.  All
+I can say is, they work for me...and if they also work for you, you're
+welcome to use FIND.CMD.  Here are the judgments:
+
+  1. FIND.CMD is optimized for use on the IBM-compatible computer.  The
+     machines from the early-to-mid-1980's which used various schemes of
+     proprietary architecture (such as the CompuPro, to name only one),
+     have pretty much gone the way of the dodo.  In order for CP/M-86
+     programs to retain any relevance today, they MUST run properly on
+     IBMs and compatibles.  Compatibility with non-standard, "odd-ball"
+     machines is of only secondary interest.
+
+  2. FIND.CMD searches ONLY the drive which is specified (or the default
+     drive, if no drive is specified).  This is MUCH more logical and con-
+     venient than having the program arbitrarily search ALL disk drives.
+     Oftentimes, especially in a hard disk-equipped machine, one or more
+     of the floppy drives will be empty.  Arbitrarily searching all drives
+     can cause frustrating and search-stopping errors when an attempt is
+     made to access an empty drive.
+
+  3. FIND.CMD shows ALL matches of the specified filespec, INCLUDING files
+     with the "system" attribute set.  Since FIND is designed for personal
+     use, and not for BBS use, there's no reason NOT to show "system" file-
+     matches.  Indeed, the arguments in favor of showing "system" files on
+     a hard disk, particularly, are overwhelmingly compelling.
+
+  4. FIND.CMD has no provision for excluding certain user areas from its
+     file search, as some of its predecessors did.  Since the object of
+     the the program is to locate files WHEREVER they might be on a disk,
+     it makes no sense to restrict the user areas which can be searched.
+
+
+///2NOTICE
+FIND.CMD is free.  As is always the case with "freeware," there are absolute-
+ly NO guarantees whatsoever.  If you run FIND.CMD on any computer, you do so
+strictly and entirely at your own risk and peril.  Your use of FIND.CMD shall
+be prima facie evidence under law that you understand and accept these terms
+and conditions.
+

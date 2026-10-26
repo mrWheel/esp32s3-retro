@@ -1,0 +1,703 @@
+///1NSWEEP
+
+                   NSWEEP - A disk maintenance utility.
+                              Version 2.07
+
+         **> CP/M-86 Edition for the IBM-compatible computer. <**
+
+                               Dave Rand
+                          10232 - 160 Street
+                           Edmonton, Alberta
+                                Canada
+                                T5P 3E9
+
+
+
+///2INDEX
+                               I N D E X
+
+                                                               Page
+   Introduction ...............................................  3
+        Overview of NSWEEP ....................................  4
+        Invoking NSWEEP .......................................  5
+   Single file commands .......................................  6
+        Help ..................................................  7
+        Forward and Backward ..................................  7
+        Exiting ...............................................  8
+        Finding a file ........................................  8
+        Viewing and Printing ..................................  8
+        Deleting a file .......................................  8
+        Copying ...............................................  9
+        Renaming ..............................................  9
+        The Space command ..................................... 11
+        The Log command ....................................... 11
+   Introduction to Multifile Commands ......................... 12
+        The Tag command ....................................... 12
+        Wildcard tagging ...................................... 13
+        The Untag command ..................................... 13
+        The Mass copy command ................................. 13
+        After the mass (Again) ................................ 14
+        Erasing files ......................................... 14
+        Squeezing and Unsqueezing files ....................... 14
+        Setting file status ................................... 15
+   Epilogue ................................................... 16
+   Credits .................................................... 16
+   Contributions .............................................. 16
+
+
+
+///2INTRO
+Introduction
+
+   NSWEEP is a new disk utility than can replace many of the more common
+utilities that are used, such as STAT, PIP, USQ, SQ, TYPE, PRINT, SWEEP,
+DISK7, PROT, and others.  In only 12K of disk space, it replaces over 100K
+of utilities!
+
+   NSWEEP is written entirely in assembly language, and will run on any
+IBM-compatible computer using the CP/M-86 operating system.  Since it is
+coded in 8086 assembler, any 8086 or 8088 compatible processor will serve.
+
+   When NSWEEP was conceived, the dominant file utility was SWEEP, and thus
+NSWEEP is syntax compatible with SWEEP, but with many extensions.  This allows
+you to directly rename NSWEEP to SWEEP, if you so desire, with no retraining
+period.
+
+   I hope that you enjoy this program, and use it well.  Any problems, or
+suggestions may be directed to myself at the address on the first page, or
+on one of the following RCP/Ms:
+
+Edmonton RCP/M - (403) 454-6093 (300 or 1200 baud)
+Stadium RCP/M  - (403) 479-3450 (300 baud only)
+
+or voice at:
+(403) 484-4114
+
+
+///2DISCLAIMER
+                          Disclaimer and warning
+
+   While this program has been tested on many systems, I will have no liabil-
+ity or responsibilty to the user or any other person or entity with respect
+to any liability, loss or damage caused, or alledged to be caused directly or
+indirectly by this program, including, but not limited to, any interruption of
+service, loss of business, anticipatory profits or consequential damages re-
+sulting from the use of this program.
+
+   Furthermore, although this program has been placed into the public domain,
+I retain all copyrights to this program, both in the U.S.A and in Canada, and
+pursuant to this, this program MAY NOT BE SOLD BY ANY PARTY unless specifical-
+ly authorized by the author, Dave Rand, in writing, previous to the first copy
+being sold.  As well, this program MAY NOT BE INCLUDED IN ANY OTHER PACKAGE
+FOR SALE, even if this program is indicated as being 'in the public domain'.
+All of the above applies to both the original as well as derived, or modified
+copies of the original.  Any modified copies of this program MUST NOT have the
+copyright notice violated, changed or altered.
+
+   Please report any copyright violations to the author, at one of the above
+telephone numbers. Thank you.
+
+
+
+///2OVERVIEW
+                              NSWEEP Overview
+
+   NSWEEP is a directory and file manipulation program.  With it, you can copy,
+delete, rename, unsqueeze and squeeze files.  The documentation following is
+split into two major sections: A tutorial for the inexperienced, and a refer-
+ence section.  The reference normally will be used in conjunction with the
+program to answer specific questions regarding NSWEEP.  The tutorial is a broad
+coverage of all of the functions, and should be read through at least once.
+
+   The most important thing to remember when using NSWEEP is that it provides
+a list of your files in ALPHABETICAL order.  Moving around in this list is
+quite easy, and will soon become second nature.
+
+   In this documentation, all user input is underlined.  As well, when the
+"current"  file is referenced in this documentation, it means the file just
+to the left of your input.  This "current" file is often referred to as the
+file you are "on".
+
+
+///2STARTING
+                              Invoking NSWEEP
+
+   To make effective use of NSWEEP, you must know the various options available
+to you when you invoke NSWEEP.  Here are some of the options:
+
+A>NSWEEP
+   This format simply loads NSWEEP, and scans the default drive and user for
+filenames.  Once inside NSWEEP, you may change to a different drive and/or
+user, but when you exit you will be returned to the drive/user that you called
+NSWEEP from.
+
+A>NSWEEP *.CMD
+  This format loads NSWEEP and scans the current drive and user for all file-
+names with the extension "CMD".  Note that NSWEEP can find system files as
+well, so no additional information need be given.
+
+A>NSWEEP B:*.CMD *
+   The presence of the second asterisk indicates to NSWEEP that you wish to
+scan all user areas of the indicated disk drive.  In this case, all "CMD"
+files on all user areas on drive B.
+
+   Combinations of the above are acceptable, and you may even log to all user
+areas, and find all files with the specification "*.* *".
+
+   Once inside NSWEEP you are presented with a menu, then a report of which
+drive and user you are logged to, how much space is taken by the files you
+have specified, how many files have been found with the specifications given,
+and how much space is left on the disk.  A sample follows:
+
+Drive A0:  596K in 36 files.  735K free.
+
+   A special format of this line shows that you are logged to all user areas:
+
+Drive B*:  950K in 234 files. 2956K free.
+
+   From this point, you may execute any of the menu options.
+
+   A special display occurs if no files are found with the specification you
+have given, or if there are no files in the given drive/user area(s):
+
+No files.
+
+   This display may also occur if you delete all the files out of a given
+specification.  When this occurs, your menu choices are limited to ONL  S, L,
+or X.  This allows you to see the free Space on a drive, to Log to another
+drive/user, or to eXit.  No other choices are valid, nor will they be accepted.
+
+
+///2COMMANDS
+Command Structure
+
+   There are two primary types of commands in NSWEEP: those that act on one
+file, and those that act on many files.  We will go through them both.  Before
+doing that, though, let's try moving around in NSWEEP first.
+
+   To move in NSWEEP, you must first understand that the files on your selected
+drive/user will be presented to you in a sorted manner.  The files are sorted
+in this order: Filename, File extension, user area:
+
+   1. B0: -WORK   .001    0K :
+   2. B0: ARCADD  .CMD    4K :
+   3. B0: ARCCOPY .CMD    2K :
+   As you can see, the files are numbered for your convenience.  You may not
+directly use these numbers.  As you can see, the file size is also shown
+(rounded to the nearest block size).
+
+   Note that you may see some of the letters in the filename printed in reverse
+video.  The chart below shows how to decode this information.
+
+          FFFFFFFF RSA
+          12345678 /YR
+          |||||||| OSC
+   4. B0: ARCDEL  .CMD    2K :
+                   ||-Reverse-video if the SYS attribute is set.
+                   |
+                   Reverse-video if the R/O attribute is set.
+
+   As you can see, this looks confusing.  Really, though, it is not.  The tags
+F1-F8 normally are not used, but NSWEEP allows you set F1-F4 for your own use.
+The R/O tag means that the file may be read, but not written to.  The SYS tag
+means that the file does not appear in normal DIR listings, and in CP/M-86,
+also means that this file is available to all user areas.  The ARC tag means
+that, if set, the file has been backed up since it was last accessed.
+
+   Now that you understand how files are presented, we can go through a sample
+session.  Remember, user input is underlined.
+
+A>nsweep b:
+NSWEEP   -  Version 2.07     7/17/1984
+        (c) Dave Rand, 1983, 1984
+            Edmonton, Alberta
+
+Drive B0:   850K in   64 files.   118K free.
+
+   1. B0: -WORK   .001    0K :  <SP>
+   2. B0: ARCADD  .CMD    4K :  <SP>
+   3. B0: ARCCOPY .CMD    2K :  <CR>
+   4. B0: ARCDEL  .CMD    2K :  <CR>
+   5. B0: ARCDIR  .CMD    2K : b
+   4. B0: ARCDEL  .CMD    2K : b
+   3. B0: ARCCOPY .CMD    2K : b
+   2. B0: ARCADD  .CMD    4K : b
+   1. B0: -WORK   .001    0K : x
+A>
+
+
+///2HELP
+Help
+
+   At any point, you may request the main help menu by pressing '?'.
+   1. B0: -WORK   .001    0K : ?
+
+NSWEEP   -  Version 2.07     7/17/1984
+        (c) Dave Rand, 1983, 1984
+            Edmonton, Alberta
+
+A - Retag files         | Q - Squeeze/Unsqeeze tagged files
+B - Back one file       | R - Rename file(s)
+C - Copy file           | S - Check remaining space
+D - Delete file         | T - Tag file for transfer
+E - Erase T/U files     | U - Untag file
+F - Find file           | V - View file
+L - Log new disk/user   | W - Wildcard tag of files
+M - Mass file copy      | Y - Set file status.
+P - Print file          | ? - Display this help
+X - Exit to CP/M-86     | cr, sp - Forward one file
+
+
+
+///2MOVEMENT
+Moving forward and backward
+
+   As you can see, the two most common commands will be moving forward and
+backwards through the directory.  Either the SPACE bar (<SP>), or the RETURN
+key (<CR>) may be used to move forward.  To move backwards, simply use the 'B'
+key.  Note that all commands in NSWEEP can be either in upper or lowercase.
+Internally, lowercase will be converted to uppercase.  If you reach the end
+of the directory with either command,  you will be "wrapped around" to the
+other end automatically.
+
+
+
+///2EXIT
+Exiting
+
+   To exit, just use the 'X' command as shown above.  This will return you to
+he same drive and user area that you invoked NSWEEP from, regardless of any-
+thing you may have done in NSWEEP.
+
+
+
+///2FIND
+Finding a file
+
+   Since you may have many hundreds of files selected, you may wish to move
+rapidly to a particular file.  You may do this using the 'F', or FIND command.
+
+   1. B0: -WORK   .001    0K : f  Which file? BASCOM
+
+   8. B0: BASCOM  .CMD   32K :
+
+   The Find command always starts looking from entry number one.  You may use
+the standard CP/M-86 syntax for wildcarding (eg: to find the first .HEX file,
+you may use *.HEX), and also note that the Find command will fill all blank
+spaces with question marks.  This makes the search strings "B*.*", "B", and
+"B??????." all find the first file beginning with "B".  As you experiment,
+you will find other interesting uses for this command.
+
+
+   At this point, you now know how to move through your directory, both rapidly
+and one step at a time.  Let's move on to some more useful commands.
+
+
+
+///2VIEWPRINT
+Viewing and Printing a file
+
+   The View command, invoked with a 'V', will type the current file onto the
+screen, unsqueezing the file if required.  Note that this command will NOT
+prevent you from listing ANY type of file, so you must use your own judgement
+on what can and cannot be listed.  At the end of each page on the screen,
+view will stop, and allow you to abort the viewing with a ^C or a ^X.  To get
+one more line from the file, hit the space bar.  To get another page, hit the
+<CR> or RETURN key.
+
+   The Print command, invoked with a 'P', will send the current file, with no
+modifications or paging, to the current LST: device.  You may abort the print
+with a ^C or ^X.  All other features of the View command apply.
+
+
+
+///2DELETE
+Deleting a file
+
+   You can delete the current file just by hitting the 'D' key.  Before
+eletion occurs, you will be prompted.
+
+  12. B0: CDP1    .      40K : d  Delete file? y
+  12. B0: DEAD    .DAT  100K :
+
+
+   If any reply other than 'y' or 'Y' is given the file is not deleted.  If
+he file is deleted, it is removed from the list and the next file is given the
+current file's number.
+
+   If the file is a Read Only file, you will be prompted again:
+
+  12. B0: CDP1    .      40K : d  Delete file? y  R/O. Delete? y
+  12. B0: DEAD    .DAT  100K :
+
+
+
+///2COPY
+Copying a file
+
+   While on any file, you may copy that file to:
+A) Another name, on the same drive/user
+B) Another name, on a different drive/user
+C) The same name, on a different drive/user
+
+   NSWEEP will prevent you from copying a file to the same drive/user that the
+source file resides on.  Other than that, there are no restrictions on where
+you wish the file to be.  If a file exists  on the same drive/user that you
+wish to place the destination file, the existing file is deleted automatically,
+even if it is Read Only.  When NSWEEP copies a file, all the attributes of the
+original file are passed on to the destination file.  Thus, if a file is a SYS,
+R/O file, NSWEEP will cause the destination file to be SYS, R/O after the file
+copy has taken place.
+
+  12. B0: CDP1    .      40K : c  Copy to (filespec)? C9:BACK.CDP
+
+   If you wish to preserve the name of the file, you may just enter the destin-
+ation drive/user part of the filespec (eg. C9: in the preceding example would
+have copied the file to drive C user 9, retaining the name CDP1).  Just enter-
+ing the drive part of the filespec causes NSWEEP to retain the user number of
+the source file.
+
+   If the filename is followed by a space, then a "V", the file will be verify
+read after it is written.  NSWEEP maintains a CRC of the file as it is writing
+the file, and verifies this CRC.
+
+
+
+///2RENAME
+Renaming files
+
+   The Rename command ('R') may be used to:
+A) Change the name of one file
+B) Change the names of many files
+C) Change the user number of one file
+D) Change the user number of many files
+
+   To just change the name of one file, the syntax is simple:
+
+  12. B0: CDP1    .      40K : r  New name, or *? CDP2
+  12. B0: CDP2    .      40K :
+
+   You may also change the user number of the file, as follows:
+
+  12. B0: CDP1    .      40K : r  New name, or *? B1:CDP2
+  12. B1: CDP1    .      40K :
+
+   Note that if all user areas are not specified in the logon of NSWEEP, the
+file may not be shown on your list when renaming to another user area.
+
+   To change a group of files from one name to another, you may enter the
+following command at any file:
+
+   9. B0: BASIC   .CMD   24K : r  New name, or *? *
+
+Old name? *.HEX
+New name? *.BAK
+
+   At this point all files with the extension .HEX will be renamed to the same
+filename but with the extension .BAK.  You will see a running display on the
+screen as each file is renamed.  Any valid wildcard may be used to select the
+source files, and the destination files will take one character from the source
+for each '?  in  the name.  An asterisk qualifies as filling the remainder of
+the field with '?'.  If the destination file exists, the rename is not made.
+   You may also choose to rename a group of files to another user area,
+optionally changing their names as well:
+
+   9. B0: BASIC   .CMD   24K : r  New name, or *? *
+
+Old name? *.HEX
+New name? B1:*.BAK
+
+   This command will rename all .HEX files on drive B user 0 to the same file-
+name, but with the extension .BAK, and place the resultant file in user 1.
+You may want to try this command a few times to get the hang of it, but it is
+extremely powerful.
+
+
+
+///2SPACE
+The Space command
+
+   The Space command ('S') simply asks you for a drive code, then tells you the
+remaining space on the drive you specify.  Before doing the space check, a
+drive reset is performed, so feel free to change disks.
+
+
+
+///2LOGIN
+The Log Command
+
+   The Log command ('L') allows you to change your directory to another drive
+or user.  Additionally, it allows you to re-specify the wildcard mask just
+like entering the NSWEEP program from CP/M-86.  As well, the drive system is
+reset, so again you should be able to change to a different diskette at this
+point or to another part of the same diskette.  When the Log command is used,
+the instructions are reprinted for review.
+
+
+  16. B0: DD      .CMD    4K : l  New drive/user/mask? A14:*.HEX
+
+
+NSWEEP   -  Version 2.07     7/17/1984
+        (c) Dave Rand, 1983, 1984
+            Edmonton, Alberta
+
+Drive A14:   44K in   2 files.  1118K free.
+    1. A14:NSWEEP  .HEX    22K:
+
+
+///2MULTIFILE
+                      Introduction to Multifile commands
+
+   Now that all the commands that affect single files have been described, it
+is time to introduce the concept of Multifile commands.  These commands are
+ones that affect as few as one or as many as all of the files on a single disk.
+To affect these files, though, we must have some way of describing which files
+need to be affected.  CP/M-86 has a way to do this, using "wildcards".  This
+program, on the other hand, uses the concept of a file "tag".
+
+
+///2TAG
+The Tag command
+
+   Tagging a file, in its simplest form, can be accomplished just by pressing
+the 'T' key when the file to be tagged appears.  What exactly is a tag?  A
+tagged file is a file in the list  of filenames that has an asterisk next to
+the colon after the name of the file, as shown below.
+
+   9. B0: BASIC   .CMD   24K :*
+
+   A tagged file is different from an untagged file in that you may now request
+an operation that deals with several unrelated files (e.g., Files that will not
+match using only one wildcard).  A sample "tag" session is shown:
+
+   9. B0: BASIC   .CMD   24K : t  Tagged files =   24K (  23K).
+  10. B0: BRUN    .CMD   16K : t  Tagged files =   40K (  39K).
+
+   Note that the "T" command automatically performs a "move forward" operation.
+
+   To the right of the "Tagged files" message two numbers are displayed.  The
+numbers are the total size, in K, of the files you have tagged so far.  This
+is useful if, for example, you are moving files from one size of diskette to
+another, smaller, size diskette.  If the source disk holds 500K, and the
+destination holds 256K, you can stop the tagging operation when your size is
+just less than 256K.  The tag function in itself does not perform any opera-
+tion,  other than to mark the file for a future "mass" operation.
+
+   By now the astute reader will notice that I have cleverly skipped over the
+function of the second number display, the one in parenthesis.  This number is
+the combined size of the tagged files, IN 1K BLOCKS.  If you are using a com-
+puter system that supports many different disk sizes/formats, or a system with
+a hard disk attached, you may already know that CP/M-86 can allocate storage
+only in "BLOCKS", and that these "BLOCKS" may be up to 16K in length.  This
+means that NSWEEP would show a file containing, say, 512 bytes of information,
+as being up to 16K long, depending on your computer.  The second number in the
+tag display shows how much storage the cumulative files would take if they
+were stored on a single sided, single density, 8" diskette.
+
+
+///2WILDCARDS
+Wildcard tagging
+
+   Another way to tag files is the wildcard tag function.  This function ac-
+cepts a CP/M-86 type wildcard and proceeds to tag all the files that match the
+wildcard.  To invoke this, just hit 'W' and you will be prompted with the
+message 'Which files? '.  Enter any CP/M-86 wildcard, right down to a unique
+filename, and if that file exists it will be tagged and displayed.
+
+
+///2UNTAG
+Untagging files
+
+   If you can tag a file, you must be able to Untag a file, as well.
+
+   9. B0: BASIC   .CMD   24K :*u  Tagged files =   16K (  16K).
+  10. B0: BRUN    .CMD   16K :*
+
+   As you can see, the untag function subtracts the current file's size from
+the total, then displays the total of the remaining files.
+
+
+
+///2MASSCOPY
+The mass copy command
+
+   Now that we have a number of files "tagged", what do we do with them?
+Well, the Mass copy function is one of those that act on many files.  Its
+purpose is to copy the tagged file(s) from one drive/user area to another.
+
+  12. B0: CDP1    .      40K : m
+  Copy to drive/user? A14: V
+
+Copying   --> B0: BRUN    .CMD  to A14:  with verify
+Verifying --> file ok.
+
+   The V is optional, and it indicates that you wish to have the file verified
+after it is written.
+
+   As you can see, the files have been sent to drive A, user 14.  If you wish
+the tagged files to reside in the same user area as the source files after the
+copy, do not specify a user area in the Mass command.  This will cause NSWEEP
+to put the file in the same user area as the source file.
+
+   NSWEEP will not allow you to copy a file to the same drive and user area
+as the source.  The copy is simply not made.
+
+
+
+///2AGAIN
+After the mass
+
+   After any mass file operation, the tags are "reset" as each file is copied.
+Visually, they change from a "*" to a "#".  The files are logically untagged,
+and will respond as such.  But, since NSWEEP remembers them, you can automat-
+ically retag these files.  This is useful if, for example, you need to copy
+the same files to a number of different diskettes or user areas on a drive.
+To invoke this, use the "A" command.
+
+  12. B0: CDP1    .      40K : a
+
+Retagging--> B0: BRUN    .CMD   Tagged files =    16K (  16K)
+
+
+
+///2ERASE
+Erasing files
+
+   You may want to copy a group of files, then delete them from the source disk
+after the copy has been made.  To do this, you can use either the "C" command
+to copy, followed by the "D" command, which is tedious,  or a combination of
+the "T", "M", "A", and the "E" commands.  The E command Erases tagged or un-
+tagged files, at your option, on a global scale.
+
+  12. B0: CDP1    .      40K : e
+Erase Tagged or Untagged files (T/U)? t
+Do you wish to be prompted (Y/N/A)? n
+
+Deleting  --> B0: BRUN    .CMD
+
+   If you specify Untagged files, the untagged files will be erased.  You may
+wish to be prompted before each file is to be deleted, and you can do this via
+the second question.
+
+
+
+///2SQUEEZE
+Squeezing and Unsqueezing files
+
+   The 'Q' command allows you to Squeeze and Unsqueeze tagged files.  This
+file squeeze program is compatible with the original squeeze/unsqueeze pro-
+grams written in the 'C' language by Richard Greenlaw.  After hitting Q, you
+will see the prompt:
+
+Squeeze, Unsqueeze or Reverse (S/U/R)?
+
+   After answering this skill-testing question, you will be asked which drive/
+user you wish to place the destination files.  The syntax here is the same as
+for the Move command, except it is permissible to 'Q' the files back to the
+same drive/user that they originated.  When Q is invoked, you are asked if you
+wish to Squeeze, Unsqueeze or Reverse.  A carriage return here will return you
+to the command line of NSWEEP.
+
+   If you select S for Squeeze, all tagged files will be examined to see if it
+is "worth" squeezing them.  Files that exibit ANY space reduction, even if it
+is only one sector, will be squeezed.  If the file is not "worth" squeezing,
+it will simply be copied to the destination drive/user.
+
+   If you select U for Unsqueeze, all tagged files will be examined to see if
+they are squeezed.  If they are, they will be unsqueezed, and moved to the
+destination drive/user.  If they are not squeezed, then they are simply copied.
+
+   If you select R for Reverse, all files that are squeezed will be unsqueezed,
+and all files that are unsqueezed will be squeezed (if it is worth it), and
+moved to the destination drive/user.
+
+   The  most attractive feature of the Q command in general is the ability to
+Squeeze files ONLY if it is "worth" it.  This means that by using NSWEEP, you
+can archive data into the absolute minimum amount of space possible.  The SQ
+algorithm used in NSWEEP is better than the one in the original C squeezer,
+and produces the smallest output file possible with current technology.
+
+   The file squeezer section was done by Jim Lopushinsky, and is copyrighted
+separately by him.
+
+
+
+///2STATUS
+Setting the tagged files status
+
+   You may set the attributes of a group of tagged files just like STAT, or
+PROT.  To do this, tag the files, and select the "Y" command.
+
+  12. B0: CDP1    .      40K : y  Which flags (1-4,R,S,A)? r,s
+
+Setting ---> B0: BRUN    .CMD to R/O SYS
+
+
+   The flags you may set are the F1-F4 flags, as well as the Read Only and
+System flags.  Any flags you do not specify will be reset.  To reset all the
+flags  (IE:  Change to R/W, DIR and no "Sysop tag"), just enter a single
+comma or space at the "Which flags" prompt.  Note that the flags in the
+"Which flags" question do not have to be entered with a comma between them,
+as anything (or nothing at all!) will do.  As far as the program is concerned
+"RSA", "R S A", and "R,S A" are all valid.
+
+
+///2EPILOGUE
+                                  Epilogue
+
+   All the functions of NSWEEP have now been described.  The best way to get
+more familiar with the program is to actually USE it.  I think it will be one
+of your most frequently used programs.
+
+   This version of NSWEEP is configured for an IBM-compatible computer, running
+single-user CP/M-86 as its operating system.  If you wish, you may alter the
+following program characteristics:
+
+Offset 82h  -  Screen length
+This byte controls the screen length used in the "V"iew  command.  It is
+currently set to 24 lines (18h).
+
+Offset 83h - 89h  -  Turn reverse video on
+The first byte  in this sequence of seven shows the length of the "reverse
+video on" sequence (currently 02h), which follows at location 84h.  The
+setting are currently ESC "p" (1B 70).
+
+Offset 8Ah - 90h  -  Turn reverse video off
+The first byte in this sequence of seven shows the length of the "reverse
+video off" sequence (currently 02h), which follows at location 8Bh.  The
+settings are currently ESC "q" (1B 71).
+
+=> NOTE: Setting all bytes from 83h through 90h to "00" will disable all
+=> special video attributes, and will result in all screen text being
+=> displayed normally.
+
+Offset 2E50h - 2E52h  -  Clear the screen
+  (or offset 50h of relative sector 23)
+These three bytes are used for the clear-screen sequence.  If you prefer that
+the screen not clear when the program is invoked, you may set these three bytes
+to 20h.  The settings are currently ESC "E" (1B 45).
+
+
+///2CREDITS
+                                Credits
+
+   My thanks to all who made this program possible, and especially to Dave
+Mccrady for his help in composing the documentation and .HLP files for NSWEEP.
+Thanks also goes to Jim Lopushinsky, also of Edmonton, since without him the
+SQ section of NSWEEP might never have been completed!   Thanks to the use of
+his SQ section, NSWEEP can produce the smallest possible SQ'ed files.
+
+
+///2CONTRIBUTE
+                             Contributions
+
+   If you like, use and enjoy this program, feel free to send a contribution
+(suggest $20).  This will help me expand this program, and add even more fea-
+tures.  Suggestions for enhancement are also appreciated, and you may send
+them to:
+
+Dave Rand
+10232 - 160 Street
+Edmonton, Alberta  CANADA
+T5P 3E9
+

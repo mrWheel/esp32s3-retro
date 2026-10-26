@@ -1,0 +1,57 @@
+///1UNERA
+
+UNERA Version 3.1 - Deleted File "Un-eraser" For CP/M-86, CP/M-86+ & CCP/M-86
+  by H.H. Van Tassell, 120 Hill Hollow Rd, Watchung NJ 07060  (2-16-84)
+
+This is a program to recover erased files in CP/M-86 and is modelled on
+the UNERA program for CP/M-80.  The program reads the directory, sector
+by sector, listing filenames that have been erased by placing an 0E5H as
+byte 0.  The extent number is also listed.  NO check is made to determine
+if the disk space has been re-allocated to another file after the file was
+erased.  After listing the file names, the user is asked if recovery is
+desired.  A page of help is displayed if the program is invoked with // as
+the file name.
+
+
+///2USAGE
+   Syntax: UNERA [d:]FILENAME.TYP
+
+Filename and/or type may be wildcards.  Wildcards may be either ? or *
+
+
+///2RECOVERY
+CAUTION! use the * wildcard with care.  Using *.* will recover ALL erased
+filenames.
+
+The recoverable file(s) matching the FILNAME.TYP will be listed.  You then
+have an option to quit.
+
+Be SURE to check recovered files before using to confirm that they are OK
+and function properly.  If possible, make a CRC check on recovered files.
+
+HINT: for best results use UNERA immediately after making an unwanted era-
+sure, else the space may be re-allocated to another file and recovery is
+impossible.
+
+
+
+///2NOTICE
+NOTICE: This program was placed into the Public Domain thru a release to
+SIG/M.  There are NO restrictions whatsoever on its use and me, the author,
+claims he developed it for his own personal use.  You are free to use it,
+sell it, change it, or give it to your mother-in-law.  If you sell it, I
+hope you make a pile of money.  If you change it please don't advise me,
+and if you give it to your mother-in-law I hereby claim a full defense and
+hold harmless from that fool.  Feel free to make everthing upper or lower
+case and you can indulge in colonic madness if that turns you on.  There is
+absolutely no style or class to the code and the only defense I can offer
+is that the program often works for me.
+
+I didn't enjoy coding it, and I give no credit to any member of my family
+for being so understanding while I spend all my time and money on such
+foolery!  It was only done because I am an air-head and often erase the
+wrong files which makes me very angry.  I still erase the wrong files but
+now I just don't seem to care.  Valium would have been just as effective.
+
+H.M. Van Tassell
+

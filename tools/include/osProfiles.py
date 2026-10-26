@@ -207,9 +207,25 @@ def images_dir(sd_root, os_name):
     return Path(sd_root) / "retro" / "images" / os_name
 
 
+KNOWN_IMAGE_EXTENSIONS = (".dsk", ".po", ".do", ".img", ".hdv", ".2mg", ".nib", ".woz", ".raw", ".bin")
+
+
+def image_extension(os_name):
+    """The disk image extension of an OS, taken from its default image name (.dsk or .po)."""
+    return Path(OS_REGISTRY[os_name].default_system_image).suffix
+
+
 def resolve_image_path(sd_root, os_name, image):
-    """A bare image name goes to <sd-root>/retro/images/<os>/; any path is used as given."""
+    """A bare image name goes to <sd-root>/retro/images/<os>/; any path is used as given.
+
+    The OS's own extension is always enforced: a different known disk extension is replaced
+    (work2.po -> work2.dsk) and a missing one is appended (work86-2 -> work86-2.dsk)."""
     image = Path(image)
+    extension = image_extension(os_name)
+    if extension:
+        if image.suffix.lower() in KNOWN_IMAGE_EXTENSIONS:
+            image = image.with_suffix("")
+        image = image.with_name(image.name + extension)
     if image.is_absolute() or image.parent != Path("."):
         return image
     return images_dir(sd_root, os_name) / image

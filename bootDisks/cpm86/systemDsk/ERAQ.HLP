@@ -1,0 +1,76 @@
+///1ERAQ
+
+ERAQ.CMD - Selective File Eraser For IBM-Compatibles
+
+
+ERAQ is a selective file erasing program that lets you quickly expunge
+certain files from a drive or user area, while retaining other files
+that you wish to keep.  ERAQ finds all files which match your desired
+filespec, then prompts you, one-by-one, as to whether or not you want
+to erase each file.
+
+ERAQ will erase ANY file...even files containing illegal characters in
+the filename.  It will also erase files which have the "read only" at-
+tribute set.
+
+
+///2USAGE
+Syntax: ERAQ [d:][filespec]
+
+All command line parameters are optional.  If no command line parameters
+are specified, ERAQ assumes ALL files (*.*) on the current drive, in the
+current user area.
+
+[d:] is an optional drive specifier.  You may specify any drive letter
+which your system supports.  If you specify a drive letter, then you MUST
+also enter a filespec.
+
+[filespec] is an optional filename or portion thereof.  Wildcards ("?"
+and "*") are fully supported.  All standard CP/M-86 conventions apply.
+
+
+///2KEYS
+ERAQ displays the name of each file matching your specified filespec,
+and asks you whether or not you want to erase the file.  Press "Y" to
+erase the file.  Press "N" to NOT erase the file.  Press the ESC key
+at any time to exit the program.  Pressing CTRL-C or CTRL-BREAK will
+also exit the program at any time.
+
+IMPORTANT: User area numbers are NOT supported as a command line parameter.
+
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+
+///2EXAMPLES
+Examples of usage:
+
+   ERAQ  <enter>
+       Displays, and prompts for erasure, ALL files on the
+       current drive, and in the current user area.
+
+   ERAQ A:*.*  <enter>
+       Displays, and prompts for erasure, all files in the
+       current user area on Drive A:.
+
+   ERAQ *.SUB  <enter>
+       Displays, and prompts for erasure, all files with the
+       extension ".SUB" on the current drive, and in the
+       current user area.  "ACTIVE.SUB," "HOT.SUB" and
+       ZENOFOBE.SUB" would all match this filespec.
+
+   ERAQ D:S???????.*  or  ERAQ S*.*  <enter>
+       Displays, and prompts for erasure, all files in the current
+       user area of Drive D: which begin with the letter "S."
+       "S.COM," "SANTA.KLS," "SOUR.GRP," "SODAPOP" and "SOWHAT.CMD"
+       would all match this filespec.
+
+   ERAQ B:FOO.B??  or  ERAQ B:FOO.B*  <enter>
+       Displays, and prompts for erasure, all files in the current
+       user area of Drive B: with the name "FOO," and an extension
+       beginning with the letter "B."  "FOO.BAR," "FOO.BOT" and
+       "FOO.BAS" would all match this filespec.
+
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+ERAQ is compatible with any video system, color or monochrome.
+

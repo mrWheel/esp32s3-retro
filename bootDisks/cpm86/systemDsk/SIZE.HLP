@@ -1,0 +1,26 @@
+///1SIZE
+
+SIZE.CMD
+by K. Maeda.  Originally written 1-3-83.  Revised 10-16-84.
+Public Domain Software - JUG-CP/M
+
+SIZE looks at the header record of an executable file, and reports the
+base address and minimum size of the various segments within the file:
+code, data, extra and stack segments.
+
+
+///2USAGE
+SIZE may be invoked in one of two ways:
+
+    SIZE filename.ext <ENTER>  or
+    SIZE <ENTER>
+
+If a filename is entered as a command line argument, SIZE will report
+its findings about that file to the screen, and then exit.
+
+If SIZE is invoked with no command line argument, it enters interactive
+mode, and prompts you to enter a filename.  After reporting on the file
+name you enter, SIZE will prompt you to enter another filename.  This
+can be handy when you want to examine more than one file at a single
+session.
+

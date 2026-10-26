@@ -1,29 +1,849 @@
 ///1ED
-Help by Willem Aandewiel
-ED - CP/M-86 command-driven text editor
+ED.CMD - Extended help for the CP/M-86 text editor
+
+ED creates and edits plain-text files, including .TXT, .SUB and .A86.
+Enter editing commands at its * prompt. Text being edited resides in
+a memory buffer, with an internal character pointer called CP.
+
+Start with QUICKSTART or WORKFLOW. COMMANDS provides a reference for
+each command letter. EXAMPLES contains exercises; ERRORS explains
+common problems.
+
+This help describes Digital Research ED for CP/M-86.
+Many commands also exist in CP/M-80, but implementations differ.
+Do not use ED to modify binary .CMD files.
+
+Open this help: HELP ED
+Look up a command: HELP ED COMMANDS S
+Open an exercise: HELP ED EXAMPLES NEWFILE
+
+///2NOTATION
+Enter indented command examples at the ED prompt.
+Press Return after each command unless instructed otherwise.
+A> represents the CP/M prompt. * represents the ED prompt.
+Do not type these prompt characters yourself.
+
+^Z means: hold Ctrl and press Z.
+^L means: hold Ctrl and press L.
+Although this notation uses two visible characters, you must enter
+the actual control character when typing an ED command.
+
+Example: sold^Znew^Z
+Type s, old, Ctrl-Z, new, Ctrl-Z, then press Return.
+Do not type a literal caret followed by the letter Z.
+
+n represents a decimal count; do not type the letter n.
+Square brackets in syntax descriptions indicate optional parts.
+Use lowercase command letters when you need to preserve mixed-case
+text. See CASE.
+
+///2QUICKSTART
+Create a new file:
+  A>ED TEST.TXT
+  -u
+  i
+Type a few lines, pressing Return after each line.
+Press Ctrl-Z to return to command mode.
+  b
+  #t
+  e
+
+Read and edit an existing small file:
+  A>ED TEST.TXT
+  -u
+  #a
+  b
+  0lt
+
+#A tries to read the remaining source into the buffer. If it does not
+fit, ED may report a full buffer. See LARGEFILES.
+
+Save and exit: enter e on a line by itself.
+Discard changes since the last save cycle and exit: enter q,
+then confirm with Y when prompted.
 
 ///2STARTING
+Syntax:
+  ED [d:]name.ext
+  ED [d:]source.ext [e:]target.ext
+  ED [d:]source.ext e:
+
+Examples at the CP/M prompt:
   A>ED NOTES.TXT
+  A>ED B:PROG.A86
+  A>ED SOURCE.TXT NEW.TXT
+  A>ED SOURCE.TXT B:
 
-Enter editing commands at ED's prompt.
+Without a separate destination, the edited result replaces the source
+under its original name. A separate destination saves the result
+under that name. A destination drive alone uses the same filename
+on that drive. Choose a destination filename that does not exist.
 
-///2NEWFILE
-Enter I, then Return. Type your text.
-Press Ctrl-Z to leave insertion mode.
-Enter E to save and exit.
+NEW FILE means that the specified source does not exist yet.
+Even when the source exists, the initial buffer is empty:
+you must explicitly read text with A.
 
-///2READING
-For an existing file, enter:
+Use CP/M 8.3 filenames and select the correct user area.
+Start the program as ED, without adding .CMD to its command name.
 
-  #A
-  B
-  #T
+///2WORKFLOW
+ED processes text in this direction:
 
-#A fills the buffer from the file; large files may not fit.
-B selects the beginning. #T displays the remaining buffer.
+  unread source -> memory buffer -> temporary output
 
-///2SAVING
-E saves and exits.
-Q discards this session's changes; confirm when asked.
-Use ED for text such as HELP.A86, not binary HELP.CMD.
-
+A reads the next source lines into the buffer.
+I inserts new text into the buffer.
+W writes the first buffer lines to the output and removes those
+lines from the buffer. Output therefore grows from start to finish.
+E writes the remaining text and completes the editing operation.
+
+B moves only to the beginning of the current buffer. It does not
+rewind the source or retrieve text already written out.
+Use H to save and start a new reading cycle.
+
+ED has two input modes:
+  Command mode: the * prompt accepts editing commands.
+  Insert mode:  characters you type become file contents.
+
+Enter i followed by Return to start inserting.
+Press Ctrl-Z to end insertion.
+Return on an empty command line also has a meaning: move to the
+next text line and display it.
+
+///2POINTER
+CP is the internal character pointer: a position between characters.
+The visible terminal cursor does not show CP's position in the text.
+
+In these illustrations, | represents CP; it is not part of the file.
+Each example starts independently with AB|CDE:
+  2d     deletes CD: AB|E
+  -d     deletes B:  A|CDE
+  ixy^Z  inserts xy: ABxy|CDE
+
+B places CP at the buffer beginning; -B places it at the buffer end.
+L moves by lines, C by characters. CR and LF each count as a character.
+After a search or insertion, CP normally follows the matched or
+inserted text. T may therefore display only the tail of a line.
+
+0LT moves CP to the line beginning and displays the whole line.
+0TT displays the whole line without moving CP.
+Check your position before using D, K or a substitution command.
+
+///2COUNTS
+For most commands, omitting a count means execute once.
+  5l     move forward five lines
+  -2l    move back two lines
+  12c    move forward twelve characters
+
+# represents the maximum count, 65535; it is not a wildcard.
+  #t     display all remaining text in the current buffer
+  #a     read as many remaining source lines as possible
+
+Negative counts apply only to commands that support backward action.
+F, S and N search forward; -F is not a backward-search command.
+Use B and search again to find text at an earlier position.
+
+Zero has a different special meaning for each applicable command:
+  0a     read until the buffer is approximately half full
+  0w     write out approximately half the buffer
+  0l     move to the beginning of the current line
+  0t     display from the line beginning to CP
+  0p     display a page without moving CP
+  0v     display free and total buffer space
+  0x     delete a transfer file
+
+///2CASE
+An uppercase command letter can convert its associated text to
+uppercase. This does not make a search case-insensitive.
+
+  fName^Z     searches for exactly Name
+  FName^Z     searches for NAME
+  iHello^Z    inserts Hello
+  IHello^Z    inserts HELLO
+
+U enables persistent uppercase conversion; -U disables it.
+Use -u and lowercase command letters when writing ordinary text.
+This prevents unintended changes to names and program source.
+Search and substitution arguments are also affected.
+
+Examples in this help use lowercase command letters where useful.
+HELP topic names may still be entered in uppercase.
+
+///2COMMANDS
+Commands by letter:
+  A read source      B buffer start/end  C move by characters
+  D delete chars     E save and exit     F search buffer
+  H save and reopen  I insert text       J replace text region
+  K delete lines     L move by lines     M repeat commands
+  N search source    O restart edit      P display pages
+  Q abandon edit     R insert file       S substitute text
+  T display text     U uppercase mode    V numbering/space
+  W write output     X export block      Z delay
+
+NUMBERS explains line addresses and ranges.
+COMBINING explains command sequences on one line.
+
+///3A
+A - Append: read the next source lines at the buffer end.
+  a      read one more source line
+  20a    read twenty more source lines
+  #a     continue until end of source or buffer full
+  0a     read until the buffer is approximately half full
+
+A does not reread source lines already processed.
+New files have no source lines to read; use I to enter new text.
+For a full buffer, see LARGEFILES.
+Use lowercase a when uppercase conversion is unwanted.
+
+///3B
+B - Beginning/Bottom: move CP within the current buffer.
+  b      beginning of buffer
+  -b     end of buffer
+
+  b#t    display the entire current buffer from its beginning
+  -b     position for inserting new text at the end
+
+B and -B do not change text or read anything from disk.
+
+///3C
+C - Character: move CP a specified number of characters.
+  c      one character forward
+  8c     eight characters forward
+  -3c    three characters backward
+
+A CR/LF line separator counts as two characters.
+With tabs, a screen column is not the same as a text character.
+Prefer L when moving between lines.
+Example: b5ct displays the first line from its sixth character.
+
+///3D
+D - Delete: remove characters at CP or immediately before it.
+  d      delete the next character
+  4d     delete four characters to the right of CP
+  -d     delete the character immediately to the left of CP
+  -4d    delete four characters to the left of CP
+
+D closes the gap; it does not replace deleted text with spaces.
+ED has no general UNDO command.
+Deleting CR and LF can join two lines together.
+See EXAMPLES JOIN for a controlled procedure.
+
+///3E
+E - End: finish editing, save the result and exit ED.
+  e
+
+ED also copies any unread source text to the output.
+You do not need to load the complete file before saving.
+E must appear alone on its command line.
+
+When editing under the same filename, the old version normally
+becomes name.BAK and the new version receives the original extension.
+See FILES for the purpose and limitations of this backup.
+
+///3F
+F - Find: search forward from CP within the current buffer.
+  ftext^Z
+  3ftext^Z
+
+The second form finds the third following occurrence.
+After a successful search, CP follows the matched text.
+  fname^Z0lt
+Finds name and displays the entire line containing it.
+
+Search strings are literal; * and ? are not filename wildcards here.
+Certain control characters can also be included in a search string.
+If no match is found, ED normally reports BREAK #.
+Check your position and the exact case of the text.
+F does not load further source sections automatically; use N for that.
+
+///3H
+H - Head: save the result and begin editing that result again.
+  h
+
+This starts a new save/read cycle without leaving ED.
+After H, the buffer is empty. Read the required text again:
+  #a
+  b
+
+H is useful after W, after a search with N, or for an intermediate save.
+H must appear alone on its command line.
+O and Q cannot reverse changes already saved by a previous H.
+A later save cycle can also replace an older .BAK file.
+
+///3I
+I - Insert: add text at the current position.
+To enter multiple lines:
+  i
+Type text, pressing Return after each line.
+Press Ctrl-Z to return to command mode.
+
+To insert a short string without entering multiline insert mode:
+  iHello^Z
+
+The new text is inserted before the character to the right of CP.
+CP then follows the inserted text; existing text is moved along.
+Use -u and lowercase i to preserve the case of the text.
+Some ED implementations also accept Esc as a terminator.
+These examples consistently use Ctrl-Z.
+
+///3J
+J - Juxtapose: retain a starting string, insert replacement text,
+then delete the old intervening text up to another matching string.
+  jstart^Zreplacement^Zend^Z
+
+The starting string and the terminating end string are retained.
+Example input:
+  NAME=old value;
+Command, issued from the beginning of the buffer:
+  jNAME=^Znew value^Z;^Z
+Result:
+  NAME=new value;
+
+Check that both markers exist and identify the intended region.
+Use S for a straightforward word or phrase substitution.
+A preceding positive count selects a following occurrence of the
+starting string. First practise J without a count on a test file.
+
+///3K
+K - Kill: delete text through one or more line boundaries.
+  k      delete from CP through the current line ending
+  3k     delete from CP through three line boundaries
+  -k     delete back to the beginning of the preceding line
+  0k     delete from the current line beginning to CP
+
+At a line beginning, K removes a complete line.
+In the middle of a line, K removes its tail and line separator;
+the retained beginning is joined to the next line.
+
+Use 0L first when you want to delete the entire current line:
+  0lk
+To remove three lines starting at buffer line 5:
+  5:3k
+There is no general undo. Check the position before deleting.
+
+///3L
+L - Line: move to the beginning of another line.
+  l      next line
+  4l     four lines forward
+  -l     preceding line
+  -4l    four lines backward
+  0l     beginning of the current line
+
+L moves without displaying text; append T to inspect the result.
+  0lt    display the whole current line
+  -lt    move back one line and display it
+
+///3M
+M - Macro: execute a command sequence repeatedly.
+  3mcommands
+
+Example, from the buffer beginning with at least three filled lines:
+  3m0l3tl
+Each repetition displays up to three lines and advances one line.
+This shows overlapping sections and does not modify the text.
+
+M without a count repeats until a limit or error is reached.
+Always use a small explicit count while learning.
+
+Every text argument inside a macro must have a Ctrl-Z terminator.
+Return ends the macro command, so M must be the last component
+on its command line. BREAK # can be reported when a macro ends;
+inspect the text and the operations that were performed.
+
+///3N
+N - Next: search through the source beyond the current buffer.
+  ntext^Z
+
+N searches the buffer first. If necessary, ED writes processed text
+out, reads another source section and continues searching.
+A positive count selects a following numbered occurrence.
+
+N can therefore change the buffer and temporary output.
+Use F for a search confined to the current buffer.
+After scanning to source end, the buffer can be empty.
+Use H to save, reopen and begin another pass from the beginning.
+B alone cannot retrieve text that has already been written out.
+
+///3O
+O - Original: discard the current editing cycle and start again.
+  o
+
+This is the letter O, not the digit zero.
+Answer Y to confirm that you want to discard the changes.
+ED remains active but starts again with an empty buffer.
+Use A to read source text again.
+
+After an earlier H, the source has already been updated.
+O cannot restore its contents from before that H.
+O is not an undo command for an individual operation.
+O must appear alone on its command line.
+
+///3P
+P - Page: display text in pages while moving CP.
+  p      process and display one page forward
+  -p     one page backward
+  2p     two pages
+  0p     display the current page without moving CP
+
+The classic CP/M-86 documentation describes pages of 23 lines.
+This is a fixed editor convention, not modern terminal detection.
+Use 0P to inspect a page without movement, or an explicit T count
+when you want to control the amount of displayed text.
+
+///3Q
+Q - Quit: abandon the current editing cycle without saving it.
+  q
+
+Answer Y when ED asks whether to discard the changes.
+Answer N to keep editing.
+Q must appear alone on its command line.
+
+Changes already saved by H remain saved.
+Use E for a normal exit that saves the current changes.
+Do not use Ctrl-C as a routine replacement for E or Q.
+Depending on context, it interrupts an operation or aborts ED,
+without completing normal file handling.
+
+///3R
+R - Read: insert another text file at the current position.
+  rPART.TXT
+  rB:PART.TXT
+
+Specify the extension explicitly if the file is not a .LIB file.
+Without an extension, ED assumes .LIB.
+Without a filename, ED uses X$$$$$$$.LIB.
+
+The file is inserted before CP. CP remains at the character that
+previously followed it, now further along in the buffer.
+R does not rewind the source of the current edit.
+Make sure the inserted file fits in the buffer.
+When combining commands, terminate the filename with Ctrl-Z.
+
+///3S
+S - Substitute: search and replace from CP in the current buffer.
+  sold^Znew^Z
+  3sold^Znew^Z
+
+Without a count, ED replaces the next occurrence.
+A count of 3 requests three successive substitutions.
+  bsred^Zblue^Z0lt
+Searches from the buffer beginning, replaces once and shows the line.
+
+To replace all remaining occurrences in the current buffer:
+  b#sold^Znew^Z
+When no further match exists, BREAK # can be reported.
+Earlier successful replacements are not reversed by this message.
+S does not automatically process unread source outside the buffer.
+
+An empty replacement string deletes the matched text:
+  sold^Z^Z
+Case matters: lowercase s preserves the specified case when
+persistent uppercase conversion has been disabled with -U.
+
+///3T
+T - Type: display text without moving CP.
+  t      display from CP to the current line ending
+  5t     display five lines starting at CP
+  -3t    display text extending three lines back from CP
+  #t     display everything from CP to the buffer end
+  0t     display from the current line beginning to CP
+  0tt    display the entire current line, preserving CP
+
+B#T displays the complete buffer. It reads no further source lines.
+0LT also displays a whole line but moves CP to the line beginning.
+For manageable output, use smaller sections such as 10T and 10L.
+
+///3U
+U - Upper case: enable or disable persistent uppercase conversion.
+  u      enable conversion
+  -u     disable conversion
+
+This controls subsequent text input and associated processing.
+It does not convert the entire existing file in one operation.
+The case of the command letter can independently enable conversion.
+Use -u together with lowercase i, f and s for mixed-case text.
+
+///3V
+V - Verify: control line numbering or inspect buffer space.
+  v      display line numbers
+  -v     hide line numbers
+  0v     display free and total buffer space
+
+The values displayed by 0V are byte counts, not line counts.
+Line numbers appear only on the screen, not in the text file.
+Adding or deleting lines changes subsequent line numbers.
+Numbers refer to the current buffer. They are not permanent line
+addresses for the complete disk file when processing it in sections.
+
+///3W
+W - Write: write the first buffer lines to the temporary output.
+  10w    write the first ten lines and free their buffer space
+  0w     write out approximately half the buffer
+  #w     write out the entire buffer
+
+W starts at the buffer beginning, not at CP.
+Use X to export a block starting at CP to a separate file.
+W does not complete editing; eventually finish with E or H.
+
+Text already written out is no longer accessible with B or -L.
+H saves the complete cycle so you can read the text again.
+Buffer line numbers change after writing lines out.
+
+///3X
+X - Xfer: copy a text block from CP to a separate file.
+  4xBLOCK.LIB
+  4x
+
+The second form uses the default filename X$$$$$$$.LIB.
+Without an extension, ED assumes .LIB.
+X neither removes the text from the buffer nor moves CP.
+A later X to the same file appends text to that file.
+
+Delete an old transfer file first if you want a fresh block:
+  0xBLOCK.LIB
+This deletes the disk file; it is not an empty copy operation.
+Do not use it on a file you want to retain.
+
+After X, use R to insert the block elsewhere.
+To move a block, use K to delete the original lines after X.
+See BLOCKS for a complete procedure.
+
+///3Z
+Z - Delay: pause execution, for example inside a macro.
+  2z
+
+This does not modify text. Exact timing depends on the ED version,
+processor and emulator. Do not use it as an accurate clock.
+The command letter Z is different from the control character Ctrl-Z.
+
+///2NUMBERS
+Enable line numbers with V.
+  12:       move CP to the beginning of buffer line 12
+  12:t      display buffer line 12
+  3::7t     display lines 3 through 7, inclusive
+  3::7k     delete lines 3 through 7, inclusive
+
+n: selects a line. :n before T, L or K specifies the final line
+through which the command should operate. Both forms can be combined.
+
+Notice the difference:
+  10        move ten lines forward and display the destination line
+  10:       move to buffer line 10
+  10t       display ten lines from CP without moving CP
+
+Editing and W can change the line numbers.
+Inspect the relevant lines again before deleting a range.
+
+///2COMBINING
+ED executes commands on the same line from left to right.
+  b5t       move to the beginning and display five lines
+  0l3d0lt   move to line start, delete three characters, show result
+  fword^Z0lt
+
+A text argument needs an actual Ctrl-Z terminator if another command
+follows it. Without a separator, that command letter can become part
+of the text argument instead.
+
+For the final text on a normal command line, ED also accepts Return
+as the terminator. These exercises use explicit Ctrl-Z terminators
+so the meaning remains clear if more commands are added later.
+Inside a macro, every text argument must be properly terminated.
+
+E, H, O and Q must each appear alone on their command line.
+Keep command lines short. Classic CP/M-86 limits are 128 characters,
+or 100 characters when a command line contains text arguments.
+
+///2BLOCKS
+Copy a block:
+  0xWORK.LIB
+  3:
+  2xWORK.LIB
+  10:
+  rWORK.LIB
+
+This copies original lines 3 and 4 to a position before line 10.
+Check that WORK.LIB contains only disposable material before deleting
+it. Otherwise X would append the block to an existing transfer file.
+
+Move a block:
+  0xWORK.LIB
+  3:
+  2xWORK.LIB
+  2k
+  b#t
+
+Now select the destination using the displayed text.
+Line numbers changed when K removed the original lines.
+At the chosen destination, execute rWORK.LIB.
+Check the result before deleting the transfer file.
+Save the completed edit with E or H.
+
+///2LARGEFILES
+A large file does not have to fit entirely in the buffer.
+Process it in sections from beginning to end:
+  0a
+  b
+  10t
+Edit the loaded lines, then write processed text out:
+  0w
+  0a
+
+Repeat as required while the remaining source exceeds buffer space.
+0W may remove only part of the buffer. Retained text stays in memory,
+and further source lines are appended after it.
+Do not write out text you still need to edit in the current cycle.
+
+0V displays available space.
+A full-buffer message after #A does not mean nothing was read:
+a substantial section may already be loaded. Use B to edit its start.
+Write processed lines out with W to make room for more source text.
+
+E includes the remaining buffer and the unread source in its output.
+H saves and starts another cycle so earlier sections can be reached
+by reading them into the buffer again.
+
+///2FILES
+When editing under the same name, ED creates temporary output with
+the .$$$ extension. After successful completion, the old source
+becomes a .BAK file and the new text receives the original name.
+
+Example after editing ED LETTER.TXT and saving:
+  LETTER.TXT    the new result
+  LETTER.BAK    the preceding source version
+
+.BAK is one backup version, not a history of every edit.
+A later save cycle can replace the previous .BAK.
+Do not edit a backup under its .BAK extension; first copy or rename
+it to another working filename.
+
+With a separate destination filename, the original source is retained.
+For important exercises, for example, use:
+  A>ED SOURCE.TXT TEST.TXT
+
+W is not a complete save cycle. E or H must complete file handling.
+Do not delete temporary .$$$ files while ED is using them.
+
+///2KEYS
+Useful corrections while entering a command:
+  Return    execute command; on an empty line, show the next line
+  Ctrl-H    delete the last character typed on the input line
+  Ctrl-U    cancel the current input line
+  Ctrl-X    cancel the current input line
+  DEL/RUB   delete the last character; display behaviour may vary
+  Ctrl-E    start a physical screen line without ending the command
+
+In insert mode, Return ends a real text line.
+Ctrl-Z ends insert mode or terminates a text argument.
+
+Arrow keys, Home, End and function keys are not standard ED navigation.
+Even on a VT100 terminal, use B, C, L, T and P to navigate.
+Escape sequences from special keys can otherwise become input text.
+
+Use E or Q for normal exit. Ctrl-C behaves according to context:
+it can interrupt output, a macro or the editor itself.
+Do not treat Ctrl-C as a save command.
+
+///2EXAMPLES
+These exercises use separate practice text files.
+^Z always means an actual Ctrl-Z keystroke.
+Press Return after each ED command.
+While entering text, press Return after each text line.
+
+Exercises: NEWFILE, CHANGE, INSERT, DELETE, JOIN and SPLIT.
+
+///3NEWFILE
+Create a small file:
+  A>ED TEST.TXT
+  -u
+  i
+Enter these three text lines:
+  One red bicycle.
+  Two green trees.
+  Three blue doors.
+Press Ctrl-Z at the start of the next empty input line.
+  b#t
+
+Check the three lines and save:
+  e
+
+Then check the file at the CP/M prompt:
+  A>TYPE TEST.TXT
+
+///3CHANGE
+Open the file created in NEWFILE and replace red with yellow:
+  A>ED TEST.TXT
+  -u
+  #a
+  b
+  sred^Zyellow^Z
+  0lt
+
+The first line should now read:
+  One yellow bicycle.
+
+Inspect the whole buffer with B#T. Save with E if the result is correct.
+To abandon this exercise, use Q and answer Y.
+
+///3INSERT
+Insert a new line before the second buffer line:
+  2:
+  i
+Type:
+  An extra line.
+Press Return, then Ctrl-Z.
+  b#t
+
+To append new text, use -B followed by i and Return.
+To insert words at the beginning of a line, for example:
+  2:iPlease note: ^Z
+The space before Ctrl-Z is part of the inserted text.
+
+///3DELETE
+First display the intended range:
+  2::3t
+Then delete those two lines:
+  2:2k
+Inspect the result:
+  b#t
+
+To delete only the first four characters of buffer line 1:
+  b4d0lt
+
+These are separate examples. If executed consecutively, the second
+operation acts on the result of the first.
+Use Q if you do not want to save the exercise.
+
+///3JOIN
+Start with these two normal CR/LF lines:
+  This is
+  an example.
+
+Go to line 1, then line 2, then back two characters.
+CP is now immediately before the first line's CR/LF:
+  1:l-2c
+Delete the two separator characters and insert a space:
+  2di ^Z
+Display the result:
+  0lt
+
+Expected text:
+  This is an example.
+
+This procedure assumes normal CR/LF line endings.
+Do not apply it to a final line that lacks a normal line separator.
+
+///3SPLIT
+Start with:
+  One line with two parts.
+
+Go to the buffer beginning and search through the word 'with':
+  bfwith^Z
+Delete the following space:
+  d
+Enter insert mode at that position:
+  i
+Press Return to insert a line separator.
+Press Ctrl-Z to leave insert mode.
+  b#t
+
+Expected text:
+  One line with
+  two parts.
+
+///2ERRORS
+BREAK # during F or S: no further matching text in the buffer.
+Check case, search text and CP; use B to start again if appropriate.
+With a large repetition count, earlier substitutions may already
+have succeeded. Inspect the text before repeating the command.
+
+BREAK >: buffer full or a text argument too long.
+Check 0V, process the buffer in sections or shorten the command.
+BREAK ? with a letter: invalid command or command combination.
+Check that E, H, O or Q really is alone on its command line.
+
+BREAK O during R: the requested library file was not found.
+Check drive, user area, filename and extension.
+BREAK E can indicate interrupted command execution.
+BREAK F with DISK FULL or DIRECTORY FULL: output cannot continue.
+
+When disk space runs out, do not simply exit with Q.
+If necessary, export current buffer text to another writable drive,
+for example with B#XB:RESCUE.TXT.
+This saves only the current buffer, not automatically text already
+written with W or unread source. Also check the temporary .$$$ file.
+
+///2TROUBLE
+No text appears after starting ED.
+  An existing source is not yet in the buffer. Use A to read it.
+
+T displays only part of my line.
+  CP is in the middle of the line. Use 0LT or 0TT.
+
+My text unexpectedly becomes UPPERCASE.
+  Use -u and lowercase i, f or s. See CASE.
+
+B does not return to the beginning of the whole file.
+  B works only within the buffer. After W or N, earlier text may
+  already be in temporary output. Use H to start a new reading cycle.
+
+A substitution happens only once.
+  S without a count replaces once. Use 3S or #S within the buffer.
+
+Arrow keys produce strange characters.
+  ED uses its own line and character commands. See KEYS.
+
+Changes disappeared after Q.
+  Q discards the current cycle. Use E to save and exit.
+
+///2REFERENCE
+  A nA #A 0A       read source text
+  B -B             buffer beginning / buffer end
+  nC -nC           move characters forward / backward
+  nD -nD           delete characters
+  E                save and exit
+  Ftext^Z          search within buffer
+  H                save and start again
+  I or Itext^Z     insert lines or text
+  Jstart^Znew^Zend^Z   replace an intervening text region
+  nK -nK 0K        delete through line boundaries
+  nL -nL 0L        move to line beginnings
+  nMcommands       repeat commands
+  Ntext^Z          search with further source reading
+  O                discard current cycle and restart
+  nP -nP 0P        display pages
+  Q                discard current cycle and exit
+  Rfile            insert a text file
+  nSold^Znew^Z     substitute text
+  nT -nT 0T        display text without moving CP
+  U -U             persistent uppercase conversion on / off
+  V -V 0V          numbering on / off; buffer statistics
+  nW 0W #W         write the first buffer lines out
+  nXfile           copy a block from CP to a separate file
+  0Xfile           delete that separate file
+  nZ               delay
+  n:               move to buffer line n
+  :nT :nL :nK      operate through buffer line n
+  n or -n          move lines and display the destination line
+
+Use lowercase command letters to preserve case in text arguments.
+^Z is an actual Ctrl-Z control character, not a literal caret and Z.
+
+///2SOURCES
+An independent English explanation with original practice examples.
+Commands follow Digital Research ED for CP/M-86.
+
+Reference used to check syntax and version differences:
+Digital Research, CP/M-86 Operating System User's Guide,
+second printing, July 1982: section 4.7 and chapter 5.
+
+Online scan:
+https://bitsavers.org/pdf/digitalResearch/cpm-86/
+CPM-86_Users_Guide_Jul82.pdf
+Join the preceding two URL lines without spaces.
+
+CP/M-80, CP/M Plus and vendor-specific implementations can differ.
+This help does not claim testing against your particular ED.CMD.
+
+File format: ///1 root topic, ///2 topic, ///3 subtopic.
+ASCII, CRLF and Ctrl-Z padding for the HELP.CMD format discussed here.
+
