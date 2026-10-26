@@ -723,6 +723,7 @@ function helpContent()
       "<li>Press <b>Copy</b>. Nothing is stored before this.</li></ol>" +
       "<h3>Details</h3><ul>" +
       "<li>Names are converted to the rule of the destination file system, in uppercase (8.3 for CP/M).</li>" +
+      "<li>A source file named NAME#ADDR.BIN (ADDR is 1-4 hex digits) is stored as NAME (without extension) with file type BINARY (06) and load address ADDR; the typed Apple file type and Aux type / load address fields win when they are filled.</li>" +
       "<li>Empty files cannot be stored. Overwriting needs free room for the old and the new copy at the same time.</li>" +
       "<li>Data goes to free blocks first and the directory is updated last through an undo journal, so a power loss leaves either the old or the new state, never a half file.</li>" +
       "<li>The list of files already in the image can be opened under “Files already in this image”.</li></ul>",
@@ -763,8 +764,8 @@ function helpContent()
     "image-image-copy":
       "<h3>Purpose</h3><p>Make a copy of a complete disk image on the SD card, for example as a backup or as a starting point for a new disk.</p>" +
       "<h3>Steps</h3><ol>" +
-      "<li>Choose the <b>source OS</b> and the <b>source image</b>.</li>" +
-      "<li>Choose the <b>destination OS</b> and type the <b>new image file name</b> (a name only, no directory).</li>" +
+      "<li>Choose the <b>OS</b>; source and destination use the same /retro/images/&lt;OS&gt;/ directory.</li>" +
+      "<li>Choose the <b>source image</b> and type the <b>new image file name</b> (a name only, no directory).</li>" +
       "<li>Tick <b>OVERWRITE</b> only if an existing destination may be replaced (confirmation required).</li>" +
       "<li>Press <b>Copy complete image</b>.</li></ol>" +
       "<h3>Details</h3><ul>" +
@@ -918,24 +919,19 @@ function renderImageCopy()
 {
   return `<h2>${escapeHtml(functions[5].title)}</h2>
     <div class="row">
-      <label class="field">Source Path — OS directory
-        <select id="copySourceMachine">${machineOptions()}</select>
+      <label class="field">Select OS — source and destination directory
+        <select id="copyMachine">${machineOptions()}</select>
       </label>
     </div>
     <label class="field">Copy From — whole image container
       <select id="copySourceImage"><option value="">Select a source image</option></select>
     </label>
-    <div class="row">
-      <label class="field">Destination Path — OS directory
-        <select id="copyDestinationMachine">${machineOptions()}</select>
-      </label>
-    </div>
     <label class="field">Copy To — new whole-image filename (do not include a directory)
       <input id="copyDestinationName" placeholder="copy-of-image.dsk">
     </label>
     <label><input id="copyOverwrite" type="checkbox"> OVERWRITE if destination exists</label>
     <button type="button" id="copyImageButton">Copy complete image</button>
-    <p class="muted">Copy To names a new image container. This is distinct from copying guest files into an existing image. Mapping flags do not block source or destination access.</p>`;
+    <p class="muted">The image is copied inside the selected OS directory, /retro/images/&lt;OS&gt;/, under a new name. Copy To names a new image container. This is distinct from copying guest files into an existing image. Mapping flags do not block source or destination access.</p>`;
 }
 
 function renderManager()
@@ -1061,7 +1057,7 @@ async function loadImageOptions(prefix)
 {
   try
   {
-    const directory = element(prefix === "download" ? "downloadMachine" : "copySourceMachine").value;
+    const directory = element(prefix === "download" ? "downloadMachine" : "copyMachine").value;
     const select = element(prefix === "download" ? "downloadImage" : "copySourceImage");
     select.replaceChildren(new Option(prefix === "download" ? "Select an image" : "Select a source image", ""));
     if (!directory)
@@ -1843,7 +1839,20 @@ function renderGuestUpload()
         <button id="guestUploadClear" type="button">Clear list</button>
       </div>
     </form>
-    <p class="muted">Names are converted to uppercase and must follow the rule of the destination file system (CP/M 8.3, ProDOS, UCSD Pascal or DOS 3.3). Without an Apple file type the type follows the name suffix (.TXT, .BIN, .SYS, .BAS for ProDOS; .TEXT, .CODE, .DATA for UCSD Pascal; text for DOS 3.3). Empty files cannot be stored. The preview is advisory; the firmware validates every name and checks free space.</p>`;
+    <p class="muted">Names are converted to uppercase and must follow the rule of the destination file system (CP/M 8.3, ProDOS, UCSD Pascal or DOS 3.3). Without an Apple file type the type follows the name suffix (.TXT, .BIN, .SYS, .BAS for ProDOS; .TEXT, .CODE, .DATA for UCSD Pascal; text for DOS 3.3). Empty files cannot be stored. A file named NAME#ADDR.BIN (ADDR is 1-4 hex digits) is stored as NAME (without extension) with file type BINARY (06) and load address ADDR; it fills the Apple file type and Aux fields only when they are empty. The preview is advisory; the firmware validates every name and checks free space.</p>`;
+}
+
+//-- Apple II source-file convention: a file named NAME#ADDR.BIN (ADDR is 1-4 hex
+//-- digits, for example 4321) is stored in the image as NAME (without extension)
+//-- with file type BINARY (06) and load address ADDR.
+function appleLoadAddress(fileName)
+{
+  const match = /^(.*)#([0-9A-Fa-f]{1,4})\.BIN$/i.exec(fileName);
+  if (!match || match[1].length === 0)
+  {
+    return {name: fileName, address: null};
+  }
+  return {name: match[1], address: match[2].toUpperCase()};
 }
 
 function guestUploadPlan()
@@ -1855,7 +1864,8 @@ function guestUploadPlan()
   const seen = new Set();
   return files.map((file) =>
   {
-    const guestName = guestNamePreview(file.name, guestRule("guestB"));
+    const parsed = appleLoadAddress(file.name);
+    const guestName = guestNamePreview(parsed.name, guestRule("guestB"));
     let result = "OK";
     let accepted = true;
     if (!guestName)
@@ -1882,7 +1892,7 @@ function guestUploadPlan()
     {
       seen.add(guestName);
     }
-    return {file, guestName, result, accepted};
+    return {file, guestName, result, accepted, address: parsed.address};
   });
 }
 
@@ -1898,7 +1908,10 @@ function refreshGuestUploadPreview()
   plan.forEach((item, index) =>
   {
     const row = document.createElement("tr");
-    for (const text of [item.file.name, item.guestName || "-", String(item.file.size), item.result])
+    const guestNameText = item.guestName
+      ? item.guestName + (item.address ? ` (load 0x${item.address})` : "")
+      : "-";
+    for (const text of [item.file.name, guestNameText, String(item.file.size), item.result])
     {
       const cell = document.createElement("td");
       cell.textContent = text;
@@ -1997,13 +2010,17 @@ async function submitGuestUpload()
     for (const item of todo)
     {
       const parameters = {image, user, name: item.guestName, overwrite: overwrite ? "1" : "0"};
-      if (typeText)
+      //A name without extension would default to an undefined file type; 06 is BINARY.
+      const type = typeText || (item.address ? "06" : "");
+      if (type)
       {
-        parameters.ptype = typeText;
+        parameters.ptype = type;
       }
-      if (auxText)
+      //-- The typed Aux field wins; otherwise the load address from a NAME#ADDR.BIN name is used.
+      const aux = auxText || item.address || "";
+      if (aux)
       {
-        parameters.aux = auxText;
+        parameters.aux = aux;
       }
       const url = `/api/guest/upload?${guestQuery(parameters)}`;
       try
@@ -2843,7 +2860,7 @@ element("app").addEventListener("change", (event) =>
   {
     run(() => loadImageOptions("download"));
   }
-  if (id === "copySourceMachine")
+  if (id === "copyMachine")
   {
     run(() => loadImageOptions("copySource"));
   }
@@ -2951,14 +2968,14 @@ element("app").addEventListener("click", (event) =>
     run(async () =>
     {
       const source = element("copySourceImage").value;
-      const destinationMachine = element("copyDestinationMachine").value;
+      const machine = element("copyMachine").value;
       const destinationName = element("copyDestinationName").value.trim();
-      if (!source || !destinationMachine || !destinationName || destinationName.includes("/") ||
+      if (!source || !machine || !destinationName || destinationName.includes("/") ||
           !/\.(dsk|img|po|woz|2mg)$/i.test(destinationName))
       {
-        throw new Error("Select source and destination OS directories, a source image and a new disk-image filename without a directory.");
+        throw new Error("Select an OS, a source image and a new disk-image filename without a directory.");
       }
-      const destination = imagePath(destinationMachine, destinationName);
+      const destination = imagePath(machine, destinationName);
       const overwrite = element("copyOverwrite").checked;
       if (overwrite && !confirm(`Replace ${destination}? It may be mapped in drives.cfg, including as RO. The mapping will not be changed; the existing image is preserved during commit.`))
       {
