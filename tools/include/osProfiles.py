@@ -93,26 +93,37 @@ OS_REGISTRY = {
     "apple2": OsInfo(
         "apple2",
         "Apple II",
-        False,
+        True,
+        image_module="diskImageApple2",
         build_module="buildDiskImageApple2",
         default_system_image="data800.po",
         build_only=True,
         details=(
-            "buildDiskImage.py builds ProDOS 8 block volumes (.po): 800K (1600 blocks, default), 640K or 140K.\n"
-            "Add --bootable for a ProDOS boot disk. The firmware's system.dsk is made by createSystemDsk.py."
+            "diskImage.py creates and edits ProDOS 8 data volumes (.po): 800K (1600 blocks, default), 640K or 140K.\n"
+            "The volume name comes from the image file name (upper-cased; 'DATA' when it is not a valid name).\n"
+            "ProDOS names use A-Z, 0-9 and '.' and start with a letter (1..15 characters).\n"
+            "The file type comes from the suffix: .BAS, .TXT, .BIN, .SYS; a .BIN file needs a load address,\n"
+            "which diskImage.py add does not supply (use buildDiskImage.py --binary-load-address).\n"
+            "buildDiskImage.py builds the same volumes and can add ProDOS boot files (--bootable, --boot-from).\n"
+            "The firmware's system.dsk is made by createSystemDsk.py."
         ),
     ),
     "swtpc": OsInfo("swtpc", "SWTPC 6800", False),
     "ucsd": OsInfo(
         "ucsd",
         "UCSD p-System",
-        False,
+        True,
+        image_module="diskImageUcsd",
         build_module="buildDiskImageUcsd",
         default_system_image="work.po",
         build_only=True,
         details=(
-            "buildDiskImage.py builds blank, formatted Apple Pascal work volumes (.po): 640K (1280 blocks,\n"
-            "default) or 140K (280 blocks). The Pascal boot disk is not built by this tool."
+            "diskImage.py creates and edits blank, formatted Apple Pascal work volumes (.po): 640K (1280 blocks,\n"
+            "default) or 140K (280 blocks). The volume name comes from the image file name (upper-cased, 1..7\n"
+            "characters; 'WORK' when it is not a valid name).\n"
+            "Pascal names are upper-cased without the characters ' $=?,[#:/' (15 characters max).\n"
+            "The file kind comes from the suffix: .TEXT (3), .CODE (2), .DATA (5); anything else is data (5).\n"
+            "buildDiskImage.py builds the same blank volumes. The Pascal boot disk is not built by these tools."
         ),
     ),
 }

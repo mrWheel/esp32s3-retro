@@ -92,9 +92,40 @@ class DiskImageCliTests(unittest.TestCase):
         self.assertIn("--os cpm86", specific)
 
     def test_planned_os_is_refused(self):
-        result = run("diskImage.py", "list", "--os", "apple2", "x.dsk", check=False)
+        result = run("diskImage.py", "list", "--os", "swtpc", "x.dsk", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not implemented", result.stderr)
+
+    def test_apple2_and_ucsd_create_add_list_extract(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            text = root / "hello.txt"
+            text.write_text("HELLO WORLD\n")
+            binary = root / "DATA.SYS"
+            binary.write_bytes(b"\x00\x01\x02" * 64)
+            for os_name in ("apple2", "ucsd"):
+                common = ("--os", os_name, "--sd-root", str(root))
+                run("diskImage.py", "create", *common, "work.po")
+                image = root / "retro" / "images" / os_name / "work.po"
+                self.assertEqual(image.stat().st_size, 819200 if os_name == "apple2" else 655360)
+                run("diskImage.py", "add", *common, "work.po", str(text), str(binary))
+                listing = run("diskImage.py", "list", *common, "work.po").stdout
+                self.assertIn("HELLO.TXT", listing)
+                self.assertIn("DATA.SYS", listing)
+                out_text = root / "out" / f"{os_name}.txt"
+                out_bin = root / "out" / f"{os_name}.sys"
+                run("diskImage.py", "extract", *common, "work.po", "HELLO.TXT", "--output", str(out_text))
+                run("diskImage.py", "extract", *common, "work.po", "DATA.SYS", "--output", str(out_bin))
+                self.assertEqual(out_bin.read_bytes(), binary.read_bytes())
+                if os_name == "ucsd":
+                    #-- .TXT is stored as a Pascal data file (kind 5), so the bytes round-trip unchanged
+                    self.assertEqual(out_text.read_bytes(), text.read_bytes())
+                else:
+                    #-- ProDOS .TXT files use CR line endings
+                    self.assertEqual(out_text.read_bytes(), b"HELLO WORLD\r")
+                refused = run("diskImage.py", "create", *common, "work.po", check=False)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("use --force", refused.stderr)
 
     def test_build_cpm80_matches_checked_in_image(self):
         with tempfile.TemporaryDirectory() as temporary:

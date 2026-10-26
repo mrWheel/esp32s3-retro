@@ -20,12 +20,16 @@ EXAMPLES = """examples:
   diskImage.py add    --os cpm80 work.dsk ~/cpm/*.COM 'utils/*.HLP'
   diskImage.py list   --os cpm86 work86.dsk
   diskImage.py extract --os cpm86 work86.dsk ASM86.CMD --output ASM86.CMD
+  diskImage.py create --os apple2 work.po
+  diskImage.py add    --os apple2 work.po ~/apple2/*.SYS
+  diskImage.py list   --os ucsd work.po
+  diskImage.py extract --os ucsd work.po PROGRAM.CODE --output program.code
 
 A bare image name is placed in <sd-root>/retro/images/<os>/ (default sd-root:
 the project's sdcard/ directory). Give a path to use another location.
 Wildcards may be quoted (expanded here) or left to the shell. Files from a
-wildcard whose name is not a valid 8.3 name or that are empty are skipped with
-a warning; explicitly named files must be valid."""
+wildcard whose name is not valid for the selected --os or that are empty are
+skipped with a warning; explicitly named files must be valid."""
 
 
 def expand_sources(patterns):
@@ -55,7 +59,7 @@ def collect_additions(engine, selected, warnings):
         try:
             name = engine.parse_filename(source.name)
             if not data:
-                raise DiskImageError(f"CP/M files must not be empty: {name}")
+                raise DiskImageError(f"Empty files cannot be added: {name}")
         except DiskImageError as error:
             if not from_wildcard:
                 raise
@@ -116,13 +120,15 @@ def build_parser(os_name, default_os):
     add_parser = sub("add", "add local files (wildcards allowed) to an existing image")
     add_parser.add_argument("image", type=Path)
     add_parser.add_argument("files", nargs="+", help="files or wildcard patterns such as '*.COM'")
-    add_parser.add_argument("--name", help="CP/M 8.3 name (only when adding one explicit file)")
+    add_parser.add_argument("--name", help="target file name on the image (only when adding one explicit file)")
 
-    extract_parser = sub("extract", "extract one file's CP/M records from an image")
+    extract_parser = sub("extract", "extract one file from an image")
     extract_parser.add_argument("image", type=Path)
-    extract_parser.add_argument("filename", help="CP/M 8.3 filename")
+    extract_parser.add_argument("filename", help="file name on the image")
     extract_parser.add_argument("--output", required=True, type=Path, help="new local output file")
-    extract_parser.add_argument("--user", type=int, default=0, choices=range(16), help="CP/M user area")
+    extract_parser.add_argument(
+        "--user", type=int, default=0, choices=range(16), help="CP/M user area (ignored for --os apple2 and ucsd)"
+    )
 
     list_parser = sub("list", "validate and list an image")
     list_parser.add_argument("image", type=Path)

@@ -9,7 +9,7 @@ firmware, or test the running device. The firmware itself is the C/C++ code in
 
 | Program/file | Purpose | Classification |
 | --- | --- | --- |
-| `tools/diskImage.py` | Create, add, list, extract and validate CP/M images (`--os cpm80` or `cpm86`). | Regular host-side media preparation |
+| `tools/diskImage.py` | Create, add, list, extract and validate CP/M-80, CP/M-86, Apple II (ProDOS 8) and UCSD (Pascal) disk images. | Regular host-side media preparation |
 | `tools/buildDiskImage.py` | Build a complete OS data/system image using the selected OS builder. Apple II ProDOS data volumes are supported here too. | Regular host-side media preparation |
 | `tools/createSystemDsk.py` | Compose `littlefs/<os>/system.dsk`. CMake runs it automatically for the Apple II ProDOS system image; run it manually for CP/M system images. | Production-image preparation |
 | `tools/prepareSd.py` | Create the documented directory layout on an existing SD-card mount; does not format the card. | Regular host-side SD preparation |
@@ -17,7 +17,7 @@ firmware, or test the running device. The firmware itself is the C/C++ code in
 | `tools/apple2/buildApple2DiskBootRom.py` | Regenerate `components/apple2Core/apple2DiskBootRom.h`, which is compiled into the Apple II firmware. Normally only run when intentionally regenerating that generated header. | Production build-input generator; not a test |
 | `tools/ucsd/buildApple2PascalCardRom.py` | Regenerate `components/apple2Core/apple2PascalCardRom.h` for the Apple Pascal card. | Production build-input generator; not a test |
 | `tools/apple2/extractApple2Files.py` | Interactively browse Apple II disk images and copy/remove files between disk images and host folders; also imported by the Apple II, CP/M, and UCSD adapters. | Optional host media utility |
-| `tools/ucsd/diskImageApple2Pascal.py` | Create a blank Apple/UCSD Pascal disk image; not part of the normal `diskImage.py` dispatcher. | Optional host media utility |
+| `tools/ucsd/diskImageApple2Pascal.py` | Create a blank Apple/UCSD Pascal disk image; also the volume builder used by `diskImage.py --os ucsd`. | Optional host media utility |
 | `tools/apple2/buildApple2TestRom.py` | Generate the minimal diagnostic ROM fixture in `tests/fixtures/`. | Test-only |
 | `tools/transferTest.py` | Exercise the HTTP file-transfer service on a running device. It creates and deletes uniquely named test files. | Test-only; run only when deliberately testing a device |
 | `tools/include/*.py` (other files) | Shared disk-format helpers and OS registry imported by the host entrypoints. | Internal modules; not separate production applications |
@@ -31,12 +31,17 @@ their generated headers are part of the production firmware.
 
 ## OS-independent usage (`--os`)
 
-`diskImage.py`, `buildDiskImage.py` and `prepareSd.py` select the target system with `--os cpm80|cpm86|apple2|swtpc|ucsd`. CP/M-80 and CP/M-86 are supported by both image entrypoints; Apple II is supported by `buildDiskImage.py` for ProDOS volumes, but not by `diskImage.py`. SWTPC and UCSD are registered but not implemented. `-h` shows the general help (commands and OS overview); `-h` together with `--os <name>` adds the OS-specific profiles and rules. Images are written to `sdcard/retro/images/<os>/` (override with `--sd-root`); a path instead of a bare name is used as given. The device's File Transfer feature can copy images to the physical SD card.
+`diskImage.py`, `buildDiskImage.py` and `prepareSd.py` select the target system with `--os cpm80|cpm86|apple2|swtpc|ucsd`. CP/M-80, CP/M-86, Apple II (ProDOS 8 data volumes) and UCSD (Pascal work volumes) are supported by both image entrypoints: `diskImage.py` creates, adds to, lists and extracts from existing images, and `buildDiskImage.py` builds volumes (Apple II can also be made bootable with `--bootable`). SWTPC is registered but not implemented. `-h` shows the general help (commands and OS overview); `-h` together with `--os <name>` adds the OS-specific profiles and rules. Images are written to `sdcard/retro/images/<os>/` (override with `--sd-root`); a path instead of a bare name is used as given. The Apple II and UCSD images use the `.po` extension, which the tools enforce. The device's File Transfer feature can copy images to the physical SD card.
 
 ```sh
 python3 tools/diskImage.py create --os cpm80 --profile LARGE work.dsk
 python3 tools/diskImage.py add --os cpm80 work.dsk ~/cpm/*.COM 'utils/*.HLP'
 python3 tools/diskImage.py list --os cpm86 work.dsk
+python3 tools/diskImage.py extract --os cpm86 work.dsk ASM86.CMD --output ASM86.CMD
+python3 tools/diskImage.py create --os apple2 work.po
+python3 tools/diskImage.py add --os apple2 work.po ~/files/*.SYS
+python3 tools/diskImage.py list --os ucsd work.po
+python3 tools/diskImage.py extract --os ucsd work.po PROGRAM.CODE --output program.code
 python3 tools/buildDiskImage.py --os cpm80
 python3 tools/buildDiskImage.py --os cpm86 --source-dir ~/cpm86/files
 python3 tools/buildDiskImage.py --os apple2 --profile 800K --name DATA
@@ -46,7 +51,7 @@ python3 tools/prepareSd.py --os cpm86
 python3 tools/diskImage.py --os cpm86 -h
 ```
 
-  `add` accepts wildcards (quoted or shell-expanded). Wildcard matches with an invalid 8.3 name or empty content are skipped with a warning; explicitly named files must be valid. 
+  `add` accepts wildcards (quoted or shell-expanded). Wildcard matches with an invalid file name for the selected `--os` or empty content are skipped with a warning; explicitly named files must be valid. 
 
   `buildDiskImage.py` now writes `system.dsk` to `sdcard/retro/images/<os>/` by default (Apple II: `data<size>.po`) and then reminds you to upload the image to the physical SD card with "File Transfer"; use `--output littlefs/cpm80/system.dsk` to refresh the firmware's LittleFS copy. 
 
