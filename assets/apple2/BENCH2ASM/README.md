@@ -10,10 +10,11 @@ with 1028 primes, `@DONE PASS`), a `.` every 5 s, and a `6502 MODEL ONLY` line f
 python3 build.py        # needs ca65 and ld65 (cc65); writes BENCH2ASM.BIN
 ```
 
-Upload `BENCH2ASM.BIN` through the web File Transfer page with Apple file type `06` and
-aux type / load address `6000` (both hex), then run `BRUN BENCH2ASM.BIN`. Without the load
-address the file loads at `$0000` and BRUN fails with `NO BUFFERS AVAILABLE`. Do not upload
-`BENCH2ASM.S` (source only).
+Upload it through the web File Transfer page with Apple file type `06` and aux type / load
+address `6000` (both hex), or name the source file `BENCH2ASM#6000.BIN` and let the page
+store it as `BENCH2ASM` with that address; then run `BRUN BENCH2ASM.BIN` (or `BRUN BENCH2ASM`).
+Without the load address the file loads at `$0000` and BRUN fails with `NO BUFFERS AVAILABLE`.
+Do not upload `BENCH2ASM.S` (source only).
 `reference.inc` holds the scale-1 model milliseconds, measured with the
 cycle-exact 6502 core; the model for scale n is n times that value. Requires
 `APPLE2_TIMER_C1` at `$C0A0`.

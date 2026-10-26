@@ -2,6 +2,7 @@
 """Create CP/M system disks, or Apple II ProDOS system disks from a bootable base image."""
 
 import argparse
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -26,6 +27,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APPLE2_PRODOS_BASE_IMAGE = Path("bootDisks") / "apple2" / "prodosEmpty.po"
 PRODOS_VOLUME_NAME = "SYSTEM"
 PRODOS_ORDER_SUFFIXES = {".PO", ".HDV"}
+#-- An Apple II source file named NAME#ADDR.BIN (ADDR is 1-4 hex digits) is stored as NAME
+#-- (without the .BIN extension) with load address ADDR, the same convention as the web page.
+APPLE_LOAD_ADDRESS_RE = re.compile(r"^(.*)#([0-9A-Fa-f]{1,4})\.BIN$", re.IGNORECASE)
 UCSD_BASE_IMAGE = Path("assets") / "ucsd" / "ucsdDiskImages" / "Apple Pascal 1.3 3.5.po"
 #-- The 128K system files are placed under the SYSTEM.* names that the boot loader looks for.
 UCSD_NAME_MAP = {
@@ -117,6 +121,14 @@ def _read_source_files(source_dir):
     return files
 
 
+def _apple_load_address(filename):
+    """Return (effective filename, load address) for a NAME#ADDR.BIN source file, else None."""
+    match = APPLE_LOAD_ADDRESS_RE.match(filename)
+    if match is None or match.group(1) == "":
+        return None
+    return f"{match.group(1)}.BIN", int(match.group(2), 16)
+
+
 def _read_prodos_source_files(source_dir, binary_load_address):
     """Return the files from the system-directory."""
     if not source_dir.is_dir():
@@ -129,13 +141,19 @@ def _read_prodos_source_files(source_dir, binary_load_address):
             continue
         if path.is_symlink() or path.is_dir() or not path.is_file():
             raise DiskImageError(f"Only regular files are supported in the system disk source: {path}")
-        loadAddress = binary_load_address
-        addressFile = path.with_suffix(".ADDR")
-        if loadAddress is None and path.suffix.upper() == ".BIN" and addressFile.is_file():
-            #-- NAME.ADDR next to NAME.BIN holds that file's load address (hex, e.g. 6000)
-            loadAddress = int(addressFile.read_text().strip(), 16)
+        derived = _apple_load_address(path.name)
+        if derived is not None:
+            #-- NAME#ADDR.BIN: the name carries the load address and the file is stored as NAME
+            effectiveName, loadAddress = derived
+        else:
+            effectiveName = path.name
+            loadAddress = binary_load_address
+            addressFile = path.with_suffix(".ADDR")
+            if loadAddress is None and path.suffix.upper() == ".BIN" and addressFile.is_file():
+                #-- NAME.ADDR next to NAME.BIN holds that file's load address (hex, e.g. 6000)
+                loadAddress = int(addressFile.read_text().strip(), 16)
         name, file_type, aux_type, payload = diskImageApple2Prodos.prepare_source_file(
-            path.name, path.read_bytes(), loadAddress
+            effectiveName, path.read_bytes(), loadAddress
         )
         if name in names:
             raise DiskImageError(f"Duplicate ProDOS filename in system disk source: {name}")

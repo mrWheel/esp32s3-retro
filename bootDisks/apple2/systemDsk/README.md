@@ -6,7 +6,7 @@ Place files for the Apple II system disk in this directory. `createSystemDsk.py 
 
 - `.BAS` numbered ASCII Applesoft source (tokenized by the builder, type BAS; `LOAD TEST.NONGR`, then `RUN`)
 - `.TXT` plain text
-- `.BIN` raw binary, with `--binary-load-address` supplied to the builder, or a `NAME.ADDR` file (hex load address) next to it (`BENCH2ASM.ADDR` = `6000`)
+- `.BIN` raw binary: a file named `NAME#ADDR.BIN` (ADDR is 1-4 hex digits) is stored as `NAME` (without extension) with load address ADDR (`BENCH2ASM#6000.BIN` -> `BENCH2ASM` at $6000); other `.BIN` files need `--binary-load-address` supplied to the builder, or a `NAME.ADDR` file (hex load address) next to them
 - `.SYS` ProDOS system files
 
 ProDOS names allow only `A-Z`, `0-9` and `.`: `-` and `_` become `.` (`TEST-NONGR.BAS` becomes `TEST.NONGR`) and

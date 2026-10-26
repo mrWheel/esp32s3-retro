@@ -96,7 +96,7 @@ image plus the source directory only (never from an older `system.dsk`). It requ
 The builder validates these runtime files but does not put them on A::
 firmware loads them directly from LittleFS. In particular, the duplicate
 `CPM.SYS` is never placed on the generated CP/M-86 A: image.
-The firmware build (`idf.py build`/`flash`) runs `createSystemDsk.py` at CMake configure time (see `CMakeLists.txt`) for Apple II, CP/M-80 (LARGE), CP/M-86 (LARGE) and UCSD (PASCAL_800K), so the `system.dsk`/`system.po` files in `littlefs/` always match `bootDisks/<os>/systemDsk/`; changing a file there re-runs the configure step. The `APPLE2_SYSTEM_DISK_PROFILE` CMake option selects `PRODOS` (140K), `PRODOS_640K`, or `PRODOS_800K`; for example, use `-DAPPLE2_SYSTEM_DISK_PROFILE=PRODOS_800K` for an 800K bootable system volume in the `bootfs` LittleFS partition. `--os ucsd --profile PASCAL_800K` copies `assets/ucsd/ucsdDiskImages/Apple Pascal 1.3 3.5.po` and adds the files of `bootDisks/ucsd/systemDsk/` (default output `littlefs/ucsd/system.po`); `128K.APPLE`/`128K.PASCAL` are placed as `SYSTEM.APPLE`/`SYSTEM.PASCAL`, and a source file named like an existing base-volume file overwrites it. A `NAME.ADDR` file (hex, e.g. `6000`) next to `NAME.BIN` in the Apple II source folder gives that file's load address. Bench programs (BENCH2, BENCH2ASM, BENCH80, BENCH86, BENCHUCSD) are copied from `assets/` into these folders; `tests/test_bootDisksBench.py` checks that the copies are current.
+The firmware build (`idf.py build`/`flash`) runs `createSystemDsk.py` at CMake configure time (see `CMakeLists.txt`) for Apple II, CP/M-80 (LARGE), CP/M-86 (LARGE) and UCSD (PASCAL_800K), so the `system.dsk`/`system.po` files in `littlefs/` always match `bootDisks/<os>/systemDsk/`; changing a file there re-runs the configure step. The `APPLE2_SYSTEM_DISK_PROFILE` CMake option selects `PRODOS` (140K), `PRODOS_640K`, or `PRODOS_800K`; for example, use `-DAPPLE2_SYSTEM_DISK_PROFILE=PRODOS_800K` for an 800K bootable system volume in the `bootfs` LittleFS partition. `--os ucsd --profile PASCAL_800K` copies `assets/ucsd/ucsdDiskImages/Apple Pascal 1.3 3.5.po` and adds the files of `bootDisks/ucsd/systemDsk/` (default output `littlefs/ucsd/system.po`); `128K.APPLE`/`128K.PASCAL` are placed as `SYSTEM.APPLE`/`SYSTEM.PASCAL`, and a source file named like an existing base-volume file overwrites it. An Apple II source file named `NAME#ADDR.BIN` (ADDR is 1-4 hex digits) is stored as `NAME` (without extension) with load address ADDR; a `NAME.ADDR` file (hex, e.g. `6000`) next to `NAME.BIN` still gives that file's load address. Bench programs (BENCH2, BENCH2ASM, BENCH80, BENCH86, BENCHUCSD) are copied from `assets/` into these folders; `tests/test_bootDisksBench.py` checks that the copies are current.
 The Apple II emulator uses ProDOS disks only; DOS 3.3 is not supported. For Apple II,
 `createSystemDsk.py` copies the bootable base volume `bootDisks/apple2/prodosEmpty.po`
 (140K, volume `/SYSTEM`: `PRODOS`, `BASIC.SYSTEM`, `QUIT.SYSTEM`, `BITSY.BOOT`), adds every
@@ -107,9 +107,10 @@ choose the destination and `--base-image` to use another bootable ProDOS volume.
 The base image is never modified.
 
 Source files are named by suffix: `.BAS` (numbered ASCII Applesoft source, tokenized
-by the builder, ProDOS type BAS), `.TXT` (text), `.BIN` (raw binary; requires
-`--binary-load-address`, decimal or `0x`-prefixed hexadecimal, applied to every
-binary in the source folder) and `.SYS`. ProDOS names allow only `A-Z`, `0-9` and
+by the builder, ProDOS type BAS), `.TXT` (text), `.BIN` (raw binary; a source file
+named `NAME#ADDR.BIN` is stored as `NAME` with load address ADDR, other `.BIN` files
+need a load address from `--binary-load-address`, decimal or `0x`-prefixed
+hexadecimal, or a `NAME.ADDR` file next to them) and `.SYS`. ProDOS names allow only `A-Z`, `0-9` and
 `.`, so `-` and `_` become `.`; `HELLO.BAS` becomes `STARTUP`. The disk builder
 creates a host image only.
 
