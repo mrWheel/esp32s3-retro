@@ -40,6 +40,7 @@ Moving up displays the list of topics at the parent level.
 
 No subtopics. means that there are no further subtopics.
 An empty line moves up one level. Return at HELP> exits.
+Press Ctrl-C while entering a command at HELP> to exit HELP.
 Select EXAMPLE, BACK or ABBREVIATION for more information.
 
 ///3EXAMPLE
@@ -89,6 +90,7 @@ After twenty displayed lines, HELP shows a paging prompt:
 Press Return to continue reading.
 Q skips the remaining topic text and displays the subtopics.
 During a paged subtopic list, Q stops that list.
+At the -- More -- prompt, press Ctrl-C to exit HELP.
 
 The two prompts use Return differently:
 
@@ -140,6 +142,12 @@ HELP recognizes the binary index and reads the topic text after it.
 Plain-text files and files in this original indexed format can
 therefore be used together on the same disk.
 This HELP.HLP is a plain-text file without a binary index.
+
+///2LEGACY
+Some CP/M programs supply plain-text .HLP files without /// topics.
+HELP opens these as one document and displays the complete file.
+Control-B emphasis markers are removed from the displayed text.
+The .PA page marker becomes a blank line. Ctrl-Z ends the file.
 
 HELP also supports the older HELP.HLP supplied with your system:
 it has a missing level on DDT and zero padding at the end.

@@ -40,6 +40,7 @@ Moving up displays the list of topics at the parent level.
 
 No subtopics. means that there are no further subtopics.
 An empty line moves up one level. Return at HELP> exits.
+Press Ctrl-C while entering a command at HELP> to exit HELP.
 Select EXAMPLE, BACK or ABBREVIATION for more information.
 
 ///3EXAMPLE
@@ -89,6 +90,7 @@ After twenty displayed lines, HELP shows a paging prompt:
 Press Return to continue reading.
 Q skips the remaining topic text and displays the subtopics.
 During a paged subtopic list, Q stops that list.
+At the -- More -- prompt, press Ctrl-C to exit HELP.
 
 The two prompts use Return differently:
 

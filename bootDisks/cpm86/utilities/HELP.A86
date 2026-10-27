@@ -63,9 +63,7 @@ HLOOP:
         XOR AL,AL
         MOV BYTE PTR HUPONLY,AL
         CALL HPRPATH
-        MOV DX,OFFSET HINPUT
-        MOV CL,10
-        CALL HSYS
+        CALL HREADIN
         CALL HNEWLN
         MOV AL,BYTE PTR HINPUT+1
         OR AL,AL
@@ -142,10 +140,129 @@ HBADINT:
         CALL HPRINT
         JMP HLOOP
 HEXIT:
+        CALL HCLOSE
         MOV CL,0
         MOV DL,0
         INT 224
         JMP HEXIT
+HREADIN:
+        XOR AL,AL
+        MOV BYTE PTR HINLEN,AL
+        MOV BYTE PTR HINPUT+1,AL
+HRDLOOP:
+        CALL HGETKEY
+        MOV BYTE PTR HKEYCHAR,AL
+        CMP AL,CR
+        JZ HRDEND
+        CMP AL,8
+        JZ HRDBACK
+        CMP AL,127
+        JZ HRDBACK
+        CMP AL,21
+        JZ HRDCLEAR
+        MOV AL,BYTE PTR HINLEN
+        CMP AL,127
+        JNC HRDBELL
+        MOV BX,OFFSET HINPUT+2
+        MOV AL,BYTE PTR HINLEN
+        XOR AH,AH
+        MOV SI,AX
+        ADD BX,SI
+        MOV AL,BYTE PTR HKEYCHAR
+        MOV BYTE PTR [BX],AL
+        INC BYTE PTR HINLEN
+        CALL HPUTC
+        JMP HRDLOOP
+HRDBELL:
+        MOV AL,7
+        CALL HPUTC
+        JMP HRDLOOP
+HRDBACK:
+        MOV AL,BYTE PTR HINLEN
+        OR AL,AL
+        JZ HRDLOOP
+        DEC AL
+        MOV BYTE PTR HINLEN,AL
+        CALL HDELCHAR
+        JMP HRDLOOP
+HRDCLEAR:
+        MOV AL,BYTE PTR HINLEN
+        OR AL,AL
+        JZ HRDLOOP
+        DEC AL
+        MOV BYTE PTR HINLEN,AL
+        CALL HDELCHAR
+        JMP HRDCLEAR
+HRDEND:
+        MOV AL,BYTE PTR HINLEN
+        MOV BYTE PTR HINPUT+1,AL
+        MOV BX,OFFSET HINPUT+2
+        XOR AH,AH
+        MOV SI,AX
+        ADD BX,SI
+        XOR AL,AL
+        MOV BYTE PTR [BX],AL
+        RET
+HDELCHAR:
+        MOV AL,8
+        CALL HPUTC
+        MOV AL,' '
+        CALL HPUTC
+        MOV AL,8
+        JMP HPUTC
+; Poll for Ctrl-C only while reading an interactive or paging response.
+; Queue other available keys so they remain available to that input.
+HCHECK:
+        MOV AL,BYTE PTR HKEYCOUNT
+        CMP AL,128
+        JZ HJ182
+        MOV CL,11
+        CALL HSYS
+        OR AL,AL
+        JZ HJ182
+        MOV CL,6
+        MOV DL,0FFH
+        CALL HSYS
+        OR AL,AL
+        JZ HJ182
+        CMP AL,3
+        JNZ HJ183
+        JMP HEXIT
+HJ183:
+        MOV BYTE PTR HKEYCHAR,AL
+        MOV AL,BYTE PTR HKEYWR
+        XOR AH,AH
+        MOV SI,AX
+        MOV BX,OFFSET HKEYBUF
+        ADD BX,SI
+        MOV AL,BYTE PTR HKEYCHAR
+        MOV BYTE PTR [BX],AL
+        MOV AL,BYTE PTR HKEYWR
+        INC AL
+        AND AL,127
+        MOV BYTE PTR HKEYWR,AL
+        INC BYTE PTR HKEYCOUNT
+        JMP HCHECK
+HJ182:
+        RET
+HGETKEY:
+        MOV AL,BYTE PTR HKEYCOUNT
+        OR AL,AL
+        JNZ HJ181
+        CALL HCHECK
+        JMP HGETKEY
+HJ181:
+        MOV AL,BYTE PTR HKEYRD
+        XOR AH,AH
+        MOV SI,AX
+        MOV BX,OFFSET HKEYBUF
+        ADD BX,SI
+        MOV AL,BYTE PTR [BX]
+        MOV BYTE PTR HKEYCHAR,AL
+        INC BYTE PTR HKEYRD
+        AND BYTE PTR HKEYRD,127
+        DEC BYTE PTR HKEYCOUNT
+        RET
 HSYS:
         PUSH BX
         PUSH CX
@@ -464,6 +581,9 @@ HRUNABS:
         MOV BYTE PTR HMATCH,AL
         MOV BYTE PTR HRELTRY,AL
 HABSOL:
+        XOR AL,AL
+        MOV BYTE PTR HLEGACY,AL
+        MOV BYTE PTR HSEENMK,AL
         CALL HNAME
         JNC HJ037
         JMP HINERR
@@ -508,7 +628,7 @@ HJ042:
 HFIRST:
         CALL HRLINE
         JNC HJ043
-        JMP HFAIL
+        JMP HLEGEND
 HJ043:
         CALL HMARK
         JNC HJ044
@@ -520,6 +640,30 @@ HJ044:
         JMP HFIRST
 HJ045:
         MOV BYTE PTR HLEVEL,AL
+        JMP HPATH
+HLEGEND:
+        MOV AL,BYTE PTR HIOERR
+        OR AL,AL
+        JZ HLEGCHK
+        JMP HFAIL
+HLEGCHK:
+        MOV AL,BYTE PTR HSEENMK
+        OR AL,AL
+        JNZ HLEGFAIL
+        MOV AL,BYTE PTR HNTOK
+        CMP AL,1
+        JZ HLEGOPEN
+HLEGFAIL:
+        JMP HFAIL
+HLEGOPEN:
+        CALL HREOPEN
+        JNC HLEGSET
+        JMP HFAIL
+HLEGSET:
+        MOV AL,1
+        MOV BYTE PTR HLEGACY,AL
+        MOV BYTE PTR HLEVEL,AL
+        JMP HFOUND
 HPATH:
         MOV AL,BYTE PTR HWANT
         MOV CH,AL
@@ -1247,6 +1391,11 @@ HJ125:
         JMP HRLEND
 ; Recognize marker anywhere in the line, as CP/M Plus does.
 HMARK:
+        MOV AL,BYTE PTR HLEGACY
+        OR AL,AL
+        JZ HJ180
+        JMP HLEGNOMARK
+HJ180:
         MOV BX,OFFSET HLINE
 HMK1:
         MOV AL,BYTE PTR [BX]
@@ -1355,7 +1504,12 @@ HMKZERO:
         MOV BYTE PTR [BX],0
         JMP HMKBACK
 HMKYES:
+        MOV AL,1
+        MOV BYTE PTR HSEENMK,AL
         XOR AL,AL
+        RET
+HLEGNOMARK:
+        STC
         RET
 ; Search direct children within LEVEL scope. MATCH=0,1,2 (saturated).
 ; EXACT flag prefers exact over prefix, and detects duplicate exacts.
@@ -1485,12 +1639,19 @@ HBODY:
         XOR AL,AL
         MOV BYTE PTR HPAGE,AL
         MOV BYTE PTR HSUBS,AL
+        MOV BYTE PTR HCCOL,AL
         CALL HBL1
+        CALL HFLUSH
         MOV AL,BYTE PTR HIOERR
         OR AL,AL
         JZ HJ156
         RET
 HJ156:
+        MOV AL,BYTE PTR HLEGACY
+        OR AL,AL
+        JZ HLEGSUBCHK
+        RET
+HLEGSUBCHK:
         MOV AL,BYTE PTR HSUBS
         OR AL,AL
         JZ HJ157
@@ -1512,8 +1673,15 @@ HJ159:
         JZ HJ160
         JMP HBL1
 HJ160:
+        MOV AL,BYTE PTR HLEGACY
+        OR AL,AL
+        JNZ HLEGBODY
         MOV BX,OFFSET HLINE
         CALL HPSTR
+        JMP HLEGDONE
+HLEGBODY:
+        CALL HLEGOUT
+HLEGDONE:
         CALL HNEWLN
         CALL HPAGING
         JC HJ161
@@ -1523,6 +1691,37 @@ HJ161:
         MOV AL,1
         MOV BYTE PTR HUPONLY,AL
         JMP HBL1
+HLEGOUT:
+        MOV BX,OFFSET HLINE
+        MOV AL,BYTE PTR [BX]
+        CMP AL,'.'
+        JNZ HLEGOUTTEXT
+        INC BX
+        MOV AL,BYTE PTR [BX]
+        CMP AL,'P'
+        JNZ HLEGOUTTEXT
+        INC BX
+        MOV AL,BYTE PTR [BX]
+        CMP AL,'A'
+        JNZ HLEGOUTTEXT
+        INC BX
+        MOV AL,BYTE PTR [BX]
+        OR AL,AL
+        JZ HLEGOUTEND
+HLEGOUTTEXT:
+        MOV BX,OFFSET HLINE
+HLEGOUTLP:
+        MOV AL,BYTE PTR [BX]
+        OR AL,AL
+        JZ HLEGOUTEND
+        CMP AL,2
+        JZ HLEGOUTNEXT
+        CALL HPUTC
+HLEGOUTNEXT:
+        INC BX
+        JMP HLEGOUTLP
+HLEGOUTEND:
+        RET
 HCHILD:
         MOV AL,BYTE PTR HTLEV
         MOV CH,AL
@@ -1546,12 +1745,8 @@ HJ164:
         MOV DX,OFFSET HMSGSUB
         CALL HPRINT
 HCHPR:
-        MOV BX,WORD PTR HTNAME
-        CALL HPSTR
-        CALL HNEWLN
-        CALL HPAGING
-        JNC HJ165
-        RET
+        CALL HPRTOP
+        JMP HJ165
 HJ165:
 HCHNEXT:
         CALL HRLINE
@@ -1563,6 +1758,79 @@ HJ166:
         JMP HCHNEXT
 HJ167:
         JMP HCHILD
+HPRTOP:
+        MOV BX,WORD PTR HTNAME
+        XOR AL,AL
+HPTLEN:
+        CMP BYTE PTR [BX],0
+        JNZ HJ176
+        JMP HPTLEND
+HJ176:
+        INC BX
+        INC AL
+        JMP HPTLEN
+HPTLEND:
+        MOV BYTE PTR HNAMELEN,AL
+        CMP AL,10
+        JC HPTSINGLE
+        MOV AL,2
+        JMP HPTCOUNT
+HPTSINGLE:
+        MOV AL,1
+HPTCOUNT:
+        MOV BYTE PTR HNSLOTS,AL
+        MOV AL,BYTE PTR HCCOL
+        ADD AL,BYTE PTR HNSLOTS
+        CMP AL,9
+        JC HPTFIT
+        CALL HNEWLN
+        XOR AL,AL
+        MOV BYTE PTR HCCOL,AL
+HPTFIT:
+        MOV AL,BYTE PTR HCCOL
+        ADD AL,BYTE PTR HNSLOTS
+        MOV BYTE PTR HCOLEND,AL
+        CMP AL,8
+        JZ HPTLAST
+        MOV AL,BYTE PTR HNSLOTS
+        MOV CH,10
+        MUL CH
+        SUB AL,BYTE PTR HNAMELEN
+        MOV BYTE PTR HNPAD,AL
+HPTLAST:
+        MOV BX,WORD PTR HTNAME
+        CALL HPSTR
+HPTPAD:
+        MOV AL,BYTE PTR HCOLEND
+        CMP AL,8
+        JZ HPTROW
+        MOV CH,BYTE PTR HNPAD
+HPTPADLP:
+        OR CH,CH
+        JZ HPTCOL
+        MOV AL,' '
+        CALL HPUTC
+        DEC CH
+        JMP HPTPADLP
+HPTCOL:
+        MOV AL,BYTE PTR HCOLEND
+        MOV BYTE PTR HCCOL,AL
+        RET
+HPTROW:
+        XOR AL,AL
+        MOV BYTE PTR HCCOL,AL
+        CALL HNEWLN
+        RET
+HFLUSH:
+        MOV AL,BYTE PTR HCCOL
+        OR AL,AL
+        JZ HJ177
+        XOR AL,AL
+        MOV BYTE PTR HCCOL,AL
+        CALL HNEWLN
+        RET
+HJ177:
+        RET
 HPAGING:
         MOV AL,BYTE PTR HPAGE
         INC AL
@@ -1576,9 +1844,12 @@ HJ168:
 HMORE:
         MOV DX,OFFSET HMSGMOR
         CALL HPRINT
-        MOV CL,1
-        CALL HSYS
+        CALL HGETKEY
         CALL HUPPER
+        PUSH AX
+        MOV AL,BYTE PTR HKEYCHAR
+        CALL HPUTC
+        POP AX
         PUSHF
         PUSH AX
         CALL HNEWLN
@@ -1593,6 +1864,8 @@ HJ169:
         RET
 ; Search uses a separate DMA, preserving command input and file buffers.
 HLIST:
+        XOR AL,AL
+        MOV BYTE PTR HFCOL,AL
         CALL HDPB86
         NOT AL
         AND AL,1FH
@@ -1678,6 +1951,19 @@ HLSNAME:
         JZ HJ173
         JMP HLSNAME
 HJ173:
+        MOV AL,BYTE PTR HFCOL
+        INC AL
+        MOV BYTE PTR HFCOL,AL
+        CMP AL,8
+        JZ HJ178
+        MOV AL,' '
+        CALL HPUTC
+        MOV AL,' '
+        CALL HPUTC
+        JMP HLSNEXT
+HJ178:
+        XOR AL,AL
+        MOV BYTE PTR HFCOL,AL
         CALL HNEWLN
 HLSNEXT:
         MOV DX,OFFSET HFCB
@@ -1687,7 +1973,14 @@ HLSNEXT:
         JZ HJ174
         JMP HLS1
 HJ174:
+        MOV AL,BYTE PTR HFCOL
+        OR AL,AL
+        JZ HJ179
+        XOR AL,AL
+        MOV BYTE PTR HFCOL,AL
         JMP HNEWLN
+HJ179:
+        RET
 HLSNONE:
         MOV DX,OFFSET HMSGNO
         JMP HPRINT
@@ -1735,6 +2028,13 @@ HINTERA DB 0
 HUPONLY DB 0
 HRELTRY DB 0
 HIXSTR DB 0
+HLEGACY DB 0
+HSEENMK DB 0
+HKEYRD DB 0
+HKEYWR DB 0
+HKEYCOUNT DB 0
+HINLEN DB 0
+HKEYCHAR DB 0
 HISOPEN DB 0
 HIOERR DB 0
 HENDF DB 0
@@ -1748,6 +2048,12 @@ HMATCH DB 0
 HEXACT DB 0
 HPAGE DB 0
 HSUBS DB 0
+HCCOL DB 0
+HNAMELEN DB 0
+HNSLOTS DB 0
+HCOLEND DB 0
+HNPAD DB 0
+HFCOL DB 0
 HEXMASK DB 31
 HLNUM DW 0
 HPICK DW 0
@@ -1764,6 +2070,7 @@ HTEMP RB 130
 HLINE RB 256
 HBUF RB 128
 HDIRBUF RB 128
+HKEYBUF RB 128
         RB 512
 ; Final initialized byte makes GENCMD include all reserved storage.
 HSTKTOP DB 0
