@@ -105,3 +105,15 @@ bytes=58 E6 42 8A C4 E6 instructions=176295373 executed=3533
    failing physical address to identify the root cause. Do not change the memory map based on the old
    post-fault PC alone.
 2. Keep the unsupported-device behavior covered by the host regression and hardware verification.
+
+## UNERA root cause (2026-10-27, `unera help.*`, result=6)
+- Dump: `DS=SS=9E9D`, `BX=164E`, fault = read at physical `A001E` (`DS:BX`, just above the 640 KiB
+  RAM top `A0000`). Faulting instruction: `CMP [BX],0E5h`.
+- UNERA walks a directory buffer that starts at `DS:062E` and is sized for the 512-entry directory
+  of the BIG drive; the program is loaded near the top of RAM, so the scan runs past the end of RAM.
+  Which entries it reaches depends on where the file sits in the directory (explains why the earlier
+  `ws-fix.*` runs passed).
+- A real 8086 reads FFh from absent memory and ignores writes; the emulator raised a memory fault.
+- Fix: `tiny8086` data reads above the populated RAM now return FFh and writes are dropped; only
+  instruction fetch from there still faults. Host regression added; firmware build passes. Hardware
+  re-test of `a:unera help.*`: pending.

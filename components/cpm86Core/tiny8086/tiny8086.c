@@ -29,13 +29,12 @@ static inline uint32_t physicalAddress(uint16_t segment, uint16_t offset)
   return (((uint32_t)segment << 4) + offset) & tiny8086AddressMask;
 }
 
+//-- Data accesses above the populated RAM behave like an empty bus on a real 8086: reads return
+//-- FFh and writes are dropped. Only instruction fetch from there is a fault.
 TINY8086_INLINE uint8_t readByte(tiny8086* cpu, uint32_t address)
 {
   if (__builtin_expect(address >= cpu->memorySize, 0))
   {
-    CPU_FAULT(cpu, tiny8086MemoryFault);
-    cpu->faultMemAddr = address;
-    cpu->faultMemWrite = false;
     return 0xFF;
   }
   return cpu->memory[address];
@@ -45,9 +44,6 @@ TINY8086_INLINE void writeByte(tiny8086* cpu, uint32_t address, uint8_t value)
 {
   if (__builtin_expect(address >= cpu->memorySize, 0))
   {
-    CPU_FAULT(cpu, tiny8086MemoryFault);
-    cpu->faultMemAddr = address;
-    cpu->faultMemWrite = true;
     return;
   }
   cpu->memory[address] = value;
@@ -84,7 +80,15 @@ TINY8086_INLINE void writeWord(tiny8086* cpu, uint16_t segment, uint16_t offset,
 
 TINY8086_INLINE uint8_t fetchByte(tiny8086* cpu)
 {
-  return readByte(cpu, physicalAddress(cpu->seg[tiny8086SegCs], cpu->ip++));
+  uint32_t address = physicalAddress(cpu->seg[tiny8086SegCs], cpu->ip++);
+  if (__builtin_expect(address >= cpu->memorySize, 0))
+  {
+    CPU_FAULT(cpu, tiny8086MemoryFault);
+    cpu->faultMemAddr = address;
+    cpu->faultMemWrite = false;
+    return 0xFF;
+  }
+  return cpu->memory[address];
 }
 
 TINY8086_INLINE uint16_t fetchWord(tiny8086* cpu)

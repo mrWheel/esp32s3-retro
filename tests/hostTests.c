@@ -1331,6 +1331,17 @@ static void testCpm86Core(void)
   assert(faultInfo.startIp == 2 && faultInfo.ip == 4);
   assert(faultInfo.ioPort == 0x43 && faultInfo.ioValue == 0xB6 && !faultInfo.ioRead);
 
+  //-- MOV AX,[0]; MOV [2],AX with DS above RAM: read gives FFFFh, write is dropped, no fault.
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t openBusProgram[] = {0xB8, 0x00, 0x30, 0x8E, 0xD8, 0xA1, 0x00, 0x00,
+                                    0xA3, 0x02, 0x00, 0x2E, 0xA3, 0x00, 0x03, 0xF4};
+  assert(cpm86CoreLoad(core, 0, openBusProgram, sizeof(openBusProgram)) == cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 16, &executed) == cpm86CoreHalted);
+  uint16_t openBusValue = 0;
+  assert(cpm86CoreRead(core, 0x0300, &openBusValue, sizeof(openBusValue)) == cpm86CoreOk);
+  assert(openBusValue == 0xFFFF);
+
   const uint8_t byte = 0;
   assert(cpm86CoreLoad(core, coreConfig.ramSize, &byte, sizeof(byte)) == cpm86CoreMemoryRange);
   assert(cpm86CoreReset(core) == cpm86CoreOk);
