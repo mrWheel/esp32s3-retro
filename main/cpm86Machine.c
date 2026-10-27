@@ -59,6 +59,37 @@ static uint32_t readMilliseconds(void* context)
   return (uint32_t)((uint64_t)esp_timer_get_time() / 1000ULL);
 }
 
+enum
+{
+  reportedPortCapacity = 16
+};
+
+static uint16_t reportedPorts[reportedPortCapacity];
+static size_t reportedPortCount;
+
+//-- Tell the user once per port that the device does not exist. Returns false for the
+//-- RETRO86_V1 BIOS port range (E0h-EFh) so misuse of those ports still stops the guest.
+static bool reportUnavailableDevice(uint16_t port)
+{
+  if (port >= 0x00E0 && port <= 0x00EF)
+  {
+    return false;
+  }
+  for (size_t index = 0; index < reportedPortCount; ++index)
+  {
+    if (reportedPorts[index] == port)
+    {
+      return true;
+    }
+  }
+  if (reportedPortCount < reportedPortCapacity)
+  {
+    reportedPorts[reportedPortCount++] = port;
+  }
+  printf("\r\nDevice 0x%04X not available.\r\n", port);
+  return true;
+}
+
 static bool diskRecordOffset(uint64_t* offset)
 {
   if (offset == NULL || diskController.drive >= cpm86DiskDriveCount ||
@@ -120,7 +151,12 @@ static bool portRead(void* context, uint16_t port, uint8_t* value)
     *value = !available ? 0 : diskController.drives[diskController.drive].geometryCode;
     return true;
   }
-  return false;
+  if (!reportUnavailableDevice(port))
+  {
+    return false;
+  }
+  *value = 0xFF;
+  return true;
 }
 
 static bool startDiskTransfer(uint8_t command)
@@ -214,7 +250,36 @@ static bool portWrite(void* context, uint16_t port, uint8_t value)
     }
     return true;
   }
-  return false;
+  //-- Writes to a non-existent device are ignored after a one-time notice.
+  return reportUnavailableDevice(port);
+}
+
+enum
+{
+  pcBiosStubAddress = 0x0400,
+  pcBiosInt16Offset = 0x2D
+};
+
+//-- Minimal guest-side stand-ins for the PC BIOS services some third-party CP/M-86 tools call:
+//-- INT 1Ah AH=0 (tick count from the RETRO86_TIMER_B1 millisecond timer, ~18.2 Hz) and
+//-- INT 16h AH=0/1 (keyboard read/status through the RETRO86 console ports E0h/E1h).
+static const uint8_t pcBiosStubs[] = {
+    0x80, 0xfc, 0x00, 0x75, 0x27, 0x53, 0x56, 0xe4, 0xf1, 0x88, 0xc3, 0xe4, 0xf2, 0x88,
+    0xc7, 0xe4, 0xf3, 0x88, 0xc2, 0xe4, 0xf4, 0x88, 0xc6, 0xbe, 0x37, 0x00, 0x89, 0xd0,
+    0x31, 0xd2, 0xf7, 0xf6, 0x89, 0xc1, 0x89, 0xd8, 0xf7, 0xf6, 0x89, 0xc2, 0x31, 0xc0,
+    0x5e, 0x5b, 0xcf, 0x80, 0xfc, 0x01, 0x74, 0x0f, 0x08, 0xe4, 0x75, 0x0a, 0xe4, 0xe0,
+    0x08, 0xc0, 0x74, 0xfa, 0xe4, 0xe1, 0x30, 0xe4, 0xcf, 0xe4, 0xe0, 0x08, 0xc0, 0x74,
+    0x06, 0xb8, 0x01, 0x00, 0xca, 0x02, 0x00, 0x31, 0xc0, 0xca, 0x02, 0x00};
+
+static bool installPcBiosStubs(void)
+{
+  const uint8_t vectors[2][4] = {{pcBiosStubAddress & 0xFF, pcBiosStubAddress >> 8, 0, 0},
+                                 {(pcBiosStubAddress + pcBiosInt16Offset) & 0xFF,
+                                  (pcBiosStubAddress + pcBiosInt16Offset) >> 8, 0, 0}};
+  return cpm86CoreLoad(guestCore, pcBiosStubAddress, pcBiosStubs, sizeof(pcBiosStubs)) ==
+             cpm86CoreOk &&
+         cpm86CoreLoad(guestCore, 0x1A * 4, vectors[0], 4) == cpm86CoreOk &&
+         cpm86CoreLoad(guestCore, 0x16 * 4, vectors[1], 4) == cpm86CoreOk;
 }
 
 static bool loadSystemFile(void)
@@ -306,6 +371,50 @@ static void closeDiskImages(void)
   memset(&diskController, 0, sizeof(diskController));
 }
 
+//-- Log a full fault dump so a stop can be pinned to the faulting instruction, the register
+//-- state, and the specific access (physical address or I/O port) that went wrong.
+static void logCpm86Stop(cpm86CoreResult result, size_t instructionsExecuted)
+{
+  cpm86CoreFaultInfo fault;
+  if (cpm86CoreGetFaultInfo(guestCore, &fault) != cpm86CoreOk)
+  {
+    ESP_LOGE(tag, "CP/M-86 stopped: result=%d executed=%u", result, (unsigned)instructionsExecuted);
+    return;
+  }
+  uint32_t startPhysical = (((uint32_t)fault.cs << 4) + fault.startIp) & 0x000FFFFF;
+  uint8_t startBytes[6];
+  char startText[48];
+  if (cpm86CoreRead(guestCore, startPhysical, startBytes, sizeof(startBytes)) == cpm86CoreOk)
+  {
+    snprintf(startText, sizeof(startText), "%02X %02X %02X %02X %02X %02X", startBytes[0],
+             startBytes[1], startBytes[2], startBytes[3], startBytes[4], startBytes[5]);
+  }
+  else
+  {
+    snprintf(startText, sizeof(startText), "(unreadable)");
+  }
+  ESP_LOGE(tag, "CP/M-86 stopped: result=%d at %04X:%04X (phys %05lX) bytes: %s", result, fault.cs,
+           fault.startIp, (unsigned long)startPhysical, startText);
+  ESP_LOGE(tag, "CP/M-86 stopped: post-fault IP %04X:%04X; segs ES=%04X CS=%04X SS=%04X DS=%04X",
+           fault.cs, fault.ip, fault.es, fault.cs, fault.ss, fault.ds);
+  ESP_LOGE(tag,
+           "CP/M-86 stopped: regs AX=%04X CX=%04X DX=%04X BX=%04X SP=%04X BP=%04X SI=%04X DI=%04X "
+           "FLAGS=%04X instructions=%llu executed=%u",
+           fault.ax, fault.cx, fault.dx, fault.bx, fault.sp, fault.bp, fault.si, fault.di,
+           fault.flags, (unsigned long long)cpm86CoreInstructionCount(guestCore),
+           (unsigned)instructionsExecuted);
+  if (result == cpm86CoreMemoryFault)
+  {
+    ESP_LOGE(tag, "CP/M-86 stopped: memory %s at physical %05lX", fault.memWrite ? "write" : "read",
+             (unsigned long)fault.memAddr);
+  }
+  else if (result == cpm86CoreIoError)
+  {
+    ESP_LOGE(tag, "CP/M-86 stopped: I/O %s port %04X value %02X", fault.ioRead ? "IN" : "OUT",
+             fault.ioPort, fault.ioValue);
+  }
+}
+
 machineState cpm86MachineProbe(const retroMachine* machine)
 {
   if (machine == NULL || !machine->implemented)
@@ -368,6 +477,7 @@ esp_err_t cpm86MachineInitialize(void)
     return ESP_FAIL;
   }
   memset(&diskController, 0, sizeof(diskController));
+  reportedPortCount = 0;
   cpm86DriveConfig driveConfig[cpm86DiskDriveCount];
   char configError[128];
   cpm86DriveConfigResult configResult =
@@ -493,7 +603,7 @@ esp_err_t cpm86MachineInitialize(void)
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
            (unsigned)(config.ramSize / 1024));
-  if (!loadSystemFile())
+  if (!loadSystemFile() || !installPcBiosStubs())
   {
     cpm86CoreDestroy(guestCore);
     guestCore = NULL;
@@ -553,38 +663,7 @@ void cpm86MachineRun(void)
                (unsigned long long)cpm86CoreInstructionCount(guestCore));
       break;
     }
-    uint16_t segment;
-    uint16_t offset;
-    uint8_t instructionBytes[6];
-    uint32_t physicalAddress;
-    if (cpm86CoreGetProgramCounter(guestCore, &segment, &offset) == cpm86CoreOk)
-    {
-      physicalAddress = (((uint32_t)segment << 4) + offset) & 0x000FFFFF;
-      if (cpm86CoreRead(guestCore, physicalAddress, instructionBytes, sizeof(instructionBytes)) ==
-          cpm86CoreOk)
-      {
-        ESP_LOGE(tag,
-                 "CP/M-86 stopped: result=%d CS:IP=%04X:%04X physical=%05lX bytes=%02X %02X %02X "
-                 "%02X %02X %02X "
-                 "instructions=%llu executed=%u",
-                 result, segment, offset, (unsigned long)physicalAddress, instructionBytes[0],
-                 instructionBytes[1], instructionBytes[2], instructionBytes[3], instructionBytes[4],
-                 instructionBytes[5], (unsigned long long)cpm86CoreInstructionCount(guestCore),
-                 (unsigned)instructionsExecuted);
-      }
-      else
-      {
-        ESP_LOGE(tag, "CP/M-86 stopped: result=%d CS:IP=%04X:%04X instructions=%llu executed=%u",
-                 result, segment, offset, (unsigned long long)cpm86CoreInstructionCount(guestCore),
-                 (unsigned)instructionsExecuted);
-      }
-    }
-    else
-    {
-      ESP_LOGE(tag, "CP/M-86 stopped: result=%d instructions=%llu executed=%u", result,
-               (unsigned long long)cpm86CoreInstructionCount(guestCore),
-               (unsigned)instructionsExecuted);
-    }
+    logCpm86Stop(result, instructionsExecuted);
     break;
   }
 

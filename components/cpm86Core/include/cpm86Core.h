@@ -52,3 +52,22 @@ cpm86CoreResult cpm86CoreRun(cpm86Core* core, size_t instructionBudget,
 cpm86CoreResult cpm86CoreGetProgramCounter(const cpm86Core* core, uint16_t* segment,
                                            uint16_t* offset);
 uint64_t cpm86CoreInstructionCount(const cpm86Core* core);
+
+//-- Fault context captured at the last stop: register/segment state plus the specific
+//-- access (physical address or I/O port) that faulted. startIp is the offset of the
+//-- faulting instruction in CS; ip is the post-fault program counter.
+typedef struct
+{
+  uint16_t cs, es, ss, ds;
+  uint16_t ax, cx, dx, bx, sp, bp, si, di;
+  uint16_t flags;
+  uint16_t startIp;
+  uint16_t ip;
+  uint32_t memAddr;
+  bool memWrite;
+  uint16_t ioPort;
+  uint8_t ioValue;
+  bool ioRead;
+} cpm86CoreFaultInfo;
+
+cpm86CoreResult cpm86CoreGetFaultInfo(const cpm86Core* core, cpm86CoreFaultInfo* info);

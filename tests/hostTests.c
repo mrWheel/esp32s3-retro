@@ -1320,6 +1320,17 @@ static void testCpm86Core(void)
   assert(targetPortResult == 0xA5);
   assert(portFixture.output == 0x5A);
 
+  assert(cpm86CoreReset(core) == cpm86CoreOk);
+  const uint8_t unavailableDeviceProgram[] = {0xB0, 0xB6, 0xE6, 0x43};
+  assert(cpm86CoreLoad(core, 0, unavailableDeviceProgram, sizeof(unavailableDeviceProgram)) ==
+         cpm86CoreOk);
+  assert(cpm86CoreSetEntry(core, 0, 0) == cpm86CoreOk);
+  assert(cpm86CoreRun(core, 4, &executed) == cpm86CoreIoError);
+  cpm86CoreFaultInfo faultInfo;
+  assert(cpm86CoreGetFaultInfo(core, &faultInfo) == cpm86CoreOk);
+  assert(faultInfo.startIp == 2 && faultInfo.ip == 4);
+  assert(faultInfo.ioPort == 0x43 && faultInfo.ioValue == 0xB6 && !faultInfo.ioRead);
+
   const uint8_t byte = 0;
   assert(cpm86CoreLoad(core, coreConfig.ramSize, &byte, sizeof(byte)) == cpm86CoreMemoryRange);
   assert(cpm86CoreReset(core) == cpm86CoreOk);

@@ -288,3 +288,33 @@ cpm86CoreResult cpm86CoreGetProgramCounter(const cpm86Core* core, uint16_t* segm
   *offset = core->cpu.ip;
   return cpm86CoreOk;
 }
+
+cpm86CoreResult cpm86CoreGetFaultInfo(const cpm86Core* core, cpm86CoreFaultInfo* info)
+{
+  if (core == NULL || info == NULL)
+  {
+    return cpm86CoreInvalidArgument;
+  }
+  const tiny8086* cpu = &core->cpu;
+  info->cs = cpu->seg[tiny8086SegCs];
+  info->es = cpu->seg[tiny8086SegEs];
+  info->ss = cpu->seg[tiny8086SegSs];
+  info->ds = cpu->seg[tiny8086SegDs];
+  info->ax = cpu->reg[tiny8086RegAx];
+  info->cx = cpu->reg[tiny8086RegCx];
+  info->dx = cpu->reg[tiny8086RegDx];
+  info->bx = cpu->reg[tiny8086RegBx];
+  info->sp = cpu->reg[tiny8086RegSp];
+  info->bp = cpu->reg[tiny8086RegBp];
+  info->si = cpu->reg[tiny8086RegSi];
+  info->di = cpu->reg[tiny8086RegDi];
+  info->flags = cpu->flags;
+  info->startIp = cpu->faultStartIp;
+  info->ip = cpu->ip;
+  info->memAddr = cpu->faultMemAddr;
+  info->memWrite = cpu->faultMemWrite;
+  info->ioPort = cpu->faultIoPort;
+  info->ioValue = cpu->faultIoValue;
+  info->ioRead = cpu->faultIoRead;
+  return cpm86CoreOk;
+}

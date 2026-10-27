@@ -93,6 +93,13 @@ struct tiny8086
   uint64_t instructionCount;
   tiny8086Result fault;
   bool halted;
+  //-- Fault context, populated only on the fault path (cheap to leave in the struct):
+  uint16_t faultStartIp;
+  uint32_t faultMemAddr;
+  bool faultMemWrite;
+  uint16_t faultIoPort;
+  uint8_t faultIoValue;
+  bool faultIoRead;
 };
 
 tiny8086Result tiny8086Init(tiny8086* cpu, const tiny8086Config* config);

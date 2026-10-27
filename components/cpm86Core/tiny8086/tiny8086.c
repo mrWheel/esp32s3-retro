@@ -34,6 +34,8 @@ TINY8086_INLINE uint8_t readByte(tiny8086* cpu, uint32_t address)
   if (__builtin_expect(address >= cpu->memorySize, 0))
   {
     CPU_FAULT(cpu, tiny8086MemoryFault);
+    cpu->faultMemAddr = address;
+    cpu->faultMemWrite = false;
     return 0xFF;
   }
   return cpu->memory[address];
@@ -44,6 +46,8 @@ TINY8086_INLINE void writeByte(tiny8086* cpu, uint32_t address, uint8_t value)
   if (__builtin_expect(address >= cpu->memorySize, 0))
   {
     CPU_FAULT(cpu, tiny8086MemoryFault);
+    cpu->faultMemAddr = address;
+    cpu->faultMemWrite = true;
     return;
   }
   cpu->memory[address] = value;
@@ -397,6 +401,9 @@ static uint8_t portInByte(tiny8086* cpu, uint16_t port)
   if (cpu->portRead == NULL || !cpu->portRead(cpu->hookContext, port, &value))
   {
     CPU_FAULT(cpu, tiny8086IoFault);
+    cpu->faultIoPort = port;
+    cpu->faultIoRead = true;
+    cpu->faultIoValue = 0;
     return 0xFF;
   }
   return value;
@@ -408,6 +415,9 @@ static void portOutByte(tiny8086* cpu, uint16_t port, uint8_t value)
   if (cpu->portWrite == NULL || !cpu->portWrite(cpu->hookContext, port, value))
   {
     CPU_FAULT(cpu, tiny8086IoFault);
+    cpu->faultIoPort = port;
+    cpu->faultIoRead = false;
+    cpu->faultIoValue = value;
   }
 }
 
@@ -765,6 +775,7 @@ TINY8086_INLINE tiny8086Result stepImpl(tiny8086* cpu)
   modRmInfo modRm = {0};
   if (cpu->fault != tiny8086Ok)
   {
+    cpu->faultStartIp = startIp;
     return cpu->fault;
   }
 
@@ -1106,7 +1117,11 @@ TINY8086_INLINE tiny8086Result stepImpl(tiny8086* cpu)
   case 0xE7:
   case 0xED:
   case 0xEF:
+    //-- Word I/O is not supported; record the DX port for diagnostics.
     CPU_FAULT(cpu, tiny8086IoFault);
+    cpu->faultIoPort = cpu->reg[tiny8086RegDx];
+    cpu->faultIoRead = (opcode == 0xE5 || opcode == 0xED);
+    cpu->faultIoValue = (uint8_t)cpu->reg[tiny8086RegAx];
     break;
 
   //-- CALL / JMP
@@ -1494,6 +1509,7 @@ TINY8086_INLINE tiny8086Result stepImpl(tiny8086* cpu)
 
   if (cpu->fault != tiny8086Ok)
   {
+    cpu->faultStartIp = startIp;
     return cpu->fault;
   }
   ++cpu->instructionCount;
