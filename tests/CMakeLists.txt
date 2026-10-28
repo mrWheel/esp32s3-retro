@@ -93,6 +93,7 @@ target_compile_options(cpm80TimerTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -f
 target_compile_definitions(cpm80TimerTests PRIVATE BENCH80_COM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/cpm80/BENCH80/BENCH80.COM")
 add_test(NAME apple2Fast6502 COMMAND apple2Fast6502Tests)
 add_test(NAME cpm80Timer COMMAND cpm80TimerTests)
+add_test(NAME cpm80Help COMMAND hostTests --cpm80-help)
 add_test(NAME hostCore COMMAND hostTests)
 add_test(NAME apple2Core COMMAND hostTests --apple2-core)
 add_test(NAME apple2LanguageCard COMMAND hostTests --apple2-language-card)

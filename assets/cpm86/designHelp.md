@@ -6,7 +6,9 @@
 reader for the project's CP/M-86 system. It searches `.HLP` files on the
 current CP/M drive and user area, displays their documentation, and provides
 topic navigation. `HELP.CMD` is the executable CP/M-86 command; it is not the
-help data file.
+help data file. The source identifies itself as HELP 3.3-86; the startup
+banner reads `CP/M-86 Help System 3.3`. It uses the same HLP formats and
+interactive navigation as the CP/M-80 HELP 3.3.
 
 The source is maintained in
 [`bootDisks/cpm86/utilities/HELP.A86`](../../bootDisks/cpm86/utilities/HELP.A86).
@@ -28,20 +30,41 @@ system-disk input directory.
 - Accept up to ten command tokens, with topic names up to twelve characters.
 - Display the current file and topic path in the interactive prompt.
 - Allow users to enter a child topic, use a unique topic prefix, or press
-  Return to move up one level. Return at `HELP>` exits the program.
+  Return to move up one level. Return at `HELP>` exits the program. At the
+  `HELP>` level a bare name is a help file; inside a file or topic a bare name
+  is a direct child of the current topic. Names are case-insensitive and may
+  contain only printable non-blank ASCII characters.
+- Entering a topic shows its text followed by its children. Moving up with
+  Return lists only the children of the new current topic, without its text.
+  Returning from the file level re-displays the file list.
+- If the first token is an explicit root topic name, use it; otherwise the
+  first level-one topic is the default root.
 - Prefer an exact topic name to a matching prefix. Report ambiguous and
   unknown topics without changing the current selection.
 - Support `.NAME` as a relative navigation shortcut: search for a child first,
   then try a sibling when appropriate.
 - Display up to nine topic levels. When a topic or file is opened, start its
-  text display with a fresh page count. Show the `-- More --` prompt only while
-  displaying long text, not while printing file or topic choices.
+  text display with a fresh page count. Show the prompt
+  `-- More -- RETURN=continue, Q=quit` only while displaying long text, not
+  while printing file or topic choices. Any key other than `Q` continues; `Q`
+  (case-insensitive) skips the rest of the body, but the topic's child choices
+  are still presented.
 - Allow Ctrl-C to stop HELP while entering a command at any navigation level
   and at the `-- More --` input prompt. Do not poll for Ctrl-C during text,
   file-list, or topic-list output. Close an open help file before exiting.
 - Show file and topic names in aligned columns suitable for a 79-column
   display. Do not split names: a topic longer than nine characters occupies
-  additional column space, and a filename is always printed intact.
+  additional column space, and a filename is always printed intact. File
+  names are printed as eight characters followed by two spaces, eight per row.
+  Topic names use ten-character slots, eight slots per row; a name of ten or
+  more characters takes two slots.
+- Report an empty file list with `No .HLP files found.` and a topic without
+  children with `No subtopics.` (not for legacy documents).
+- Report errors with these messages: `Invalid name or input too long.`,
+  `Help file not found.`, `Help topic not found.`,
+  `Ambiguous topic; type more characters.`, `No current topic.` (a `.NAME`
+  with nothing selected), and
+  `Read error, bad index, or text limit exceeded.`
 
 ### Supported help-file content
 
@@ -49,9 +72,11 @@ HELP must support both topic-oriented files and older, unindexed help text:
 
 1. **Plain-text topic files.** Topic markers use `///` followed by a level
    digit `1` through `9` and a topic name, with either `///1NAME` or
-   `///1 NAME` spelling. The older `///NAME` spelling is treated as a
-   level-one topic. Topic text follows its marker and ends at the next topic
-   marker or end of file.
+   `///1 NAME` spelling. The marker is recognized anywhere in a line, as in
+   CP/M Plus. The older `///NAME` spelling, accepted only when the name starts
+   with a letter, is treated as a level-one topic. Trailing blanks and tabs
+   are trimmed from the name. Topic text follows its marker and ends at the
+   next topic marker or end of file.
 2. **Indexed CP/M Plus-style HLP files.** The implementation recognizes and
    validates the indexed records before reading the topic text. It uses the
    text markers for navigation rather than relying on index offsets or level
@@ -83,7 +108,7 @@ The implementation uses the BDOS FCB open, close, sequential-read, console,
 and directory-search services. The directory search supplies the `.HLP` list;
 the file reader sets the DMA buffer before each 128-byte sequential record
 read. The DPB query uses BDOS function 31, whose result is a far pointer in
-`ES:BX`.
+`ES:BX`; the extent mask is read from `ES:BX+4`. Program exit uses function 0.
 
 The source is organized as a single assembly module:
 
@@ -94,7 +119,11 @@ The source is organized as a single assembly module:
 - `HMARK`, `HSEARCH`, and `HCHOOSE` scan topic markers, match exact names or
   unique prefixes, and reopen the file to retrieve the selected physical line.
 - `HBODY` and `HBL1` display text; `HCHILD` displays the next-level topics.
-- `HLIST` searches the current directory for `.HLP` files.
+- `HLIST` searches the current directory for `.HLP` files with BDOS search
+  first/next (functions 17 and 18) using a separate directory DMA buffer, so
+  command input and file buffers are preserved. It queries the DPB (via
+  `HDPB86`) for the extent mask and lists only extent zero of each file, so
+  large files are not listed more than once.
 - `HPRTOP` and the file-list loop keep names intact and place them in fixed
   display columns.
 - `HREADIN`, `HGETKEY`, and `HCHECK` read console input and poll for Ctrl-C.
@@ -117,9 +146,13 @@ output.
 ### Indexed-file recognition
 
 The first 128-byte record is checked for a plausible indexed entry. An entry
-is 16 bytes: twelve printable name bytes, two offset bytes, and a level byte.
-The index ends with a `$` name padded with spaces. Once an index is detected,
-entries are validated across records. The offsets and indexed levels are not
+is 16 bytes: twelve printable name bytes (`20H`..`7EH`), two offset bytes, and
+a level byte. For detection, the second offset byte must be below 128 and the
+level byte must be 1 through 9; once an index is detected, later entries are
+validated for name and offset only, and the level is ignored. The index ends
+with an entry whose name is `$` followed by eleven spaces (a name merely
+starting with `$` is not a terminator). Entries are validated across records,
+eight per record. The offsets and indexed levels are not
 used for navigation; topic text is still found by scanning its `///` markers.
 If the first record is not a valid index entry and terminator, it is treated
 as the start of ordinary text.
@@ -143,9 +176,14 @@ does not print a “No subtopics” message for them.
 - Topic names: at most 12 characters.
 - Command tail: at most 10 tokens.
 - Topic depth: levels 1 through 9.
-- Interactive command line: at most 127 characters.
+- Interactive command line: at most 127 characters; excess keystrokes ring
+  the bell.
+- Tokens contain only characters `21H`..`7EH` and are stored upper-case in
+  fixed 13-byte slots.
 - Input text line: at most 255 bytes, stored NUL-terminated.
-- Line counter: 16 bits.
+- Line counter: 16 bits; a file whose line count wraps to zero is reported as
+  an error.
+- Reserved stack: 512 bytes.
 - File reads: 128-byte CP/M records.
 - Paging threshold: 20 displayed text lines; file and topic listings do not
   increment the text page counter.
@@ -197,8 +235,9 @@ it in CP/M-86, and check at least:
 4. Opening a legacy text file with control-B emphasis, `.PA` page breaks,
    and a Ctrl-Z end marker.
 5. Paging on a long text body, confirming a newly opened file or topic starts
-   with a fresh page count, topic listings do not trigger `-- More --`, and
-   output scrolling does not poll for Ctrl-C.
+   with a fresh page count, topic listings do not trigger `-- More --`, `Q`
+   at `-- More --` still shows the child topics, and output scrolling does
+   not poll for Ctrl-C.
 6. Opening a supported indexed HLP file and reporting a malformed index or
    unreadable file as an error.
 

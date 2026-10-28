@@ -10,10 +10,14 @@
 ; ASCII ///1NAME and ///1 NAME; levels 1..9; CRLF, LF or CR.
 ; Indexed HLP: check entry layout; ignore unused level metadata.
 ; Legacy ///NAME without a digit is treated as a level-1 topic.
+; File named alone with no markers: whole document, .PA line blank,
+; control-B emphasis stripped, no subtopics message.
 ; NUL padding is accepted only if no further text follows it.
 ; Text lines: max 255 bytes. Overlong input is reported, not truncated.
 ; Rescans use physical line numbers, not non-unique marker strings.
 ; First root is default. An explicit root may precede subtopics.
+; File names: eight per row. Topic names in aligned ten/twenty columns.
+; Paging counts topic text lines only. Ctrl-C quits at any input.
 ; No Z80 instructions, macros, underscores or long identifiers.
         ORG     100H
 BDOS    EQU     5
@@ -43,15 +47,13 @@ INTER:  MVI     A,1
 LOOP:   XRA     A
         STA     UPONLY
         CALL    PRPATH
-        LXI     D,INPUT
-        MVI     C,10
-        CALL    SYS
+        CALL    READIN
         CALL    NEWLN
-        LDA     INPUT+1
+        LDA     INLEN
         ORA     A
         JZ      BACK
         MOV     B,A
-        LXI     H,INPUT+2
+        LXI     H,INTXT
         CALL    PARSE
         JC      BADINT
         LDA     NTOK
@@ -127,6 +129,102 @@ NEWLN:  MVI     A,CR
         CALL    PUTC
         MVI     A,LF
         JMP     PUTC
+; Wait for one key and return it in A. BDOS 11 reports a pending key
+; (taking it into the BDOS type-ahead byte) and BDOS 1 returns it, so a
+; key typed during output is not lost. BDOS 1 echoes the key. A Ctrl-C
+; byte closes the open file and returns to CP/M. Output loops never poll.
+GETKEY: MVI     C,11
+        CALL    SYS
+        ORA     A
+        JZ      GETKEY
+        MVI     C,1
+        CALL    SYS
+        CPI     3
+        RNZ
+CEXIT:  CALL    CLOSE
+        JMP     EXIT
+; A = an offset of at most 127; HL = INTXT + A.
+AADD:   MOV     E,A
+        MVI     D,0
+        LXI     H,INTXT
+        DAD     D
+        RET
+; Line editor for the (max,len,text) INPUT area. BDOS 1 has already echoed
+; each key (control keys as ^X, backspace as 08), so only the echo of
+; keys that are not stored is repaired here. Backspace is 08/7F, Ctrl-U
+; clears the line, and the bell sounds at the 127-character limit.
+READIN: XRA     A
+        STA     INLEN
+RLOOP:  CALL    GETKEY
+        CPI     CR
+        JZ      REND
+        CPI     8
+        JZ      RBACK
+        CPI     7FH
+        JZ      RDEL
+        CPI     15H
+        JZ      RCLEAR
+        CPI     9
+        JZ      RSTORE
+        CPI     ' '
+        JC      RIGNOR
+RSTORE: STA     KEYCHR
+        LDA     INLEN
+        CPI     127
+        JNC     RBELL
+        CALL    AADD
+        LDA     KEYCHR
+        MOV     M,A
+        LXI     H,INLEN
+        INR     M
+        JMP     RLOOP
+RBELL:  CALL    DELCH
+        MVI     A,7
+        CALL    PUTC
+        JMP     RLOOP
+RIGNOR: CALL    DELCH
+        CALL    DELCH
+        JMP     RLOOP
+RBACK:  LDA     INLEN
+        ORA     A
+        JZ      RBPROM
+        DCR     A
+        STA     INLEN
+        MVI     A,' '
+        CALL    PUTC
+        MVI     A,8
+        CALL    PUTC
+        JMP     RLOOP
+; The echoed backspace moved onto the last prompt character, a '>'.
+RBPROM: MVI     A,'>'
+        CALL    PUTC
+        JMP     RLOOP
+RDEL:   LDA     INLEN
+        ORA     A
+        JZ      RLOOP
+        DCR     A
+        STA     INLEN
+        CALL    DELCH
+        JMP     RLOOP
+RCLEAR: CALL    DELCH
+        CALL    DELCH
+RCLR1:  LDA     INLEN
+        ORA     A
+        JZ      RLOOP
+        DCR     A
+        STA     INLEN
+        CALL    DELCH
+        JMP     RCLR1
+DELCH:  MVI     A,8
+        CALL    PUTC
+        MVI     A,' '
+        CALL    PUTC
+        MVI     A,8
+        JMP     PUTC
+REND:   LDA     INLEN
+        CALL    AADD
+        MVI     M,0
+        RET
 UPPER:  CPI     'a'
         RC
         CPI     'z'+1
@@ -292,7 +390,11 @@ RUNREL: CALL    DOT
 RUNABS: XRA     A
         STA     MATCH
         STA     RELTRY
-ABSOL:  CALL    NAME
+; Each file open restarts the legacy scan state.
+ABSOL:  XRA     A
+        STA     LEGC
+        STA     SEEN
+        CALL    NAME
         JC      INERR
         CALL    DFILE
         CALL    OPEN
@@ -321,13 +423,31 @@ ABSOL:  CALL    NAME
 AGAIN:  CALL    REOPEN
         JC      FAIL
 FIRST:  CALL    RLINE
-        JC      FAIL
+        JC      LEGEND
         CALL    MARK
         JC      FIRST
         LDA     TLEV
         CPI     1
         JNZ     FIRST
         STA     LEVEL
+        JMP     PATH
+; A markerless file named alone is shown as one legacy document;
+; a misspelled topic request keeps reporting the missing topic.
+LEGEND: LDA     IOERR
+        ORA     A
+        JNZ     FAIL
+        LDA     SEEN
+        ORA     A
+        JNZ     FAIL
+        LDA     NTOK
+        CPI     1
+        JNZ     FAIL
+        CALL    REOPEN
+        JC      FAIL
+        MVI     A,1
+        STA     LEGC
+        STA     LEVEL
+        JMP     FOUND
 PATH:   LDA     WANT
         MOV     B,A
         LDA     NTOK
@@ -777,7 +897,11 @@ RLEOF:  MOV     A,B
         JZ      PERR
         JMP     RLEND
 ; Recognize marker anywhere in the line, as CP/M Plus does.
-MARK:   LXI     H,LINE
+; A legacy document has no markers at all.
+MARK:   LDA     LEGC
+        ORA     A
+        JNZ     PERR
+        LXI     H,LINE
 MK1:    MOV     A,M
         ORA     A
         JZ      PERR
@@ -834,7 +958,9 @@ MKBACK: DCX     H
         JNZ     MKYES
 MKZERO: MVI     M,0
         JMP     MKBACK
-MKYES:  XRA     A
+MKYES:  MVI     A,1
+        STA     SEEN
+        XRA     A
         RET
 ; Search direct children within LEVEL scope. MATCH=0,1,2 (saturated).
 ; EXACT flag prefers exact over prefix, and detects duplicate exacts.
@@ -916,8 +1042,13 @@ BODY:   CALL    NEWLN
         XRA     A
         STA     PAGE
         STA     SUBS
+        STA     CCOL
         CALL    BL1
+        CALL    FLUSH
         LDA     IOERR
+        ORA     A
+        RNZ
+        LDA     LEGC
         ORA     A
         RNZ
         LDA     SUBS
@@ -932,8 +1063,7 @@ BL1:    CALL    RLINE
         LDA     UPONLY
         ORA     A
         JNZ     BL1
-        LXI     H,LINE
-        CALL    PSTR
+        CALL    LEGSHOW
         CALL    NEWLN
         CALL    PAGING
         JNC     BL1
@@ -956,11 +1086,7 @@ CHILD:  LDA     TLEV
         STA     SUBS
         LXI     D,MSGSUB
         CALL    PRINT
-CHPR:   LHLD    TNAME
-        CALL    PSTR
-        CALL    NEWLN
-        CALL    PAGING
-        RC
+CHPR:   CALL    PRTOP
 CHNEXT: CALL    RLINE
         RC
         CALL    MARK
@@ -975,19 +1101,122 @@ PAGING: LDA     PAGE
         RET
 MORE:   LXI     D,MSGMOR
         CALL    PRINT
-        MVI     C,1
-        CALL    SYS
-        CALL    UPPER
-        PUSH    PSW
+        CALL    GETKEY
+        MOV     B,A
         CALL    NEWLN
-        POP     PSW
+        MOV     A,B
+        CALL    UPPER
         CPI     'Q'
         JZ      PERR
         XRA     A
         STA     PAGE
         RET
+; Topic names fill aligned columns: names of up to nine characters
+; take a ten-character slot, longer names take two slots, and a row
+; holds eight slots. The last slot of a row is not padded.
+PRTOP:  LHLD    TNAME
+        MVI     C,0
+PTLEN:  MOV     A,M
+        ORA     A
+        JZ      PTLEND
+        INX     H
+        INR     C
+        JMP     PTLEN
+PTLEND: MOV     A,C
+        STA     NAMLEN
+        CPI     10
+        MVI     A,1
+        JC      PTCNT
+        MVI     A,2
+PTCNT:  STA     NSLO
+        LXI     H,CCOL
+        ADD     M
+        CPI     9
+        JC      PTFIT
+        CALL    NEWLN
+        XRA     A
+        STA     CCOL
+PTFIT:  LDA     CCOL
+        LXI     H,NSLO
+        ADD     M
+        STA     COLE
+        CPI     8
+        JZ      PTNAME
+        LDA     NSLO
+        CPI     2
+        MVI     A,10
+        JNZ     PTPAD
+        MVI     A,20
+PTPAD:  LXI     H,NAMLEN
+        SUB     M
+        JNC     PTSAVE
+        MVI     A,1
+PTSAVE: STA     NPAD
+PTNAME: LHLD    TNAME
+        CALL    PSTR
+        LDA     COLE
+        CPI     8
+        JZ      PTROW
+        LDA     NPAD
+        MOV     B,A
+PTSP:   MOV     A,B
+        ORA     A
+        JZ      PTCOL
+        MVI     A,' '
+        CALL    PUTC
+        DCR     B
+        JMP     PTSP
+PTCOL:  LDA     COLE
+        STA     CCOL
+        RET
+PTROW:  XRA     A
+        STA     CCOL
+        JMP     NEWLN
+; Close the open column row at a topic body boundary.
+FLUSH:  LDA     CCOL
+        ORA     A
+        RZ
+        XRA     A
+        STA     CCOL
+        JMP     NEWLN
+; Print one text line; in a legacy document an exact .PA line stays
+; blank and control-B emphasis bytes are skipped.
+LEGSHOW: LDA     LEGC
+        ORA     A
+        JZ      LEGPSTR
+        LXI     H,LINE
+        MOV     A,M
+        CPI     '.'
+        JNZ      LEGTX
+        INX     H
+        MOV     A,M
+        CPI     'P'
+        JNZ      LEGTX
+        INX     H
+        MOV     A,M
+        CPI     'A'
+        JNZ      LEGTX
+        INX     H
+        MOV     A,M
+        ORA     A
+        JZ      LEGDONE
+LEGTX:  LXI     H,LINE
+LEGLP:  MOV     A,M
+        ORA     A
+        JZ      LEGDONE
+        CPI     2
+        JZ      LEGNX
+        CALL    PUTC
+LEGNX:  INX     H
+        JMP     LEGLP
+LEGDONE: RET
+LEGPSTR: LXI     H,LINE
+        JMP     PSTR
 ; Search uses a separate DMA, preserving command input and file buffers.
-LIST:   MVI     C,31
+; File names fill rows of eight, separated by two spaces.
+LIST:   XRA     A
+        STA     FCOL
+        MVI     C,31
         CALL    BDOS
         LXI     D,4
         DAD     D
@@ -1047,12 +1276,27 @@ LSNAME: MOV     A,M
         INX     H
         DCR     B
         JNZ     LSNAME
+        LDA     FCOL
+        INR     A
+        STA     FCOL
+        CPI     8
+        JZ      LSROW
+        MVI     A,' '
+        CALL    PUTC
+        MVI     A,' '
+        CALL    PUTC
+        JMP     LSNEXT
+LSROW:  XRA     A
+        STA     FCOL
         CALL    NEWLN
 LSNEXT: LXI     D,FCB
         MVI     C,18
         CALL    SYS
         CPI     0FFH
         JNZ     LS1
+        LDA     FCOL
+        ORA     A
+        RZ
         JMP     NEWLN
 LSNONE: LXI     D,MSGNO
         JMP     PRINT
@@ -1089,12 +1333,23 @@ MATCH:  DB      0
 EXACT:  DB      0
 PAGE:   DB      0
 SUBS:   DB      0
+LEGC:   DB      0
+SEEN:   DB      0
+CCOL:   DB      0
+FCOL:   DB      0
+NSLO:   DB      0
+NAMLEN: DB      0
+KEYCHR: DB      0
+COLE:   DB      0
+NPAD:   DB      0
 EXMASK: DB      31
 LNUM:   DW      0
 PICK:   DW      0
 TNAME:  DW      0
 INPUT:  DB      127,0
         DS      128
+INLEN  EQU     INPUT+1
+INTXT  EQU     INPUT+2
 FNAME:  DS      12
 FCB:    DS      36
 TOKS:   DS      130

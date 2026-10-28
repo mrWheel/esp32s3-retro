@@ -3428,6 +3428,350 @@ static void testCpm80More(void)
   assert(system(command) == 0);
 }
 
+//-- Writes raw bytes to a host file for the CP/M-80 work disk.
+static void writeRawFile(const char* path, const void* data, size_t length)
+{
+  FILE* file = fopen(path, "wb");
+  assert(file != NULL);
+  assert(fwrite(data, 1, length, file) == length);
+  assert(fclose(file) == 0);
+}
+
+//-- Writes a CRLF text file with a trailing Ctrl-Z, the CP/M text convention.
+static void writeCpmTextFile(const char* path, const char* text)
+{
+  FILE* file = fopen(path, "wb");
+  assert(file != NULL);
+  assert(fwrite(text, 1, strlen(text), file) == strlen(text));
+  fputc(0x1A, file);
+  assert(fclose(file) == 0);
+}
+
+//-- Assembles bootDisks/cpm80/utilities/HELP.ASM in the emulated CP/M-80 with the stock
+// ASM.COM and LOAD.COM, and exercises the help behavior from assets/cpm80/designHelp.md,
+// including the legacy document mode, column display and Ctrl-C handling.
+static void testCpm80Help(void)
+{
+  char largeSystemPath[256];
+  createLargeSystemDisk("cpm80", largeSystemPath, sizeof(largeSystemPath));
+  imageFile disk = {0};
+  assert(imageOpen(&disk, largeSystemPath, true));
+  uint8_t ccpImage[cpm80CcpSize];
+  uint8_t bdosImage[cpm80BdosSize];
+  assert(imageReadAt(&disk, 0, ccpImage, sizeof(ccpImage)));
+  assert(imageReadAt(&disk, sizeof(ccpImage), bdosImage, sizeof(bdosImage)));
+
+  char workDirectory[] = "/tmp/cpm80-help-test-XXXXXX";
+  assert(mkdtemp(workDirectory) != NULL);
+  char workDiskPath[300];
+  char testHlpPath[300];
+  char longHlpPath[300];
+  char badIdxPath[300];
+  char indexedHlpPath[300];
+  char overlongHlpPath[300];
+  char nomarkHlpPath[300];
+  char legacyHlpPath[300];
+  assert(snprintf(workDiskPath, sizeof(workDiskPath), "%s/work.dsk", workDirectory) <
+         (int)sizeof(workDiskPath));
+  assert(snprintf(testHlpPath, sizeof(testHlpPath), "%s/TEST.HLP", workDirectory) <
+         (int)sizeof(testHlpPath));
+  assert(snprintf(longHlpPath, sizeof(longHlpPath), "%s/LONG.HLP", workDirectory) <
+         (int)sizeof(longHlpPath));
+  assert(snprintf(badIdxPath, sizeof(badIdxPath), "%s/BADIDX.HLP", workDirectory) <
+         (int)sizeof(badIdxPath));
+  assert(snprintf(indexedHlpPath, sizeof(indexedHlpPath), "%s/INDEXED.HLP", workDirectory) <
+         (int)sizeof(indexedHlpPath));
+  assert(snprintf(overlongHlpPath, sizeof(overlongHlpPath), "%s/OVERLONG.HLP", workDirectory) <
+         (int)sizeof(overlongHlpPath));
+  assert(snprintf(nomarkHlpPath, sizeof(nomarkHlpPath), "%s/NOMARK.HLP", workDirectory) <
+         (int)sizeof(nomarkHlpPath));
+  assert(snprintf(legacyHlpPath, sizeof(legacyHlpPath), "%s/LEGACY.HLP", workDirectory) <
+         (int)sizeof(legacyHlpPath));
+
+  //-- Exact match beats prefix, and the abbreviation cases are unique or ambiguous.
+  const char* testHlp = "///1ROOT\r\n"
+                        "Root text one.\r\n"
+                        "Root text two.\r\n"
+                        "///2ALPHA\r\n"
+                        "Alpha body.\r\n"
+                        "///2ALPHABET\r\n"
+                        "Alphabet body.\r\n"
+                        "///2BETA\r\n"
+                        "Beta body.\r\n";
+  writeCpmTextFile(testHlpPath, testHlp);
+
+  //-- Thirty body lines page once; twenty-five children page the subtopic list.
+  char longHlp[4096];
+  int longLength = snprintf(longHlp, sizeof(longHlp), "///1LONG\r\n");
+  for (int line = 1; line <= 30; ++line)
+  {
+    longLength +=
+        snprintf(longHlp + longLength, sizeof(longHlp) - longLength, "long line %02d\r\n", line);
+  }
+  longLength +=
+      snprintf(longHlp + longLength, sizeof(longHlp) - longLength, "///1LIST\r\nList body.\r\n");
+  for (int child = 1; child <= 25; ++child)
+  {
+    longLength += snprintf(longHlp + longLength, sizeof(longHlp) - longLength,
+                           "///2CHILD%02d\r\nchild %02d body\r\n", child, child);
+  }
+  assert(longLength > 0 && longLength < (int)sizeof(longHlp));
+  writeCpmTextFile(longHlpPath, longHlp);
+
+  //-- A valid first index entry followed by an invalid name reports a bad index.
+  uint8_t badIndex[96];
+  memcpy(badIndex, "BADIDX      ", 12);
+  badIndex[12] = 0x00;
+  badIndex[13] = 0x30;
+  badIndex[14] = 0x00;
+  badIndex[15] = 0x01;
+  badIndex[16] = 0x01;
+  memset(badIndex + 17, 'X', 79);
+  writeRawFile(badIdxPath, badIndex, sizeof(badIndex));
+
+  //-- A valid two-entry index with terminator; the topic text starts in record one.
+  // Each entry: 12 printable name bytes, then a remaining byte, a two-byte offset
+  // (its high byte must be plausible, below 0x80) and a level byte; detection of
+  // the first entry additionally requires the level to be 1 through 9.
+  uint8_t indexedHeader[128];
+  memset(indexedHeader, ' ', sizeof(indexedHeader));
+  memcpy(indexedHeader, "INDEXED     ", 12);
+  indexedHeader[12] = 0x00;
+  indexedHeader[13] = 0x40;
+  indexedHeader[14] = 0x00;
+  indexedHeader[15] = 0x01;
+  memcpy(indexedHeader + 16, "SUBTOPIC    ", 12);
+  indexedHeader[28] = 0x00;
+  indexedHeader[29] = 0x50;
+  indexedHeader[30] = 0x00;
+  indexedHeader[31] = 0x02;
+  indexedHeader[32] = '$';
+  const char* indexedText = "///1INDEXED\r\nIndexed body.\r\n///2SUBTOPIC\r\nSub topic body.\r\n";
+  FILE* indexedFile = fopen(indexedHlpPath, "wb");
+  assert(indexedFile != NULL);
+  assert(fwrite(indexedHeader, 1, sizeof(indexedHeader), indexedFile) == sizeof(indexedHeader));
+  assert(fwrite(indexedText, 1, strlen(indexedText), indexedFile) == strlen(indexedText));
+  fputc(0x1A, indexedFile);
+  assert(fclose(indexedFile) == 0);
+
+  //-- A 260-byte line exceeds the 255-byte text limit.
+  char overlongHlp[512];
+  int overlongLength = snprintf(overlongHlp, sizeof(overlongHlp), "///1TOOLONG\r\n");
+  memset(overlongHlp + overlongLength, 'x', 260);
+  overlongLength += 260;
+  memcpy(overlongHlp + overlongLength, "\r\n", 2);
+  writeCpmTextFile(overlongHlpPath, overlongHlp);
+
+  //-- An unmarked file exercises the legacy document mode: control-B emphasis
+  // bytes are stripped and an exact .PA line becomes a blank line.
+  const char* nomarkHlp = "Plain text without markers.\r\n"
+                          "\x02"
+                          "Bold\x02"
+                          " text here.\r\n"
+                          ".PA\r\n"
+                          "Second line.\r\n";
+  writeCpmTextFile(nomarkHlpPath, nomarkHlp);
+
+  //-- Legacy ///NAME without a level digit is treated as a level-one topic.
+  const char* legacyHlp = "///ROOTLEG\r\nLegacy body.\r\n";
+  writeCpmTextFile(legacyHlpPath, legacyHlp);
+
+  char command[2560];
+  assert(snprintf(command, sizeof(command),
+                  "python3 \"%s/tools/diskImage.py\" create --os cpm80 --profile LARGE \"%s\" "
+                  ">/dev/null && "
+                  "python3 \"%s/tools/diskImage.py\" add --os cpm80 \"%s\" "
+                  "\"%s/bootDisks/cpm80/systemDsk/ASM.COM\" "
+                  "\"%s/bootDisks/cpm80/systemDsk/LOAD.COM\" "
+                  "\"%s/bootDisks/cpm80/utilities/HELP.ASM\" "
+                  "\"%s/bootDisks/cpm80/utilities/HELP.HLP\" "
+                  "\"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" >/dev/null",
+                  PROJECT_ROOT_PATH, workDiskPath, PROJECT_ROOT_PATH, workDiskPath,
+                  PROJECT_ROOT_PATH, PROJECT_ROOT_PATH, PROJECT_ROOT_PATH, PROJECT_ROOT_PATH,
+                  testHlpPath, longHlpPath, badIdxPath, indexedHlpPath, overlongHlpPath,
+                  nomarkHlpPath, legacyHlpPath) < (int)sizeof(command));
+  assert(system(command) == 0);
+
+  imageFile workDisk = {0};
+  assert(imageOpen(&workDisk, workDiskPath, false));
+  cpm80GuestFixture fixture = {.disks = {[0] = &disk, [2] = &workDisk, [4] = &workDisk},
+                               .availableDrives = {[0] = true, [2] = true, [4] = true},
+                               .writableDrives = {[2] = true, [4] = true},
+                               .diskProfiles = {[0] = cpm80DiskProfileLarge,
+                                                [2] = cpm80DiskProfileLarge,
+                                                [4] = cpm80DiskProfileLarge}};
+  const cpm80HostOps host = {.consoleAvailable = cpm80TestConsoleAvailable,
+                             .consoleRead = cpm80TestConsoleRead,
+                             .consoleWrite = cpm80TestConsoleWrite,
+                             .diskDriveAvailable = cpm80TestDiskDriveAvailable,
+                             .diskDriveProfile = cpm80TestDiskDriveProfile,
+                             .diskReadRecord = cpm80TestDiskRead,
+                             .diskWriteRecord = cpm80TestDiskWrite,
+                             .yield = cpm80TestYield,
+                             .context = &fixture};
+  cpm80Guest guest = {0};
+  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage));
+  assert(cpm80GuestColdBoot(&guest));
+  const size_t limit = 400000000U;
+  runCpm80Command(&guest, &fixture, "", "A>", limit);
+  runCpm80Command(&guest, &fixture, "E:\r", "E>", limit);
+
+  //-- The stock ASM.COM and LOAD.COM build the executable from the checked-in source.
+  runCpm80Command(&guest, &fixture, "ASM HELP\r", "E>", limit);
+  runCpm80Command(&guest, &fixture, "LOAD HELP\r", "E>", limit);
+  runCpm80Command(&guest, &fixture, "DIR HELP.*\r", "E>", limit);
+  assert(strstr(fixture.output, "HELP     COM") != NULL);
+  assert(strstr(fixture.output, "HELP     HEX") != NULL);
+
+  // The checked-in systemDsk/HELP.COM is rebuilt from this source on the target
+  // system (see assets/cpm80/designHelp.md), so the test verifies the freshly
+  // assembled executable by behavior instead of by byte comparison.
+
+  //-- No arguments lists the .HLP files and shows the interactive prompt.
+  runCpm80Command(&guest, &fixture, "HELP\r", "HELP>", limit);
+  assert(strstr(fixture.output, "CP/M Help System 3.3") != NULL);
+  assert(strstr(fixture.output, "Available help files:") != NULL);
+  assert(strstr(fixture.output, "BADIDX") != NULL);
+  assert(strstr(fixture.output, "INDEXED") != NULL);
+  assert(strstr(fixture.output, "LONG") != NULL);
+  assert(strstr(fixture.output, "TEST") != NULL);
+
+  //-- Opening the file shows the first level-one topic and its subtopics
+  // in aligned columns, without paging.
+  runCpm80Command(&guest, &fixture, "HELP\r", "HELP>HELP>", limit);
+  assert(strstr(fixture.output, "Help by Willem Aandewiel") != NULL);
+  assert(strstr(fixture.output, "Subtopics:") != NULL);
+  assert(strstr(fixture.output, "STARTING  NAVIGATION") != NULL);
+  assert(strstr(fixture.output, "MESSAGES  LIMITS") != NULL);
+  assert(strstr(fixture.output, "AUTHOR") != NULL);
+  assert(strstr(fixture.output, "-- More --") == NULL);
+
+  //-- Down to a child via a unique prefix, then back up through the levels and out.
+  runCpm80Command(&guest, &fixture, "NAVIGATION\r", "HELP>HELP>NAVIGATION>", limit);
+  assert(strstr(fixture.output, "The prompt shows the selected file and topic path.") != NULL);
+  assert(strstr(fixture.output, "ABBREVIATION") != NULL);
+  runCpm80Command(&guest, &fixture, "EX\r", "HELP>HELP>NAVIGATION>EXAMPLE>", limit);
+  assert(strstr(fixture.output, "No subtopics.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>HELP>NAVIGATION>", limit);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>HELP>", limit);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>", limit);
+  assert(strstr(fixture.output, "Available help files:") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "E>", limit);
+
+  runCpm80Command(&guest, &fixture, "HELP TEST\r", "HELP>TEST>", limit);
+  assert(strstr(fixture.output, "Root text two.") != NULL);
+  assert(strstr(fixture.output, "ALPHA     ALPHABET") != NULL);
+  runCpm80Command(&guest, &fixture, "ALPHA\r", "HELP>TEST>ALPHA>", limit);
+  assert(strstr(fixture.output, "Alpha body.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>TEST>", limit);
+  runCpm80Command(&guest, &fixture, "ALPHAB\r", "HELP>TEST>ALPHABET>", limit);
+  assert(strstr(fixture.output, "Alphabet body.") != NULL);
+
+  //-- .NAME searches below the current topic first, then falls back to a sibling.
+  runCpm80Command(&guest, &fixture, ".BETA\r", "HELP>TEST>BETA>", limit);
+  assert(strstr(fixture.output, "Beta body.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>TEST>", limit);
+  runCpm80Command(&guest, &fixture, "A\r", "HELP>TEST>", limit);
+  assert(strstr(fixture.output, "Ambiguous topic; type more characters.") != NULL);
+  runCpm80Command(&guest, &fixture, "ZULU\r", "HELP>TEST>", limit);
+  assert(strstr(fixture.output, "Help topic not found.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture, "\r", "E>", limit);
+
+  //-- Topic text still pages at twenty lines; topic lists no longer do.
+  runCpm80Command(&guest, &fixture, "HELP LONG\r", "-- More --", limit);
+  assert(strstr(fixture.output, "long line 01") != NULL);
+  assert(strstr(fixture.output, "long line 20") != NULL);
+  assert(strstr(fixture.output, "long line 21") == NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>LONG>", limit);
+  assert(strstr(fixture.output, "long line 30") != NULL);
+  assert(strstr(fixture.output, "No subtopics.") != NULL);
+  runCpm80Command(&guest, &fixture, "LIST\r", "HELP>LONG>LIST>", limit);
+  assert(strstr(fixture.output, "List body.") != NULL);
+  assert(strstr(fixture.output, "CHILD01") != NULL);
+  assert(strstr(fixture.output, "CHILD25") != NULL);
+  assert(strstr(fixture.output, "-- More --") == NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>LONG>", limit);
+  assert(strstr(fixture.output, "No subtopics.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture, "\r", "E>", limit);
+  runCpm80Command(&guest, &fixture, "HELP LONG\rQ", "HELP>LONG>", limit);
+  assert(strstr(fixture.output, "long line 20") != NULL);
+  assert(strstr(fixture.output, "long line 21") == NULL);
+  assert(strstr(fixture.output, "No subtopics.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture, "\r", "E>", limit);
+
+  //-- Legacy ///NAME markers, indexed files, drive prefixes and error reports.
+  runCpm80Command(&guest, &fixture, "HELP C:LEGACY\r", "HELP>LEGACY>", limit);
+  assert(strstr(fixture.output, "Legacy body.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture, "\r", "E>", limit);
+  runCpm80Command(&guest, &fixture, "HELP INDEXED\r", "HELP>INDEXED>", limit);
+  assert(strstr(fixture.output, "Indexed body.") != NULL);
+  assert(strstr(fixture.output, "SUBTOPIC") != NULL);
+  runCpm80Command(&guest, &fixture, "SUB\r", "HELP>INDEXED>SUBTOPIC>", limit);
+  assert(strstr(fixture.output, "Sub topic body.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>INDEXED>", limit);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture, "\r", "E>", limit);
+  runCpm80Command(&guest, &fixture, "HELP BADIDX\r", "HELP>", limit);
+  assert(strstr(fixture.output, "Read error, bad index, or text limit exceeded.") != NULL);
+  runCpm80Command(&guest, &fixture, "OVERLONG\r", "HELP>", limit);
+  assert(strstr(fixture.output, "Read error, bad index, or text limit exceeded.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture, "NOMARK\r", "HELP>NOMARK>", limit);
+  assert(strstr(fixture.output, "Plain text without markers.") != NULL);
+  assert(strstr(fixture.output, "Bold text here.") != NULL);
+  assert(strstr(fixture.output, ".PA") == NULL);
+  assert(strstr(fixture.output, "No subtopics.") == NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture, "NOMARK ANY\r", "HELP>", limit);
+  assert(strstr(fixture.output, "Help topic not found.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "E>", limit);
+
+  //-- An explicit root may precede subtopics; bad input keeps the prompt or exits cleanly.
+  runCpm80Command(&guest, &fixture, "HELP TEST BETA\r", "HELP>TEST>BETA>", limit);
+  assert(strstr(fixture.output, "Beta body.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>TEST>", limit);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture, "\r", "E>", limit);
+  runCpm80Command(&guest, &fixture, "HELP MISSING\r", "HELP>", limit);
+  assert(strstr(fixture.output, "Help file not found.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "E>", limit);
+  runCpm80Command(&guest, &fixture, "HELP EEEEEEEEE\r", "HELP>", limit);
+  assert(strstr(fixture.output, "Invalid name or input too long.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "E>", limit);
+  runCpm80Command(&guest, &fixture, "HELP A B C D E F G H I J K\r", "E>", limit);
+  assert(strstr(fixture.output, "Invalid name or input too long.") != NULL);
+
+  //-- Line editing: backspace (also past the start of the line) and Ctrl-U.
+  runCpm80Command(&guest, &fixture, "HELP\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture, "XY\x08\x08\x08TEST\r", "HELP>TEST>", limit);
+  assert(strstr(fixture.output, "Root text two.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture,
+                  "ZZ\x15"
+                  "TEST\r",
+                  "HELP>TEST>", limit);
+  assert(strstr(fixture.output, "Root text two.") != NULL);
+  runCpm80Command(&guest, &fixture, "\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture, "\r", "E>", limit);
+
+  //-- Ctrl-C stops the program at command input and at the more prompt.
+  runCpm80Command(&guest, &fixture, "HELP\r", "HELP>", limit);
+  runCpm80Command(&guest, &fixture, "\x03", "E>", limit);
+  runCpm80Command(&guest, &fixture, "HELP LONG\r", "-- More --", limit);
+  runCpm80Command(&guest, &fixture, "\x03", "E>", limit);
+
+  cpm80GuestDestroy(&guest);
+  assert(imageClose(&disk));
+  assert(imageClose(&workDisk));
+  removeLargeSystemDisk(largeSystemPath);
+  assert(snprintf(command, sizeof(command), "rm -rf \"%s\"", workDirectory) < (int)sizeof(command));
+  assert(system(command) == 0);
+}
+
 int main(int argc, char** argv)
 {
   if (argc == 2 && strcmp(argv[1], "--apple2-language-card") == 0)
@@ -3463,6 +3807,12 @@ int main(int argc, char** argv)
     puts("PASS: CP/M-80 MORE pager");
     return 0;
   }
+  if (argc == 2 && strcmp(argv[1], "--cpm80-help") == 0)
+  {
+    testCpm80Help();
+    puts("PASS: CP/M-80 HELP build and navigation");
+    return 0;
+  }
   testPaths();
   testApple2Core();
   testApple2Keyboard();
@@ -3479,6 +3829,7 @@ int main(int argc, char** argv)
   testCpm80GuestBoot();
   testCpm86TimerPorts();
   testCpm80More();
+  testCpm80Help();
   testCpm80LargeSystemBoot();
   testCpm86LargeSystemBoot();
   puts("PASS: CPU fixtures, CP/M boot and disk tests");
