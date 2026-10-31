@@ -1,34 +1,39 @@
 #include "cpm80Cpu.h"
 #include <stdlib.h>
 #include <string.h>
+#ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
+#endif
 
-_Static_assert(cpm80MemorySize == UINT16_MAX + 1U, "CP/M memory must cover the 16-bit address space");
+_Static_assert(cpm80MemorySize == UINT16_MAX + 1U,
+               "CP/M memory must cover the 16-bit address space");
 
-static uint8_t readByte(void *context, uint16_t address)
+static uint8_t readByte(void* context, uint16_t address)
 {
-  cpm80Cpu *cpu = context;
+  cpm80Cpu* cpu = context;
   return cpu->memory[address];
 }
 
-static void writeByte(void *context, uint16_t address, uint8_t value)
+static void writeByte(void* context, uint16_t address, uint8_t value)
 {
-  cpm80Cpu *cpu = context;
+  cpm80Cpu* cpu = context;
   cpu->memory[address] = value;
 }
 
-static uint8_t inputPort(z80 *processor, uint8_t port)
+static uint8_t inputPort(z80* processor, uint8_t port)
 {
-  cpm80Cpu *cpu = processor->userdata;
+  cpm80Cpu* cpu = processor->userdata;
   return cpu->portInput(cpu->portContext, port);
 }
 
-static void outputPort(z80 *processor, uint8_t port, uint8_t value)
+static void outputPort(z80* processor, uint8_t port, uint8_t value)
 {
-  cpm80Cpu *cpu = processor->userdata;
+  cpm80Cpu* cpu = processor->userdata;
   cpu->portOutput(cpu->portContext, port, value);
 }
 
-bool cpm80CpuInitialize(cpm80Cpu *cpu, cpm80PortInput portInputCallback, cpm80PortOutput portOutputCallback, void *portContext)
+bool cpm80CpuInitialize(cpm80Cpu* cpu, cpm80PortInput portInputCallback,
+                        cpm80PortOutput portOutputCallback, void* portContext)
 {
   if (cpu == NULL || portInputCallback == NULL || portOutputCallback == NULL)
   {
@@ -39,7 +44,17 @@ bool cpm80CpuInitialize(cpm80Cpu *cpu, cpm80PortInput portInputCallback, cpm80Po
     return false;
   }
 
+#ifdef ESP_PLATFORM
+  cpu->memory =
+      heap_caps_calloc(cpm80MemorySize, sizeof(*cpu->memory), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (cpu->memory == NULL)
+  {
+    cpu->memory = heap_caps_calloc(cpm80MemorySize, sizeof(*cpu->memory),
+                                   MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
+#else
   cpu->memory = calloc(cpm80MemorySize, sizeof(*cpu->memory));
+#endif
   if (cpu->memory == NULL)
   {
     return false;
@@ -57,19 +72,24 @@ bool cpm80CpuInitialize(cpm80Cpu *cpu, cpm80PortInput portInputCallback, cpm80Po
   return true;
 }
 
-void cpm80CpuDestroy(cpm80Cpu *cpu)
+void cpm80CpuDestroy(cpm80Cpu* cpu)
 {
   if (cpu == NULL)
   {
     return;
   }
+#ifdef ESP_PLATFORM
+  heap_caps_free(cpu->memory);
+#else
   free(cpu->memory);
+#endif
   memset(cpu, 0, sizeof(*cpu));
 }
 
-bool cpm80CpuLoad(cpm80Cpu *cpu, uint16_t address, const uint8_t *data, size_t length)
+bool cpm80CpuLoad(cpm80Cpu* cpu, uint16_t address, const uint8_t* data, size_t length)
 {
-  if (cpu == NULL || !cpu->initialized || (data == NULL && length != 0) || length > cpm80MemorySize - address)
+  if (cpu == NULL || !cpu->initialized || (data == NULL && length != 0) ||
+      length > cpm80MemorySize - address)
   {
     return false;
   }
@@ -80,7 +100,7 @@ bool cpm80CpuLoad(cpm80Cpu *cpu, uint16_t address, const uint8_t *data, size_t l
   return true;
 }
 
-bool cpm80CpuReadMemory(const cpm80Cpu *cpu, uint16_t address, uint8_t *value)
+bool cpm80CpuReadMemory(const cpm80Cpu* cpu, uint16_t address, uint8_t* value)
 {
   if (cpu == NULL || !cpu->initialized || value == NULL)
   {
@@ -90,7 +110,7 @@ bool cpm80CpuReadMemory(const cpm80Cpu *cpu, uint16_t address, uint8_t *value)
   return true;
 }
 
-bool cpm80CpuWriteMemory(cpm80Cpu *cpu, uint16_t address, uint8_t value)
+bool cpm80CpuWriteMemory(cpm80Cpu* cpu, uint16_t address, uint8_t value)
 {
   if (cpu == NULL || !cpu->initialized)
   {
@@ -100,7 +120,7 @@ bool cpm80CpuWriteMemory(cpm80Cpu *cpu, uint16_t address, uint8_t value)
   return true;
 }
 
-bool cpm80CpuStep(cpm80Cpu *cpu)
+bool cpm80CpuStep(cpm80Cpu* cpu)
 {
   if (cpu == NULL || !cpu->initialized)
   {

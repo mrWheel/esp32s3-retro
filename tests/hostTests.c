@@ -2384,6 +2384,7 @@ static void testCpm80Cpu(void)
   assert(!cpm80CpuInitialize(&cpu, NULL, testPortOutput, &ports));
   assert(!cpm80CpuInitialize(&cpu, testPortInput, NULL, &ports));
   assert(cpm80CpuInitialize(&cpu, testPortInput, testPortOutput, &ports));
+  assert(cpu.memory[0] == 0 && cpu.memory[cpm80MemorySize - 1] == 0);
   assert(cpm80CpuLoad(&cpu, 0, program, sizeof(program)));
   assert(!cpm80CpuLoad(&cpu, UINT16_MAX, program, 2));
   assert(!cpm80CpuLoad(&cpu, 0, NULL, 1));

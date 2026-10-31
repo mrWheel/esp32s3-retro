@@ -4,7 +4,9 @@
 #include "hostConsole.h"
 #include "imageFile.h"
 #include "diskActivity.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_psram.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -289,10 +291,22 @@ esp_err_t cpm80MachineInitialize(void)
   free(systemBinaries);
   if (!guestInitialized)
   {
-    ESP_LOGE(tag, "Could not allocate or initialize CP/M guest memory");
+    ESP_LOGE(tag,
+             "Could not initialize CP/M guest; PSRAM free/largest=%u/%u bytes, "
+             "internal free/largest=%u/%u bytes",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     closeDiskImages();
     return ESP_ERR_NO_MEM;
   }
+  ESP_LOGI(tag, "PSRAM size=%u bytes, free/largest=%u/%u bytes; internal free/largest=%u/%u bytes",
+           (unsigned)esp_psram_get_size(),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   guestReady = true;
   return ESP_OK;
 }
