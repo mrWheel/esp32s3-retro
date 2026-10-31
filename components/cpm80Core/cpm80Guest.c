@@ -231,10 +231,32 @@ static void installBios(cpm80Guest* guest)
   }
 }
 
+//-- The CCP entry re-selects the drive it receives in C.  When that drive is not configured,
+// BDOS reports "Bdos Err On d: Select", waits for a key and warm-boots; the warm boot re-selects
+// the same lost drive and dead-locks the CCP before it ever reaches a prompt.  A real CP/M BIOS
+// warm boot owns this hand-over, so the host BIOS replaces an unavailable drive with a
+// configured one (the boot drive A: when it exists) before starting the CCP.
+static uint8_t bootDriveOrDefault(cpm80Guest* guest, uint8_t requestedDrive)
+{
+  if (requestedDrive < cpm80DiskDriveCount &&
+      guest->host.diskDriveAvailable(guest->host.context, requestedDrive))
+  {
+    return requestedDrive;
+  }
+  for (uint8_t drive = 0; drive < cpm80DiskDriveCount; ++drive)
+  {
+    if (guest->host.diskDriveAvailable(guest->host.context, drive))
+    {
+      return drive;
+    }
+  }
+  return requestedDrive;
+}
+
 static void installSystem(cpm80Guest* guest, bool coldBoot)
 {
   uint8_t* memory = guest->cpu.memory;
-  uint8_t currentDisk = coldBoot ? 0 : memory[0x0004];
+  uint8_t currentDisk = bootDriveOrDefault(guest, coldBoot ? 0 : memory[0x0004]);
   if (coldBoot)
   {
     memset(memory, 0, cpm80MemorySize);

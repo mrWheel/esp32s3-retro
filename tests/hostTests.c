@@ -3442,6 +3442,56 @@ static void testCpm80More(void)
   assert(system(command) == 0);
 }
 
+//-- Selecting an unconfigured drive reports one BDOS Select error and waits for a key.  That key
+// must warm-boot back to a prompt: the CCP re-selects the current drive on entry, so without the
+// BIOS boot-drive fallback the lost drive re-triggers the Select error forever (§12.2).
+static void testCpm80UnconfiguredDriveRecovery(void)
+{
+  char largeSystemPath[256];
+  createLargeSystemDisk("cpm80", largeSystemPath, sizeof(largeSystemPath));
+  imageFile disk = {0};
+  assert(imageOpen(&disk, largeSystemPath, true));
+  uint8_t ccpImage[cpm80CcpSize];
+  uint8_t bdosImage[cpm80BdosSize];
+  assert(imageReadAt(&disk, 0, ccpImage, sizeof(ccpImage)));
+  assert(imageReadAt(&disk, sizeof(ccpImage), bdosImage, sizeof(bdosImage)));
+
+  cpm80GuestFixture fixture = {.disks = {[0] = &disk},
+                               .availableDrives = {[0] = true},
+                               .diskProfiles = {[0] = cpm80DiskProfileLarge}};
+  const cpm80HostOps host = {.consoleAvailable = cpm80TestConsoleAvailable,
+                             .consoleRead = cpm80TestConsoleRead,
+                             .consoleWrite = cpm80TestConsoleWrite,
+                             .diskDriveAvailable = cpm80TestDiskDriveAvailable,
+                             .diskDriveProfile = cpm80TestDiskDriveProfile,
+                             .diskReadRecord = cpm80TestDiskRead,
+                             .diskWriteRecord = cpm80TestDiskWrite,
+                             .yield = cpm80TestYield,
+                             .context = &fixture};
+  cpm80Guest guest = {0};
+  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage) == cpm80GuestInitOk);
+  assert(cpm80GuestColdBoot(&guest));
+  const size_t limit = 400000000U;
+  runCpm80Command(&guest, &fixture, "", "A>", limit);
+
+  runCpm80Command(&guest, &fixture, "F:\r", "Select", limit);
+  assert(strstr(fixture.output, "Bdos Err On F: Select") != NULL);
+  assert(fixture.inputPosition == fixture.inputLength);
+
+  //-- A key after the Select error returns to an A> prompt on the boot drive, without a second
+  // Select error, and the guest stays usable afterwards.
+  runCpm80Command(&guest, &fixture, "\x03", "A>", limit);
+  assert(strstr(fixture.output, "A>") != NULL);
+  assert(strstr(fixture.output, "Bdos Err") == NULL);
+  assert(guest.cpu.memory[0x0004] == 0);
+  runCpm80Command(&guest, &fixture, "DIR\r", "A>", limit);
+  assert(strstr(fixture.output, "PIP") != NULL);
+
+  cpm80GuestDestroy(&guest);
+  assert(imageClose(&disk));
+  removeLargeSystemDisk(largeSystemPath);
+}
+
 //-- Writes raw bytes to a host file for the CP/M-80 work disk.
 static void writeRawFile(const char* path, const void* data, size_t length)
 {
@@ -3841,6 +3891,7 @@ int main(int argc, char** argv)
   testCpm86SystemProfileDetection();
   testCpm80Cpu();
   testCpm80GuestBoot();
+  testCpm80UnconfiguredDriveRecovery();
   testCpm86TimerPorts();
   testCpm80More();
   testCpm80Help();

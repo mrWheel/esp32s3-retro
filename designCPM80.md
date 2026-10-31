@@ -279,7 +279,8 @@ into `installSystem(cold = true)`:
 2. Copy the private CCP image to `$C400` and BDOS image to `$CC00`.
 3. Install the BIOS (§13): jump table, stubs, and all six drive DPH/DPB/CSV/ALV structures.
 4. Install page zero: `JP $DA03` at `$0000`, I/O byte `00` at `$0003`, drive byte at
-   `$0004` (forced 0 on cold boot), `JP $CC06` at `$0005`.
+   `$0004` (forced 0 on cold boot, then replaced by the boot-drive fallback below), `JP $CC06`
+   at `$0005`.
 5. Reset guest state: `selectedDrive = 0`, `currentTrack = 0`, `currentSector = 0`,
    `dmaAddress = $0080`, and (cold boot only) clear the buffered console character, the
    `skipLineFeed` bit and the timer snapshot.
@@ -292,9 +293,18 @@ The guest calls WBOOT (directly, or `JP $0000`, or Ctrl-C exit to command level)
 performs the same install with `cold = false` with these differences:
 
 1. Only `$0000–$00FF` is re-zeroed; TPA and the timer snapshot survive.
-2. The current drive byte at `$0004` is preserved and reinstalled.
+2. The current drive byte at `$0004` is preserved and reinstalled, after the boot-drive
+   fallback below.
 3. `selectedDrive`, `currentTrack`, `currentSector` and `dmaAddress` are reset as above;
    console buffering and `skipLineFeed` are NOT cleared.
+
+**Boot-drive fallback.** The CCP entry (re-)selects the drive it receives in C. If that drive
+is not configured, the BDOS `SELDSK` fails, reports `Bdos Err On d: Select`, waits for a key
+and warm-boots; the warm boot re-selects the same lost drive, so the CCP never reaches a
+prompt (the classic CP/M drive-select dead-lock). Because the warm-boot hand-over to the CCP
+belongs to the BIOS, `installSystem` replaces an unavailable current drive with the first
+configured drive (A: when it exists) before starting the CCP; `$0004` and C are set to that
+drive. A configured drive is never replaced, so a warm boot on `C>` still returns to `C>`.
 
 Warm boot returns control to CP/M command processing; it MUST NOT touch the host menu or
 the physical ESP32.
@@ -605,8 +615,9 @@ ctest target names differ from file names; `tests/hostTests.c` runs as several n
 A conforming implementation MUST ship host tests covering each item below; the suite is
 "done" only when every listed assertion passes deterministically with zero sanitizer
 reports. Required coverage (current suites: `testCpm80Cpu`, `testCpm80GuestBoot`,
-`testCpm80LargeSystemBoot`, `testCpm80SystemProfileDetection`, `testCpm80DriveConfig`,
-`testCpm80Help`, `testCpm80More`, `cpm80Timer`):
+`testCpm80UnconfiguredDriveRecovery`, `testCpm80LargeSystemBoot`,
+`testCpm80SystemProfileDetection`, `testCpm80DriveConfig`, `testCpm80Help`,
+`testCpm80More`, `cpm80Timer`):
 
 1. **CPU adapter:** init argument/state rejection, load range clamping at `$FFFF`,
    byte read/write over the full range, port callback wiring, destroy/re-init.
@@ -614,7 +625,9 @@ reports. Required coverage (current suites: `testCpm80Cpu`, `testCpm80GuestBoot`
    ignored; out-of-range profile → `cpm80GuestInitConfig`; allocation failure path.
 3. **Boot:** cold boot reaches the CCP (drive prompt on the injected console), genuine
    `DIR`/`TYPE` output; warm boot preserves `$0004` and the timer snapshot, cold boot
-   clears them; `BOOT`/`WBOOT` reinstall page zero, CCP/BDOS and BIOS bytes.
+   clears them; `BOOT`/`WBOOT` reinstall page zero, CCP/BDOS and BIOS bytes; selecting an
+   unconfigured drive reports one Select error and a following key warm-boots back to a
+   prompt on the boot drive without a repeated error (`testCpm80UnconfiguredDriveRecovery`).
 4. **BIOS ABI:** every stub at `$DA33+5n` equals `3E n D3 FE C9`; every vector equals
    `C3`+stub address; `CALL 5` reaches `$CC06`; unknown `$FE` function halts with PC = 0.
 5. **Console:** CR/LF/CR+LF conversion, 7-bit masking, one-character CONST buffering with
