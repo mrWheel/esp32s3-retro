@@ -41,11 +41,12 @@ class Results:
 
   def record(self, name, ok, detail=""):
     self.items.append((name, ok, detail))
-    self.say(("PASS  " if ok else "FAIL  ") + name + (("  -- " + detail) if detail else ""))
+    #-- Indent verdicts under the Command/answer block so the two groups stay distinct.
+    self.say(("      PASS  " if ok else "      FAIL  ") + name + (("  -- " + detail) if detail else ""))
 
   def skip(self, name, reason):
     self.items.append((name, None, reason))
-    self.say("SKIP  " + name + "  -- " + reason)
+    self.say("      SKIP  " + name + "  -- " + reason)
 
   def summary(self):
     self.say("\n==== SUMMARY ====")
@@ -125,14 +126,43 @@ class Console:
       if self.pump():
         deadline = time.time() + seconds
 
+  def note(self, line):
+    #-- Log a line that belongs to the session but was not produced by command().
+    if self.results:
+      self.results.say(line)
+
+  def logCommand(self, line):
+    #-- Show exactly which text was typed before its answer and its PASS/FAIL follow.
+    self.note("Command: " + line)
+
+  def ctrlC(self):
+    #-- Abort the running guest command; logged as ^C so every key press appears in the log.
+    self.logCommand("^C (Ctrl-C)")
+    self.send("\x03")
+
+  def logOutput(self, out):
+    #-- Echo the guest answer after the typed command (echoed input line dropped), collapsed
+    #-- to one line with " | " separators so command, answer and result stay one block.
+    text = out.split("\n", 1)[1] if out and "\n" in out else (out or "")
+    text = " | ".join(part.strip() for part in text.splitlines() if part.strip())
+    if text:
+      self.note("  " + (text if len(text) <= 300 else text[:300] + " ..."))
+
   def command(self, line, prompt, timeout=30.0, eol="\r"):
+    #-- Log the typed command and its answer immediately, so the PASS/FAIL line the caller
+    #-- records later stays attached to this command.
+    self.logCommand(line)
     start = len(self.log)
     self.send(line + eol)
     got = self.waitFor(prompt, timeout, since=start)
     if got is None:
+      self.note("  <<<timeout: no '%s' within %d s>>>" % (prompt, timeout))
+      self.logOutput(self.log[start:])
       return None
     self.drain(0.3)
-    return self.log[start:]
+    out = self.log[start:]
+    self.logOutput(out)
+    return out
 
   def reset(self):
     #-- RTS drives EN on the USB Serial/JTAG bridge; DTR low keeps IO0 high (normal boot).

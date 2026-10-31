@@ -11,6 +11,15 @@ def body(out):
   return out.split("\n", 1)[1] if "\n" in out else out
 
 
+def pipOk(out):
+  #-- PIP is silent on success. Catch its failure texts explicitly; "No File" (missing
+  #-- source) never contains "ERROR", so checking only for "ERROR" reported false passes.
+  if out is None:
+    return False
+  upper = out.upper()
+  return "ERROR" not in upper and "NO FILE" not in upper and "Bdos" not in out
+
+
 class CpmAdapter(hwSuite.Adapter):
   menuKey = ""
   promptName = "A> prompt"
@@ -22,6 +31,7 @@ class CpmAdapter(hwSuite.Adapter):
     return self.console.command(line, "A>", timeout)
 
   def boot(self):
+    self.console.logCommand(self.menuKey)
     self.console.send(self.menuKey + "\r")
     return self.console.waitFor("A>", 60) is not None
 
@@ -30,7 +40,7 @@ class CpmAdapter(hwSuite.Adapter):
     if volume != "A:":
       out = self.console.command(letter + ":", letter + ">", 15)
       if out is None:
-        self.console.send("\x03")
+        self.console.ctrlC()
         self.cmd("A:", 10)
         return False, "drive did not select"
     out = self.console.command("DIR", letter + ">" if volume != "A:" else "A>", 40)
@@ -44,7 +54,7 @@ class CpmAdapter(hwSuite.Adapter):
   def writeFile(self, volume):
     self.cmd("ERA " + self.file(volume), 30)
     out = self.cmd("PIP %s=A:PIP%s[V]" % (self.file(volume), self.extension), 180)
-    return out is not None and "ERROR" not in out.upper() and "Bdos" not in out
+    return pipOk(out)
 
   def fileExists(self, volume):
     out = self.cmd("DIR " + self.file(volume), 40)
@@ -53,7 +63,7 @@ class CpmAdapter(hwSuite.Adapter):
 
   def copyFile(self, source, target):
     out = self.cmd("PIP %s=%s[V]" % (self.file(target), self.file(source)), 180)
-    return out is not None and "ERROR" not in out.upper() and "Bdos" not in out
+    return pipOk(out)
 
   def deleteFile(self, volume):
     self.cmd("ERA " + self.file(volume), 40)
@@ -69,14 +79,18 @@ class CpmAdapter(hwSuite.Adapter):
       out = self.cmd("PIP %sFILL%02d.TMP=A:PIP%s[V]" % (drive, index, self.extension), 180)
       count = index
       if out is None:
-        self.console.send("\x03")
+        self.console.ctrlC()
         return False, count
-      if "ERROR" in out.upper() or "Bdos" in out:
+      upper = out.upper()
+      if "ERROR" in upper or "DISK FULL" in upper or "Bdos" in out:
         return True, count
+      if "NO FILE" in upper:
+        #-- Not even the source could be read: stop early, this will not become disk full.
+        return False, count
     return False, count
 
   def cleanupFill(self):
-    self.console.send("\x03")
+    self.console.ctrlC()
     self.console.settle(1)
     self.cmd("ERA %sFILL*.TMP" % self.fillVolume, 120)
     self.cmd("ERA %s*.$$$" % self.fillVolume, 60)
@@ -87,12 +101,13 @@ class CpmAdapter(hwSuite.Adapter):
     return exists, self.freeSpace("A:")
 
   def readOnlyWrite(self):
+    self.console.logCommand("PIP A:HWRO%s=A:PIP%s" % (self.extension, self.extension))
     self.console.send("PIP A:HWRO%s=A:PIP%s\r" % (self.extension, self.extension))
     got = self.console.waitFor(["Bad Sector", "R/O"], 90)
     return got is not None, "" if got else "no Bdos error seen"
 
   def recovered(self):
-    self.console.send("\x03")
+    self.console.ctrlC()
     return self.console.waitFor("A>", 20) is not None
 
   def timed(self):

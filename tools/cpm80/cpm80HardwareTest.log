@@ -1,48 +1,266 @@
-CP/M-80 hardware test - 2026-10-26 07:31:06
+CP/M-80 hardware test - 2026-10-31 15:37:01
 
 <<<RESET>>>
-PASS  board reset reaches host menu
-PASS  menu reports PSRAM line
-PASS  cold boot reaches A> prompt
-PASS  basic: DIR on A: lists PIP.COM and STAT.COM
-PASS  basic: STAT runs on A:
-PASS  basic: TYPE WELCOME.TXT shows text
-PASS  basic: transient program HELLO.COM runs and warm-boots
-PASS  user: DIR lists STAT.COM in user area 0
-PASS  user: USER 3 moves STAT.COM out of the active user area
-PASS  user: USER 0 restores STAT.COM to the active user area
-PASS  read: list volume A:
-PASS  read: list volume B:
-PASS  read: list volume C:
-PASS  read: list volume D:
-PASS  read: list volume E:
-PASS  write: create file on B:
-PASS  write: file visible on B:
-PASS  write: copy B: -> C:
-PASS  write: file visible on C:
+      PASS  board reset reaches host menu
+      PASS  menu reports PSRAM line
+Command: 1
+      PASS  cold boot reaches A> prompt
+
+---- basic ----
+Command: DIR
+  A: ASM      COM : BENCH80  COM : DDT      COM : DUMP     COM | A: ED       COM : HELLO    COM : HELP     COM : LIB      COM | A: LINK     COM : LOAD     COM : MAC      COM : MORE     COM | A: PIP      COM : RMAC     COM : STAT     COM : SUBMIT   COM | A: TYPEL    COM : XREF     COM : XSUB     COM :  ...
+      PASS  basic: DIR on A: lists PIP.COM and STAT.COM
+Command: STAT
+  A: R/W, Space: 270k | A>
+      PASS  basic: STAT runs on A:
+Command: TYPE WELCOME.TXT
+  CP/M utilities are installed. | Use DIR, STAT, and HELP for help. | A>
+      PASS  basic: TYPE WELCOME.TXT shows text
+Command: HELLO
+  HELLO FROM CP/M-80 | A>
+      PASS  basic: transient program HELLO.COM runs and warm-boots
+Command: DIR A:STAT.COM
+  A: STAT     COM | A>
+      PASS  user: DIR lists STAT.COM in user area 0
+Command: USER 3
+  A>
+Command: DIR A:STAT.COM
+  NO FILE | A>
+      PASS  user: USER 3 moves STAT.COM out of the active user area
+Command: USER 0
+  A>
+Command: DIR A:STAT.COM
+  A: STAT     COM | A>
+      PASS  user: USER 0 restores STAT.COM to the active user area
+Command: C:
+  C>
+      PASS  user files: switch to writable C:
+Command: USER 3
+  C>
+Command: ERA USER.TXT
+  NO FILE | C>
+user files: DIR on C: user 3 before the test:
+Command: DIR
+  NO FILE | C>
+      PASS  user files: user 3 area on C: starts without USER.TXT
+Command: SAVE 0 USER.TXT
+  C>
+user files: DIR on C: user 3 after SAVE:
+Command: DIR
+  C: USER     TXT | C>
+      PASS  user files: USER.TXT created with SAVE 0 is visible for its owner user 3
+Command: USER 4
+  C>
+user files: DIR on C: user 4:
+Command: DIR
+  NO FILE | C>
+      PASS  user files: USER.TXT of user 3 stays hidden for user 4
+Command: USER 0
+  C>
+user files: DIR on C: user 0:
+Command: DIR
+  C: HELP     ASM : HELP     HLP : HELP     HST : HELP     PRN | C: HELP     HEX : HOST     ASM : HOST     HST : HOST     PRN | C: HOST     HEX : HOST     COM : BENCH80  COM : BENCH80  ASM | C: HELP     COM | C>
+      PASS  user files: USER.TXT does not leak into the user 0 area
+Command: USER 3
+  C>
+Command: DIR
+  C: USER     TXT | C>
+      PASS  user files: USER.TXT is still visible for its owner user 3
+Command: ERA USER.TXT
+  C>
+Command: DIR
+  NO FILE | C>
+      PASS  user files: deleting USER.TXT as user 3 removes it for user 3
+Command: USER 0
+  C>
+user files: DIR on C: user 0 after the delete:
+Command: DIR
+  C: HELP     ASM : HELP     HLP : HELP     HST : HELP     PRN | C: HELP     HEX : HOST     ASM : HOST     HST : HOST     PRN | C: HOST     HEX : HOST     COM : BENCH80  COM : BENCH80  ASM | C: HELP     COM | C>
+      PASS  user files: USER.TXT is still gone after switching back to user 0
+Command: A:
+  A>
+bench80: starting BENCH80, waiting up to 600 s for it to finish
+Command: A:BENCH80
+  BENCH80 v2 SCALE=1 | @BEGIN INTEGER | . | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 6908 ms | Z80 MODEL ONLY (not measured): 1MHz=15000 ms, 2MHz=7500 ms, 4MHz=3750 ms | Index vs 1MHz MODEL: 217 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 4344 ms ...
+bench80: BENCH80 v2 SCALE=1
+bench80: @BEGIN INTEGER
+bench80: @END INTEGER PASS AX=4ED8 BX=D678
+bench80: Elapsed: 6908 ms
+bench80: Index vs 1MHz MODEL: 217 (100=model, higher=faster; theoretical)
+bench80: @BEGIN SIEVE
+bench80: @END SIEVE PASS PRIMES=1028
+bench80: Elapsed: 4344 ms
+bench80: Index vs 1MHz MODEL: 281 (100=model, higher=faster; theoretical)
+bench80: @DONE PASS
+      PASS  bench80: BENCH80 runs from A: and completes
+      PASS  bench80: all benchmark sections report PASS  -- 2 sections, elapsed 6908,4344 ms
+      PASS  bench80: measured index values recorded  -- index vs 1MHz MODEL: 217,281
+
+---- read volumes ----
+Command: DIR
+  A: ASM      COM : BENCH80  COM : DDT      COM : DUMP     COM | A: ED       COM : HELLO    COM : HELP     COM : LIB      COM | A: LINK     COM : LOAD     COM : MAC      COM : MORE     COM | A: PIP      COM : RMAC     COM : STAT     COM : SUBMIT   COM | A: TYPEL    COM : XREF     COM : XSUB     COM :  ...
+      PASS  read: list volume A:
+Command: B:
+  B>
+Command: DIR
+  B: CALCMAIN PAS : CMDLIN   PAS : LISTER   PAS : SQUARO   COB | B: RECOVR   COB : CRTEST   COB : MYTEST   BAK : MYTEST   REL | B: CRTEST   DBG : MYTEST   COM : RUNCOB   COM : MYTEST   PRN | B: TEST     BAK : TEST     TXT : HELP     ASM : HELP     HST | B: HELP     PRN : HELP     HEX : LIB      COM :  ...
+Command: A:
+  A>
+      PASS  read: list volume B:
+Command: C:
+  C>
+Command: DIR
+  C: HELP     ASM : HELP     HLP : HELP     HST : HELP     PRN | C: HELP     HEX : HOST     ASM : HOST     HST : HOST     PRN | C: HOST     HEX : HOST     COM : BENCH80  COM : BENCH80  ASM | C: HELP     COM | C>
+Command: A:
+  A>
+      PASS  read: list volume C:
+Command: D:
+  D>
+Command: DIR
+  D: INSTALL  COM : MAILMRGE OVR : MERGPRIN OVR : WIMSGS   OVR | D: WS       COM : WSMSGS   OVR : WSOVLY1  OVR : WSU      COM | D: WSVT100  COM : CDADDS   MAC : CDADDS   REL : CDADM3   MAC | D: CDADM3   REL : CDANSI   MAC : CDANSI   REL : CDBEE    MAC | D: CDBEE    REL : CDHZ15   MAC : CDHZ15   REL :  ...
+Command: A:
+  A>
+      PASS  read: list volume D:
+Command: E:
+  E>
+Command: DIR
+  E: VEDPLUS  TXT : VEDPLUS  COM : VEDPLUS  HST : VEDIT    COM | E: VEDIT    HST : README   TXT : README   HST : HWTEST   COM | E: BENCH80  COM : BENCH80  ASM | E>
+Command: A:
+  A>
+      PASS  read: list volume E:
+
+---- write, persistence, delete ----
+Command: ERA B:HWTEST.COM
+  NO FILE | A>
+Command: ERA C:HWTEST.COM
+  NO FILE | A>
+Command: ERA B:HWTEST.COM
+  NO FILE | A>
+Command: PIP B:HWTEST.COM=A:PIP.COM[V]
+  A>
+      PASS  write: create file on B:
+Command: DIR B:HWTEST.COM
+  B: HWTEST   COM | A>
+      PASS  write: file visible on B:
+Command: PIP C:HWTEST.COM=B:HWTEST.COM[V]
+  A>
+      PASS  write: copy B: -> C:
+Command: DIR C:HWTEST.COM
+  C: HWTEST   COM | A>
+      PASS  write: file visible on C:
 <<<RESET>>>
-PASS  persistence: board reset reaches host menu
-PASS  persistence: cold boot after reset
-PASS  persistence: file survives reset on B:
-PASS  persistence: file survives reset on C:
-PASS  delete: file removed from B:
-PASS  delete: file removed from C:
-PASS  disk full: filling B: ends with a disk-full error  -- after 18 files
-PASS  disk full: volume reports (almost) no free space  -- free before 138, when full 2
-PASS  disk full: deleting the fill files restores all free space  -- before 138, after 138
-PASS  disk full: writing works again
-PASS  read-only: write to A: is refused
-PASS  read-only: system recovers to a prompt
-PASS  read-only: no file created on A:
-PASS  read-only: free space on A: unchanged  -- before 302, after 302
-PASS  timing: volume listing completes in < 10 s  -- 0.7 s
-PASS  unconfigured: drive F: reports Bdos Err Select once
-FAIL  unconfigured: a key after the Select error returns to a prompt (no endless loop)  -- Bdos Err repeated 1 times in 4 s; reset needed
+      PASS  persistence: board reset reaches host menu
+Command: 1
+      PASS  persistence: cold boot after reset
+Command: DIR B:HWTEST.COM
+  B: HWTEST   COM | A>
+      PASS  persistence: file survives reset on B:
+Command: DIR C:HWTEST.COM
+  C: HWTEST   COM | A>
+      PASS  persistence: file survives reset on C:
+Command: ERA B:HWTEST.COM
+  A>
+Command: ERA C:HWTEST.COM
+  A>
+Command: DIR B:HWTEST.COM
+  NO FILE | A>
+      PASS  delete: file removed from B:
+Command: DIR C:HWTEST.COM
+  NO FILE | A>
+      PASS  delete: file removed from C:
+
+---- disk full ----
+Command: STAT B:
+  Bytes Remaining On B: 138k | A>
+Command: PIP B:FILL01.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL02.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL03.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL04.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL05.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL06.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL07.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL08.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL09.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL10.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL11.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL12.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL13.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL14.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL15.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL16.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL17.TMP=A:PIP.COM[V]
+  A>
+Command: PIP B:FILL18.TMP=A:PIP.COM[V]
+  DISK WRITE ERROR: =A:PIP.COM[V] | A>
+      PASS  disk full: filling B: ends with a disk-full error  -- after 18 files
+Command: STAT B:
+  Bytes Remaining On B: 2k | A>
+      PASS  disk full: volume reports (almost) no free space  -- free before 138, when full 2
+Command: ^C (Ctrl-C)
+Command: ERA B:FILL*.TMP
+  A>
+Command: ERA B:*.$$$
+  A>
+Command: STAT B:
+  Bytes Remaining On B: 138k | A>
+      PASS  disk full: deleting the fill files restores all free space  -- before 138, after 138
+Command: ERA B:HWTEST.COM
+  NO FILE | A>
+Command: PIP B:HWTEST.COM=A:PIP.COM[V]
+  A>
+      PASS  disk full: writing works again
+Command: ERA B:HWTEST.COM
+  A>
+
+---- read-only volume ----
+Command: DIR A:HWRO*.*
+  NO FILE | A>
+Command: STAT A:
+  Bytes Remaining On A: 270k | A>
+Command: PIP A:HWRO.COM=A:PIP.COM
+      PASS  read-only: write to A: is refused
+Command: ^C (Ctrl-C)
+      PASS  read-only: system recovers to a prompt
+Command: DIR A:HWRO*.*
+  NO FILE | A>
+Command: STAT A:
+  Bytes Remaining On A: 270k | A>
+      PASS  read-only: no file created on A:
+      PASS  read-only: free space on A: unchanged  -- before 270, after 270
+
+---- timing ----
+Command: DIR
+  A: ASM      COM : BENCH80  COM : DDT      COM : DUMP     COM | A: ED       COM : HELLO    COM : HELP     COM : LIB      COM | A: LINK     COM : LOAD     COM : MAC      COM : MORE     COM | A: PIP      COM : RMAC     COM : STAT     COM : SUBMIT   COM | A: TYPEL    COM : XREF     COM : XSUB     COM :  ...
+      PASS  timing: volume listing completes in < 10 s  -- 0.7 s
+
+---- unconfigured drive ----
+Command: F:
+Command: ^C (Ctrl-C)
+      PASS  unconfigured: drive F: reports Bdos Err Select once
+      FAIL  unconfigured: a key after the Select error returns to a prompt (no endless loop)  -- no prompt; Bdos Err repeated 1 times in 4 s
+
+---- final reset ----
 <<<RESET>>>
-PASS  final reset returns to menu
-SKIP  editor / compiler workflow  -- manual
-SKIP  terminal escape sequences (full-screen editors)  -- manual
+      PASS  final reset returns to menu
+      SKIP  editor / compiler workflow  -- manual
+      SKIP  terminal escape sequences (full-screen editors)  -- manual
 
 ==== SUMMARY ====
-passed 36, failed 1, skipped(manual) 2
-  FAILED: unconfigured: a key after the Select error returns to a prompt (no endless loop) -- Bdos Err repeated 1 times in 4 s; reset needed
+passed 47, failed 1, skipped(manual) 2
+  FAILED: unconfigured: a key after the Select error returns to a prompt (no endless loop) -- no prompt; Bdos Err repeated 1 times in 4 s

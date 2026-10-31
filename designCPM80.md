@@ -1,337 +1,669 @@
 # CP/M-80 Machine Design
 
-## 1. Overview
+## 1. Purpose and scope
 
-This document defines the CP/M-80 guest machine hosted by the ESP32-S3 Retro Computer. It describes the architecture, guest-visible hardware interface, memory map, boot system, BIOS, disk formats, drive configuration, and console behavior in enough detail to reproduce or independently implement the machine.
+This document is the complete technical design of the CP/M-80 guest machine hosted by the
+ESP32-S3 Retro Computer. It defines the architecture, guest-visible hardware, memory map,
+boot system, BDOS/BIOS interface, I/O ports, disk formats, drive configuration, console
+contract, and the testing required to prove a correct implementation.
 
-The CP/M-80 implementation runs genuine CP/M 2.2 CCP and BDOS binaries on a Z80 CPU core. Firmware provides the BIOS and virtual drives; it does not substitute a host-side BDOS or present the host FAT filesystem as the guest filesystem.
+The implementation in `components/cpm80Core/`, `main/cpm80Machine.c`,
+`main/cpm80DriveConfig.c`, `main/cpm80Machine.h`, `main/cpm80DriveConfig.h`, and
+`components/cpm80Core/os/` is the normative reference. Where this document and the code
+appear to differ, the code is leading and this document must be corrected.
 
-The common host requirements are defined by [projectPrompt.md](./projectPrompt.md). This document covers the CP/M-80 machine-specific behavior. The implementation in `components/cpm80Core/`, `main/cpm80Machine.c`, `main/cpm80DriveConfig.c`, `guest/cpm80/`, and the associated build and test tools is the reference for existing behavior.
+A senior programmer who reads this document plus [projectPrompt.md](./projectPrompt.md)
+(common host services: menu, console, LittleFS, SD, image I/O, disk-activity LED) must be
+able to implement an equivalent emulator without further interview.
 
-## 2. Purpose and scope
+### Requirement levels
 
-CP/M-80 provides a Z80-based command-line computer for CP/M software development and execution. It is intended to run CP/M applications such as editors, assemblers, debuggers, utilities, and language tools against disk images with CP/M-compatible geometry.
+- **MUST** — mandatory; an implementation that violates it is non-conforming.
+- **SHOULD** — mandatory unless a documented, explicit deviation is accepted.
+- **MAY** — optional.
 
-The machine includes:
+## 2. Design goals
 
-- A Z80 CPU and 64 KiB address space.
-- Genuine CP/M 2.2 CCP and BDOS binaries.
-- A project BIOS that maps CP/M calls onto the common USB console and image-file I/O.
-- Up to six CP/M drives, A: through F:, with independent geometry, access mode, and image.
-- A: boot resources in LittleFS and optional data drives on the physical SD card.
+1. Execute genuine CP/M 2.2 CCP and BDOS binaries unmodified on a Z80 core inside the
+   64 KiB Z80 address space.
+2. Provide the BIOS as generated guest-resident code plus one virtual I/O port; the host
+   never substitutes its own BDOS and never presents the host FAT filesystem as a guest
+   filesystem.
+3. Support up to six CP/M drives (A:–F:) with independent image file, geometry profile and
+   access mode; A: boots from LittleFS, B:–F: from the SD card.
+4. Keep the CPU/BIOS logic free of ESP-IDF dependencies so it compiles and runs natively for
+   host-side testing; all filesystem, console and indicator ownership stays in the machine
+   adapter.
+5. Cooperate with FreeRTOS: bounded instruction batches and cooperative yields, so the
+   task scheduler and watchdog are serviced during guest execution.
+6. Reproducible media: every image the firmware accepts is produced by the checked-in host
+   tools with byte-deterministic output.
 
-The common host owns the menu, machine lifecycle, USB Serial/JTAG console, LittleFS, SD/FAT, virtual-image I/O, Wi-Fi, File Transfer web server, and shared disk-activity indicator. The CP/M machine owns its CPU and guest memory, CP/M system installation, BIOS state, and drive table. The CP/M machine does not start Wi-Fi or an HTTP server.
+Non-goals: cycle-accurate peripheral timing, physical printer/punch/reader devices,
+hardware interrupts, sector skew translation, archival floppy-format conversion, and
+terminal emulation inside the host console.
 
-The emulator and browser File Transfer service are mutually exclusive.
+## 3. Responsibility boundary
 
-## 3. Architecture and source boundaries
-
-```text
-Host menu
-  -> CP/M-80 resource probe
-  -> cpm80Machine
-       -> system-image and drives.cfg handling
-       -> imageFile random-access I/O
-       -> hostConsole
-  -> cpm80Guest
-       -> BIOS installation and BIOS-call dispatch
-       -> cpm80Cpu
-            -> pinned Z80 core
-       -> genuine CP/M 2.2 CCP and BDOS
-```
-
-| Subsystem | Implementation | Responsibility |
+| Layer | Owner | Provides |
 | --- | --- | --- |
-| Machine integration | `main/cpm80Machine.c` | Probe A:, open images, construct host callbacks, schedule the guest, and close resources. |
-| Drive configuration | `main/cpm80DriveConfig.c` and its header | Parse and validate `drives.cfg`; resolve the A: image profile. |
-| CPU adapter | `components/cpm80Core/cpm80Cpu.c` | Own 64 KiB guest memory, connect Z80 memory and I/O callbacks, and step the processor. |
-| Guest and BIOS | `components/cpm80Core/cpm80Guest.c` | Install CP/M memory structures and BIOS, dispatch BIOS calls, and run bounded instruction batches. |
-| Z80 core | `components/z80/` | Upstream `superzazu/z80` core pinned to commit `d64fe10a2274e5e40019b1086bf7d8990cbc5f23`, MIT license. |
-| CP/M operating system | `components/cpm80Core/os/` | CCP and BDOS sources/binaries from `brouhaha/cpm22`, pinned to commit `01018abbccce0bdf4874b0b2ed1a048c5fcc2987`. |
-| Image preparation | `tools/cpm80/buildDiskImageCpm80.py`, `tools/include/diskImageCpm.py`, `tools/cpm80/diskImageCpm80.py` | Build and manipulate raw CP/M images on a development computer. |
+| Menu, machine registry, probe states | common host | Selection, lifecycle scheduling |
+| USB Serial/JTAG byte-stream console | common host | `hostConsoleCharAvailable/GetChar/PutChar` |
+| LittleFS mount, SD/FatFS mount | common host | VFS paths |
+| Virtual image random access | common host | `imageOpen/imageReadAt/imageWriteAt/imageFlush/imageClose/imageSize`, `resourceSize` |
+| Disk-activity RGB indicator (GPIO 38) | common host | `diskActivityRead()` green, `diskActivityWrite()` red, off 120 ms after last activity |
+| Z80 core | `components/z80/` | Upstream instruction interpreter |
+| CPU adapter, guest, BIOS, drives | CP/M-80 machine | Everything below this line |
 
-Third-party source licenses do not determine distribution rights for separately obtained application programs. Retain provenance and rights information for every independently sourced CP/M application.
+The CP/M-80 machine MUST NOT start Wi-Fi or any HTTP server, MUST NOT open the console or
+mount filesystems itself, and MUST NOT be active at the same time as the browser File
+Transfer service (enforced by the common host menu).
 
-## 4. CPU and guest execution model
-
-### Z80 adapter
-
-The CPU adapter allocates exactly 65,536 bytes of zero-initialized guest memory. It connects the vendored Z80 core's byte-read and byte-write callbacks directly to that memory and connects 8-bit port input/output to the guest adapter. The adapter executes one Z80 instruction per `cpm80CpuStep`.
-
-Instances must be zero-initialized before `cpm80CpuInitialize` and released through `cpm80CpuDestroy`. Initialization rejects missing port callbacks and an already initialized instance. `cpm80CpuLoad` allows a bounded byte range; its range check prevents loading past the 64 KiB address space. Memory reads and writes are byte-addressed and accept the complete 16-bit address range.
-
-There is no implemented cycle-accurate peripheral timing model. The guest scheduler limits each run to a requested instruction budget. `cpm80GuestRunFor` invokes the cooperative host yield callback every 4096 executed instructions; the machine loop runs batches of 10,000 instructions and delays between batches to service the ESP-IDF task scheduler and watchdog.
-
-### Host callback contract
-
-`cpm80HostOps` supplies the guest with:
-
-- Console availability, input, and output.
-- Drive availability and each mounted drive's profile.
-- Reads and writes of exactly one 128-byte disk record.
-- A cooperative yield callback and caller-owned context pointer.
-
-The guest depends on these callbacks rather than on ESP-IDF APIs. This keeps the CPU and BIOS logic host-testable and leaves SD and console ownership with the common host.
-
-### Guest-visible monotonic timer
-
-`RETRO80_TIMER_B1` exposes the optional host millisecond callback through
-byte-wide Z80 `IN A,(n)` operations on ports F0h–F4h. F0h reports B1h when a
-callback is configured and 00h otherwise. F1h captures one unsigned 32-bit
-millisecond value and returns its low byte; F2h–F4h return the remaining
-little-endian bytes from that snapshot. Reading F0h or F2h–F4h does not sample
-the callback. With no callback, all four counter bytes are zero.
-
-The snapshot is guest-instance state. Cold boot clears it, while CP/M warm
-boot preserves it. Writes remain no-ops as in the existing CP/M-80 I/O adapter.
-The extension is not part of CP/M-80 or BDOS and does not affect the BIOS
-service port at FEh. Its capability byte is safe to check only on firmware
-that implements `RETRO80_TIMER_B1`.
-
-The ESP32 machine adapter supplies the monotonic source from ESP Timer. The
-portable CPU/guest code depends only on `hostReadMilliseconds`, so host tests
-can inject deterministic values. `assets/cpm80/BENCH80/` contains the Z80
-source and executable benchmark.
-
-## 5. Memory map and boot system
-
-### Guest address map
-
-| Address range | Guest contents |
-| --- | --- |
-| `$0000–$0002` | Page-zero `JP` to BIOS WBOOT at `$DA03`. |
-| `$0003` | I/O byte, initialized to zero. |
-| `$0004` | Current drive number; A: is zero. |
-| `$0005–$0007` | BDOS `JP` to `$CC06`. |
-| `$005C–$007F` | Standard default FCB area. |
-| `$0080–$00FF` | Default 128-byte DMA area. |
-| `$0100–$C3FF` | Transient program area. |
-| `$C400–$CBFF` | CCP image, 2,048 bytes. |
-| `$CC00–$D9FF` | BDOS image, 3,584 bytes. |
-| `$DA00–$DA32` | BIOS jump table: 17 three-byte entries. |
-| `$DA33–$DA87` | BIOS service stubs, five bytes each. |
-| `$DA90–$DA9F` | A: DPH. |
-| `$DAA0–$DAAE` | A: DPB. |
-| `$DAB0–$DB2F` | A: 128-byte directory buffer. |
-| `$DB30–$DB3F` | A: SYSTEM CSV area. |
-| `$DB40–$DB5E` | A: allocation vector area. |
-| `$DB60–$DF5F` | B:–E: per-drive BIOS table slots, `$0100` bytes each. |
-| `$DF60–$E05F` | F: BIOS table slot, including BIG allocation-vector space. |
-| `$E060–$E07F` | A: LARGE CSV area. |
-| `$E080–$E09E` | A: LARGE allocation-vector area. |
-
-The CCP and BDOS occupy the high-memory resident system area. Transient programs are loaded by the genuine CP/M BDOS into the TPA beginning at `$0100`. Page zero contains the conventional WBOOT and BDOS jump vectors and the current-drive byte.
-
-### LittleFS system image
-
-The raw system image is `/littlefs/cpm80/system.dsk`. The image begins with the CCP and BDOS binaries:
-
-| Image offset | Contents |
-| --- | --- |
-| `$0000–$07FF` | CCP, 2,048 bytes. |
-| `$0800–$15FF` | BDOS, 3,584 bytes. |
-| `$1600–$160F` | 16-byte `RETROCPM` system-image header. |
-
-The header is the eight ASCII bytes `RETROCPM`, version bytes `1,1`, followed by little-endian 16-bit addresses `$C400`, `$CC00`, and `$DA00`. The firmware checks the exact image size/profile and header before declaring the machine available. It reads the CCP and BDOS into guest-owned buffers during initialization. The BIOS is generated in guest memory and is not stored in the image.
-
-The boot image also contains CP/M directory entries and allocation blocks for `HELLO.COM`, `WELCOME.TXT`, and the installed utility set. Its directory begins after the two reserved tracks for the image profile.
-
-### Cold boot and warm boot
-
-Cold boot clears guest memory, installs the system binaries and BIOS, initializes page zero, resets console and disk state, and starts through BIOS BOOT before entering the CCP. The machine run loop starts with `cpm80GuestColdBoot`.
-
-Warm boot is a guest operation. The WBOOT service reinstalls the CCP, BDOS, BIOS, page-zero vectors, and default DMA state, preserves the current drive byte, and returns to CP/M command processing. It does not return to the host menu or reset the physical ESP32.
-
-## 6. BIOS and guest-visible I/O
-
-### BIOS call mechanism
-
-The BIOS jump table uses the CP/M 2.2 order:
-
-`BOOT`, `WBOOT`, `CONST`, `CONIN`, `CONOUT`, `LIST`, `PUNCH`, `READER`, `HOME`, `SELDSK`, `SETTRK`, `SETSEC`, `SETDMA`, `READ`, `WRITE`, `LISTST`, `SECTRAN`.
-
-Each table entry jumps to a five-byte guest stub. The stub loads its BIOS function index into register A, executes `OUT ($FE),A`, then returns. Port `$FE` is a project-defined virtual BIOS callback, not a physical ESP32 peripheral. The port callback dispatches the requested BIOS service against guest registers and per-instance state.
-
-### BIOS function behavior
-
-| BIOS function | Implemented behavior |
-| --- | --- |
-| `BOOT` | Cold-start the CP/M system in guest memory. |
-| `WBOOT` | Reinstall the CP/M system and restart at the CCP. |
-| `CONST` | Nonblocking console status: return `$FF` in A if a character is available, otherwise zero. A pending character is retained for `CONIN`. |
-| `CONIN` | Return one input character in A. If none is available, keep the guest at the `CONIN` stub, yield to the host, and retry. |
-| `CONOUT` | Send the low byte of register C to the common USB console. |
-| `LIST` | Deterministic no-op; no physical printer is implemented. |
-| `PUNCH` | Deterministic no-op; no physical punch device is implemented. |
-| `READER` | Return `$1A` in A (CP/M end-of-file). |
-| `HOME` | Set the current track to zero. |
-| `SELDSK` | Select an available drive and return its DPH address in HL. For an unavailable or out-of-range drive, return a null DPH and do not alias A:. |
-| `SETTRK` | Set current track from BC. |
-| `SETSEC` | Set current sector from BC. |
-| `SETDMA` | Set the guest DMA address from BC. |
-| `READ` | Read one 128-byte record into the DMA buffer. Return A=0 on success, A=1 on invalid position, invalid DMA range, or host read failure. |
-| `WRITE` | Write one 128-byte record from the DMA buffer. Return A=0 on success and A=1 on invalid position, invalid DMA range, read-only drive, or host write failure. |
-| `LISTST` | Return zero in A; no printer status is available. |
-| `SECTRAN` | Identity translation: return BC unchanged in HL. |
-
-Disk track and sector numbers are zero-based. The byte offset of a record is:
+## 4. Architecture and module boundaries
 
 ```text
-recordOffset = ((track * sectorsPerTrack) + sector) * 128
+machine registry (main/machineRegistry.c)
+  -> cpm80MachineProbe / cpm80MachineInitialize / cpm80MachineRun   main/cpm80Machine.c
+       -> cpm80DriveConfigLoad / profile resolution                 main/cpm80DriveConfig.c
+       -> imageFile random-access I/O + diskActivity                (common host)
+       -> hostConsole                                               (common host)
+       -> cpm80Guest                                                components/cpm80Core/cpm80Guest.c
+            -> cpm80Cpu                                              components/cpm80Core/cpm80Cpu.c
+                 -> z80 core                                         components/z80/
+            -> genuine CP/M 2.2 CCP ($C400) and BDOS ($CC00)
 ```
 
-The guest checks track, sector, drive, and DMA bounds before accessing the host callback. The machine maps each record operation to random-access image I/O and flushes each successful record write. Each drive has its own DPH, DPB, directory buffer, CSV/ALV storage, profile, image handle, and read-only setting. Successful record reads and writes signal the shared disk-activity indicator.
+| Module | Responsibility |
+| --- | --- |
+| `main/cpm80Machine.c` | Registry callbacks; open/close images; build `cpm80HostOps`; run batches; log diagnostics. |
+| `main/cpm80DriveConfig.c/.h` | Parse and validate `drives.cfg`; resolve the A: profile from image size. |
+| `components/cpm80Core/cpm80Cpu.c` | Own the 64 KiB byte-addressed guest memory; wire Z80 memory/port callbacks; single-instruction step. |
+| `components/cpm80Core/cpm80Guest.c` | Install CCP/BDOS/BIOS/page-zero; dispatch BIOS calls; serve the timer ports; run bounded instruction batches. |
+| `components/cpm80Core/os/` | Checked-in CCP/BDOS sources and 64 KiB binary outputs, utilities, licenses. |
 
-### DPH and DPB structures
+The CPU and guest modules MUST NOT include ESP-IDF headers except through the one
+conditional allocation block described in §6, and MUST NOT call filesystem or console APIs
+directly — only through `cpm80HostOps`.
 
-Each Disk Parameter Header (DPH) has no translation table and points to its own directory buffer, Disk Parameter Block (DPB), checksum vector (CSV), and allocation vector (ALV).
+## 5. Third-party dependencies
 
-- A: DPH is at `$DA90`; DPB at `$DAA0`; directory buffer at `$DAB0`.
-- B: through F: DPH addresses are `$DB60`, `$DC60`, `$DD60`, `$DE60`, and `$DF60`.
-- For B:–F:, DPB, directory buffer, CSV, and ALV are at offsets `$10`, `$20`, `$A0`, and `$C0` from the drive's DPH slot.
-- SYSTEM/LARGE CSV sizes are 16/32 bytes; their ALVs occupy 31 bytes.
-- BIG has no CSV and uses a 64-byte ALV.
-- A: LARGE table storage is moved to `$E060` and `$E080` because the normal A: SYSTEM locations are too small.
+| Component | Provenance | Use |
+| --- | --- | --- |
+| Z80 core | `superzazu/z80`, pinned commit `d64fe10a2274e5e40019b1086bf7d8990cbc5f23`, MIT, vendored as `components/z80/` (`z80.c`, `z80.h`). | Instruction interpreter. |
+| CP/M 2.2 CCP/BDOS | `brouhaha/cpm22`, pinned commit `01018abbccce0bdf4874b0b2ed1a048c5fcc2987`, sources `ccp.asm`/`bdos.asm` plus checked-in outputs `ccp-64k.bin` (2,048 bytes, loads at `$C400`) and `bdos-64k.bin` (3,584 bytes, loads at `$CC00`), `components/cpm80Core/os/`. | Genuine guest operating system. |
 
-The firmware constructs these in-memory CP/M structures from the mounted profile at boot. Their DPB fields are listed with the disk profiles below.
+Licenses and provenance records MUST be retained in-tree. Distribution rights for
+separately obtained CP/M applications are tracked independently of these licenses.
 
-## 7. Disk profiles and drive configuration
+## 6. CPU adapter (`cpm80Cpu`)
 
-### Supported profiles
+Exact interface (see `include/cpm80Cpu.h`):
 
-Every image contains 128-byte records. Image geometry is raw, identity-ordered CP/M records; the firmware does not perform sector skew translation.
+```c
+enum { cpm80MemorySize = 65536 };
 
-| Profile | Image size | Geometry | Reserved tracks | Block size | Directory entries | DPB: `SPT, BSH, BLM, EXM, DSM, DRM, AL0, AL1, CKS, OFF` |
+typedef uint8_t (*cpm80PortInput)(void *context, uint8_t port);
+typedef void (*cpm80PortOutput)(void *context, uint8_t port, uint8_t value);
+
+bool cpm80CpuInitialize(cpm80Cpu *cpu, cpm80PortInput portInput,
+                        cpm80PortOutput portOutput, void *portContext);
+void cpm80CpuDestroy(cpm80Cpu *cpu);
+bool cpm80CpuLoad(cpm80Cpu *cpu, uint16_t address, const uint8_t *data, size_t length);
+bool cpm80CpuReadMemory(const cpm80Cpu *cpu, uint16_t address, uint8_t *value);
+bool cpm80CpuWriteMemory(cpm80Cpu *cpu, uint16_t address, uint8_t value);
+bool cpm80CpuStep(cpm80Cpu *cpu);
+```
+
+Requirements:
+
+1. Allocate exactly 65,536 zero-initialized bytes for guest memory. On ESP-IDF targets
+   allocate PSRAM first (`MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT`), falling back to internal
+   RAM; on the native host use `calloc`. A static assertion MUST enforce
+   `cpm80MemorySize == UINT16_MAX + 1`.
+2. Connect the Z80 core's `read_byte`/`write_byte` callbacks directly to that array
+   (byte-addressed, full 16-bit range, no mirroring, no ROM regions) and `port_in`/`port_out`
+   to the caller's callbacks with the caller's context pointer.
+3. `cpm80CpuInitialize` MUST reject `NULL` cpu/port callbacks, an already-initialized
+   instance, or a non-`NULL` memory pointer. Instances MUST be zero-initialized before
+   first use and destroyed before re-initialization.
+4. `cpm80CpuLoad` MUST reject `NULL` data with nonzero length and any range that would
+   cross the end of the 64 KiB space (`length > cpm80MemorySize - address`).
+5. `cpm80CpuStep` executes exactly one Z80 instruction and fails on a `NULL` or
+   uninitialized instance.
+6. `cpm80CpuDestroy` frees the memory and zeroes the structure so it can be initialized
+   again.
+
+## 7. Guest model (`cpm80Guest`)
+
+Guest state (see `include/cpm80Guest.h`) holds: the `cpm80Cpu`, a copy of the
+`cpm80HostOps`, private copies of the CCP image (2,048 B) and BDOS image (3,584 B),
+`currentTrack`, `currentSector`, `dmaAddress`, per-drive `diskProfiles[6]`,
+`selectedDrive`, one buffered console character plus availability flag, a
+`skipLineFeed` state bit, a `millisecondsSnapshot` timer latch, and an `initialized` flag.
+
+Initialization contract — `cpm80GuestInitialize(guest, host, ccpImage, bdosImage)`:
+
+1. Reject (`cpm80GuestInitInvalidArg`) `NULL` guest/host/images, any `NULL` required
+   `cpm80HostOps` callback (`consoleAvailable`, `consoleRead`, `consoleWrite`,
+   `diskDriveAvailable`, `diskDriveProfile`, `diskReadRecord`, `diskWriteRecord`, `yield`),
+   an already-initialized guest, or a guest with non-`NULL` CPU memory.
+2. For every drive the host reports available, obtain its profile; an out-of-range profile
+   value fails the whole initialization as `cpm80GuestInitConfig` (zeroing the guest).
+3. Copy the CCP and BDOS images into guest-owned buffers; the originals may then be freed
+   by the caller.
+4. Initialize the CPU; on allocation failure return `cpm80GuestInitNoMem` (zeroing the
+   guest). A distinct `cpm80GuestInitResult` per cause lets the caller report the right
+   problem.
+5. Install the full system (memory image + BIOS) and enter the initialized state.
+   The drive profiles are sampled once at initialization; they MUST NOT change while the
+   guest runs.
+
+`cpm80GuestDestroy` destroys the CPU and zeroes the guest.
+
+## 8. Host callback contract (`cpm80HostOps`)
+
+```c
+typedef struct
+{
+  bool (*consoleAvailable)(void *context);
+  //-- <0 when none 
+  int (*consoleRead)(void *context);                 
+  void (*consoleWrite)(void *context, uint8_t character);
+  bool (*diskDriveAvailable)(void *context, uint8_t drive);
+  bool (*diskDriveProfile)(void *context, uint8_t drive, cpm80DiskProfile *profile);
+  bool (*diskReadRecord)(void *context, uint8_t drive, uint16_t track, uint16_t sector,
+                         uint8_t record[128]);
+  bool (*diskWriteRecord)(void *context, uint8_t drive, uint16_t track, uint16_t sector,
+                          const uint8_t record[128]);
+  void (*yield)(void *context);
+  void *context;
+  //-- optional; NULL disables timer 
+  hostReadMilliseconds readMilliseconds;             
+  void *clockContext;
+} cpm80HostOps;
+```
+
+Rules:
+
+- All guest services flow through these callbacks; the guest never touches ESP-IDF,
+  FatFS or LittleFS directly. This is what makes the core host-testable.
+- `consoleRead` returns a byte 0–255, or a negative value when no character is available.
+- Record callbacks transport exactly one 128-byte record per call.
+- `yield` is called cooperatively (§10) and MUST return.
+- `readMilliseconds(clockContext)` returns an unsigned 32-bit monotonically increasing
+  millisecond count; the machine adapter supplies it from the ESP timer (µs / 1000).
+
+## 9. Execution model
+
+- One executed Z80 instruction per `cpm80CpuStep`. `cpm80GuestStep` refuses to step a
+  halted processor.
+- `cpm80GuestRunFor(guest, budget)` executes at most `budget` instructions, calling the
+  host `yield` callback every 4096 executed instructions (`(instructions & 0xFFF) == 0`),
+  and returns the number actually executed. It stops early when the CPU halts.
+- The machine run loop starts the guest with `cpm80GuestColdBoot` and then runs batches of
+  10,000 instructions with a FreeRTOS tick delay (`vTaskDelay(1)`) between batches, so the
+  IDLE task and watchdog are serviced. When a batch returns 0 instructions (halted), the
+  loop exits, the guest is destroyed, all images are closed, and control returns to the
+  common host. Physical RESET always returns to the main menu (common host rule).
+- The Z80 never receives interrupts: `int_pending`, `nmi_pending`, `iff1`, `iff2` and the
+  interrupt mode are held at their reset values. CP/M 2.2 is interrupt-free, so no
+  interrupt controller is modelled.
+- There is no cycle-accurate timing model. The Z80 cycle counter is maintained by the core
+  but no peripheral depends on it.
+
+## 10. Guest memory map
+
+| Address range | Contents | Installed by |
+| --- | --- | --- |
+| `$0000–$0002` | `JP $DA03` (BIOS WBOOT entry) — opcode `C3` + little-endian target. | `installSystem` |
+| `$0003` | Console I/O byte, initialized `00`. | `installSystem` |
+| `$0004` | Current drive number, A: = 0. | `installSystem` (preserved on warm boot) |
+| `$0005–$0007` | `JP $CC06` (BDOS entry). | `installSystem` |
+| `$0008–$005B` | Zero. `$0008` is the RST $08 debug trap (left empty). | zero fill |
+| `$005C–$007F` | Default FCB (BDOS convention, zeroed). | zero fill |
+| `$0080–$00FF` | Default 128-byte DMA buffer; default `dmaAddress = $0080`. Also the CCP stack region (`SP` starts at `$0100`). | zero fill / guest state |
+| `$0100–$C3FF` | Transient program area (TPA). | guest BDOS |
+| `$C400–$CBFF` | CCP image, 2,048 bytes. | private CCP copy |
+| `$CC00–$D9FF` | BDOS image, 3,584 bytes; entry point `$CC06` (image base + 6). | private BDOS copy |
+| `$DA00–$DA32` | BIOS jump table: 17 × 3-byte `JP` entries. | `installBios` |
+| `$DA33–$DA87` | BIOS service stubs: 17 × 5-byte stubs. | `installBios` |
+| `$DA90–$DA9F` | A: DPH (16 bytes). | `installBios` |
+| `$DAA0–$DAAF` | A: DPB (16 bytes). | `installBios` |
+| `$DAB0–$DB2F` | A: 128-byte directory buffer. | `installBios` |
+| `$DB30–$DB3F` | A: SYSTEM CSV (16 bytes). | `installBios` |
+| `$DB40–$DB5E` | A: SYSTEM ALV (31 bytes). | `installBios` |
+| `$DB60–$DB6F` … per drive | B::`$DB60`, C::`$DC60`, D::`$DD60`, E::`$DE60` drive table slots, `$0100` bytes each. | `installBios` |
+| `$DF60–$E05F` | F: drive table slot (includes BIG ALV up to `$E05F`). | `installBios` |
+| `$E060–$E06F` | A: CSV when A: runs the LARGE profile (32 bytes) — the SYSTEM-sized A: slots are too small. | `installBios` |
+| `$E080–$E09E` | A: ALV when A: runs the LARGE profile (31 bytes). | `installBios` |
+
+All other addresses are ordinary RAM. Memory is a single flat byte array: ROM/RAM
+distinction, write protection and banking are not implemented and not required.
+
+## 11. System image format (A:)
+
+`/littlefs/cpm80/system.dsk` is a raw CP/M disk image whose first 5,648 bytes have a fixed
+layout:
+
+| Image offset | Size | Contents |
+| --- | ---: | --- |
+| `$0000` | 2,048 | CCP binary (identical to `ccp-64k.bin`). |
+| `$0800` | 3,584 | BDOS binary (identical to `bdos-64k.bin`). |
+| `$1600` | 16 | `RETROCPM` resource header. |
+
+Header bytes (16, exact): `R E T R O C P M` then `01 01`, then three little-endian
+16-bit words `C400`, `CC00`, `DA00` (the guest load addresses). The remaining tracks
+contain the CP/M directory (after the 2 reserved tracks of the profile) and file
+allocations for the bundled software (§17). The BIOS is generated in guest memory at every
+boot and MUST NOT be stored in the image.
+
+Two A: profiles are bootable, distinguished by exact file size only:
+
+| Profile | Exact image size |
+| --- | ---: |
+| SYSTEM | 256,256 bytes |
+| LARGE | 512,512 bytes |
+
+An A: image of any other size is invalid. The header is validated before every boot.
+
+## 12. Boot specification
+
+### 12.1 Cold boot
+
+`cpm80GuestColdBoot` clears `millisecondsSnapshot`, resets the processor to
+PC = `$DA00`, SP = `$0100`, all other registers and latches zero, `halted = false`. The
+first executed instruction is the BIOS `BOOT` jump, which dispatches through port `$FE`
+into `installSystem(cold = true)`:
+
+1. Zero the entire 64 KiB.
+2. Copy the private CCP image to `$C400` and BDOS image to `$CC00`.
+3. Install the BIOS (§13): jump table, stubs, and all six drive DPH/DPB/CSV/ALV structures.
+4. Install page zero: `JP $DA03` at `$0000`, I/O byte `00` at `$0003`, drive byte at
+   `$0004` (forced 0 on cold boot), `JP $CC06` at `$0005`.
+5. Reset guest state: `selectedDrive = 0`, `currentTrack = 0`, `currentSector = 0`,
+   `dmaAddress = $0080`, and (cold boot only) clear the buffered console character, the
+   `skipLineFeed` bit and the timer snapshot.
+6. Reset the processor to PC = `$C400` (CCP entry) with C = current drive (the CCP reads
+   the default drive from C), SP = `$0100`.
+
+### 12.2 Warm boot (WBOOT)
+
+The guest calls WBOOT (directly, or `JP $0000`, or Ctrl-C exit to command level). The host
+performs the same install with `cold = false` with these differences:
+
+1. Only `$0000–$00FF` is re-zeroed; TPA and the timer snapshot survive.
+2. The current drive byte at `$0004` is preserved and reinstalled.
+3. `selectedDrive`, `currentTrack`, `currentSector` and `dmaAddress` are reset as above;
+   console buffering and `skipLineFeed` are NOT cleared.
+
+Warm boot returns control to CP/M command processing; it MUST NOT touch the host menu or
+the physical ESP32.
+
+## 13. BIOS specification
+
+### 13.1 Call mechanism
+
+17 jump-table entries at `$DA00 + 3·n` contain `C3 lo hi` pointing to a 5-byte stub at
+`$DA33 + 5·n`:
+
+```text
+3E nn     LD  A,nn      ; BIOS function index
+D3 FE     OUT ($FE),A   ; virtual BIOS service port
+C9        RET
+```
+
+Port `$FE` is project-defined; it is not physical hardware. A write to `$FE` dispatches on
+the value (function index) against Z80 registers and guest state. Function order is the
+CP/M 2.2 BIOS order:
+
+| n | Name | n | Name |
+| --- | --- | --- | --- |
+| 0 | BOOT | 9 | SELDSK |
+| 1 | WBOOT | 10 | SETTRK |
+| 2 | CONST | 11 | SETSEC |
+| 3 | CONIN | 12 | SETDMA |
+| 4 | CONOUT | 13 | READ |
+| 5 | LIST | 14 | WRITE |
+| 6 | PUNCH | 15 | LISTST |
+| 7 | READER | 16 | SECTRAN |
+| 8 | HOME | | |
+
+A write to `$FE` with a value ≥ 17 (unreachable through stubs, reachable by guest `OUT`)
+MUST stop the guest: set PC = 0 and `halted = true`.
+
+### 13.2 Function semantics
+
+| Function | Contract |
+| --- | --- |
+| BOOT | `installSystem(cold)`. |
+| WBOOT | `installSystem(warm)` per §12.2. |
+| CONST | If no character is buffered, pull one from the host console through the input conversion of §16 and buffer it. Return A = `$FF` if a character is (now) available, else A = 0. A buffered character survives for CONIN. |
+| CONIN | If a character is buffered, return it in A and clear the buffer. Otherwise set PC back to the CONIN stub (so the stub re-executes) and call the host `yield` — a cooperative wait loop. |
+| CONOUT | Send the low byte of register C to `consoleWrite`. |
+| LIST | No-op (no printer). |
+| PUNCH | No-op (no punch). |
+| READER | Return A = `$1A` (CP/M EOF). |
+| HOME | Set `currentTrack = 0` (sector unchanged). |
+| SELDSK | If C < 6 and `diskDriveAvailable(C)`: `selectedDrive = C`, return HL = that drive's DPH address (§14.2). Otherwise return HL = 0 and leave `selectedDrive` unchanged. HL = 0 is the CP/M "bad drive" indication; the genuine BDOS reports its fatal drive error and must NOT alias to A:. |
+| SETTRK | `currentTrack = BC`. |
+| SETSEC | `currentSector = BC`. |
+| SETDMA | `dmaAddress = BC`. |
+| READ | Validate position and DMA (§15.3), read one 128-byte record via `diskReadRecord`, copy it to `memory + dmaAddress`, return A = 0. On any failure return A = 1 and leave the buffer untouched. |
+| WRITE | Validate position and DMA, write 128 bytes from `memory + dmaAddress` via `diskWriteRecord`, return A = 0; on any failure (including host-reported read-only or I/O error) A = 1. |
+| LISTST | Return A = 0 (printer never ready). |
+| SECTRAN | Return HL = BC (identity sector translation). |
+
+### 13.3 DPH and DPB byte layout
+
+Each DPH is 16 bytes, zeroed then filled:
+
+| DPH offset | Field |
+| --- | --- |
+| `$00–$07` | Zero (no offset, no allocation vector, no translation table). |
+| `$08` | Directory buffer address (word). |
+| `$0A` | DPB address (word). |
+| `$0C` | CSV (checksum vector) address (word). |
+| `$0E` | ALV (allocation vector) address (word). |
+
+Each DPB is 16 bytes:
+
+| DPB offset | Field | Encoding |
+| --- | --- | --- |
+| `$00` | SPT | word — 128-byte records per track |
+| `$02` | BSH | byte — block shift factor |
+| `$03` | BLM | byte — block mask |
+| `$04` | EXM | byte — extent mask |
+| `$05` | DSM | word — highest block number |
+| `$07` | DRM | word — highest directory entry number |
+| `$09` | AL0 | byte — directory block reservation, low |
+| `$0A` | AL1 | byte |
+| `$0B` | CKS | word — checksum vector size |
+| `$0D` | OFF | word — reserved-track offset |
+
+Addresses (all values fixed, from §10): A: DPH `$DA90`, DPB `$DAA0`, directory buffer
+`$DAB0`, CSV `$DB30`, ALV `$DB40`; A: LARGE overrides CSV `$E060`, ALV `$E080`. Drives
+B:–F: DPH at `$DB60 + 0x100·(drive−1)`, with DPB at +`$10`, directory buffer at +`$20`,
+CSV at +`$A0`, ALV at +`$C0` relative to their DPH. Every directory buffer is 128 bytes.
+CSV sizes: SYSTEM 16, LARGE 32, BIG 0 (CKS = 0). ALV sizes: SYSTEM/LARGE 31, BIG 64.
+`installBios` zeroes the DPH, directory buffer, CSV and ALV of every drive at install.
+
+## 14. Disk subsystem
+
+### 14.1 Profiles
+
+Images are raw, identity-ordered sequences of 128-byte records:
+
+```text
+//-- (track, sector zero-based)
+recordOffset = ((track · sectorsPerTrack) + sector) · 128 
+```
+
+| Profile | Image size | Geometry (tracks × records/track) | Reserved tracks | Block size | Dir entries | DPB SPT,BSH,BLM,EXM,DSM,DRM,AL0,AL1,CKS,OFF |
 | --- | ---: | --- | ---: | ---: | ---: | --- |
-| SYSTEM | 256,256 bytes | 77 tracks × 26 records/track | 2 | 1 KiB | 64 | `26, 3, 7, 0, 242, 63, $C0, 0, 16, 2` |
-| LARGE | 512,512 bytes | 77 tracks × 52 records/track | 2 | 2 KiB | 128 | `52, 4, 15, 0, 242, 127, $C0, 0, 32, 2` |
-| BIG | 8,421,376 bytes | 514 tracks × 128 records/track | 2 | 16 KiB | 512 | `128, 7, 127, 7, 511, 511, $80, 0, 0, 2` |
+| SYSTEM | 256,256 | 77 × 26 | 2 | 1 KiB | 64 | `26, 3, 7, 0, 242, 63, $C0, 0, 16, 2` |
+| LARGE | 512,512 | 77 × 52 | 2 | 2 KiB | 128 | `52, 4, 15, 0, 242, 127, $C0, 0, 32, 2` |
+| BIG | 8,421,376 | 514 × 128 | 2 | 16 KiB | 512 | `128, 7, 127, 7, 511, 511, $80, 0, 0, 2` |
 
-Field meanings follow the CP/M DPB convention: SPT is 128-byte records per track; BSH and BLM define allocation-block addressing; EXM defines extent mask; DSM is the highest allocation-block number; DRM is the highest directory-entry number; AL0/AL1 reserve directory blocks; CKS is the directory checksum-vector size; OFF is the number of reserved tracks.
+The profile geometry/DPB values above are the single source of truth (mirrored as named
+constants in `cpm80Guest.h`/`cpm80Guest.c`, e.g. `cpm80BigImageSize = 8421376`,
+`cpm80BigVirtualDpbExm = 7`). Identity SECTRAN means the image byte order equals the
+CP/M logical record order; no skew is applied anywhere.
 
-SYSTEM, LARGE, and BIG are supported for B:–F:. A: supports SYSTEM or LARGE, never BIG. The default A: entry specifies SYSTEM with profile detection by exact image size, so either the 256,256-byte SYSTEM image or the 512,512-byte LARGE image can boot. An explicit A: LARGE profile requires the LARGE image size. Data drives must match the exact size of their declared profile. Firmware does not format images and does not validate all guest directory/allocation structures when mounting them.
+### 14.2 Per-drive state
 
-### Drive mapping
+Each drive has its own DPH/DPB/CSV/ALV (§13.3), profile (sampled at guest initialization),
+open image handle and read-only flag, all owned by the machine adapter. Guest-side disk
+state (`selectedDrive`, `currentTrack`, `currentSector`, `dmaAddress`) is per guest
+instance, not per drive; BDOS sets position through SETTRK/SETSEC before each READ/WRITE.
 
-The CP/M drive table exposes A: through F:. A: is the LittleFS system image and defaults to read-only; its configured RO/RW mode is honored. B:–F: are optional SD images. The checked-in mapping is:
+### 14.3 Validation rules
 
-```text
-A=/littlefs/cpm80/system.dsk,RO,SYSTEM
-B=/retro/images/cpm80/work1.dsk,RW,LARGE
-C=/retro/images/cpm80/work2.dsk,RW,BIG
-D=/retro/images/cpm80/languages.dsk,RW,BIG
-E=/retro/images/cpm80/Utility.dsk,RW,LARGE
-```
+The guest MUST reject a record access before calling the host when any of:
 
-The configuration file is `/littlefs/cpm80/drives.cfg`. Each non-comment line has the form:
+- `selectedDrive` ≥ 6,
+- `currentTrack` ≥ profile track count,
+- `currentSector` ≥ profile records-per-track,
+- `dmaAddress > $FF80` (i.e. the 128-byte buffer would cross `$FFFF`).
+
+The machine adapter MUST re-validate drive, track and sector against the mounted profile,
+map `(track, sector)` through §14.1 to a file offset, signal the disk-activity indicator
+(green read / red write), and use bounded random-access I/O only. A write is durable only
+after a successful `imageFlush` of that image; `diskWriteRecord` returns success only when
+both the write and the flush succeed. Record sizes are exactly 128 bytes end to end.
+
+## 15. BDOS interface
+
+The BDOS is the genuine CP/M 2.2 binary at `$CC00`; its entry point is `$CC06`, reached
+through the page-zero vector. Transient programs call it with the CP/M convention:
+`LD C,fn` / `LD DE,param` / `CALL 5`. All CP/M 2.2 documented functions (0–`$0D`: system
+reset … process terminal EOF-style output; `$0E–$13`: select disk, read/write/open/close/
+first/next search, delete, read/write random, login/logoff vector, random record read/write,
+reset read-only; `$14–$23`: delete file, read/write sequential, reset directory, open file
+create, rename, login vector, random block read/write, DRM select, allocate, guest jump,
+parse FCB, rename FCB; `$24–$27`: random read with zero fill, write and extend; plus the
+vendor-assignable range `$28–$3F` unused by this BIOS) behave exactly as implemented by the
+upstream binary. The machine adds no BDOS emulation of its own. CP/M 2.2 fatal-error
+behavior (e.g. BDOS error 04 on a null DPH from SELDSK) is produced by the genuine BDOS.
+
+## 16. Console contract
+
+The USB console is a byte-stream transport; the host MUST NOT interpret or generate
+VT100/ANSI. The intended terminal personality is 80×24 VT100/ANSI, default workflow
+Minicom on macOS. Guest output bytes are forwarded verbatim to `consoleWrite`.
+
+Input conversion inside the guest (between `consoleRead` and the CP/M-visible character):
+
+1. A returned CR is delivered as CR and sets `skipLineFeed`; an immediately following LF
+   is suppressed (CR+LF delivers one CR).
+2. A lone LF is delivered as CR.
+3. The delivered character is masked to 7-bit ASCII (`& $7F`).
+4. A negative `consoleRead` result means "none available".
+5. CONST/CONIN share exactly one buffered character (§13.2).
+
+Diagnostics/logging MUST NOT inject bytes into the guest console stream while the guest
+runs.
+
+## 17. A: system image contents
+
+The generated `system.dsk` MUST contain, as CP/M directory entries and allocations:
+
+- `HELLO.COM` — transient-program and warm-boot exercise.
+- `WELCOME.TXT` — `TYPE` fixture.
+- The utility set: `ASM.COM`, `DDT.COM`, `DUMP.COM`, `ED.COM`, `HELP.COM`, `HELP.HLP`,
+  `LIB.COM`, `LINK.COM`, `LOAD.COM`, `MAC.COM`, `PIP.COM`, `RMAC.COM`, `STAT.COM`,
+  `SUBMIT.COM`, `XREF.COM`, `XSUB.COM`, `ZSID.COM` (provenance and use scope in
+  `components/cpm80Core/os/utilities/README.md`).
+
+`DIR`, `ERA`, `REN`, `TYPE`, `USER` are resident CCP commands, not files. `SUBMIT`
+requires a writable A: (it writes `$$$.SUB`).
+
+## 18. Drive configuration (`drives.cfg`)
+
+Path: `/littlefs/cpm80/drives.cfg`. Grammar, per non-comment line:
 
 ```text
 drive=/path/to/image,RO|RW,SYSTEM|LARGE|BIG
 ```
 
-The parser accepts A:–F:, blank lines, lines beginning with `#`, and spaces or tabs surrounding fields. It rejects duplicate drive entries, unknown drives, unsupported profiles or modes, malformed or overlong lines, control characters, and unsafe paths. Paths must not contain traversal, repeated separators, backslashes, or path components `.` and `..`.
+Parser requirements (see `main/cpm80DriveConfig.c`):
 
-- A: must use a LittleFS path under `/littlefs/cpm80/` and cannot use BIG. Its configured RO/RW mode is honored.
-- B:–F: must use the SD namespace `/retro/images/cpm80/`; the machine layer maps that namespace to the `/microSD` VFS mount.
-- If the configuration is missing, only the built-in A: system image is configured.
-- If any configuration content is invalid, the whole file is rejected and the built-in A:-only table is restored; valid partial entries are not retained.
-- Optional drives are mounted only when configured, present, exactly the declared size, and openable with the requested access mode. A missing or invalid optional image remains unavailable to CP/M.
-- The machine probe validates A:'s supported size and `RETROCPM` header. It does not validate the contents of optional drive directories.
+- Blank lines and lines whose first non-blank character is `#` are comments. Spaces and
+  tabs around fields are trimmed; trailing CR/LF is trimmed. Lines of 255 characters or
+  more are rejected.
+- Exactly one `=`; the drive name is one character `A`–`F` (case-sensitive uppercase);
+  duplicates are rejected. The value is three comma-separated fields: path, mode
+  (`RO`/`RW` exactly), profile (`SYSTEM`/`LARGE`/`BIG` exactly); a comma inside the
+  profile name is rejected; an empty path is rejected.
+- A: (`drive == A`) MUST name a LittleFS path under `/littlefs/cpm80/` and MUST NOT use
+  BIG; its RO/RW mode is honored. B:–F: MUST name paths in the SD namespace
+  `/retro/images/cpm80/`; the parser prefixes the stored path with `/microSD` to reach the
+  VFS mount.
+- Path safety (all drives): reject anything not starting with the required prefix, an
+  empty name after the prefix, a trailing `/`, `//`, `/./`, `/../`, a final component `.`
+  or `..`, backslashes, and any control character (< `$20` or `$7F`). Stored paths are
+  limited to 192 bytes.
+- Outcomes (`cpm80DriveConfigResult`): file missing → `Missing`, keep the built-in
+  default table; any malformed line, over-long line or read error → `Invalid`, the whole
+  file is discarded (partial entries are not kept) and the default table restored. A
+  caller-visible error string identifies the failing line number.
+- Built-in default table: A: = `/littlefs/cpm80/system.dsk`, RO, SYSTEM with
+  size-detection enabled; B:–F: unconfigured.
+- A: profile resolution (`cpm80DriveConfigResolveSystemProfile`): the effective profile
+  comes from the exact image size (256,256 → SYSTEM, 512,512 → LARGE). When
+  `drives.cfg` declares SYSTEM (or the default table is used), either size is accepted.
+  An explicit `LARGE` on A: requires exactly 512,512 bytes. Any other size → A: is not
+  mounted.
+- Optional drives B:–F: mount only when configured, present, exactly the declared profile
+  size, and openable with the requested access mode. A missing/mis-sized/unopenable
+  optional image is simply absent to CP/M (SELDSK returns 0); it MUST NOT redirect to
+  another drive.
+- The `RO` flag governs emulator access to the image only. Editing images while the
+  emulator is stopped is a common-host (Disk Image Manager) responsibility.
 
-Manager edits to SD images do not alter this mapping. The `RO` flag governs the emulator's access to the image; it does not prevent the separate File Transfer manager from modifying the image while the emulator is stopped.
+## 19. Machine lifecycle integration
 
-## 8. Console and terminal contract
+Registry entry (in `main/machineRegistry.c`): display name `CP/M-80`, id `cpm80`, design
+document `designCPM80.md`, implemented, SD not required for availability, resource
+manifest entry for `/littlefs/cpm80/system.dsk`.
 
-The USB Serial/JTAG console is a byte-stream transport. It does not interpret VT100/ANSI, render terminal graphics, or generate terminal sequences on behalf of the guest. Applications emit control bytes and the connected terminal interprets them. The default terminal personality is VT100/ANSI at 80 columns by 24 rows; Minicom on macOS is the documented default workflow.
+### 19.1 Probe (`cpm80MachineProbe`)
 
-CP/M input conversion:
+Fast, non-booting, never leaves files open:
 
-- LF is converted to CR.
-- CR is returned as CR, and a following LF is suppressed so CR+LF is one guest CR.
-- Input is masked to 7-bit ASCII.
-- `CONST` may buffer one character until `CONIN` consumes it.
+1. Load `drives.cfg` (log missing/invalid; fall back to defaults).
+2. Open the A: image with its configured mode. Open failure: file exists →
+   `machineResourceInvalid`; file absent → `machineMissingResource`.
+3. Resolve the A: profile by size; check the exact 16-byte `RETROCPM` header at `$1600`.
+   Failure → `machineResourceInvalid` (with a specific log message).
+4. Close the image; return `machineAvailable` when A: is RO, `machineWritable` when RW.
 
-Output bytes from CP/M are passed to the host console. Terminal validation should cover line endings, backspace/delete, control keys, escape-key handling, cursor positioning, screen erase, and reverse video with the intended guest application. Binary file-transfer payloads do not pass through terminal line-ending conversion. Diagnostics must not corrupt guest terminal output.
+### 19.2 Initialize (`cpm80MachineInitialize`)
 
-## 9. Image creation and development tools
+1. Refuse when the guest is already ready.
+2. Load `drives.cfg`; open A:; validate profile + header (failure → close,
+   `ESP_ERR_INVALID_SIZE`).
+3. Allocate 5,632 bytes of staging (RAM), read CCP at offset 0 and BDOS at offset 2,048
+   from A: into it (read failure → free, close, `ESP_FAIL`).
+4. Open configured B:–F: images with exact-size validation, logging and skipping failures.
+5. Build `cpm80HostOps` (console → `hostConsole*`, disk → `image*` with §14.3 checks,
+   yield → `vTaskDelay(1)`, milliseconds → ESP timer µs/1000) and initialize the guest;
+   map results: `Config` → `ESP_ERR_INVALID_STATE`, `InvalidArg` → `ESP_ERR_INVALID_ARG`,
+   `NoMem` → `ESP_ERR_NO_MEM` (each with heap-usage logging), always closing images on
+   failure.
+6. Free the staging buffer; report ready.
 
-These Python tools run on a development computer. They are not run by the ESP32 firmware and do not format the physical SD card.
+### 19.3 Run (`cpm80MachineRun`)
 
-### Raw CP/M image operations
+Cold-boot the guest (fail → message, return to menu). Loop: `cpm80GuestRunFor(10000)`,
+`vTaskDelay(1)`; exit when halted or when a batch executes 0 instructions. On exit:
+destroy the guest, mark not ready, close every image (log close failures). Re-entering
+CP/M from the menu runs initialize again from scratch.
 
-`tools/diskImage.py --os cpm80` dispatches to the CP/M-80 profile definitions in `tools/cpm80/diskImageCpm80.py` and shared directory/extents logic in `tools/include/diskImageCpm.py`.
+## 20. Guest-visible timer (`RETRO80_TIMER_B1`)
 
-- `create` creates an empty image for a selected profile; it refuses to replace an existing image unless `--force` is given.
-- `add` imports host files after validating CP/M 8.3 names, duplicate entries, extents, allocation blocks, directory capacity, and disk capacity. It updates the image atomically after validation.
-- `list` validates and lists directory and allocation data.
-- `extract` exports a named file from a specified user area.
+Extension outside CP/M; it must not interfere with any CP/M program that does not use it.
 
-The supported utility operates on raw CP/M images. It does not convert ImageDisk, TeleDisk, or other archival floppy formats. Geometry and sector ordering must be established before using an external image.
+| IN port | Behavior |
+| --- | --- |
+| `$F0` | Capability: `$B1` when a `readMilliseconds` callback is configured, else `$00`. Reading it MUST NOT sample the callback. |
+| `$F1` | Latch a fresh snapshot from the callback and return bits 0–7. |
+| `$F2`–`$F4` | Return bits 8–15 / 16–23 / 24–31 of the last latch, WITHOUT calling the callback. |
+| other | `$FF` (open bus). |
 
-### System image construction
+With no callback all four ports read `$00`. OUT to these ports is a no-op, as is OUT to any
+port other than `$FE`. The snapshot is guest-instance state: cleared by cold boot,
+preserved by warm boot. The portable core depends only on the `hostReadMilliseconds`
+function pointer so host tests inject deterministic values.
 
-`tools/buildDiskImage.py --os cpm80` dispatches to `tools/cpm80/buildDiskImageCpm80.py`. It combines the checked-in CCP and BDOS binaries, utility files, and support files into a deterministic SYSTEM image. It places the directory after the two reserved tracks, uses 32-byte CP/M directory entries, allocates file data in 1 KiB blocks, and rejects invalid names, empty files, directory overflow, or block overflow.
+## 21. Host-side tools (media production requirements)
 
-`tools/createSystemDsk.py --os cpm80 --profile SMALL|LARGE` creates a CP/M-80 boot image with the selected boot profile and can add files from a supplied source directory. SMALL selects SYSTEM; SYSTEM and LARGE retain the CCP/BDOS/header offsets described above, with profile-specific exact image sizes.
+The firmware never formats media. These development-computer tools (all `python3`,
+options via `--help`) MUST produce images that satisfy §11/§14 exactly:
 
-`tools/prepareSd.py` prepares the SD directory layout. A generated image is copied into `/retro/images/cpm80/` at the path configured in `drives.cfg`; the card must be safely ejected from the development computer before use in the ESP32-S3.
+| Tool | Requirement |
+| --- | --- |
+| `tools/createSystemDsk.py --os cpm80 --profile SMALL\|LARGE [--source-dir …]` | Build the A: image with CCP/BDOS/header at §11 offsets, directory after 2 reserved tracks, and the §17 file set; replaces the target image only on success. |
+| `tools/buildDiskImage.py --os cpm80` | Deterministic curated composer for `littlefs/cpm80/system.dsk`. |
+| `tools/diskImage.py --os cpm80 create/add/list/extract` | Create/inspect raw profile images; `add` validates 8.3 names, duplicates, extents, directory and block capacity, and writes atomically; `create` refuses an existing target without `--force`. |
+| `tools/prepareSd.py` | Create the `/retro/…` tree and a sample `drives.cfg` without overwriting an existing one or formatting the card. |
+| `tools/cpm80/cpm80HardwareTest.py` | Drive a running device over the console for the hardware procedures of §23. |
 
-### Optional software importer
+## 22. Verification: host tests
 
-`tools/fetchCpm80Software.py` lists links from an HTML index and imports explicitly selected files or ZIP members. It treats ZIP member names as archive data rather than extracting paths onto the host filesystem, limits downloads to 64 MiB, preserves original downloads, and writes a manifest with URL, timestamp, size, SHA-256, selected members, and user-supplied rights evidence. It requires rights evidence for network imports but does not decide whether that evidence authorizes distribution. Known Microsoft archive entries are blocked. Its complete-image copy operation validates image size and CP/M directory/allocation structure but does not establish sector ordering or convert foreign floppy-image formats.
+Run natively with ASan/UBSan and `-Wall -Wextra -Werror`:
 
-## 10. Bundled software and compatibility
+```sh
+cmake -S tests -B /tmp/retro-host-tests
+cmake --build /tmp/retro-host-tests
+ctest --test-dir /tmp/retro-host-tests -N
+ctest --test-dir /tmp/retro-host-tests --output-on-failure -R '<name|name>'
+```
 
-The system image includes these utility files:
+ctest target names differ from file names; `tests/hostTests.c` runs as several named tests
+(e.g. `hostCore`, `cpm80Help`), `tests/cpm80TimerTests.c` as `cpm80Timer`.
 
-`ASM.COM`, `DDT.COM`, `DUMP.COM`, `ED.COM`, `HELP.COM`, `HELP.HLP`, `LIB.COM`, `LINK.COM`, `LOAD.COM`, `MAC.COM`, `PIP.COM`, `RMAC.COM`, `STAT.COM`, `SUBMIT.COM`, `XREF.COM`, `XSUB.COM`, and `ZSID.COM`.
+A conforming implementation MUST ship host tests covering each item below; the suite is
+"done" only when every listed assertion passes deterministically with zero sanitizer
+reports. Required coverage (current suites: `testCpm80Cpu`, `testCpm80GuestBoot`,
+`testCpm80LargeSystemBoot`, `testCpm80SystemProfileDetection`, `testCpm80DriveConfig`,
+`testCpm80Help`, `testCpm80More`, `cpm80Timer`):
 
-`DIR`, `ERA`, `REN`, `TYPE`, and `USER` are CCP commands, not separate COM files. `WELCOME.TXT` is a `TYPE` fixture. The upstream utility set and its usage scope are documented in `components/cpm80Core/os/utilities/README.md`.
+1. **CPU adapter:** init argument/state rejection, load range clamping at `$FFFF`,
+   byte read/write over the full range, port callback wiring, destroy/re-init.
+2. **Guest init:** every required-callback `NULL` rejected; unavailable-drive profiles
+   ignored; out-of-range profile → `cpm80GuestInitConfig`; allocation failure path.
+3. **Boot:** cold boot reaches the CCP (drive prompt on the injected console), genuine
+   `DIR`/`TYPE` output; warm boot preserves `$0004` and the timer snapshot, cold boot
+   clears them; `BOOT`/`WBOOT` reinstall page zero, CCP/BDOS and BIOS bytes.
+4. **BIOS ABI:** every stub at `$DA33+5n` equals `3E n D3 FE C9`; every vector equals
+   `C3`+stub address; `CALL 5` reaches `$CC06`; unknown `$FE` function halts with PC = 0.
+5. **Console:** CR/LF/CR+LF conversion, 7-bit masking, one-character CONST buffering with
+   CONIN consumption, CONIN retry loop yields and eventually delivers.
+6. **Disk:** for all three profiles — DPH/DPB/CSV/ALV bytes at the exact §13.3 addresses,
+   first and last valid record read/write, out-of-range track/sector/drive and
+   `dmaAddress $FF81` each produce A = 1 with the buffer unmodified, `$FF80` accepted;
+   read-only drive write rejected A = 1; SELDSK on unavailable drive returns HL = 0
+   without changing the selected drive; identity SECTRAN; persistence across
+   close/reopen of the backing file.
+7. **Drives.cfg:** defaults on missing/invalid, every §18 rejection rule (duplicate,
+   unknown drive/profile/mode, long line, traversal forms, backslash, control chars,
+   A: BIG, wrong prefixes), SD namespace prefixing, A: size-based profile detection
+   (SYSTEM/LARGE/other), explicit-LARGE mismatch rejection, header mismatch rejection.
+8. **Timer:** capability byte with/without callback, F1 latches (subsequent F2–F4 do not
+   re-call the callback even when the injected value changes), zero bytes with no
+   callback, writes ignored.
 
-Presence in the image is not proof that every bundled program is compatible with this BIOS or BDOS configuration. For example, compatibility assumptions must be tested against the actual guest, and application provenance and rights must be documented. The design does not require a particular compiler or BASIC implementation.
+## 23. Verification: hardware acceptance
 
-## 11. Development phases
+Acceptance is complete when every case below is executed on the target board (ESP32-S3,
+LOLIN S3 Pro configuration, USB Serial/JTAG console, Minicom 80×24 on macOS, valid Retro
+SD card) and each observation matches its pass criterion. Evidence per case records
+firmware revision, ESP-IDF version, board, terminal, image profile, commands, expected and
+actual behavior. A host-test pass or a successful build is never evidence of hardware
+behavior.
 
-1. **CPU and guest foundation:** Provide a bounded 64 KiB Z80 adapter, guest lifecycle, host callback interface, cooperative execution, and host tests for CPU memory and port behavior.
-2. **CP/M boot and BIOS:** Integrate the genuine CCP/BDOS, construct the memory map and BIOS tables, implement console and 128-byte record services, and verify cold boot, WBOOT, and CCP/BDOS behavior.
-3. **Disk formats and drive integration:** Implement SYSTEM, LARGE, and BIG DPBs; validate and parse drive mappings; connect independent LittleFS and SD images through bounded random-access I/O; verify read-only, geometry, and persistence behavior.
-4. **Image tooling and validation:** Provide deterministic image-generation/import workflows and test their outputs against the firmware's expected disk geometry and layout.
-5. **System acceptance:** Validate real SD media, terminal behavior, representative applications, transfer interruption/recovery, firmware resource usage, and boot/persistence on target ESP32-S3 hardware.
+| # | Procedure | Pass criterion |
+| --- | --- | --- |
+| H1 | RESET, menu shows CP/M-80; select it. | Probe reports A: correctly; machine starts and reaches the `A>` prompt. |
+| H2 | `DIR`, `TYPE WELCOME.TXT`, `HELLO`. | Listings and text match image contents; HELLO runs and returns to `A>` (transient load + warm boot). |
+| H3 | Warm boot from CP/M (`CTRL-C` at command level or guest WBOOT path). | Returns to `A>` on the same drive; timer snapshot survives. |
+| H4 | A: configured RO: attempt a write (`PIP A:X.TXT=B:Y.TXT` style). | CP/M reports read-only failure; no crash; image bytes unchanged. |
+| H5 | A: (or a B:–F: drive) configured RW: create/modify a file, exit to menu (RESET), re-enter. | Data persists byte-identically after restart. |
+| H6 | Remove/rename one optional image; also supply a wrong-size image. | That drive is absent (`A>` on it gives the BDOS drive error); other drives and A: unaffected; no aliasing to A:. |
+| H7 | Mount a BIG (8,421,376-byte) image on C: or D: and `DIR` it. | Full directory listed; reads of the last track/sector succeed (exercises 514×128 geometry). |
+| H8 | Terminal checks with a full-screen program (`DDT`, `ED`). | CR/LF, backspace, erase, cursor and clear behave in the 80×24 terminal; host logs never corrupt guest output. |
+| H9 | Timed guest workload via the timer ports (e.g. `BENCH80`). | F0 = `$B1`; elapsed values track wall-clock within tolerance of the injected batch scheduling. |
+| H10 | Sustained run ≥ 30 minutes with disk activity (e.g. repeated `DIR`, `SUBMIT` loop). | No watchdog reset; RGB LED shows green/red per read/write and idles 120 ms after activity. |
+| H11 | Repeated enter/exit cycles (≥ 20) and re-entry after guest halt. | Stable: initialize/run/destroy each time, no leaks (heap logging stays flat), menu remains usable. |
 
-## 12. Known limitations
+## 24. Definition of done
 
-- The emulator does not implement cycle-accurate Z80 peripheral timing or physical printer, punch, or reader devices. LIST/PUNCH are no-ops, READER returns EOF, and LISTST reports not ready.
-- The BIOS uses identity sector translation and this project's raw-image geometry. Interleaved, skewed, or archival floppy formats are not automatically converted.
-- A: accepts only SYSTEM and LARGE raw images with the expected size and system header. B:–F: are checked for exact profile size and openability, but their full CP/M directory/allocation structures are not validated at mount time.
-- CP/M files are stored in 128-byte records. The filesystem does not encode the exact byte length of the last record, so trailing padding cannot always be distinguished from file content.
-- A: defaults to read-only but may be configured read/write. Optional drives must be explicitly configured and successfully mounted. Missing or invalid optional drives are unavailable rather than redirected to another drive.
-- The physical USB Serial/JTAG console does not itself render ANSI/VT100. Display behavior depends on the terminal program and its configuration.
-- Host tests and a successful firmware build do not establish hardware behavior, SD-card compatibility, terminal compatibility, or application compatibility.
-- The upstream CCP/BDOS assembly outputs are checked in, but regenerating them requires the upstream assembler/build tools; the exact assembler tool revision used for those binaries is not pinned.
-- The system image and optional user images have separate storage and lifecycle requirements. The manager's ability to edit SD images while the emulator is stopped does not imply that LittleFS system resources can be edited through the manager.
-
-## 13. Possible improvements
-
-- Add a CP/M image inspection step that validates directory entries, extent chains, allocation ownership, and disk parameter consistency before an optional drive is mounted.
-- Expand host tests for corrupt images, extent edge cases, first/last records, interrupted writes, and recovery from file-system or SD errors.
-- Add precise performance and watchdog measurements on the target ESP32-S3 for each image profile and representative workloads.
-- Document and test compatibility of specific bundled utilities and representative editors, assemblers, debuggers, and language tools.
-- Improve the console workflow with repeatable terminal configuration guidance and a recorded terminal compatibility matrix, without moving terminal emulation into the common byte-stream service.
-- Pin and document the assembler toolchain needed to reproduce the CCP/BDOS binaries, and make image generation verify the complete resource set and provenance manifest.
-- Add optional explicit console or host-side diagnostics that can be enabled without injecting text into the guest terminal stream.
-- Define a portable metadata or archive convention for workflows that need to preserve exact host-file lengths beyond CP/M's record-oriented representation.
-
-## 14. Verification criteria
-
-Host-side tests should exercise the CPU adapter, guest initialization and destruction, genuine CCP/BDOS boot, BIOS call ABI, console conversion, each disk geometry, drive configuration parsing, CP/M commands, disk-record bounds, and read-only rejection. Tests should include first and last valid records, invalid tracks/sectors, missing drives, DMA boundary cases, persistence after close/reopen, and malformed image/configuration cases.
-
-Hardware acceptance should separately verify:
-
-1. The firmware recognizes the intended ESP32-S3 configuration and probes the A: system resource correctly.
-2. Cold boot reaches the CP/M prompt; `DIR`, `TYPE`, a transient program, and WBOOT work.
-3. A: defaults to read-only; configured RO/RW behavior applies to A: and mounted SD drives, with record writes persisting after machine shutdown and restart.
-4. Missing and malformed optional images remain unavailable without aliasing to A:.
-5. Console input/output, VT100/ANSI sequences, 80×24 terminal behavior, and the intended Minicom workflow behave correctly.
-6. Repeated guest entry/exit, long execution, large images, and sustained disk activity do not trigger watchdog failures or resource leaks.
-
-Acceptance records should identify firmware revision, ESP-IDF version, board, terminal, image profile, test commands, expected and actual behavior, and retained evidence. Do not describe host-test or build results as hardware results.
+1. All §22 host tests pass (sanitizer-clean) and all §23 hardware cases are recorded as
+   passing.
+2. The guest is the genuine pinned CCP/BDOS; no BDOS logic exists in host code.
+3. The core (`cpm80Cpu`/`cpm80Guest`) builds and tests natively with no ESP-IDF or
+   filesystem/console dependencies beyond `cpm80HostOps`.
+4. Every acceptance-gated behavior in this document is traceable to code: memory map
+   §10, headers §11–§13, ports §14/§20, configuration §18, lifecycle §19.
+5. Provenance, licenses and rights records for Z80 core, CCP/BDOS and all bundled
+   applications are present in-tree.

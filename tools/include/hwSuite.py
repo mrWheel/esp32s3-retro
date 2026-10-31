@@ -23,6 +23,15 @@ class Adapter:
   def __init__(self, console):
     self.console = console
 
+  def expect(self, name, ok, detail=""):
+    #-- Record a result the moment its command finished (instead of collecting items and
+    #-- recording them after a whole phase returned), so each PASS/FAIL stays with its
+    #-- own "Command:" and output lines.
+    results = self.console.results
+    if results:
+      results.record(name, ok, detail)
+    return ok
+
   def boot(self):
     raise NotImplementedError
 
@@ -98,9 +107,11 @@ def run(adapter, arguments, directory):
   if not ok:
     print(console.log[-1500:])
     return 1
+  results.say("\n---- basic ----")
   for item in adapter.basic():
     record(*item)
 
+  results.say("\n---- read volumes ----")
   for volume in adapter.volumes:
     ok, detail = adapter.readVolume(volume)
     record("read: list volume " + volume, ok, detail)
@@ -109,6 +120,7 @@ def run(adapter, arguments, directory):
   if arguments.no_write:
     results.skip("write / persistence / disk full", "--no-write given")
   else:
+    results.say("\n---- write, persistence, delete ----")
     adapter.deleteFile(first)
     adapter.deleteFile(second)
     record("write: create file on " + first, adapter.writeFile(first))
@@ -126,6 +138,7 @@ def run(adapter, arguments, directory):
     record("delete: file removed from " + second, not adapter.fileExists(second))
 
     #-- Fill the smallest RW volume with dummy files until the system reports it is full.
+    results.say("\n---- disk full ----")
     volume = adapter.fillVolume
     before = adapter.freeSpace(volume)
     full, count = adapter.fillUp()
@@ -141,6 +154,7 @@ def run(adapter, arguments, directory):
     record("disk full: writing works again", ok)
     adapter.deleteFile(volume)
 
+  results.say("\n---- read-only volume ----")
   stateBefore = adapter.roState()
   refused, detail = adapter.readOnlyWrite()
   record("read-only: write to " + adapter.roVolume + " is refused", refused, detail)
@@ -151,16 +165,19 @@ def run(adapter, arguments, directory):
   record("read-only: free space on " + adapter.roVolume + (" unchanged" if unchanged else " CHANGED"),
          unchanged, "before %s, after %s" % (stateBefore[1], stateAfter[1]))
 
+  results.say("\n---- timing ----")
   seconds = adapter.timed()
   record("timing: volume listing completes in < %d s" % adapter.timeLimit,
          seconds is not None and seconds < adapter.timeLimit,
          "%.1f s" % seconds if seconds is not None else "timeout")
 
+  results.say("\n---- unconfigured drive ----")
   for item in adapter.unconfigured():
     record(*item)
   for item in adapter.extras():
     record(*item)
 
+  results.say("\n---- final reset ----")
   record("final reset returns to menu", console.reset())
 
   for name, reason in adapter.manual():
