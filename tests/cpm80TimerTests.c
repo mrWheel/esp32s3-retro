@@ -87,7 +87,7 @@ static void initialize(cpm80Guest* guest, clockFixture* fixture, bool withClock)
                        .readMilliseconds = withClock ? readClock : NULL,
                        .clockContext = fixture};
   memset(guest, 0, sizeof(*guest));
-  assert(cpm80GuestInitialize(guest, &host, ccp, bdos));
+  assert(cpm80GuestInitialize(guest, &host, ccp, bdos) == cpm80GuestInitOk);
 }
 
 // Executes IN A,(port) at 0x0100 and returns A.
@@ -144,7 +144,7 @@ static void runBench80(bool withClock, const char* commandTail, unsigned long di
                        .clockContext = &clock};
   cpm80Guest guest;
   memset(&guest, 0, sizeof(guest));
-  assert(cpm80GuestInitialize(&guest, &host, ccp, bdos));
+  assert(cpm80GuestInitialize(&guest, &host, ccp, bdos) == cpm80GuestInitOk);
   clock.guest = &guest;
   FILE* file = fopen(BENCH80_COM_PATH, "rb");
   assert(file != NULL);

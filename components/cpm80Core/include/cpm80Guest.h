@@ -89,9 +89,19 @@ uint16_t cpm80DiskProfileTracks(cpm80DiskProfile profile);
 uint64_t cpm80DiskProfileImageSize(cpm80DiskProfile profile);
 const char* cpm80DiskProfileName(cpm80DiskProfile profile);
 
+//-- Distinguishes the cpm80GuestInitialize() failure causes so the caller can report the
+//-- right problem instead of blaming memory for every failure.
+typedef enum
+{
+  cpm80GuestInitOk,
+  cpm80GuestInitInvalidArg,
+  cpm80GuestInitConfig,
+  cpm80GuestInitNoMem
+} cpm80GuestInitResult;
+
 // — Initialize guest instances with {0}; destroy them before initializing them again.
-bool cpm80GuestInitialize(cpm80Guest* guest, const cpm80HostOps* host, const uint8_t* ccpImage,
-                          const uint8_t* bdosImage);
+cpm80GuestInitResult cpm80GuestInitialize(cpm80Guest* guest, const cpm80HostOps* host,
+                                          const uint8_t* ccpImage, const uint8_t* bdosImage);
 void cpm80GuestDestroy(cpm80Guest* guest);
 bool cpm80GuestColdBoot(cpm80Guest* guest);
 bool cpm80GuestStep(cpm80Guest* guest);

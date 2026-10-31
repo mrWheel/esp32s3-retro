@@ -286,13 +286,25 @@ esp_err_t cpm80MachineInitialize(void)
                              .context = NULL,
                              .readMilliseconds = readMilliseconds,
                              .clockContext = NULL};
-  bool guestInitialized =
+  cpm80GuestInitResult guestInitResult =
       cpm80GuestInitialize(&guest, &host, systemBinaries, systemBinaries + cpm80CcpSize);
   free(systemBinaries);
-  if (!guestInitialized)
+  if (guestInitResult == cpm80GuestInitConfig)
+  {
+    ESP_LOGE(tag, "Invalid CP/M drive configuration; check %s", driveConfigPath);
+    closeDiskImages();
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (guestInitResult == cpm80GuestInitInvalidArg)
+  {
+    ESP_LOGE(tag, "CP/M guest initialization called with invalid arguments");
+    closeDiskImages();
+    return ESP_ERR_INVALID_ARG;
+  }
+  if (guestInitResult != cpm80GuestInitOk)
   {
     ESP_LOGE(tag,
-             "Could not initialize CP/M guest; PSRAM free/largest=%u/%u bytes, "
+             "Could not allocate CP/M guest memory; PSRAM free/largest=%u/%u bytes, "
              "internal free/largest=%u/%u bytes",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),

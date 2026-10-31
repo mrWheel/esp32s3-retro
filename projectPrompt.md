@@ -13,7 +13,7 @@ It does NOT define emulator internals. Read this file plus the complete machine-
 - SWTPC 6800   -> designSWTPC.md
 
 
-A separate designFileTransfer.md may later hold detailed protocol evolution, but until then this document is authoritative for File Transfer.
+A separate designFileTransfer.md may holds detailed protocol evolution.
 
 ## 2. Project goal and target
 
@@ -51,6 +51,48 @@ Mind you: idf.py command is in
 ```
 source "$HOME/.espressif/tools/activate_idf_v6.0.2.sh"
 ```
+
+### Verified build and test commands
+
+Use these exact commands instead of rediscovering them.
+
+Firmware check (ESP-IDF 6.0.2, ESP32-S3):
+
+```sh
+source "$HOME/.espressif/tools/activate_idf_v6.0.2.sh"
+idf.py build
+```
+
+If `idf.py build` aborts with a Python-environment mismatch (“…was configured
+with… Run `idf.py fullclean`…”), the existing `build/` directory was configured
+with a stale virtual environment. Do not answer that by running
+`idf.py fullclean` (it discards the user’s existing build tree); verify the
+build in a separate directory instead and remove it afterwards:
+
+```sh
+idf.py -B build-agent-check build
+```
+
+Host C tests (native build with CMake, ASan/UBSan, `-Wall -Wextra -Werror`):
+
+```sh
+cmake -S tests -B /tmp/retro-host-tests
+cmake --build /tmp/retro-host-tests
+ctest --test-dir /tmp/retro-host-tests -N
+ctest --test-dir /tmp/retro-host-tests --output-on-failure -R '<name|name>'
+```
+
+ctest test names differ from the source and executable file names.
+`tests/hostTests.c` is executed as several named ctest tests — for example
+`hostCore` (default run: the full core plus CP/M-80 suites, including
+`testCpm80GuestBoot`), `cpm80Help`, and the `apple2*` variants — while
+`tests/cpm80TimerTests.c` runs as `cpm80Timer`. Run `ctest … -N` to list the
+names before filtering with `-R`; filtering by source file name finds nothing.
+
+Some Apple II/UCSD ctest targets and some Python tests have pre-existing
+failures (missing ROM/image fixtures or outdated expected strings). Check
+`docs/verification.md` before treating any failure as related to the current
+change.
 
 ## 3. Coding rules
 
@@ -280,14 +322,13 @@ Layout version 1:
     ucsd/
     apple2/
     swtpc/
-  exchange/
+  backup/
     common/
     cpm80/    
-    cpm80/
+    cpm86/
     ucsd/
     apple2/
     swtpc/
-  backup/
 ```
 
 /retro/layout.txt contains:
@@ -313,15 +354,9 @@ The machine design, not this file, determines guest sector size, geometry, block
 
 ## 14. Exchange filesystem
 
-Common transfer storage is ordinary FAT32:
-```
-/retro/exchange/common/
-/retro/exchange/cpm80/
-/retro/exchange/cpm86/
-/retro/exchange/ucsd/
-/retro/exchange/apple2/
-/retro/exchange/swtpc/
-```
+Exchange filesystem is removed. Now use the webserver/GUI
+  `designDiskImageManager.md`
+
 Architecture:
 
 ```text
@@ -343,10 +378,10 @@ The browser does not need to understand CP/M-80, CP/M-86, UCSD, ProDOS, etc.
 
 The File Transfer GUI also manages files directly on the SD card. The user selects a machine and transfer type:
 
-- Loose files are staged under `/retro/exchange/<machine>/`; supported guest filesystems are managed through the browser GUI.
 - Disk images use `/retro/images/<machine>/`, for example `/retro/images/cpm80/`.
+- Disk backup use `/retro/backup/<machine>/`, for example `/retro/backup/cpm80/`.
 
-These are separate destinations on the same physical SD card; disk images are not staged through the exchange directory.
+These are separate destinations on the same physical SD card; disk images are not staged through the backup directory.
 
 ## 16. File Transfer menu mode
 
@@ -466,13 +501,13 @@ Do not delay the first working version for optional features.
 
 ### Scope and security
 
-The browser file-transfer area exposes only `/retro/exchange/` and `/retro/images/` on the physical SD card; it must not access other SD paths or provide general LittleFS file browsing. Dedicated Disk Image Manager workflows may access LittleFS only for `drives.cfg`, guest-file operations, and read-only complete-image downloads of disk-image files directly inside a known `/littlefs/<OS>/` directory. They must not upload, replace, copy, rename or delete a LittleFS image as a complete image. The GUI must let the user select a machine (`cpm80`, `cpm86`, `ucsd`, `apple2` or `swtpc`) and a transfer type. Loose files are staged under `/retro/exchange/<machine>/`; disk images go under `/retro/images/<machine>/`. The GUI must show each item's full VFS path (for example `/microSD/retro/exchange/cpm80/FILE.TXT`) beside its name. File Transfer runs separately from emulators, so browser writes cannot modify an active guest disk image.
+The browser file-transfer area exposes only `/retro/images/` on the physical SD card; it must not access other SD paths or provide general LittleFS file browsing. Dedicated Disk Image Manager workflows may access LittleFS only for `drives.cfg`, guest-file operations, and read-only complete-image downloads of disk-image files directly inside a known `/littlefs/<OS>/` directory. They must not upload, replace, copy, rename or delete a LittleFS image as a complete image. The GUI must let the user select a machine (`cpm80`, `cpm86`, `ucsd`, `apple2` or `swtpc`) and a transfer type. Loose files are staged under `/retro/exchange/<machine>/`; disk images go under `/retro/images/<machine>/`. The GUI must show each item's full VFS path (for example `/microSD/retro/backup/cpm80/FILE.TXT`) beside its name. File Transfer runs separately from emulators, so browser writes cannot modify an active guest disk image.
 
 Normalize and validate every requested path. Reject ../, encoded traversal, absolute-path escape, and any resolved path outside the permitted SD roots or the explicitly allowlisted LittleFS paths above.
 
 Never directly concatenate an untrusted URL path into a filesystem path.
 
-For uploads, resolve the selected machine and transfer type to `/retro/exchange/<machine>/` or `/retro/images/<machine>/`. The default GUI selection is CP/M loose files, `/retro/exchange/cpm80/`. Show the full `/microSD/retro/...` destination in the GUI and report it after successful upload.
+For uploads, resolve the selected machine and transfer type to `/retro/images/<machine>/`. The default GUI selection is CP/M loose files, `/retro/images/cpm80/`. Show the full `/microSD/retro/...` destination in the GUI and report it after successful upload.
 
 ### Uploads
 
@@ -619,7 +654,7 @@ File Transfer:
 - text upload/download;
 - binary SD-card disk-image upload/download + byte-for-byte equality;
 - guest files can be listed, uploaded, downloaded, copied, renamed and deleted in supported disk images through the GUI;
-- selected-machine loose files and disk images reach their respective `/retro/exchange/<machine>/` and `/retro/images/<machine>/` directories;
+- selected-machine loose files and disk images reach `/retro/images/<machine>/` directories;
 - every listed file shows its full `/microSD/retro/...` path;
 - upload/download progress is displayed while bytes are transferred;
 - zero-byte file;

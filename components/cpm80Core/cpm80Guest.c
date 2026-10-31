@@ -505,8 +505,8 @@ static void writePort(void* context, uint8_t port, uint8_t value)
   }
 }
 
-bool cpm80GuestInitialize(cpm80Guest* guest, const cpm80HostOps* host, const uint8_t* ccpImage,
-                          const uint8_t* bdosImage)
+cpm80GuestInitResult cpm80GuestInitialize(cpm80Guest* guest, const cpm80HostOps* host,
+                                          const uint8_t* ccpImage, const uint8_t* bdosImage)
 {
   if (guest == NULL || host == NULL || ccpImage == NULL || bdosImage == NULL ||
       host->consoleAvailable == NULL || host->consoleRead == NULL || host->consoleWrite == NULL ||
@@ -514,7 +514,7 @@ bool cpm80GuestInitialize(cpm80Guest* guest, const cpm80HostOps* host, const uin
       host->diskReadRecord == NULL || host->diskWriteRecord == NULL || host->yield == NULL ||
       guest->initialized || guest->cpu.memory != NULL)
   {
-    return false;
+    return cpm80GuestInitInvalidArg;
   }
 
   guest->host = *host;
@@ -527,7 +527,7 @@ bool cpm80GuestInitialize(cpm80Guest* guest, const cpm80HostOps* host, const uin
           guest->diskProfiles[drive] != cpm80DiskProfileBig)))
     {
       memset(guest, 0, sizeof(*guest));
-      return false;
+      return cpm80GuestInitConfig;
     }
   }
   memcpy(guest->ccpImage, ccpImage, sizeof(guest->ccpImage));
@@ -535,11 +535,11 @@ bool cpm80GuestInitialize(cpm80Guest* guest, const cpm80HostOps* host, const uin
   if (!cpm80CpuInitialize(&guest->cpu, readPort, writePort, guest))
   {
     memset(guest, 0, sizeof(*guest));
-    return false;
+    return cpm80GuestInitNoMem;
   }
   guest->initialized = true;
   installSystem(guest, true);
-  return true;
+  return cpm80GuestInitOk;
 }
 
 void cpm80GuestDestroy(cpm80Guest* guest)

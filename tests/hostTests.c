@@ -2600,8 +2600,21 @@ static void testCpm80GuestBoot(void)
                              .diskWriteRecord = cpm80TestDiskWrite,
                              .yield = cpm80TestYield,
                              .context = &fixture};
+  //-- Negative coverage for the init result classification (see oneStepBetter.md):
+  //-- an out-of-range profile on an available drive is a configuration problem and a
+  //-- NULL host is an argument problem; neither may be reported as memory exhaustion.
+  cpm80Guest rejectedGuest = {0};
+  cpm80GuestFixture invalidProfileFixture = fixture;
+  invalidProfileFixture.diskProfiles[1] = (cpm80DiskProfile)7;
+  cpm80HostOps invalidProfileHost = host;
+  invalidProfileHost.context = &invalidProfileFixture;
+  assert(cpm80GuestInitialize(&rejectedGuest, &invalidProfileHost, ccpImage, bdosImage) ==
+         cpm80GuestInitConfig);
+  assert(cpm80GuestInitialize(&rejectedGuest, NULL, ccpImage, bdosImage) ==
+         cpm80GuestInitInvalidArg);
   cpm80Guest guest = {0};
-  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage));
+  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage) == cpm80GuestInitOk);
+  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage) == cpm80GuestInitInvalidArg);
   assert(cpm80GuestColdBoot(&guest));
   assert(guest.cpu.memory[0x0000] == 0xC3 && guest.cpu.memory[0x0001] == 0x03 &&
          guest.cpu.memory[0x0002] == 0xDA);
@@ -3112,7 +3125,7 @@ static void testCpm80LargeSystemBoot(void)
                              .yield = cpm80TestYield,
                              .context = &fixture};
   cpm80Guest guest = {0};
-  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage));
+  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage) == cpm80GuestInitOk);
   assert(cpm80GuestColdBoot(&guest));
 
   //-- A: carries the LARGE DPB and its own CSV/ALV areas (the SYSTEM-sized slots would overlap).
@@ -3315,7 +3328,7 @@ static void testCpm80More(void)
                              .yield = cpm80TestYield,
                              .context = &fixture};
   cpm80Guest guest = {0};
-  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage));
+  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage) == cpm80GuestInitOk);
   assert(cpm80GuestColdBoot(&guest));
   const size_t limit = 400000000U;
   runCpm80Command(&guest, &fixture, "", "A>", limit);
@@ -3611,7 +3624,7 @@ static void testCpm80Help(void)
                              .yield = cpm80TestYield,
                              .context = &fixture};
   cpm80Guest guest = {0};
-  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage));
+  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage) == cpm80GuestInitOk);
   assert(cpm80GuestColdBoot(&guest));
   const size_t limit = 400000000U;
   runCpm80Command(&guest, &fixture, "", "A>", limit);
