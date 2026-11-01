@@ -1280,7 +1280,11 @@ static void testCpm86Core(void)
   {
     assert(rotateResults[index * 4] == expectedRotateResults[index]);
     uint16_t flags = rotateResults[index * 4 + 2] | (rotateResults[index * 4 + 3] << 8);
-    assert((flags & 0x0801) == 0x0801);
+    //-- Single-bit RCR sets OF as CF xor the result sign bit: for 01h rotated right with
+    //-- CF set (result 81h) both are 1, so OF must be clear (this fixture previously
+    //-- pinned the pre-fix core behaviour of OF set).
+    const uint16_t expectedOfCf = index == 3 ? (uint16_t)0x0001 : (uint16_t)0x0801;
+    assert((flags & 0x0801) == expectedOfCf);
   }
 
   assert(cpm86CoreReset(core) == cpm86CoreOk);

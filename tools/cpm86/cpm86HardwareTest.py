@@ -9,6 +9,7 @@ Write tests create and erase HWTEST.CMD and FILLnn.TMP files on D: (work86.dsk) 
 """
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -66,8 +67,64 @@ class Cpm86(hwCpm.CpmAdapter):
     self.console.send("\r\r")
     return self.console.waitFor("Select system", 10) is not None
 
+  def guestRun(self, command, waitText, keyDelay, timeout):
+    #-- Run a console test program that prints @BEGIN..., optionally pauses for one host
+    #-- keystroke (TIMER86 blocks in BDOS console input until we send it), prints
+    #-- @DONE PASS and returns to the CCP prompt. Returns (output, error), error is "".
+    self.console.logCommand(command)
+    start = len(self.console.log)
+    self.console.send(command + "\r")
+    if self.console.waitFor(waitText, 30, since=start) is None:
+      return None, "no " + waitText
+    if keyDelay is not None:
+      time.sleep(keyDelay)
+      self.console.send("\r")
+    out = self.console.waitFor("@DONE PASS", timeout, since=start)
+    if out is None:
+      return None, "no @DONE PASS"
+    if self.console.waitFor("A>", 20, since=start) is None:
+      return None, "no A> prompt after program"
+    return out, ""
+
+  def recoverToPrompt(self):
+    #-- A program stuck in BDOS console input ignores Ctrl+C until it gets its key:
+    #-- send one first, then Ctrl+C and wait for the CCP prompt.
+    self.console.send("\r")
+    self.console.settle(1)
+    self.console.ctrlC()
+    self.console.waitFor("A>", 20)
+
+  def tailOfOutput(self):
+    #-- Collapsed tail of the console log, used as the failure detail.
+    return " ".join(self.console.log[-400:].split())[-160:]
+
+  def timerTest(self):
+    #-- Phase 86-07: TIMER86 measures F1h-F4h around a 1 s host-side key wait.
+    name = "timer: guest delta of a 1 s host wait is 900-1100 ms"
+    out, error = self.guestRun("TIMER86", "@BEGIN TIMER", 1.0, 30)
+    if out is None:
+      self.recoverToPrompt()
+      return name, False, error + "; tail: " + self.tailOfOutput()
+    delta = hwSuite.freeFrom(r"DELTA=(\d+)", out)
+    if delta is None:
+      return name, False, "no DELTA= value; tail: " + self.tailOfOutput()
+    self.console.note("  measured delta %d ms" % delta)
+    return name, 900 <= delta <= 1100, "%d ms" % delta
+
+  def benchTest(self):
+    #-- BENCH86 v2 scale 1: both sections must pass on the post-review core.
+    name = "bench: BENCH86 scale 1 completes both sections"
+    out, error = self.guestRun("BENCH86", "@BEGIN INTEGER", None, 180)
+    if out is None:
+      self.recoverToPrompt()
+      return name, False, error + "; tail: " + self.tailOfOutput()
+    elapsed = re.findall(r"Elapsed:\s*(\d+) ms", out)
+    ok = "@END INTEGER PASS" in out and "@END SIEVE PASS" in out
+    detail = "elapsed " + "/".join(elapsed) + " ms" if len(elapsed) == 2 else "elapsed lines: %r" % elapsed
+    return name, ok, detail
+
   def extras(self):
-    items = []
+    items = [self.timerTest(), self.benchTest()]
     ok = self.stop()
     items.append(("cpm86: Ctrl+] returns to host menu", ok, ""))
     items.append(("cpm86: relaunch after Ctrl+]", self.boot(), ""))
@@ -79,8 +136,6 @@ class Cpm86(hwCpm.CpmAdapter):
     self.stop()
     return items
 
-  def manual(self):
-    return super().manual() + [("cpm86: millisecond timer F1h-F4h 900-1100 ms", "needs a guest 8086 test program")]
 
 
 def main():

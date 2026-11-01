@@ -388,7 +388,9 @@ static void raiseInterrupt(tiny8086* cpu, uint8_t vector)
   {
     return;
   }
-  push16(cpu, cpu->flags);
+  //-- The interrupt frame carries the flags image with the reserved bit 1 set (8086
+  //-- contract, same rule as PUSHF/IRET).
+  push16(cpu, (uint16_t)(cpu->flags | 0x0002));
   push16(cpu, cpu->seg[tiny8086SegCs]);
   push16(cpu, cpu->ip);
   setFlag(cpu, tiny8086FlagIf | tiny8086FlagTf, false);
@@ -517,7 +519,8 @@ static uint16_t shiftOperation(tiny8086* cpu, uint8_t operation, uint16_t value,
       bool newCarry = (v & 1) != 0;
       v = (v >> 1) | (carry ? signBit : 0u);
       carry = newCarry;
-      overflow = ((v ^ (v << 1)) & signBit) != 0;
+      //-- RCR by 1: OF is the exclusive-or of the carry out and the result's sign bit.
+      overflow = ((v & signBit) != 0) != carry;
       break;
     }
     case 5:
@@ -590,14 +593,17 @@ static void multiplyDivide(tiny8086* cpu, uint8_t operation, uint16_t operand, b
     {
       int32_t signedDividend = (int32_t)dividend;
       int32_t divisor = (int16_t)operand;
-      int32_t quotient = signedDividend / divisor;
-      int32_t remainder = signedDividend % divisor;
+      //-- INT32_MIN / -1 overflows in C (undefined behaviour); reject it before evaluating
+      //-- the division, not after.
       if (signedDividend == INT32_MIN && divisor == -1)
       {
         raiseInterrupt(cpu, 0);
         return;
       }
-      if (quotient > 0x7FFF || quotient < -0x7FFF)
+      int32_t quotient = signedDividend / divisor;
+      int32_t remainder = signedDividend % divisor;
+      //-- -32768 (0x8000) fits the signed word result; only values beyond it overflow (INT 0).
+      if (quotient > 0x7FFF || quotient < -0x8000)
       {
         raiseInterrupt(cpu, 0);
         return;
@@ -623,9 +629,18 @@ static void multiplyDivide(tiny8086* cpu, uint8_t operation, uint16_t operand, b
     if (isSigned)
     {
       int16_t divisor = (int8_t)operand;
-      int16_t quotient = (int16_t)dividend / divisor;
-      int16_t remainder = (int16_t)dividend % divisor;
-      if (quotient > 0x7F || quotient < -0x7F)
+      int16_t signedDividend = (int16_t)dividend;
+      //-- INT16_MIN / -1 overflows in C (undefined behaviour); reject it before evaluating
+      //-- the division, not after.
+      if (signedDividend == INT16_MIN && divisor == -1)
+      {
+        raiseInterrupt(cpu, 0);
+        return;
+      }
+      int16_t quotient = signedDividend / divisor;
+      int16_t remainder = signedDividend % divisor;
+      //-- -128 (0x80) fits the signed byte result; only values beyond it overflow (INT 0).
+      if (quotient > 0x7F || quotient < -0x80)
       {
         raiseInterrupt(cpu, 0);
         return;
@@ -880,14 +895,15 @@ TINY8086_INLINE tiny8086Result stepImpl(tiny8086* cpu)
   case 0x82:
   case 0x83:
   {
-    bool wideOperand = (opcode & 1) != 0;
+    //-- 82h is the manual's alias of 83h: 16-bit r/m operand with a sign-extended imm8.
+    bool wideOperand = (opcode & 1) != 0 || opcode == 0x82;
     decodeModRm(cpu, &modRm, segmentOverride);
     uint16_t immediate;
     if (opcode == 0x81)
     {
       immediate = fetchWord(cpu);
     }
-    else if (opcode == 0x83)
+    else if (opcode == 0x83 || opcode == 0x82)
     {
       immediate = (uint16_t)(int16_t)(int8_t)fetchByte(cpu);
     }
@@ -937,11 +953,23 @@ TINY8086_INLINE tiny8086Result stepImpl(tiny8086* cpu)
     break;
   case 0x8C:
     decodeModRm(cpu, &modRm, segmentOverride);
-    writeRm(cpu, &modRm, cpu->seg[modRm.regField & 3], true);
+    //-- Encoding 000b..011b select ES/CS/SS/DS; 100b..111b are not defined segment sources.
+    if (modRm.regField > 3)
+    {
+      cpu->ip = startIp;
+      return tiny8086InvalidInstruction;
+    }
+    writeRm(cpu, &modRm, cpu->seg[modRm.regField], true);
     break;
   case 0x8E:
     decodeModRm(cpu, &modRm, segmentOverride);
-    cpu->seg[modRm.regField & 3] = readRm(cpu, &modRm, true);
+    //-- Encoding 000b..011b select ES/CS/SS/DS; 100b..111b are not defined segment targets.
+    if (modRm.regField > 3)
+    {
+      cpu->ip = startIp;
+      return tiny8086InvalidInstruction;
+    }
+    cpu->seg[modRm.regField] = readRm(cpu, &modRm, true);
     break;
   case 0x8D:
     decodeModRm(cpu, &modRm, segmentOverride);
@@ -972,7 +1000,8 @@ TINY8086_INLINE tiny8086Result stepImpl(tiny8086* cpu)
     break;
 
   case 0x9C:
-    push16(cpu, cpu->flags);
+    //-- The 8086 flags register always reports the reserved bit 1 as set; PUSHF copies it.
+    push16(cpu, (uint16_t)(cpu->flags | 0x0002));
     break;
   case 0x9D:
     cpu->flags = (uint16_t)(pop16(cpu) | 0x0002);
@@ -1450,6 +1479,13 @@ TINY8086_INLINE tiny8086Result stepImpl(tiny8086* cpu)
   case 0xFF:
   {
     decodeModRm(cpu, &modRm, segmentOverride);
+    //-- FE only defines /0 INC and /1 DEC; reject /2../7 before the shared handlers run,
+    //-- otherwise jump-like handlers would already have disturbed the stack.
+    if (opcode == 0xFE && modRm.regField > 1)
+    {
+      cpu->ip = startIp;
+      return tiny8086InvalidInstruction;
+    }
     switch (modRm.regField)
     {
     case 0:
@@ -1495,11 +1531,6 @@ TINY8086_INLINE tiny8086Result stepImpl(tiny8086* cpu)
       push16(cpu, readRm(cpu, &modRm, true));
       break;
     default:
-      cpu->ip = startIp;
-      return tiny8086InvalidInstruction;
-    }
-    if (opcode == 0xFE && modRm.regField > 1)
-    {
       cpu->ip = startIp;
       return tiny8086InvalidInstruction;
     }

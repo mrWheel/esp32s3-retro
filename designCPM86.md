@@ -1,6 +1,6 @@
 # designCPM86.md — CP/M-86 engineering memory
 
-Revision: 2026-10-24. UPDATE: the CPU core has been replaced by a project-owned tiny8086-style interpreter (`components/cpm86Core/tiny8086`), see CPM86-VERIFY-043 and `migrate8086CPU.md`; EMU86 statements below are historical until `third_party/emu86` is removed. Status: RETRO86_V1 BIOS, CP/M-86 system resources, drive configuration, A:–F: firmware disk services and the `RETRO86_TIMER_B1` guest timer extension are implemented. The sanitized desktop host test boots the real CCP/BDOS to `A>` and successfully runs `DIR`; multiple-drive guest behavior and timer I/O are covered by CPU tests. The ESP-IDF 6.0.2 firmware build passes. No new firmware has been flashed; timer behavior on hardware and CP/M-86 hardware access to configured SD drives remain unverified. This does not establish broad 8086 conformance, complete CP/M-86 compatibility, writable-media reliability, or a full native development workflow. The pinned EMU86 CPU sources remain integrated through a bounded-RAM, single-active-instance adapter. CP/M-86 1.1 remains the initial release candidate.
+Revision: 2026-10-31. UPDATE: the CPU core has been replaced by a project-owned tiny8086-style interpreter (`components/cpm86Core/tiny8086`), see CPM86-VERIFY-043 and `migrate8086CPU.md`; the EMU86 sources were deleted from the tree in CPM86-VERIFY-044, so EMU86 statements below are historical. Status: RETRO86_V1 BIOS, CP/M-86 system resources, drive configuration, A:–F: firmware disk services and the `RETRO86_TIMER_B1` guest timer extension are implemented. The sanitized desktop host test boots the real CCP/BDOS to `A>` and successfully runs `DIR`; multiple-drive guest behavior and timer I/O are covered by CPU tests. The ESP-IDF 6.0.2 firmware build passes. A user-flashed build passed the scripted hardware suite 20/20 (2026-10-24, recorded in CPM86-VERIFY-046 and `docs/cpm86/assesmentCPM86.md`); PSRAM (8 MiB) is verified on hardware. A scripted log for the current post-review build has not yet been captured; timer-delta measurement, final-build BENCH86 numbers and a captured native editor/assembler/compile transcript remain outstanding, as do broad 8086 conformance and complete provenance/rights evidence. Worktree state 2026-10-31: uncommitted tiny8086 fixes (signed IDIV boundaries, 8Ch/8Eh segment-register field validation, PUSHF reserved bit, FE /2../7 rejection ordering) and an independent conformance suite `tests/cpm86ConformanceTests.c` that is not yet registered and does not yet compile; see CPM86-VERIFY-047 and the Remaining-work plan. CP/M-86 1.1 remains the initial release candidate.
 
 ## Provenance and purpose
 
@@ -111,10 +111,11 @@ Ownership, updated to reflect the prototype and remaining design:
 |--------------------------|------------------------------------------------------------------------------|
 |`components/cpm86Core/tiny8086/`|Project-owned 8086 interpreter (8086tiny style); the former `third_party/emu86/` was removed in CPM86-VERIFY-044|
 |`components/cpm86Core/`   |CPU adapter, bounded RAM and host byte-port interface                         |
-|`components/cpm86Core/os/`|Guest BIOS/loader source, reproducible binaries, selected OS provenance       |
+|`components/cpm86Core/bios/retro86bios.a86`|Guest BIOS source (assembled with ASM86 into the separate H86 overlay)|
 |`main/cpm86Machine.c`     |Registry integration, resource probe, host-service adapters and task lifecycle|
-|`tools/buildCpm86Disk.py` |Deterministic target image composition once geometry is frozen                |
-|`tools/cpm86DiskImage.py` |Profile-aware create/list/add/validate operations                             |
+|`main/cpm86DriveConfig.c` |`drives.cfg` parsing, profile/size validation and path confinement            |
+|`main/cpm86BiosOverlay.c` |Intel-Hex H86 overlay loader with record/checksum validation                  |
+|`tools/cpm86/`            |Image tooling (`diskImageCpm86.py`, `buildDiskImageCpm86.py`, `extractCpm86.py`), cpmtools `diskdefs` and the scripted `cpm86HardwareTest.py`|
 |`docs/cpm86/`             |Reference traces, ABI/profile audits and verification evidence                |
 
 Do not duplicate shared image I/O or path resolution. Extract reusable infrastructure where needed without changing CP/M 2.2 (CPM-80) behaviour. Reuse algorithms only after CP/M-86 filesystem semantics are checked; the existing CPM-80 image tool is not assumed compatible.
@@ -146,6 +147,36 @@ Prefer a contiguous 1 MiB PSRAM-backed address-space allocation if the real boar
 
 8086 and 8088 instruction-level compatibility does not imply matching bus timing or prefetch behaviour. Initial acceptance is functional, not cycle-accurate. Restrict guest software to the selected 8086 instruction set; 80186 features are not implicitly enabled because a candidate supports them. Audit flags, arithmetic, segment overrides, far calls/returns, stack, INT/IRET, string/REP behaviour, interrupt inhibition, HLT and divide behaviour. Define whether and how an external interrupt can wake HLT. Break long REP execution into safe scheduler work without changing instruction state or architectural interrupt behaviour.
 
+### Declared RETRO86_V1 CPU profile rules (CPM86-DEC-021, 2026-10-31)
+
+These behaviours are profile rules of the project-owned `tiny8086` core, not open
+bugs. A gate or conformance claim must not silently assume full-chip semantics beyond
+this list; guests must not depend on behaviours marked "not modelled".
+
+  1.  Trap flag: TF is storable (PUSHF/POPF/IRET preserve it) but single-step is not
+      implemented; setting TF has no architectural effect.
+  2.  External interrupts: INTR/NMI are not modelled and no interrupt source exists
+      (the production core has no `intHook`); IF is storable but inert. HLT is sticky:
+      only a core reset/relaunch clears it, there is no wake-up path.
+  3.  LOCK (F0h) is accepted and ignored (single core, no shared bus). REP/REPZ/REPNZ
+      and segment prefixes are honoured; repeated prefixes of the same class keep the
+      last one.
+  4.  ESC (D8h..DFh) decodes the ModRM operand (including displacement) and ignores
+      the operation; no 8087 state exists.
+  5.  PUSHA/POPA and `PUSH SP` (FF /6) use the pre-decrement original SP value
+      (80186-like), matching the previous EMU86-era guest expectations.
+  6.  Shift/rotate counts come from the full CL (no 5-bit masking, 8086 rule); a count
+      of zero executes no rotate and leaves all flags unchanged. `D0`/`D1`/`C0`/`C1`
+      counts behave the same way.
+  7.  Reserved flags: bit 1 always reads as 1 through PUSHF/POPF/IRET/INT frames. The
+      8086's always-1 bits 12..15 are not modelled (they read and write as 0); guest
+      code must not test them. Bit 5 is stored like an ordinary undefined bit.
+  8.  Byte I/O only; word I/O (E5h/E7h/EDh/EFh forms) faults deterministically and
+      records the port for diagnostics (see `docs/cpm86/virtualIo.md`).
+  9.  REP runs to completion inside one core call; because no asynchronous interrupt
+      source exists, this cannot observe or delay an interrupt. If external interrupts
+      or HLT wake-up are ever added (rule 2), REP chunking must be revisited.
+
 ## Genuine operating system and program format
 
 Select one exact CP/M-86 release and OEM resource set. Audit its Digital Research system/programming manuals and source before defining BIOS details. Record the manual edition and page references in docs/cpm86/abiAudit.md. OS/source/utility rights are individual gates; the CP/M rights clarification cited in the supplied CP/M design must be checked for the exact materials used here.
@@ -164,7 +195,7 @@ CP/M-86 CPU/interface and machine integration:
 	●	Host fixtures cover selected arithmetic/memory instructions, 20-bit physical wrap, HLT, custom port callbacks, unsupported word I/O, RAM bounds, unmapped fetch, reset and singleton enforcement. Host tests use sanitizers; ESP-IDF build also passes.
 	●	Upstream CPU state is global/static, so the adapter enforces one active core; complete 8086 instruction/segment conformance is not established.
 	●	The CP/M-86 machine is integrated at menu slot 2 with resource probing, a project BIOS, system files and a boot disk. Desktop host tests boot the genuine guest to `A>` and run `DIR`; the ESP-IDF firmware build succeeds.
-	●	The firmware has not been flashed. Hardware boot and memory/performance validation remain outstanding.
+	●	A user-flashed build passed the scripted hardware suite 20/20 and the PSRAM check (CPM86-VERIFY-046). The current post-review build still needs a fresh scripted hardware run, a measured timer delta and final-build benchmark numbers.
 
 Still open: complete instruction coverage, remaining target BIOS/OS compatibility review, guest linker/map coverage, native editor/compiler operation, ESP32-S3 memory/speed measurements and writable-media reliability.
 
@@ -267,6 +298,8 @@ All gates below are OPEN at this revision. Existing CP/M 2.2 passes cannot close
 |CPM86-M7|Any expanded profile audited and independently formatted; first/last records, extents, directory-full/disk-full and all drive letters verified        |
 |CPM86-M8|Reset/exit/fault recovery, repeated launches, memory/latency measurements, reproducible release and complete logs                                     |
 
+Gate note (2026-10-31): no gate is formally closed. Observed so far: M2 partial (fixture-level plus a not-yet-integrated conformance suite), M4 partial on desktop (VERIFY-019/023/028), M5 partial on hardware (scripted 20/20 run, VERIFY-046), M8 partial (PSRAM verified, benchmark user-reported). A gate closes only when this log gains an entry with all required evidence fields and observed execution.
+
 Definition of Done: every applicable gate has observed evidence; genuine guest applications run; clean restart preserves writable media; invalid resources fail safely; no unresolved corruption issue remains; source/assets/tools and deployment can be reproduced legally. Desktop boot is not hardware acceptance. A deferred feature remains explicitly deferred, not PASS.
 
 ## Decision log
@@ -292,6 +325,7 @@ Definition of Done: every applicable gate has observed evidence; genuine guest a
 |CPM86-DEC-018|Local system reference|Use the user-provided root image `cmp86.img` as a CP/M-86 source/reference candidate; preserve it unchanged and validate its exact disk format, boot path and rights before building RETRO86_V1 resources|
 |CPM86-DEC-019|Selected emulator extension|Expose a monotonic unsigned millisecond count on byte IN ports F0h–F4h under capability B1h (`RETRO86_TIMER_B1`); inject a generic host callback into the CP/M-86 core, snapshot only on F1h, and keep ESP-IDF out of the CPU core. Other CPU emulators require explicit integration.|
 |CPM86-DEC-020|Implemented 2026-10-23|Honor the configured A: access mode instead of forcing the system disk read-only. Keep RO as the default; when configured RW, the menu displays `[Writable!]` and writes persist in LittleFS until the firmware rebuilds the image. This was chosen over the previous fixed-RO policy so the system disk can be modified by native guests. Host parser coverage was added; guest writes and ESP32-S3 persistence remain unverified.|
+|CPM86-DEC-021|Declared 2026-10-31|Declare the unimplemented/unmodelled CPU behaviours (trap flag inert, no external interrupts and sticky HLT, LOCK ignored, ESC decoded-and-ignored, 80186-like original-SP on PUSHA/PUSH SP, unmasked CL shift counts, flags bits 12..15 not always-1) as RETRO86_V1 profile rules instead of open bugs; see "Declared RETRO86_V1 CPU profile rules". `docs/cpm86/virtualIo.md` was reconciled: the claimed F8h/F9h reservation is removed and unmapped-port behaviour is documented as in-range misuse faulting while out-of-range ports read idle FFh/ignore writes with a one-time notice.|
 
 ## Issue log
 
@@ -307,6 +341,8 @@ Definition of Done: every applicable gate has observed evidence; genuine guest a
 |CPM86-ISSUE-008|OPEN |Native applications, terminal personality and batch scratch-drive behaviour; Z80 COM or DOS binaries are not acceptance tools          |
 |CPM86-ISSUE-010|OPEN |Real SD persistence, RO/RW errors, clean exit and reset durability; no host test closes a board gate                                   |
 |CPM86-ISSUE-011|PARTIAL|RETRO86_V1 BIOS, system image and desktop boot are implemented in VERIFY-019/023. The separate CompuPro reference image remains unaudited for boot suitability; its declared-geometry/image-length discrepancy, OEM boot chain and rights remain open. The upstream default BIOS remains IBM PC XT.|
+|CPM86-ISSUE-012|CLOSED 2026-11-01|Conformance suite registered and compiling; 109 vectors + 32 Jcc cases green under ASan/UBSan (CPM86-VERIFY-048). Unregistered tests still never count as evidence|
+|CPM86-ISSUE-013|CLOSED 2026-11-01|IDIV/raiseInterrupt/82h fixes present with vectors, FE and 8Ch/8Eh validation present; unmodelled behaviours declared as profile rules (CPM86-DEC-021) and covered by vectors where observable (CPM86-VERIFY-048). Residual: TF single-step, external interrupt/HLT wake and PUSHA/PUSH SP have no executable guest-level test possible (declared inert/80186-like in DEC-021), so they stay profile rules, not tests|
 
 Initial chain for CPM86-ISSUE-001: reference behaviour—an external core must execute the selected 8086 guest without host BDOS substitution; hypothesis—EMU86 can supply the required CPU/bus integration with limited adapter changes; experiment—pending pinned source audit and conformance fixtures; result—only moving-branch documentation/header review completed; conclusion—preferred candidate, not qualified; root cause—no failure observed; fix—pending evidence; regression verification—CPM86-VERIFY-002/003 planned; do not repeat—do not convert the earlier recommendation into a claimed boot or conformance PASS.
 
@@ -330,7 +366,6 @@ For every other issue append the complete chain and evidence before closure. Sup
 |CPM86-VERIFY-013|PASS (PROTOTYPE ONLY)  |2026-10-06: vendored the pinned EMU86 CPU modules and MIT license with patch notes; integrated a single-active-core adapter, configurable mapped RAM (1..1 MiB), 20-bit physical wrapping, unmapped-memory faults and byte-port callbacks. Host tests pass under the configured sanitizers, including selected instruction, wrap, unsupported word-I/O, reset/singleton and unmapped-fetch fixtures. ESP-IDF 6.0.2 firmware build passes. No CP/M-86 BIOS/OS image, boot disk, full 8086 conformance suite, flash or hardware execution was performed.|
 |CPM86-VERIFY-014|SOURCE/ENVIRONMENT REVIEW|2026-10-06: inspected `tsupplis/cpm86-kernel` at `00927e17f43ea4241cc0809531cf68ce835e9c16`; its source and bootable images target IBM PC/XT, and `pcbios.a86` is explicitly the IBM PC BIOS. Its `LICENSE.md` contains a rights-holder permission statement; the user selected a separate RETRO86_V1 BIOS. No `cpm86.img` exists in the project tree. At that review point, the native CP/M cross-build tools had not yet been brought up; see VERIFY-017. No target BIOS, target image or boot was produced.|
 |CPM86-VERIFY-015|IMAGE IDENTIFICATION ONLY|2026-10-06: corrected VERIFY-014 after the user pointed out the root image named `cmp86.img` (not `cpm86.img`). It is 568,576 bytes; string data identifies CP/M-86 1.1NA and OEM copyright notices. This inspection did not establish geometry, image integrity, bootability or suitability as a RETRO86_V1 system disk; filesystem evidence was subsequently established in VERIFY-018. The image was not modified.|
-|CPM86-VERIFY-016|PARTIAL DISK-TOOL TEST|2026-10-06: on macOS with cpmtools 2.23, confirmed upstream `base-160.img` is 163,840 bytes. On a temporary copy, `cpmcp -f ibmpc-514ss ... base/pip.cmd 0:PIP.CMD` succeeded; extracting `0:PIP.CMD` produced bytes identical to `base/pip.cmd`. `cpmls -F -f ibmpc-514ss ... '0:*.*'` still reported “No files found” despite the directory entry and successful extraction, so listing behaviour remains unresolved. A separate `mkfs.cpm` trial on an un-sized output created only a partial image; the upstream Makefile explicitly requires pre-filling before `mkfs.cpm`. Temporary images were removed. Firmware/core/reference commits, board, terminal and ESP-IDF: N/A; no guest boot was attempted.|
 |CPM86-VERIFY-016|PARTIAL DISK-TOOL TEST|2026-10-06: on macOS with cpmtools 2.23, confirmed upstream `base-160.img` is 163,840 bytes. On a temporary copy, `cpmcp -f ibmpc-514ss /tmp/retro86-cpm86-base-test.img base/pip.cmd 0:PIP.CMD` succeeded; extracting `0:PIP.CMD` produced bytes identical to `base/pip.cmd`. `cpmls -F -f ibmpc-514ss /tmp/retro86-cpm86-base-test.img '0:*.*'` still reported “No files found” despite the directory entry and successful extraction, so listing behaviour remains unresolved. A separate `mkfs.cpm` trial on an un-sized output created only a partial image; the upstream Makefile explicitly requires pre-filling before `mkfs.cpm`. Temporary images were removed. Firmware/core/reference commits, board, terminal and ESP-IDF: N/A; no guest boot was attempted.|
 |CPM86-VERIFY-017|REFERENCE BUILD ONLY|2026-10-06: built the pinned source's temporary `emu2` and native `doscat`/`hexcom` helpers. A plain `make cpm.sys` without a pseudo-terminal falsely returned success after the guest assembler failed to access a TTY and emitted empty intermediate output. Re-running `make cpm.sys` and `make check` under `script -q /dev/null` completed all assembler passes with zero errors; `cpm.sys` and `cpmorg.sys` were byte-identical. This is the pinned upstream CP/M-86 kernel with its IBM PC BIOS, not a RETRO86_V1 system image. No project resources were changed and no guest boot was attempted. Desktop boot emulator, board, terminal and ESP-IDF: N/A.|
 |CPM86-VERIFY-018|FILESYSTEM READ / PROFILE IDENTIFICATION|2026-10-06: the user-provided `assets/readCPM86img.sh` extracts `assets/cmp86.img` after a leading 11,520-byte offset and lists the directory successfully with cpmtools 2.23 and `assets/diskdefs`. The full image is 568,576 bytes; the extracted filesystem region is 557,056 bytes. The `comp86` definition declares 1,024-byte sectors, 70 tracks, 8 sectors/track, 1,024-byte blocks, 64 directory entries, skew 3, offset 11,520, zero boot tracks, OS 2.2. Reproduced the user's directory listing and extracted `CPM.SYS` (11,776 bytes), `LDBIOS.H86` (6,016 bytes) and `LOADER.H86` (14,080 bytes) to temporary storage for inspection. Important unresolved geometry check: the declared geometry spans 70×8×1,024 = 573,440 bytes, 16,384 bytes more than the extracted region; a successful directory listing does not validate the full disk geometry. The image is now identified as a readable CompuPro CP/M-86 filesystem/source candidate, but its boot path, system file semantics, rights, and suitability for RETRO86_V1 remain unverified. No guest boot or project image modification was performed. Firmware/core/reference commits, board, terminal and ESP-IDF: N/A.|
@@ -353,7 +388,123 @@ For every other issue append the complete chain and evidence before closure. Sup
 |CPM86-VERIFY-042|TRACE-OVERHEAD PATH REMOVED WHEN DISABLED / BOTH FIRMWARE CONFIGURATIONS BUILD; BENCH86 HARDWARE COMPARISON OPEN|2026-10-08: source review confirmed `op_decode` formats fetched instruction bytes with `snprintf` and the core evaluates trace candidates for decoded instructions even when periodic logs do not print traces; trace history stores selected control-flow entries, not every instruction. With tracing disabled, opcode text clearing/formatting and trace checks, memory reads, history writes and trace-only expected-PC updates are bypassed. Decoder byte-count/opcode-length checks remain, as do decoding, memory/execute guards, invalid-opcode, I/O-fault and CPU execution paths. Added disabled-trace assertions for invalid-opcode and memory-fault detection. Desktop test executable build passed; CTest ran the CP/M-86 core tests before stopping in the separate CP/M-86 boot fixture, so the full suite did not pass. ESP-IDF 6.0.2 ESP32-S3 builds passed both with tracing on and off; final configuration restored to tracing on and CPU frequency remains 240 MHz. No device was flashed. User-provided 240 MHz BENCH86 baselines: INTEGER 89.604 ms, SIEVE 36.653 ms; trace-disabled results and PASS status remain unmeasured. The post-`@DONE PASS` console-polling observation is noted separately in `docs/cpm86/host.md`; no polling behavior or other performance setting changed.|
 |CPM86-VERIFY-043|TINY8086 CORE HARDWARE BENCHMARKED (USER-REPORTED)|2026-10-24: replaced EMU86 with a project-owned tiny8086-style switch-case interpreter behind the `cpm86Core.h` API (full 8086 plus the 80186 opcodes used by the tests). Host tests pass; CP/M-86 boots to `A>` and BENCH86 passes on hardware at 240 MHz (user-reported). BENCH86 INTEGER/SIEVE: EMU86 89604/36653 ms; tiny8086 12801/4755 (trace on, per-batch delay) → 9599/3531 (time-sliced yield) → 8531/3004 (trace off) → 7682/2850 (inlining, IRAM linker fragment) → 6986/2593 (jump tables, parity table) → 6987/2591 (branch-free flags: no gain) → 6110/2308 (200 ms slice) → 5269/1993 (execute guard removed so the fast run loop is used) → 4972/1892 (dense opcode jump table, `-fno-bit-tests`) → 4078/1516 ms (always_inline `readByte`/`writeByte`/`aluOperation`/`setFlag`). Final index vs the 5 MHz model: 154 INTEGER, 296 SIEVE. Tried and reverted: caching the code-segment base for opcode fetch (slower: 4558/1765 ms). Not effective: `IRAM_ATTR` on a single function; guest RAM in internal RAM versus PSRAM.|
 |CPM86-VERIFY-044|DEBUG/TRACE CODE REMOVED; HOST TESTS AND ESP-IDF BUILD PASS|2026-10-24: removed `CONFIG_CPM86_INSTRUCTION_TRACE`, the trace API (`cpm86CoreGetRecentTrace/GetHeadTrace`), `cpm86CoreSetExecuteGuard`, `captureInstructionTrace`, the opcode profiler, the CPU self-test and the timing output; deleted `components/cpm86Core/third_party/emu86/`. A guest stop still logs result, CS:IP and the instruction bytes, but no trace window. `CPM86_TINY8086_IRAM` now defaults to `y`. Superseded by this entry: the trace-related statements in CPM86-VERIFY-022 and CPM86-VERIFY-040..042. Host suite passes; an isolated ESP-IDF 6.0.2 ESP32-S3 build passes (image 0x123650 bytes, 62% of the app partition free). The final firmware was not flashed or re-measured by the assistant after the cleanup. Details: `migrate8086CPU.md`.|
-|CPM86-VERIFY-043|BENCH86 TRACE-OFF COMPARISON: NO DISPLAYED-TIME CHANGE; CORE PROFILING OPEN|2026-10-08: user reports trace-disabled BENCH86 times exactly match the 240 MHz baselines: INTEGER 89.604 ms and SIEVE 36.653 ms. This establishes no measurable change at the displayed precision, not zero internal overhead. Historical BENCH86 figures remain theoretical models. Next performance investigation is targeted profiling within `cpm86CoreRun`; no firmware changes, clocks, batch size or delay changed for this comparison. Post-`@DONE PASS` instruction-count growth remains a separate unconfirmed console-polling investigation.|
+|CPM86-VERIFY-045|BENCH86 TRACE-OFF COMPARISON (EMU86 ERA, SUPERSEDED); CORE PROFILING OPEN|2026-10-08: user reports trace-disabled BENCH86 times exactly match the 240 MHz baselines: INTEGER 89.604 ms and SIEVE 36.653 ms. This establishes no measurable change at the displayed precision, not zero internal overhead. Historical BENCH86 figures remain theoretical models. Next performance investigation is targeted profiling within `cpm86CoreRun`; no firmware changes, clocks, batch size or delay changed for this comparison. Post-`@DONE PASS` instruction-count growth remains a separate unconfirmed console-polling investigation. Renumbered from a second entry sharing the 043 id on 2026-10-31; superseded for the current core by CPM86-VERIFY-043 and CPM86-VERIFY-044.|
+|CPM86-VERIFY-046|HARDWARE SCRIPTED RUN PASS (RECORDED 2026-10-31, RUN 2026-10-24)|2026-10-24 evidence recorded from `docs/cpm86/assesmentCPM86.md`: on the LOLIN S3 Pro (ESP32-S3 rev v0.2, 16 MB flash, 8 MiB octal PSRAM) a user-flashed build ran `tools/cpm86/cpm86HardwareTest.py` over the USB console: 20 passed, 0 failed, 4 manual. Covered: cold boot to `A>`, `DIR`/`STAT` on A:, `DIR` on B:/C:/D:, clean rejection of E:/F:, `PIP` copy A:->D: and D:->B:, persistence after Ctrl+] stop and relaunch, `ERA`, three stop/launch cycles, write to read-only A: refused recoverably. PSRAM menu line showed `PSRAM: 8192 KiB, free 8184 KiB`. Boot segment sizes matched `build/retroHost.bin` (circumstantial build identity). Firmware commit NOT RECORDED. This does not close CPM86-M5: timer delta, measured benchmark and a scripted run of the post-review build remain open.|
+|CPM86-VERIFY-047|CODE REVIEW + CONFORMANCE SUITE STATE (NOT BUILDING)|2026-10-31: review of `tiny8086.c`, `cpm86Core.c`, `cpm86Machine.c`, `cpm86DriveConfig.c`, `cpm86BiosOverlay.c`, `retro86bios.a86` and `tests/cpm86ConformanceTests.c`. Findings: (1) the untracked conformance suite is not registered in `tests/CMakeLists.txt` and fails to compile — vectors with `checkFlags=false` supply two scalars where `checkFlags`/`flagsMask`/`flagsValue` need three, so the first `expectedMemory` entry lands in `flagsValue` under `-Werror`; (2) signed IDIV computes `int32_t quotient = signedDividend / divisor` before the `INT32_MIN / -1` guard (signed-overflow UB; observed in source, not yet observed to fail); (3) `raiseInterrupt` pushes flags without forcing reserved bit 1; (4) opcode 82h decodes as a byte operand instead of aliasing 83h; (5) `littlefs/cpm86/system copy.dsk` is tracked and packaged into `bootfs.bin`; (6) `docs/cpm86/virtualIo.md` claims reserved F8h/F9h ports (absent in code) and unmapped-port I/O errors (host returns idle FFh outside E0h..EFh). Uncommitted worktree: IDIV ±128/±32768 boundary fixes, 8Ch/8Eh reg-field validation, PUSHF reserved bit, FE /2../7 rejection moved before group handlers; `PROG_VERSION` v0.6.0. Host tests not re-run this session.|
+|CPM86-VERIFY-048|CONFORMANCE SUITE INTEGRATED + CORE REVIEW FIXES VERIFIED (HOST)|2026-11-01: closes the compile/registration half of CPM86-VERIFY-047 (86-01) and verifies the core fixes (86-02). `tests/CMakeLists.txt` registers the `cpm86ConformanceTests` executable (`cpm86ConformanceTests.c`, `cpm86Core.c`, `tiny8086.c`; `-Wall -Wextra -Werror -funsigned-char`, ASan/UBSan) and `add_test(NAME cpm86Conformance ...)`. The vector-table arity defect is fixed (every row supplies `checkFlags`/`flagsMask`/`flagsValue`); one vector added this session: `idiv byte 8000h/FFh raises INT 0`, pinning the new byte `INT16_MIN / -1` guard. Commands: `cmake -S tests -B /tmp/retro-host-tests`, `cmake --build /tmp/retro-host-tests`, `ctest -R 'cpm86Conformance|hostCore'` — PASS (109 vectors + 32 Jcc cases; `hostCore` includes the real-guest boot/`DIR`/multi-drive fixtures). Full suite: 6 failures are the pre-existing Apple II/UCSD/guestFsDos33 fixtures documented in `projectPrompt.md`, unrelated to CP/M-86. Core fixes present in `tiny8086.c`: IDIV `INT32_MIN/-1` and `INT16_MIN/-1` guards before the C division, signed bounds accept `-0x8000`/`-0x80`, `raiseInterrupt` reserved bit 1, 82h aliases 83h, 8Ch/8Eh reg field 4..7 rejected, FE /2../7 rejected before shared handlers, PUSHF reserved bit 1; RCR-by-1 OF is `CF xor sign` (hostTests fixture repinned). Firmware: `idf.py -B build-agent-check build` PASS (ESP-IDF 6.0.2, `build/` had a stale venv; separate tree per `projectPrompt.md`). This is desktop + build evidence; hardware acceptance of this exact image is step 86-06 (CPM86-VERIFY-049).|
+
+## Remaining-work plan (2026-10-31)
+
+Derived from a code review on 2026-10-31 (`tiny8086.c`, `cpm86Core.c`, `cpm86Machine.c`,
+`cpm86DriveConfig.c`, `cpm86BiosOverlay.c`, `retro86bios.a86`, `tests/cpm86ConformanceTests.c`,
+`docs/cpm86/`); the code is the truth where this document differed. Each step below is one
+focused work session with its own exit evidence, recorded as the next CPM86-VERIFY id. Use the
+verified build/test commands from `projectPrompt.md`; hardware flashing is authorized per the
+project memory (`/dev/tty.usbmodem202401`).
+
+|Step|Goal|Main files|Exit evidence|
+|----|----|----------|-------------|
+|86-01|Integrate the conformance suite: add a `cpm86ConformanceTests` executable (sources `cpm86Core.c`, `tiny8086/tiny8086.c`, include dirs `components/cpm86Core/include`, `components/cpm86Core/tiny8086`, `components/hostCore/include`) and `add_test(NAME cpm86Conformance ...)`; fix the vector table so every row supplies `checkFlags`, `flagsMask`, `flagsValue` and `expectedMemory` (rows with `checkFlags=false` currently miss one scalar); keep the `-funsigned-char`/sanitizer build|`tests/CMakeLists.txt`, `tests/cpm86ConformanceTests.c`|`ctest -R cpm86Conformance` passes; full host suite unchanged|
+|86-02|Fix the review findings in the core: move the signed IDIV `INT32_MIN / -1` and `divisor == -1` checks **before** the C division; force reserved bit 1 on the flags pushed by `raiseInterrupt`; make 82h alias 83h (16-bit operand, sign-extended imm8) or reject it; add conformance vectors for each; keep the uncommitted 8Ch/8Eh/FE/PUSHF/IDIV-boundary fixes|`components/cpm86Core/tiny8086/tiny8086.c`, `tests/cpm86ConformanceTests.c`|New vectors green under ASan/UBSan; `idf.py build` passes; VERIFY entry; suggested commit message|
+|86-03|Declare unimplemented CPU behaviour as profile rules, not bugs: trap-flag single-step, external interrupts and HLT wake-up, LOCK ignored, ESC operands decoded-and-ignored, PUSH SP pushes the original SP (80186-like), unmasked CL shift counts; reconcile `docs/cpm86/virtualIo.md` with the code (remove or implement the claimed F8h/F9h reservation; document that unmapped ports outside E0h..EFh return idle FFh once-logged while E0h..EFh misuse faults)|`designCPM86.md`, `docs/cpm86/virtualIo.md`|Doc entries plus a decision-log line; no code change|
+|86-04|Make `tools/cpm86/diskdefs` a trustworthy validator: align `retro86-large` with firmware DPB1 (EXM=0, per VERIFY-028) and audit `retro86-160` and the BIG geometry against DPB0/DPB2; prove with a `cpmcp` copy-in/copy-out round trip of one >16 KiB (multi-extent) and one boundary-sized file per profile|`tools/cpm86/diskdefs`|Byte-identical round trips; evidence file under `docs/cpm86/`|
+|86-05|Storage housekeeping and drive-matrix host tests: confirm with the user and remove tracked `littlefs/cpm86/system copy.dsk` from the packaged LittleFS tree; add host tests for first/last valid track and record per profile, rejected track 0/overflow track, record ≥32, read-only write refusal propagation, and guest-visible disk-full/directory-full on disposable images|`littlefs/cpm86/`, `tests/hostTests.c`|Host suite green; `bootfs.bin` size recorded|
+|86-06|Hardware acceptance of the current build (closes the M5 evidence gaps): build, flash, run `tools/cpm86/cpm86HardwareTest.py` against the flashed board and archive the script log; verify PSRAM line, boot to `A>`, `DIR`, B:/C:/D:, read-only refusal and Ctrl+] relaunch on the exact post-review image|`tools/cpm86/cpm86HardwareTest.py`, firmware|VERIFY entry with full transcript; no regression vs the 20/20 run of VERIFY-046|
+|86-07|Measure timer and speed on hardware (M8 evidence): host-side ~1 s wait between two RETRO86_TIMER_B1 reads must yield a 900–1100 ms delta; run BENCH86 on the same final build and compare with the 2026-10-24 tiny8086 figures (4078/1516 ms at 240 MHz)|`tools/cpm86/`, firmware|VERIFY entry with measured values, not user reports|
+|86-08|Native development workflow transcript (closes M6): scripted on-hardware run of the editor, `ASM86` assemble to a `.CMD`, execution of the produced program, `PIP` copy across drives, terminal checks (CR/LF, backspace, Ctrl-C)|`tools/cpm86/`|VERIFY-008 evidence path with captured transcript|
+|86-09|Warm boot and lifecycle qualification: exercise the WBOOT path (it must not return to the host menu) and document which drive/user state survives; repeated init/run/Ctrl+] cycles release media and core ownership; a guest fault (invalid opcode, unmapped fetch) recovers to the menu without host reset|`tests/hostTests.c`, `main/cpm86Machine.c`, this document|Host fixture plus hardware script extension; VERIFY entry|
+|86-10|Durability under interrupted writes: on disposable RW images, interrupt a multi-record guest write (Ctrl+] or reset mid-`PIP`), then reopen the image host-side and confirm the host stays healthy and the image remains parseable; crash-atomicity stays explicitly out of scope|`tools/cpm86/`, tests|VERIFY entry recording the observed states|
+|86-11|Primary-manual ABI audit and rights evidence (closes ISSUE-002/003): record the exact manual editions and pages for the BDOS E0h call ABI, the BIOS entry-vector table (matching `retro86bios.a86`), DPB fields, memory-region table and segment-aware DMA of the shipped CP/M-86 1.1; list rights evidence per CPM86-DEC-014/017 and the tools actually shipped (`GENCMD`, `ASM86`, `PIP` provenance)|`docs/cpm86/abiAudit.md`, issue log|abiAudit.md with citations; issue log updated|
+
+Suggested order: 86-01 → 86-02 unblock any conformance claim (CPM86-M2); 86-03..05 are
+host-only and can interleave; 86-06..10 require a final flashed build and should run after
+86-02; 86-11 is independent. Do not promote a step result into a PASS outside the verification
+log, and do not close an issue whose plan step is not recorded there.
+
+## Session work log — 2026-11-01
+
+Resumed an interrupted session after CPM86-VERIFY-047. Authorized this session: assistant
+builds, flashes ( `/dev/tty.usbmodem202401`) and tests the hardware directly. Each step is
+logged with its start and finish time; durable results are promoted into the verification
+log (next free id CPM86-VERIFY-048) and the issue log, not left only here.
+
+### Phase 86-01 — conformance suite integration
+
+- Start 2026-11-01 08:34.
+- 08:34 Confirmed the interrupted session had registered `cpm86ConformanceTests`
+  (executable + `add_test(NAME cpm86Conformance ...)`) in `tests/CMakeLists.txt`; the suite
+  sources are `cpm86ConformanceTests.c`, `cpm86Core.c`, `tiny8086/tiny8086.c` with
+  `-Wall -Wextra -Werror -funsigned-char` and ASan/UBSan.
+- 08:36 `cmake --build /tmp/retro-host-tests` builds the suite cleanly — the vector-table
+  arity fix (every row supplies `checkFlags`, `flagsMask`, `flagsValue`) is present, so the
+  CPM86-VERIFY-047 compile failure is resolved in the worktree.
+- 08:37 `ctest -R cpm86Conformance` PASS (108 vectors + 32 Jcc cases reported by the binary).
+- 08:40 Full host suite: `cpm86Conformance` and `hostCore` (includes `testCpm86Boot`,
+  `testCpm86Core`, timer/core fixtures) PASS. The 6 failing tests (`apple2DiskStream`,
+  `ucsdPascalBoot`, two `apple2ProdosAutostart*`, `guestFsDos33*`) are the pre-existing
+  Apple II/UCSD fixture failures documented in `projectPrompt.md`, unrelated to CP/M-86.
+- Finish 2026-11-01 08:40. Exit evidence met: suite registered, compiles, passes; host suite
+  unchanged apart from the intended RCR-OF fixture repin in `tests/hostTests.c`.
+
+### Phase 86-02 — core review fixes and conformance vectors
+
+- Start 2026-11-01 08:40.
+- 08:40 Verified all review fixes from CPM86-VERIFY-047 are present uncommitted in
+  `components/cpm86Core/tiny8086/tiny8086.c`: IDIV guards for `INT32_MIN / -1` and
+  `INT16_MIN / -1` moved **before** the C division; word/byte overflow bounds corrected to
+  accept `-0x8000`/`-0x80`; `raiseInterrupt` pushes flags with reserved bit 1; 82h aliases
+  83h (16-bit r/m, sign-extended imm8); 8Ch/8Eh reject reg field 4..7; FE /2../7 rejected
+  before the shared group handlers; PUSHF reports reserved bit 1. RCR-by-1 OF now
+  `CF xor result sign` (hostTests fixture repinned accordingly).
+- 08:40 Gap found: the new byte-IDIV `INT16_MIN / -1` guard has no vector (only the word
+  case `DX=8000h/AX=0/-1` is covered). Added vector `idiv byte 8000h/FFh raises INT 0`
+  (`AX=8000h`, `BL=FFh`, `F6 /7`) expecting the INT 0 marker.
+- 08:43 Rebuild + `ctest -R 'cpm86Conformance|hostCore'`: both PASS (now 109 vectors + 32
+  Jcc cases).
+- 08:43 ESP-IDF 6.0.2 build: the existing `build/` tree was configured with a stale venv, so
+  per `projectPrompt.md` the check ran in the separate tree `build-agent-check` (no
+  `fullclean`): `idf.py -B build-agent-check build` PASS.
+- Finish 2026-11-01 08:47. Exit evidence met: all five review fixes verified in the core,
+  each with at least one conformance vector, green under ASan/UBSan; firmware builds.
+  Recorded as CPM86-VERIFY-048.
+
+### Phase 86-06 — hardware acceptance of the post-review build
+
+- Planned: `idf.py build`; flash `/dev/tty.usbmodem202401`; scripted
+  `tools/cpm86/cpm86HardwareTest.py` run; archive log; compare with VERIFY-046 (20/20).
+- Start: BLOCKED 2026-11-01 08:47. `idf.py flash` cannot open `/dev/tty.usbmodem202401`:
+  the Tabby terminal (PID 1144) holds the serial device, and two hung `minicom` processes
+  (PIDs 29379, 51068; ~100 % CPU each, running since Oct 20/23) are still present. Killing
+  user processes is outside this session's mandate — the user must close the Tabby serial
+  tab and/or authorize the kills. Flashing resumes as soon as the port is free.
+- Do not repeat: `build/` + active venv mismatch — use `idf.py -B build-agent-check` (see
+  Phase 86-02 and `projectPrompt.md`); never `idf.py fullclean` here.
+- 09:44 Second flash attempt after the TIMER86 build: same failure —
+  `Could not exclusively lock port /dev/tty.usbmodem202401 [Errno 35]`, Tabby (PID 1144)
+  still holds the device. `lsof` shows no other holder (the hung `minicom` processes no
+  longer lock this port but still burn CPU). Board still runs the Oct 31 23:55 firmware;
+  `build-agent-check/bootfs.bin` (09:40) already carries TIMER86.
+
+### Phase 86-07 — timer delta and BENCH86 on hardware
+
+- Planned: RETRO86_TIMER_B1 host-side ~1 s delta (900–1100 ms expected); BENCH86 on the same
+  build compared with the 2026-10-24 figures (4078/1516 ms at 240 MHz).
+- Start 2026-11-01 09:21 (guest-program preparation; the hardware measurement itself waits
+  on the port blocker above).
+- 09:21 BIOS audit: `components/cpm86Core/bios/retro86bios.a86` CONIN busy-polls port E0h
+  and reads E1h, so BDOS function 1 (console input, `CL=1`, `int 0E0h`) genuinely waits for
+  the host keystroke — usable as the fixed-interval wait without a BIOS change.
+- 09:21 Added `assets/cpm86/TIMER86/` (TIMER86.ASM + build.py + README.md, NASM pattern of
+  BENCH86): checks F0h==B1h, prints `@BEGIN TIMER`, reads t0, waits for one key, reads t1,
+  prints `DELTA=<n> MS` and `@DONE PASS`. Built to `TIMER86.CMD` and copied to
+  `bootDisks/cpm86/systemDsk/` (LARGE profile has directory room: 54 of 128 entries).
+- 09:27 Registered `TIMER86.CMD` in `tests/test_bootDisksBench.py` BENCH_FILES and extended
+  `tools/cpm86/cpm86HardwareTest.py` with automated timer (900–1100 ms) and BENCH86
+  (`@DONE PASS` + Elapsed lines) tests in `extras()`; removed the old manual timer
+  placeholder from `manual()`. `python3 tests/test_bootDisksBench.py` OK (3 tests) and
+  `idf.py -B build-agent-check build` PASS with the TIMER86-containing boot disk.
+- Next (after port is free): rebuild (regenerates `system.dsk` with TIMER86), flash, run the
+  full suite, record measured numbers.
 
 ## Development references and evidence policy
 

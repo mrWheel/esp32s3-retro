@@ -37,6 +37,19 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_link_options(hostTests PRIVATE -fsanitize=address,undefined)
 endif()
 add_executable(
+  cpm86ConformanceTests
+  cpm86ConformanceTests.c
+  ../components/cpm86Core/cpm86Core.c
+  ../components/cpm86Core/tiny8086/tiny8086.c
+)
+target_include_directories(cpm86ConformanceTests PRIVATE ../components/cpm86Core/include
+  ../components/cpm86Core/tiny8086 ../components/hostCore/include)
+target_compile_options(cpm86ConformanceTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(cpm86ConformanceTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(cpm86ConformanceTests PRIVATE -fsanitize=address,undefined)
+endif()
+add_executable(
   apple2DiskTests
   apple2DiskTests.c
   ../components/hostCore/hostCore.c
@@ -91,6 +104,7 @@ add_executable(cpm80TimerTests cpm80TimerTests.c ../components/cpm80Core/cpm80Cp
 target_include_directories(cpm80TimerTests PRIVATE ../components/hostCore/include ../components/cpm80Core/include ../components/z80)
 target_compile_options(cpm80TimerTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
 target_compile_definitions(cpm80TimerTests PRIVATE BENCH80_COM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/cpm80/BENCH80/BENCH80.COM")
+add_test(NAME cpm86Conformance COMMAND cpm86ConformanceTests)
 add_test(NAME apple2Fast6502 COMMAND apple2Fast6502Tests)
 add_test(NAME cpm80Timer COMMAND cpm80TimerTests)
 add_test(NAME cpm80Help COMMAND hostTests --cpm80-help)

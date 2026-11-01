@@ -13,8 +13,19 @@ perform that capability read on this revision or newer, because older firmware
 may treat an unknown port as an I/O error. This is an emulator extension, not a
 standard CP/M feature.
 
-The F8h/F9h host-exchange ports are reserved by the CPU adapter and are not part
-of this BIOS contract. Access to any unmapped port is a guest I/O error.
+There are no reserved F8h/F9h exchange ports in this profile (an earlier
+revision of this document claimed them; no such ports exist in the code).
+
+Port misuse inside the BIOS port range E0h-EFh stops the guest with an I/O
+error: reading E1h without a prior E0h availability answer, reading or writing
+EEh outside an active transfer, and any access to an in-range port that has no
+handler in the current direction (for example reading E2h or writing E0h).
+Writing a value other than 00h/01h to EDh is not an error: it fails the
+transfer with status 01h. Ports outside E0h-EFh follow the generic empty-bus model
+of the CPU core's host hooks: a read returns the idle value FFh and a write is
+ignored, each with a one-time console notice `Device 0xNNNN not available.`
+per port. The RETRO86_TIMER_B1 ports F0h-F4h are handled inside the CPU
+adapter before these rules apply; writes to them are an I/O error.
 
 ## Console
 
@@ -110,7 +121,7 @@ selected drive, raw track 1–39 (1–128 for the large geometry, 1–2048 for t
 against that drive's image size. Invalid coordinates, read-only write
 attempts, short I/O and flush/sync failures set the transfer status to 01h.
 Reads and writes transfer exactly 128 bytes; accessing EEh outside an active
-transfer is an unmapped-I/O error.
+transfer is an I/O error.
 
 The raw image has 40 tracks, eight 512-byte physical sectors per track, and
 163,840 bytes total. Raw track 0 is reserved. CP/M-86's DPB uses OFF=1, so the

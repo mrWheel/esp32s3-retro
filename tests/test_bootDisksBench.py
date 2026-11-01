@@ -13,6 +13,7 @@ BENCH_FILES = (
     ("apple2", "BENCH2ASM#6000.BIN", "assets/apple2/BENCH2ASM/BENCH2ASM.BIN"),
     ("cpm80", "BENCH80.COM", "assets/cpm80/BENCH80/BENCH80.COM"),
     ("cpm86", "BENCH86.CMD", "assets/cpm86/BENCH86/BENCH86.CMD"),
+    ("cpm86", "TIMER86.CMD", "assets/cpm86/TIMER86/TIMER86.CMD"),
     ("ucsd", "BENCHUCSD.TEXT", "assets/ucsd/BENCHUCSD/BENCHUCSD.TEXT"),
 )
 
