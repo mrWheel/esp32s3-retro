@@ -1927,6 +1927,15 @@ static void testCpm86Boot(void)
   assert(fixture.diskReadFailures == 0);
   assert(fixture.diskRecordsTransferred == fixture.diskReadRequests);
 
+  //-- Hardware regression 2026-11-01: STAT printed BDOS message-table strings between its
+  //-- own strings. Keep STAT green in the host fixture too.
+  fixture.input = "STAT\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 3));
+  assert(strstr(fixture.output, "Free Space:") != NULL);
+  assert(strstr(fixture.output, "Bad Directory") == NULL);
+
   fixture.input = "B:\r";
   fixture.inputLength = strlen(fixture.input);
   fixture.inputPosition = 0;

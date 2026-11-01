@@ -188,5 +188,6 @@ def run(adapter, arguments, directory):
 
 
 def freeFrom(pattern, text):
+  #-- CP/M-86 STAT prints thousands with a comma ("Free Space: 8,176k"); strip separators.
   found = re.search(pattern, text or "")
-  return int(found.group(1)) if found else None
+  return int(found.group(1).replace(",", "")) if found else None

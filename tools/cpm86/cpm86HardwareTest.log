@@ -1,48 +1,285 @@
-CP/M-86 hardware test - 2026-10-26 07:34:59
+CP/M-86 hardware test - 2026-11-01 11:38:18
 
 <<<RESET>>>
-PASS  board reset reaches host menu
-PASS  menu reports PSRAM line
-PASS  cold boot reaches A> prompt
-PASS  basic: DIR on A: lists ASM86 and PIP
-PASS  basic: STAT runs on A:
-PASS  user: DIR lists STAT.CMD in user area 0
-PASS  user: USER displays the current user number
-PASS  user: USER 3 moves STAT.CMD out of the active user area
-PASS  user: USER 0 restores STAT.CMD to the active user area
-PASS  read: list volume A:
-PASS  read: list volume B:
-PASS  read: list volume C:
-PASS  read: list volume D:
-PASS  write: create file on D:
-PASS  write: file visible on D:
-PASS  write: copy D: -> B:
-PASS  write: file visible on B:
+      PASS  board reset reaches host menu
+      PASS  menu reports PSRAM line
+Command: 2
+      PASS  cold boot reaches A> prompt
+
+---- basic ----
+Command: DIR
+  A: ASM86    CMD : BENCH86  CMD : BIDUMP   CMD : BINCOM   CMD | A: BS       CMD : COPY     CMD : CRC      CMD : DUMMP    CMD | A: ED       CMD : ERAQ     CMD : FIND     CMD : GENCMD   CMD | A: GREP     CMD : HELP     CMD : MUCHTEXT CMD : NSWEEP   CMD | A: PAGE     CMD : PIP      CMD : PUT      CMD :  ...
+Command: STAT
+  A: RW, Free Space:        10k | A>
+Command: DIR A:STAT.CMD
+  A: STAT     CMD | A>
+Command: USER 3
+  A>
+Command: USER
+  3 | A>
+Command: DIR A:STAT.CMD
+  NO FILE | A>
+Command: USER 0
+  A>
+Command: DIR A:STAT.CMD
+  A: STAT     CMD | A>
+      PASS  basic: DIR on A: lists ASM86 and PIP
+      PASS  basic: STAT runs on A:
+      PASS  user: DIR lists STAT.CMD in user area 0
+      PASS  user: USER displays the current user number
+      PASS  user: USER 3 moves STAT.CMD out of the active user area
+      PASS  user: USER 0 restores STAT.CMD to the active user area
+
+---- read volumes ----
+Command: DIR
+  A: ASM86    CMD : BENCH86  CMD : BIDUMP   CMD : BINCOM   CMD | A: BS       CMD : COPY     CMD : CRC      CMD : DUMMP    CMD | A: ED       CMD : ERAQ     CMD : FIND     CMD : GENCMD   CMD | A: GREP     CMD : HELP     CMD : MUCHTEXT CMD : NSWEEP   CMD | A: PAGE     CMD : PIP      CMD : PUT      CMD :  ...
+      PASS  read: list volume A:
+Command: B:
+  B>
+Command: DIR
+  B: FORTH    HLP : EXTEND86 BLK : F83      CMD : KERNEL86 BLK | B: README   CPM : README   1ST : F83-FIXS TXT : BASIC    BLK | B: README   PC  : UTILITY  BLK : HUFFMAN  BLK : META86   BLK | B: EXPAND86 BLK : CLOCK    BLK : CPU8086  BLK : ED       BLK | B: ED       TXT : FILE_ID  DIZ : F83-ED   CMD :  ...
+Command: A:
+  A>
+      PASS  read: list volume B:
+Command: C:
+  C>
+Command: DIR
+  C: LISTER   PAS : LISTER   CMD : CALCDEMO MCS : CALC     CMD | C: CALC     HLP : CALC     PAS | C>
+Command: A:
+  A>
+      PASS  read: list volume C:
+Command: D:
+  D>
+Command: DIR
+  NO FILE | D>
+Command: A:
+  A>
+      PASS  read: list volume D:
+
+---- write, persistence, delete ----
+Command: ERA D:HWTEST.CMD
+  NO FILE | A>
+Command: ERA B:HWTEST.CMD
+  NO FILE | A>
+Command: ERA D:HWTEST.CMD
+  NO FILE | A>
+Command: PIP D:HWTEST.CMD=A:PIP.CMD[V]
+  A>
+      PASS  write: create file on D:
+Command: DIR D:HWTEST.CMD
+  D: HWTEST   CMD | A>
+      PASS  write: file visible on D:
+Command: PIP B:HWTEST.CMD=D:HWTEST.CMD[V]
+  A>
+      PASS  write: copy D: -> B:
+Command: DIR B:HWTEST.CMD
+  B: HWTEST   CMD | A>
+      PASS  write: file visible on B:
 <<<RESET>>>
-PASS  persistence: board reset reaches host menu
-PASS  persistence: cold boot after reset
-PASS  persistence: file survives reset on D:
-PASS  persistence: file survives reset on B:
-PASS  delete: file removed from D:
-PASS  delete: file removed from B:
-PASS  disk full: filling D: ends with a disk-full error  -- after 52 files
-PASS  disk full: volume reports (almost) no free space  -- free before 412, when full 4
-PASS  disk full: deleting the fill files restores all free space  -- before 412, after 412
-PASS  disk full: writing works again
-PASS  read-only: write to A: is refused
-PASS  read-only: system recovers to a prompt
-PASS  read-only: no file created on A:
-PASS  read-only: free space on A: unchanged  -- before 408, after 408
-PASS  timing: volume listing completes in < 10 s  -- 0.4 s
-PASS  unconfigured: drive E: is rejected cleanly
-PASS  cpm86: Ctrl+] returns to host menu
-PASS  cpm86: relaunch after Ctrl+]
-PASS  cpm86: 3 repeated stop/launch cycles
+      PASS  persistence: board reset reaches host menu
+Command: 2
+      PASS  persistence: cold boot after reset
+Command: DIR D:HWTEST.CMD
+  D: HWTEST   CMD | A>
+      PASS  persistence: file survives reset on D:
+Command: DIR B:HWTEST.CMD
+  B: HWTEST   CMD | A>
+      PASS  persistence: file survives reset on B:
+Command: ERA D:HWTEST.CMD
+  A>
+Command: ERA B:HWTEST.CMD
+  A>
+Command: DIR D:HWTEST.CMD
+  NO FILE | A>
+      PASS  delete: file removed from D:
+Command: DIR B:HWTEST.CMD
+  NO FILE | A>
+      PASS  delete: file removed from B:
+
+---- disk full ----
+Command: STAT C:
+  C: RW, Free Space:       412k | A>
+Command: PIP C:FILL01.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL02.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL03.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL04.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL05.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL06.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL07.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL08.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL09.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL10.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL11.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL12.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL13.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL14.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL15.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL16.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL17.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL18.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL19.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL20.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL21.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL22.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL23.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL24.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL25.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL26.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL27.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL28.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL29.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL30.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL31.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL32.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL33.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL34.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL35.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL36.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL37.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL38.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL39.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL40.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL41.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL42.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL43.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL44.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL45.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL46.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL47.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL48.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL49.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL50.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL51.TMP=A:PIP.CMD[V]
+  A>
+Command: PIP C:FILL52.TMP=A:PIP.CMD[V]
+  ERROR: DISK WRITE - C:FILL52.$$$ | A>
+      PASS  disk full: filling C: ends with a disk-full error  -- after 52 files
+Command: STAT C:
+  C: RW, Free Space:         4k | A>
+      PASS  disk full: volume reports (almost) no free space  -- free before 412, when full 4
+Command: ^C (Ctrl-C)
+Command: ERA C:FILL*.TMP
+  A>
+Command: ERA C:*.$$$
+  NO FILE | A>
+Command: STAT C:
+  C: RW, Free Space:       412k | A>
+      PASS  disk full: deleting the fill files restores all free space  -- before 412, after 412
+Command: ERA C:HWTEST.CMD
+  NO FILE | A>
+Command: PIP C:HWTEST.CMD=A:PIP.CMD[V]
+  A>
+      PASS  disk full: writing works again
+Command: ERA C:HWTEST.CMD
+  A>
+
+---- read-only volume ----
+Command: DIR A:HWRO*.*
+  NO FILE | A>
+Command: STAT A:
+  A: RW, Free Space:        10k | A>
+Command: PIP A:HWRO.CMD=A:PIP.CMD
+      PASS  read-only: write to A: is refused
+Command: ^C (Ctrl-C)
+      PASS  read-only: system recovers to a prompt
+Command: DIR A:HWRO*.*
+  NO FILE | A>
+Command: STAT A:
+  A: RO, Free Space:        10k | A>
+      PASS  read-only: no file created on A:
+      PASS  read-only: free space on A: unchanged  -- before 10, after 10
+
+---- timing ----
+Command: DIR
+  A: ASM86    CMD : BENCH86  CMD : BIDUMP   CMD : BINCOM   CMD | A: BS       CMD : COPY     CMD : CRC      CMD : DUMMP    CMD | A: ED       CMD : ERAQ     CMD : FIND     CMD : GENCMD   CMD | A: GREP     CMD : HELP     CMD : MUCHTEXT CMD : NSWEEP   CMD | A: PAGE     CMD : PIP      CMD : PUT      CMD :  ...
+      PASS  timing: volume listing completes in < 10 s  -- 0.5 s
+
+---- unconfigured drive ----
+Command: E:
+  E:? | A>
+      PASS  unconfigured: drive E: is rejected cleanly
+Command: TIMER86
+  measured delta 1094 ms
+      PASS  timer: guest delta of a 1 s host wait is 900-1100 ms  -- 1094 ms
+bench86: starting BENCH86, waiting up to 180 s for it to finish
+Command: A:BENCH86
+  BENCH86 v2 SCALE=1 | @BEGIN INTEGER | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 4140 ms | 8086 MODEL ONLY (not measured): 5MHz=6292 ms, 8MHz=3933 ms, 10MHz=3146 ms | Index vs 5MHz MODEL: 151 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 1552 ms |  ...
+bench86: BENCH86 v2 SCALE=1
+bench86: @BEGIN INTEGER
+bench86: @END INTEGER PASS AX=4ED8 BX=D678
+bench86: Elapsed: 4140 ms
+bench86: Index vs 5MHz MODEL: 151 (100=model, higher=faster; theoretical)
+bench86: @BEGIN SIEVE
+bench86: @END SIEVE PASS PRIMES=1028
+bench86: Elapsed: 1552 ms
+bench86: Index vs 5MHz MODEL: 289 (100=model, higher=faster; theoretical)
+bench86: @DONE PASS
+      PASS  bench86: BENCH86 runs from A: and completes
+      PASS  bench86: all benchmark sections report PASS  -- 2 sections, elapsed 4140,1552 ms
+      PASS  bench86: measured index values recorded  -- index vs 5MHz MODEL: 151,289
+Command: 2
+Command: 2
+Command: 2
+Command: 2
+      PASS  cpm86: Ctrl+] returns to host menu
+      PASS  cpm86: relaunch after Ctrl+]
+      PASS  cpm86: 3 repeated stop/launch cycles
+
+---- final reset ----
 <<<RESET>>>
-PASS  final reset returns to menu
-SKIP  editor / compiler workflow  -- manual
-SKIP  terminal escape sequences (full-screen editors)  -- manual
-SKIP  cpm86: millisecond timer F1h-F4h 900-1100 ms  -- needs a guest 8086 test program
+      PASS  final reset returns to menu
+      SKIP  editor / compiler workflow  -- manual
+      SKIP  terminal escape sequences (full-screen editors)  -- manual
 
 ==== SUMMARY ====
-passed 37, failed 0, skipped(manual) 3
+passed 41, failed 0, skipped(manual) 2

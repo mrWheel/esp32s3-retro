@@ -895,15 +895,19 @@ TINY8086_INLINE tiny8086Result stepImpl(tiny8086* cpu)
   case 0x82:
   case 0x83:
   {
-    //-- 82h is the manual's alias of 83h: 16-bit r/m operand with a sign-extended imm8.
-    bool wideOperand = (opcode & 1) != 0 || opcode == 0x82;
+    //-- Operand size is bit 0 only: 80h/82h are the byte forms, 81h/83h the word forms.
+    //-- 82h therefore aliases 80h (r/m8, imm8), NOT 83h. Do not change this to the later
+    //-- "82h aliases 83h" convention: the genuine Digital Research CP/M-86 1.1 STAT.CMD
+    //-- executes 82h as a byte add; decoding it as 16-bit made STAT hang (reproduced on
+    //-- the desktop host fixture and the 2026-11-01 hardware run, CPM86-VERIFY-049).
+    bool wideOperand = (opcode & 1) != 0;
     decodeModRm(cpu, &modRm, segmentOverride);
     uint16_t immediate;
     if (opcode == 0x81)
     {
       immediate = fetchWord(cpu);
     }
-    else if (opcode == 0x83 || opcode == 0x82)
+    else if (opcode == 0x83)
     {
       immediate = (uint16_t)(int16_t)(int8_t)fetchByte(cpu);
     }

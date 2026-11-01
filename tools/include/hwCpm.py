@@ -24,7 +24,7 @@ class CpmAdapter(hwSuite.Adapter):
   menuKey = ""
   promptName = "A> prompt"
   extension = ".COM"
-  freePattern = r"(?:Remaining On [A-P]:|Free Space:)\s*(\d+)k"
+  freePattern = r"(?:Remaining On [A-P]:|Free Space:)\s*(\d[\d,]*)k"
   roVolume = "A:"
 
   def cmd(self, line, timeout=60.0):

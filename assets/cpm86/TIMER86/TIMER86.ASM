@@ -30,11 +30,42 @@ timerReady:
         mov [startHigh],dx
         mov cl,1
         int 0e0h
+        ; CP/M-86 BDOS does not preserve DS/ES across function calls: reload them
+        ; before touching [startLow]/[startHigh] (measured 2026-11-01: without this
+        ; the saved t0 read back zero and DELTA reported board uptime).
+        mov ax,cs
+        mov ds,ax
+        mov es,ax
+        cld
+        ; Diagnostics (2026-11-01): print both raw samples so a wrong DELTA can be
+        ; attributed to the sample, the save or the subtraction.
+        mov dx,t0Text
+        call printString
+        mov ax,[startLow]
+        mov dx,[startHigh]
+        call printUnsigned32
+        mov dx,msText
+        call printString
         call readTime
-        sub ax,[startLow]
-        sbb dx,[startHigh]
+        mov [t1Low],ax
+        mov [t1High],dx
+        mov dx,t1Text
+        call printString
+        mov ax,[t1Low]
+        mov dx,[t1High]
+        call printUnsigned32
+        mov dx,crlf
+        call printString
         mov dx,deltaText
         call printString
+        ; Reload DX:AX only after the label print: printString preserves
+        ; registers but MOV DX,deltaText (the argument) would clobber the
+        ; high half of the 32-bit difference (this exact bug printed the
+        ; deltaText address as the DELTA high word on 2026-11-01).
+        mov ax,[t1Low]
+        mov dx,[t1High]
+        sub ax,[startLow]
+        sbb dx,[startHigh]
         call printUnsigned32
         mov dx,msText
         call printString
@@ -104,6 +135,9 @@ printString:
         cld
         ret
 begin db 13,10,'@BEGIN TIMER',13,10,'$'
+t0Text db 'T0=$'
+t1Text db ' T1=$'
+crlf db 13,10,'$'
 deltaText db 'DELTA=$'
 msText db ' MS',13,10,'$'
 done db '@DONE PASS',13,10,'$'
@@ -112,6 +146,8 @@ numberBuffer times 10 db 0
 numberEnd db '$'
 startLow dw 0
 startHigh dw 0
+t1Low dw 0
+t1High dw 0
 stackSpace times 512 db 0
 stackTop:
 align 16

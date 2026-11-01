@@ -8,9 +8,15 @@ re-sampling; see `docs/cpm86/virtualIo.md`).
 
 ```
 @BEGIN TIMER
-DELTA=N MS
+T0=A MS
+ T1=B
+DELTA=C MS
 @DONE PASS
 ```
+
+`T0`/`T1` are the raw port samples (diagnostic added 2026-11-01: they proved the
+timer itself correct while a `MOV DX,label` before `printUnsigned32` had clobbered
+the high half of the printed difference).
 
 `tools/cpm86/cpm86HardwareTest.py` runs it automatically: it waits for
 `@BEGIN TIMER`, sleeps 1 s, sends one carriage return, and requires

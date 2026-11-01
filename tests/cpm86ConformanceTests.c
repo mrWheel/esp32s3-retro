@@ -343,6 +343,9 @@ static const uint8_t codeCmpsbSourceOverride[] = {0xB8, 0x00, 0x01, 0x8E, 0xD0, 
                                                   0xA6, 0x89, 0x0E, 0xF0, 0x2F, 0xF4};
 
 static const uint8_t codeIntPushesReservedBit[] = {0xCD, 0x02, 0xF4};
+//-- 82h is the BYTE-immediate form (alias of 80h), not an alias of 83h: AX=00FFh + imm8 01
+//-- must leave 0000h (only AL added). The 16-bit decoding would give 0100h and made the
+//-- genuine CP/M-86 STAT.CMD hang (CPM86-VERIFY-049).
 static const uint8_t codeAddImm8Alias82[] = {0xB8, 0xFF, 0x00, 0x82, 0xC0,
                                              0x01, 0xA3, 0x00, 0x20, 0xF4};
 static const uint8_t codePushfReservedBit[] = {0x9C, 0x58, 0xA3, 0xFE, 0x2F, 0xF4};
@@ -1269,7 +1272,7 @@ static const cpuVector vectors[] = {
      0,
      0,
      {{flagsAddress, (const uint8_t[]){0x02, 0x02}, 2}}},
-    {"82h aliases 83h with sign-extended imm8",
+    {"82h aliases 80h (byte r/m, imm8) not 83h",
      codeAddImm8Alias82,
      sizeof(codeAddImm8Alias82),
      cpm86CoreHalted,
@@ -1277,7 +1280,7 @@ static const cpuVector vectors[] = {
      false,
      0,
      0,
-     {{dataAddress, (const uint8_t[]){0x00, 0x01}, 2}}},
+     {{dataAddress, (const uint8_t[]){0x00, 0x00}, 2}}},
     {"pushf reports reserved bit 1",
      codePushfReservedBit,
      sizeof(codePushfReservedBit),
