@@ -93,9 +93,9 @@ static bool reportUnavailableDevice(uint16_t port)
 static bool diskRecordOffset(uint64_t* offset)
 {
   if (offset == NULL || diskController.drive >= cpm86DiskDriveCount ||
-      !diskController.drives[diskController.drive].configured || diskController.track == 0 ||
-      diskController.track >= diskController.drives[diskController.drive].tracks ||
-      diskController.sector >= 32)
+      !diskController.drives[diskController.drive].configured ||
+      !cpm86DriveRecordValid(diskController.drives[diskController.drive].tracks,
+                             diskController.track, diskController.sector))
   {
     return false;
   }

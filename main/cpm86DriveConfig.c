@@ -258,6 +258,11 @@ bool cpm86DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm86DiskProfile*
   return false;
 }
 
+bool cpm86DriveRecordValid(uint32_t tracks, uint32_t track, uint32_t sector)
+{
+  return tracks > 1 && track != 0 && track < tracks && sector < 32;
+}
+
 bool cpm86DriveConfigResolveSystemProfile(cpm86DriveConfig* drive, uint64_t imageSize, char* error,
                                           size_t errorCapacity)
 {

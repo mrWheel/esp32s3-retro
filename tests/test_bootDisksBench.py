@@ -14,6 +14,8 @@ BENCH_FILES = (
     ("cpm80", "BENCH80.COM", "assets/cpm80/BENCH80/BENCH80.COM"),
     ("cpm86", "BENCH86.CMD", "assets/cpm86/BENCH86/BENCH86.CMD"),
     ("cpm86", "TIMER86.CMD", "assets/cpm86/TIMER86/TIMER86.CMD"),
+    ("cpm86", "WBOOT86.CMD", "assets/cpm86/WBOOT86/WBOOT86.CMD"),
+    ("cpm86", "BAD86.CMD", "assets/cpm86/BAD86/BAD86.CMD"),
     ("ucsd", "BENCHUCSD.TEXT", "assets/ucsd/BENCHUCSD/BENCHUCSD.TEXT"),
 )
 

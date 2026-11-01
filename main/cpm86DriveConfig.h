@@ -40,13 +40,19 @@ typedef enum
   cpm86DriveConfigInvalid
 } cpm86DriveConfigResult;
 
-cpm86DriveConfigResult cpm86DriveConfigLoad(const char *path,
+cpm86DriveConfigResult cpm86DriveConfigLoad(const char* path,
                                             cpm86DriveConfig drives[cpm86DiskDriveCount],
-                                            char *error, size_t errorCapacity);
+                                            char* error, size_t errorCapacity);
 
-//-- Maps the size of the A: image to its profile (163840 = System, 528384 = SystemLarge); false for any other size.
-bool cpm86DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm86DiskProfile *profile);
+//-- Maps the size of the A: image to its profile (163840 = System, 528384 = SystemLarge); false for
+//any other size.
+bool cpm86DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm86DiskProfile* profile);
 
 //-- Sets drive->profile for A: from imageSize.
-bool cpm86DriveConfigResolveSystemProfile(cpm86DriveConfig *drive, uint64_t imageSize, char *error,
+bool cpm86DriveConfigResolveSystemProfile(cpm86DriveConfig* drive, uint64_t imageSize, char* error,
                                           size_t errorCapacity);
+
+//-- Pure BIOS record-geometry gate shared by cpm86Machine and the host boot fixture: track 0 is
+//-- the reserved boot track, sectors run 0..31, tracks is the profile's track count (must be >1).
+//-- Bounds against the real image size remain a separate check in the caller.
+bool cpm86DriveRecordValid(uint32_t tracks, uint32_t track, uint32_t sector);

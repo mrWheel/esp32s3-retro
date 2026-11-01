@@ -1586,11 +1586,15 @@ static bool cpm86BootPortRead(void* context, uint16_t port, uint8_t* value)
 static bool cpm86BootDiskOffset(cpm86BootFixture* fixture, uint64_t* offset)
 {
   if (fixture->drive >= cpm86DiskDriveCount || fixture->disks[fixture->drive] == NULL ||
-      offset == NULL || fixture->track == 0 ||
-      fixture->track >= (fixture->bigDisks[fixture->drive]     ? 2049
-                         : fixture->largeDisks[fixture->drive] ? 129
-                                                               : 40) ||
-      fixture->sector >= 32)
+      offset == NULL)
+  {
+    return false;
+  }
+  //-- Phase 86-05: the fixture now exercises the production geometry gate itself.
+  uint32_t tracks = fixture->bigDisks[fixture->drive]     ? (uint32_t)cpm86BigDiskTracks
+                    : fixture->largeDisks[fixture->drive] ? (uint32_t)cpm86LargeDiskTracks
+                                                          : (uint32_t)cpm86SystemDiskTracks;
+  if (!cpm86DriveRecordValid(tracks, fixture->track, fixture->sector))
   {
     return false;
   }
@@ -1738,6 +1742,377 @@ static bool runCpm86UntilPrompt(cpm86Core* core, cpm86BootFixture* fixture, cons
             fixture->output);
   }
   return reachedPrompt;
+}
+
+//-- Phase 86-05: like runCpm86UntilPrompt but counts prompts on any drive. A BDOS
+//-- out-of-space condition on CP/M-86 1.1 may warm boot (back to "A>") or be reported by the
+//-- command itself (staying on the current drive); the storage-full tests must survive both,
+//-- so the wait must not care which drive letter the next prompt carries.
+static size_t countCpm86Prompts(cpm86BootFixture* fixture)
+{
+  return countOccurrences(fixture->output, "A>") + countOccurrences(fixture->output, "B>") +
+         countOccurrences(fixture->output, "C>") + countOccurrences(fixture->output, "D>");
+}
+
+static bool runCpm86UntilPrompts(cpm86Core* core, cpm86BootFixture* fixture, size_t wanted)
+{
+  size_t instructions = 0;
+  size_t instructionBudget = 5000000;
+  while (countCpm86Prompts(fixture) < wanted && instructions < instructionBudget)
+  {
+    size_t executed = 0;
+    cpm86CoreResult result = cpm86CoreRun(core, 4096, &executed);
+    instructions += executed;
+    if (result != cpm86CoreOk)
+    {
+      fprintf(stderr, "CP/M-86 run failed in prompt-count wait: result=%d output=%s\n", result,
+              fixture->output);
+      return false;
+    }
+  }
+  bool reached = countCpm86Prompts(fixture) >= wanted;
+  if (!reached)
+  {
+    fprintf(stderr,
+            "CP/M-86 prompt-count timeout: wanted=%zu found=%zu instructions=%zu output=%s\n",
+            wanted, countCpm86Prompts(fixture), instructions, fixture->output);
+  }
+  return reached;
+}
+
+//-- Phase 86-05 helper: latch drive/track/sector through the BIOS ports (E8h-ECh), the same
+//-- path the guest takes, instead of poking the fixture fields directly.
+static void selectCpm86Record(cpm86BootFixture* fixture, uint8_t drive, uint16_t track,
+                              uint16_t sector)
+{
+  assert(cpm86BootPortWrite(fixture, 0x00E8, drive));
+  assert(cpm86BootPortWrite(fixture, 0x00E9, (uint8_t)(track & 0xFF)));
+  assert(cpm86BootPortWrite(fixture, 0x00EA, (uint8_t)(track >> 8)));
+  assert(cpm86BootPortWrite(fixture, 0x00EB, (uint8_t)(sector & 0xFF)));
+  assert(cpm86BootPortWrite(fixture, 0x00EC, (uint8_t)(sector >> 8)));
+}
+
+//-- Phase 86-05: builds a disposable RETRO86_DATA_LARGE_V1 image whose directory holds
+//-- fileCount fixed-size files FULLnnnn.TXT (blocksPerFile 2 KiB blocks each, allocation
+//-- starting after the two directory blocks). 128 files x 1 block fills the 128-entry
+//-- directory with data blocks still free (directory-full case); 126 files x 2 blocks fill
+//-- the 252 allocatable blocks with two directory slots left (disk-full case).
+static void writeCpm86LargeFilledImage(const char* path, size_t fileCount, size_t blocksPerFile)
+{
+  enum
+  {
+    imageBytes = 528384,
+    reservedBytes = 4096,
+    blockBytes = 2048,
+    directoryBlocks = 2,
+    recordBytes = 128
+  };
+  assert(fileCount * blocksPerFile <= 252 && blocksPerFile >= 1 && blocksPerFile <= 8);
+  uint8_t* image = malloc(imageBytes);
+  assert(image != NULL);
+  memset(image, 0xE5, imageBytes);
+  size_t nextBlock = directoryBlocks;
+  for (size_t file = 0; file < fileCount; ++file)
+  {
+    uint8_t* entry = image + reservedBytes + file * 32;
+    memset(entry, 0, 32);
+    char name[12];
+    snprintf(name, sizeof(name), "FULL%04zuTXT", file);
+    memcpy(entry + 1, name, 11);
+    entry[12] = 0;
+    entry[15] = (uint8_t)(blocksPerFile * (blockBytes / recordBytes));
+    for (size_t pointer = 0; pointer < blocksPerFile; ++pointer)
+    {
+      entry[16 + pointer] = (uint8_t)nextBlock++;
+    }
+  }
+  FILE* file = fopen(path, "wb");
+  assert(file != NULL);
+  assert(fwrite(image, 1, imageBytes, file) == (size_t)imageBytes);
+  assert(fclose(file) == 0);
+  free(image);
+}
+
+//-- Phase 86-05 (CPM86-VERIFY-053): pure geometry matrix for the production record gate
+//-- cpm86DriveRecordValid across the three profile track counts.
+static void testCpm86DriveGeometryMatrix(void)
+{
+  const uint32_t tracks[] = {cpm86SystemDiskTracks, cpm86LargeDiskTracks, cpm86BigDiskTracks};
+  for (size_t profile = 0; profile < 3; ++profile)
+  {
+    //-- Reserved boot track is never readable/writable.
+    assert(!cpm86DriveRecordValid(tracks[profile], 0, 0));
+    assert(!cpm86DriveRecordValid(tracks[profile], 0, 17));
+    //-- First and last valid track accept the whole 0..31 record range.
+    assert(cpm86DriveRecordValid(tracks[profile], 1, 0));
+    assert(cpm86DriveRecordValid(tracks[profile], 1, 31));
+    assert(cpm86DriveRecordValid(tracks[profile], tracks[profile] - 1, 0));
+    assert(cpm86DriveRecordValid(tracks[profile], tracks[profile] - 1, 31));
+    //-- Overflow track (exactly at and above the profile count) is rejected.
+    assert(!cpm86DriveRecordValid(tracks[profile], tracks[profile], 0));
+    assert(!cpm86DriveRecordValid(tracks[profile], tracks[profile] + 1, 15));
+    //-- Record 32 of a 32-record track and the 16-bit latch extremes are rejected.
+    assert(!cpm86DriveRecordValid(tracks[profile], 2, 32));
+    assert(!cpm86DriveRecordValid(tracks[profile], 2, 0xFFFF));
+  }
+  //-- Degenerate track counts can never accept a record.
+  assert(!cpm86DriveRecordValid(0, 1, 0));
+  assert(!cpm86DriveRecordValid(1, 1, 0));
+}
+
+//-- Phase 86-05 (CPM86-VERIFY-053): out-of-range reads fail through the BIOS ports the guest
+//-- uses, an in-range write lands in the image, and a read-only-opened image refuses the write
+//-- with an error status while leaving the data untouched.
+static void testCpm86StorageGuards(void)
+{
+  char path[] = "/tmp/cpm86-guard-disk-XXXXXX";
+  int descriptor = mkstemp(path);
+  assert(descriptor >= 0);
+  uint8_t filled[512];
+  memset(filled, 0xE5, sizeof(filled));
+  for (size_t chunk = 0; chunk < (size_t)cpm86LargeDiskSize / sizeof(filled); ++chunk)
+  {
+    assert(write(descriptor, filled, sizeof(filled)) == (ssize_t)sizeof(filled));
+  }
+  close(descriptor);
+  imageFile disk = {0};
+  assert(imageOpen(&disk, path, false));
+  imageFile readOnlyDisk = {0};
+  assert(imageOpen(&readOnlyDisk, path, true));
+  cpm86BootFixture fixture = {.disks = {[2] = &disk, [3] = &readOnlyDisk},
+                              .largeDisks = {[2] = true, [3] = true}};
+
+  size_t failures = fixture.diskReadFailures;
+  selectCpm86Record(&fixture, 2, 0, 0);
+  assert(cpm86BootPortWrite(&fixture, 0x00ED, 0));
+  assert(fixture.status == 1 && fixture.diskReadRequests == 1 &&
+         fixture.diskReadFailures == failures + 1);
+  selectCpm86Record(&fixture, 2, 129, 0);
+  assert(cpm86BootPortWrite(&fixture, 0x00ED, 0));
+  assert(fixture.status == 1 && fixture.diskReadFailures == failures + 2);
+  selectCpm86Record(&fixture, 2, 5000, 0);
+  assert(cpm86BootPortWrite(&fixture, 0x00ED, 0));
+  assert(fixture.status == 1 && fixture.diskReadFailures == failures + 3);
+  selectCpm86Record(&fixture, 2, 1, 32);
+  assert(cpm86BootPortWrite(&fixture, 0x00ED, 0));
+  assert(fixture.status == 1 && fixture.diskReadFailures == failures + 4);
+  selectCpm86Record(&fixture, 2, 1, 0xFFFF);
+  assert(cpm86BootPortWrite(&fixture, 0x00ED, 0));
+  assert(fixture.status == 1 && fixture.diskReadFailures == failures + 5);
+
+  //-- Last valid LARGE record (track 128, sector 31) must read cleanly through the same ports.
+  size_t requests = fixture.diskReadRequests;
+  failures = fixture.diskReadFailures;
+  selectCpm86Record(&fixture, 2, 128, 31);
+  assert(cpm86BootPortWrite(&fixture, 0x00ED, 0));
+  assert(fixture.status == 0 && fixture.reading && fixture.diskReadRequests == requests + 1 &&
+         fixture.diskReadFailures == failures);
+
+  //-- Write a recognisable record on the writable handle, read it back.
+  selectCpm86Record(&fixture, 2, 5, 3);
+  assert(cpm86BootPortWrite(&fixture, 0x00ED, 1));
+  for (size_t index = 0; index < sizeof(fixture.record); ++index)
+  {
+    assert(cpm86BootPortWrite(&fixture, 0x00EE, (uint8_t)(0xA5 ^ index)));
+  }
+  assert(fixture.status == 0 && !fixture.writing);
+  selectCpm86Record(&fixture, 2, 5, 3);
+  assert(cpm86BootPortWrite(&fixture, 0x00ED, 0));
+  assert(fixture.status == 0 && fixture.reading);
+  for (size_t index = 0; index < sizeof(fixture.record); ++index)
+  {
+    uint8_t value;
+    assert(cpm86BootPortRead(&fixture, 0x00EE, &value));
+    assert(value == (uint8_t)(0xA5 ^ index));
+  }
+
+  //-- The same write against the read-only handle must fail and change nothing.
+  selectCpm86Record(&fixture, 3, 5, 3);
+  assert(cpm86BootPortWrite(&fixture, 0x00ED, 1));
+  for (size_t index = 0; index < sizeof(fixture.record); ++index)
+  {
+    assert(cpm86BootPortWrite(&fixture, 0x00EE, 0x00));
+  }
+  assert(fixture.status == 1 && !fixture.writing);
+  selectCpm86Record(&fixture, 2, 5, 3);
+  assert(cpm86BootPortWrite(&fixture, 0x00ED, 0));
+  assert(fixture.status == 0 && fixture.reading);
+  for (size_t index = 0; index < sizeof(fixture.record); ++index)
+  {
+    uint8_t value;
+    assert(cpm86BootPortRead(&fixture, 0x00EE, &value));
+    assert(value == (uint8_t)(0xA5 ^ index));
+  }
+
+  assert(imageClose(&readOnlyDisk));
+  assert(imageClose(&disk));
+  assert(unlink(path) == 0);
+}
+
+//-- Phase 86-05 (CPM86-VERIFY-053/054): guest-visible full-volume behaviour on disposable LARGE
+//-- images. C: has all 252 allocatable blocks claimed (two directory slots free), D: has all
+//-- 128 directory entries used (blocks free). A PIP copy onto either must not create the file,
+//-- must not report the source missing ("NO FILE"), and the guest must return to a prompt.
+//-- An empty LARGE B: acts as a control: the identical copy must succeed there, so the full
+//-- volume assertions cannot pass vacuously. All commands run from A> (hardware probes showed
+//-- transient tools reject their command tail unless the current drive is A:).
+static void testCpm86StorageFull(void)
+{
+  FILE* systemFile = fopen(CPM86_SYSTEM_FILE_PATH, "rb");
+  assert(systemFile != NULL);
+  uint8_t systemImage[10240];
+  assert(fread(systemImage, 1, sizeof(systemImage), systemFile) == sizeof(systemImage));
+  assert(fclose(systemFile) == 0);
+
+  char bootDiskPath[] = "/tmp/cpm86-full-boot-XXXXXX";
+  int bootDescriptor = mkstemp(bootDiskPath);
+  assert(bootDescriptor >= 0);
+  close(bootDescriptor);
+  const char* hostSystemDiskPath = getenv("CPM86_HOST_SYSTEM_DISK");
+  const char* sourceDiskPath =
+      hostSystemDiskPath == NULL ? CPM86_SYSTEM_DISK_PATH : hostSystemDiskPath;
+  FILE* sourceDisk = fopen(sourceDiskPath, "rb");
+  FILE* bootDisk = fopen(bootDiskPath, "wb");
+  assert(sourceDisk != NULL && bootDisk != NULL);
+  uint8_t diskCopyBuffer[512];
+  size_t bytesRead;
+  while ((bytesRead = fread(diskCopyBuffer, 1, sizeof(diskCopyBuffer), sourceDisk)) > 0)
+  {
+    assert(fwrite(diskCopyBuffer, 1, bytesRead, bootDisk) == bytesRead);
+  }
+  assert(!ferror(sourceDisk));
+  assert(fclose(sourceDisk) == 0);
+  assert(fclose(bootDisk) == 0);
+
+  char diskFullPath[] = "/tmp/cpm86-full-data-XXXXXX";
+  char dirFullPath[] = "/tmp/cpm86-full-dir-XXXXXX";
+  int diskFullDescriptor = mkstemp(diskFullPath);
+  int dirFullDescriptor = mkstemp(dirFullPath);
+  assert(diskFullDescriptor >= 0 && dirFullDescriptor >= 0);
+  close(diskFullDescriptor);
+  close(dirFullDescriptor);
+  writeCpm86LargeFilledImage(diskFullPath, 126, 2);
+  writeCpm86LargeFilledImage(dirFullPath, 128, 1);
+
+  imageFile bootDiskImage = {0};
+  imageFile diskFullImage = {0};
+  imageFile dirFullImage = {0};
+  assert(imageOpen(&bootDiskImage, bootDiskPath, false));
+  assert(imageOpen(&diskFullImage, diskFullPath, false));
+  assert(imageOpen(&dirFullImage, dirFullPath, false));
+  cpm86BootFixture fixture = {
+      .disks = {[0] = &bootDiskImage, [2] = &diskFullImage, [3] = &dirFullImage},
+      .largeDisks = {[0] = true, [2] = true, [3] = true}};
+  const cpm86CoreConfig config = {
+      .ramSize = 640 * 1024,
+      .portRead = cpm86BootPortRead,
+      .portWrite = cpm86BootPortWrite,
+      .portContext = &fixture,
+      .readMilliseconds = NULL,
+      .clockContext = NULL,
+  };
+  cpm86Core* core = NULL;
+  assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);
+  size_t payloadOffset = 0;
+  const size_t payloadSize = sizeof(systemImage) - 128;
+  while (payloadOffset < payloadSize)
+  {
+    size_t chunkSize = payloadSize - payloadOffset;
+    if (chunkSize > 512)
+    {
+      chunkSize = 512;
+    }
+    assert(cpm86CoreLoad(core, 0x00510 + (uint32_t)payloadOffset, systemImage + 128 + payloadOffset,
+                         chunkSize) == cpm86CoreOk);
+    payloadOffset += chunkSize;
+  }
+  const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
+  assert(cpm86CoreWrite(core, 0x00380, bdosVector, sizeof(bdosVector)) == cpm86CoreOk);
+  assert(cpm86BiosLoadOverlay(core, CPM86_BIOS_OVERLAY_PATH));
+  assert(cpm86CoreSetEntry(core, 0x0051, 0x2500) == cpm86CoreOk);
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 1));
+
+  //-- Hardware probes (2026-11-01) showed a "PIP?" style error is the CCP failing to FIND
+  //-- the transient in the current drive/user area (PIP.CMD lives on A: only), not PIP
+  //-- objecting to its tail; the full-name form `PIP X:name=A:name` launched from A> is
+  //-- the proven-good copy syntax. Everything below therefore runs from A> with explicit
+  //-- drive prefixes.
+
+  //-- Control volume B: (empty LARGE image): the exact same copy must succeed here, proving
+  //-- the copy attempt on the full volumes really reaches the allocation path and the full
+  //-- volume assertions are not passing vacuously.
+  char diskControlPath[] = "/tmp/cpm86-full-ctl-XXXXXX";
+  int diskControlDescriptor = mkstemp(diskControlPath);
+  assert(diskControlDescriptor >= 0);
+  close(diskControlDescriptor);
+  writeCpm86LargeFilledImage(diskControlPath, 0, 1);
+  imageFile diskControlImage = {0};
+  assert(imageOpen(&diskControlImage, diskControlPath, false));
+  fixture.disks[1] = &diskControlImage;
+  fixture.largeDisks[1] = true;
+
+  fixture.outputLength = 0;
+  fixture.output[0] = '\0';
+  fixture.input = "PIP B:STAT.CMD=A:STAT.CMD\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompts(core, &fixture, 1));
+  assert(strstr(fixture.output, "PIP?") == NULL);
+  fixture.outputLength = 0;
+  fixture.output[0] = '\0';
+  fixture.input = "DIR B:\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompts(core, &fixture, 1));
+  assert(strstr(fixture.output, "STAT") != NULL);
+
+  //-- Disk-full volume C:: all 252 data blocks are claimed by 126 files. The copy must fail
+  //-- cleanly: no "PIP?", no "NO FILE" (the source is present), no created file, and the
+  //-- existing 126 FULLnnnn.TXT entries intact.
+  fixture.outputLength = 0;
+  fixture.output[0] = '\0';
+  fixture.input = "PIP C:STAT.CMD=A:STAT.CMD\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompts(core, &fixture, 1));
+  assert(strstr(fixture.output, "PIP?") == NULL);
+  assert(strstr(fixture.output, "NO FILE") == NULL);
+  fixture.outputLength = 0;
+  fixture.output[0] = '\0';
+  fixture.input = "DIR C:\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompts(core, &fixture, 1));
+  assert(strstr(fixture.output, "STAT") == NULL);
+  assert(countOccurrences(fixture.output, "FULL") == 126);
+
+  //-- Directory-full volume D:: all 128 entries are used while data blocks are free.
+  fixture.outputLength = 0;
+  fixture.output[0] = '\0';
+  fixture.input = "PIP D:STAT.CMD=A:STAT.CMD\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompts(core, &fixture, 1));
+  assert(strstr(fixture.output, "PIP?") == NULL);
+  assert(strstr(fixture.output, "NO FILE") == NULL);
+  fixture.outputLength = 0;
+  fixture.output[0] = '\0';
+  fixture.input = "DIR D:\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompts(core, &fixture, 1));
+  assert(strstr(fixture.output, "STAT") == NULL);
+  assert(countOccurrences(fixture.output, "FULL") == 128);
+
+  cpm86CoreDestroy(core);
+  assert(imageClose(&diskControlImage));
+  assert(imageClose(&dirFullImage));
+  assert(imageClose(&diskFullImage));
+  assert(imageClose(&bootDiskImage));
+  assert(unlink(bootDiskPath) == 0);
+  assert(unlink(diskFullPath) == 0);
+  assert(unlink(dirFullPath) == 0);
+  assert(unlink(diskControlPath) == 0);
 }
 
 //-- Builds a RETRO86_DATA_BIG_V1 image the way tools/diskImageCpm.py does: 16 KiB blocks, 16-bit
@@ -3895,6 +4270,9 @@ int main(int argc, char** argv)
   testApple2Keyboard();
   testCpm86Core();
   testCpm86Boot();
+  testCpm86DriveGeometryMatrix();
+  testCpm86StorageGuards();
+  testCpm86StorageFull();
   testLayout();
   testMenu();
   testImages();

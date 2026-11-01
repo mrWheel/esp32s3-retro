@@ -19,3 +19,16 @@ diskdef retro86-large
   boottrk 1
   os 2.2
 end
+
+#-- D: RETRO86_DATA_BIG_V1 (8,392,704 bytes): DPB2 SPT=32 BSH=7 BLM=7Fh EXM=7
+#-- DSM=511 DRM=511 (512 entries) OFF=1 -- see docs/cpm86/diskdefsValidation.md.
+diskdef retro86-big
+  seclen 512
+  tracks 2049
+  sectrk 8
+  blocksize 16384
+  maxdir 512
+  skew 1
+  boottrk 1
+  os 2.2
+end

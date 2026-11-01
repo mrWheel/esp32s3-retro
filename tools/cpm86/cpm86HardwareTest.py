@@ -105,6 +105,23 @@ class Cpm86(hwCpm.CpmAdapter):
     #-- Collapsed tail of the console log, used as the failure detail.
     return " ".join(self.console.log[-400:].split())[-160:]
 
+  def ensureGuest(self):
+    #-- A guest fault stops the machine ("... Press ENTER to return to the main menu."),
+    #-- and every later command then times out against the host menu (CPM86-VERIFY-054:
+    #-- one HELLO crash cascaded into four unrelated failures). Between phases make sure
+    #-- we really sit at the CCP prompt, otherwise relaunch.
+    start = len(self.console.log)
+    self.console.send("\r")
+    if self.console.waitFor("A>", 4, since=start) is not None:
+      return True
+    if self.console.waitFor(["Select system", "Press ENTER"], 3, since=start) is not None:
+      self.console.send("\r")
+      self.console.waitFor("Select system", 8)
+      return self.boot()
+    if self.stop():
+      return self.boot()
+    return False
+
   def timerTest(self):
     #-- Phase 86-07: TIMER86 measures F1h-F4h around a 1 s host-side key wait. The
     #-- verdict is recorded immediately (expect), so it stays attached to its own
@@ -155,12 +172,320 @@ class Cpm86(hwCpm.CpmAdapter):
                 len(indexes) >= 1, "index vs 5MHz MODEL: " + (",".join(indexes) if indexes else "none"))
     return []
 
+  def drive(self, letter):
+    #-- Switch the CCP to a drive (the prompt becomes <letter>); cmd() only waits on "A>".
+    return self.console.command(letter + ":", letter + ">", 15)
+
+  def driveCmd(self, line, letter, timeout=40.0):
+    return self.console.command(line, letter + ">", timeout)
+
+  #-- HELLO.A86 source typed through ED (phase 86-08). It copies the proven HELP.A86
+  #-- small-model pattern exactly: code in CSEG at CS:0, init MOV AX,DS / MOV SS,AX /
+  #-- MOV SP,OFFSET STACKTOP (DS comes from the CCP; CP/M-86 preserves DS/SS, SYS
+  #-- protects ES - no CS/ES moves and no CLI/STI/CLD), data in DSEG after ORG 100H,
+  #-- reserved stack as a bare RB 512 closed by one initialized byte (that final DB is
+  #-- what makes GENCMD emit the reserved storage). Two earlier attempts crashed the
+  #-- guest in the BDOS call: without any init (push on the CCP's leftover SS) and with
+  #-- DS/ES-from-CS plus CLI/STI/CLD (ASM86 reported "NUMBER OF ERRORS: 1", leaving the
+  #-- init incomplete - physical A0000 faults, CPM86-VERIFY-054).
+  helloSource = [
+    "; HELLO - native ASM86 workflow proof (86-08)",
+    "        CSEG",
+    "        ORG 0",
+    "START:  MOV AX,DS",
+    "        MOV SS,AX",
+    "        MOV SP,OFFSET STACKTOP",
+    "        MOV CL,9",
+    "        MOV DX,OFFSET MSG",
+    "        INT 0E0H",
+    "        MOV CL,0",
+    "        INT 0E0H",
+    "        DSEG",
+    "        ORG 100H",
+    "MSG     DB 'HELLO FROM NATIVE ASM86',13,10,'$'",
+    "        RB 512",
+    "STACKTOP DB 0",
+    "        END",
+  ]
+
+  def dirSyntaxTest(self):
+    #-- Characterization (CCP 1.1, probed 2026-11-01): a named DIR lookup WITHOUT a file
+    #-- type reports "NO FILE" even for files that exist and load (the CCP fills the type
+    #-- field with the $DIR/$SYS markers, which never match status 00h entries). With an
+    #-- explicit type the same lookup lists the file.
+    out = self.cmd("DIR A:STAT", 30)
+    ok = out is not None and "NO FILE" in hwCpm.body(out).upper()
+    self.expect("dir: named DIR without a type reports NO FILE (CCP $DIR/$SYS default)",
+                ok, "" if ok else "tail " + self.tailOfOutput())
+    out = self.cmd("DIR A:STAT.CMD", 30)
+    ok = out is not None and "STAT" in hwCpm.body(out) and "NO FILE" not in hwCpm.body(out).upper()
+    self.expect("dir: named DIR with explicit type lists the file", ok,
+                "" if ok else "tail " + self.tailOfOutput())
+
+  def typeViaEd(self, name, lines, attempts=4):
+    #-- ED typing over the console loses characters at speed (probes 2026-11-01: one
+    #-- run lost a single line, another everything after "DSEG"), so send one line per
+    #-- short settle, save, and verify the saved bytes with TYPE; on mismatch erase and
+    #-- retype (up to 4 attempts). The ED command flow itself is per the User's Guide
+    #-- Dec81 section 5: "I"+CR, text lines, ESC, then "E"+CR ALONE on the line.
+    want = " ".join(" ".join(lines).upper().split())
+    for _ in range(attempts):
+      self.cmd("ERA " + name, 20)
+      self.console.logCommand("ED " + name)
+      start = len(self.console.log)
+      self.console.send("ED " + name + "\r")
+      if self.console.waitFor("*", 15, since=start) is None:
+        self.recoverToPrompt()
+        continue
+      self.console.send("I\r")
+      self.console.settle(0.3)
+      for line in lines:
+        self.console.send(line + "\r")
+        self.console.settle(0.08)
+      self.console.settle(0.5)
+      self.console.send("\x1b")
+      self.console.settle(0.5)
+      start = len(self.console.log)
+      self.console.send("E\r")
+      if self.console.waitFor("A>", 20, since=start) is None:
+        self.recoverToPrompt()
+        continue
+      out = self.cmd("TYPE " + name, 30)
+      if out is not None and want in " ".join(hwCpm.body(out).upper().split()):
+        return True
+    return False
+
+  def editorTest(self):
+    #-- Phase 86-08 (closes the manual editor/compiler workflow). Hardware probes
+    #-- (2026-11-01) established the two lookup rules that shape this test:
+    #--   * transient tools are looked up in the CURRENT drive and CURRENT user area - a
+    #--     "PIP?" style error is the CCP not finding the tool there, not PIP objecting;
+    #--     the tools therefore run from A> (where they live) with drive-qualified file
+    #--     names, and HELLO runs from the drive that holds it;
+    #--   * ED (User's Guide Dec81 section 5): "I"+CR enters insert mode, ESC ends text
+    #--     input back to the command prompt, and "E"+CR (ALONE on the line) writes the
+    #--     buffer and leaves ED; Ctrl-C at * aborts without saving (Table 5-3). Fast
+    #--     typing loses lines, hence typeViaEd's TYPE verification and retries;
+    #--   * packaged HELP.CMD observed RUNNING in-guest (banner + file list + HELP>
+    #--     prompt, probe 2026-11-01) is the witness that the HELP.A86 source pattern
+    #--     (CSEG code, DSEG data, own SS:SP, RB stack) assembles and loads correctly.
+    self.ensureGuest()
+    for name in ("C:HELLO.A86", "C:HELLO.H86", "C:HELLO.LST", "C:HELLO.SYM", "C:HELLO.CMD",
+                 "B:HELLO.CMD"):
+      self.cmd("ERA " + name, 20)
+    ok = self.typeViaEd("C:HELLO.A86", self.helloSource)
+    self.expect("workflow: ED insert + E writes C:HELLO.A86 and returns to A>", ok,
+                "" if ok else "TYPE never matched the source; tail " + self.tailOfOutput())
+    if not ok:
+      self.recoverToPrompt()
+      return
+    out = self.cmd("DIR C:HELLO.A86", 40)
+    text = hwCpm.body(out) if out is not None else ""
+    ok = out is not None and "A86" in text and "NO FILE" not in text.upper()
+    self.expect("workflow: HELLO.A86 is listed on C:", ok, "" if ok else "tail " + self.tailOfOutput())
+    out = self.cmd("A:ASM86 C:HELLO", 90)
+    #-- ASM86 pads the counter ("NUMBER OF ERRORS:   0."), so match with flexible spacing.
+    text = hwCpm.body(out).upper() if out is not None else ""
+    ok = re.search(r"NUMBER OF ERRORS:\s*0\s*\.", text) is not None
+    self.expect("workflow: A:ASM86 C:HELLO assembles with NUMBER OF ERRORS: 0", ok,
+                " ".join(text.split())[-160:] if text else "tail " + self.tailOfOutput())
+    out = self.cmd("DIR C:HELLO.H86", 40)
+    text = hwCpm.body(out) if out is not None else ""
+    ok = out is not None and "H86" in text and "NO FILE" not in text.upper()
+    self.expect("workflow: ASM86 produced HELLO.H86", ok, "" if ok else "tail " + self.tailOfOutput())
+    out = self.cmd("A:GENCMD C:HELLO", 90)
+    self.expect("workflow: A:GENCMD C:HELLO returns to A>", out is not None,
+                "" if out is not None else "tail " + self.tailOfOutput())
+    out = self.cmd("DIR C:HELLO.CMD", 40)
+    ok = out is not None and re.search(r"HELLO\s+CMD", hwCpm.body(out)) is not None
+    self.expect("workflow: GENCMD linked HELLO.CMD", ok, "" if ok else "tail " + self.tailOfOutput())
+    self.drive("C")
+    out = self.driveCmd("HELLO", "C", 30)
+    ok = out is not None and "HELLO FROM NATIVE ASM86" in hwCpm.body(out)
+    self.expect("workflow: the produced HELLO runs from C:", ok, "" if ok else "tail " + self.tailOfOutput())
+    self.drive("A")
+    out = self.cmd("PIP B:HELLO.CMD=C:HELLO.CMD", 90)
+    ok = out is not None and hwCpm.pipOk(out) and "PIP?" not in hwCpm.body(out)
+    self.expect("workflow: PIP copies HELLO.CMD from C: to B:", ok,
+                "" if ok else "tail " + self.tailOfOutput())
+    self.drive("B")
+    out = self.driveCmd("HELLO", "B", 30)
+    ok = out is not None and "HELLO FROM NATIVE ASM86" in hwCpm.body(out)
+    self.expect("workflow: the PIP-copied HELLO runs from B:", ok, "" if ok else "tail " + self.tailOfOutput())
+    self.drive("A")
+    for name in ("C:HELLO.A86", "C:HELLO.H86", "C:HELLO.LST", "C:HELLO.SYM", "C:HELLO.CMD",
+                 "B:HELLO.CMD"):
+      self.cmd("ERA " + name, 20)
+
+  def terminalTest(self):
+    #-- Phase 86-08 plain-terminal checks (escape-sequence/full-screen behavior stays
+    #-- manual): CR/LF pairs on output, Ctrl-H erase on the CCP line, Ctrl-C re-prompt.
+    self.ensureGuest()
+    out = self.cmd("DIR", 40)
+    self.expect("terminal: console output uses CR/LF pairs",
+                out is not None and "\r\n" in out, "" if out is not None else "timeout on DIR")
+    #-- The BIOS CONIN handles 0x08/0x7F as erase (probed 2026-11-01): "DIRZ" plus ONE
+    #-- Ctrl-H becomes a plain DIR and lists the disk.
+    self.console.logCommand("DIRZ + Ctrl-H + CR")
+    start = len(self.console.log)
+    self.console.send("DIRZ")
+    self.console.settle(0.5)
+    self.console.send("\x08")
+    self.console.settle(0.3)
+    self.console.send("\r")
+    out = self.console.waitFor("A>", 30, since=start)
+    ok = out is not None and "ASM86" in out and "NO FILE" not in out.upper()
+    self.expect("terminal: Ctrl-H erases the last character on the CCP line", ok,
+                "" if ok else "tail " + self.tailOfOutput())
+    #-- Characterization (CP/M-86 1.1 has no CCP line abort; probed 2026-11-01): Ctrl-C is
+    #-- passed through by the BIOS and the CCP EXECUTES the typed line. The check asserts
+    #-- only that the guest stays usable; the missing line-abort is recorded in ISSUE-008.
+    self.console.logCommand("DIR + Ctrl-C + CR")
+    start = len(self.console.log)
+    self.console.send("DIR")
+    self.console.settle(0.5)
+    self.console.ctrlC()
+    self.console.settle(0.5)
+    self.console.send("\r")
+    out = self.console.waitFor("A>", 20, since=start)
+    self.expect("terminal: Ctrl-C leaves the CCP usable (1.1 has no line abort; the typed "
+                "line runs)", out is not None,
+                "" if out is not None else "no prompt after Ctrl-C; tail " + self.tailOfOutput())
+
+  def warmBootTest(self):
+    #-- Phase 86-09: WBOOT86 prints its banner then calls BDOS function 0. The BIOS WBOOT
+    #-- must re-enter the CCP (prompt A>, CURRENTDRIVE forced to 0 by the BIOS WBOOT itself)
+    #-- WITHOUT the host menu. The observed USER value after the warm boot is recorded
+    #-- (state-survival documentation). The transient is launched while USER 0 is active.
+    name = "wboot: BDOS function 0 re-enters the CCP without the host menu"
+    self.ensureGuest()
+    self.drive("A")
+    #-- USER scopes file lookups (see userCommand): a transient in user area 0 cannot be
+    #-- loaded while USER 3 is active ("WBOOT86?", probed 2026-11-01), so set 3, verify
+    #-- it stuck, then return to user 0 before launching the warm boot itself.
+    self.cmd("USER 3", 20)
+    out = self.cmd("USER", 20)
+    stuck3 = out is not None and hwCpm.body(out).lstrip().startswith("3")
+    self.cmd("USER 0", 20)
+    self.console.logCommand("WBOOT86")
+    start = len(self.console.log)
+    self.console.send("WBOOT86\r")
+    if self.console.waitFor("@BEGIN WBOOT", 30, since=start) is None:
+      self.expect(name, False, "no @BEGIN WBOOT; tail " + self.tailOfOutput())
+      self.recoverToPrompt()
+      return
+    #-- Both waits anchor at "start" (the moment before the WBOOT86 send): the echoed
+    #-- command contains no "A>", and anchoring after the @BEGIN match raced with the
+    #-- CCP prompt the warm boot prints microseconds later (observed false failure).
+    gotMenu = self.console.waitFor("Select system", 5, since=start) is not None
+    gotPrompt = False if gotMenu else self.console.waitFor("A>", 20, since=start) is not None
+    ok = gotPrompt and not gotMenu
+    detail = "menuSeen=%s" % gotMenu
+    if ok:
+      out = self.cmd("USER", 20)
+      digits = re.search(r"\d+", hwCpm.body(out)) if out is not None else None
+      detail += ", USER after warm boot=%s" % (digits.group(0) if digits else "unknown")
+    else:
+      detail += "; tail " + self.tailOfOutput()
+    self.expect(name, ok, detail)
+    if not ok:
+      if not self.boot():
+        self.stop()
+        self.boot()
+      return
+    self.drive("A")
+    self.cmd("USER 0", 20)
+
+  def faultTest(self):
+    #-- Phase 86-09: BAD86 prints its banner then executes the invalid opcode FF/7. The
+    #-- firmware dumps the registers and asks "Press ENTER to return to the main menu."
+    #-- (probed 2026-11-01); ENTER must reach the host menu WITHOUT a host reset, and a
+    #-- relaunch must work afterwards.
+    name = "fault: invalid opcode returns to the host menu without host reset"
+    self.ensureGuest()
+    self.drive("A")
+    self.console.logCommand("BAD86")
+    start = len(self.console.log)
+    self.console.send("BAD86\r")
+    gotBegin = self.console.waitFor("@BEGIN BAD86", 30, since=start) is not None
+    gotEnter = self.console.waitFor("Press ENTER to return to the main menu", 20,
+                                    since=start) is not None
+    if gotEnter:
+      self.console.send("\r")
+    gotMenu = self.console.waitFor("Select system", 15, since=start) is not None
+    relaunched = self.boot() if gotMenu else False
+    ok = gotBegin and gotEnter and gotMenu and relaunched
+    self.expect(name, ok,
+                "begin=%s enterPrompt=%s menu=%s relaunch=%s%s"
+                % (gotBegin, gotEnter, gotMenu, relaunched,
+                   "" if ok else "; tail " + self.tailOfOutput()))
+    if not ok:
+      self.stop()
+      self.boot()
+
+  def interruptedWriteTest(self):
+    #-- Phase 86-10: interrupt a multi-record PIP write on D: (A:BENCH86.CMD) once by
+    #-- Ctrl+] and once by RTS reset mid-copy. The volume must stay usable afterwards:
+    #-- after erasing the half-written file the full copy must run as a program from D:.
+    #-- Deviation from the plan (recorded): the SD card is not host-accessible on this
+    #-- board, so "reopen the image host-side" is replaced by this guest-side
+    #-- full-copy-and-run check. The copy runs from A> in full-name form because PIP only
+    #-- accepts its command tail while the current drive is A: (probed 2026-11-01). The
+    #-- host polls Ctrl+] only when the guest touches the console, so the stop may lag
+    #-- until the copy finishes; the wait covers that (documented under ISSUE-010).
+    for mode in ("Ctrl+]", "RTS reset"):
+      name = "interrupted write: D: stays usable after %s mid-PIP" % mode
+      self.drive("A")
+      self.cmd("ERA D:BENCH86.CMD", 30)
+      start = len(self.console.log)
+      self.console.logCommand("PIP D:BENCH86.CMD=A:BENCH86.CMD (interrupted)")
+      self.console.send("PIP D:BENCH86.CMD=A:BENCH86.CMD\r")
+      self.console.settle(1.0)
+      if mode == "Ctrl+]":
+        self.console.send("\x1d")
+        stopped = self.console.waitFor(["CP/M-86 stopped by Ctrl+]", "Select system"],
+                                       180, since=start) is not None
+        self.console.send("\r")
+        stopped = stopped and self.console.waitFor("Select system", 15, since=start) is not None
+      else:
+        stopped = self.console.reset()
+      launched = self.boot()
+      if not launched:
+        self.expect(name, False, "no relaunch after %s" % mode)
+        continue
+      self.drive("A")
+      out = self.cmd("DIR D:BENCH86.CMD", 40)
+      body = hwCpm.body(out) if out is not None else ""
+      partial = out is not None and "BENCH86" in body and "NO FILE" not in body.upper()
+      self.cmd("ERA D:BENCH86.CMD", 30)
+      out = self.cmd("PIP D:BENCH86.CMD=A:BENCH86.CMD", 180)
+      copied = out is not None and hwCpm.pipOk(out) and "PIP?" not in hwCpm.body(out)
+      self.drive("D")
+      out = self.driveCmd("BENCH86", "D", 180)
+      ran = out is not None and "@DONE PASS" in hwCpm.body(out)
+      self.drive("A")
+      self.cmd("ERA D:BENCH86.CMD", 30)
+      self.expect(name, stopped and launched and copied and ran,
+                  "stopped=%s relaunched=%s partialAfterInterrupt=%s recopy=%s runFromD=%s"
+                  % (stopped, launched, partial, copied, ran))
+
+  def manual(self):
+    #-- 86-08 automated the editor/compiler workflow; only full-screen terminal behavior
+    #-- (escape sequences) stays manual.
+    return [("terminal escape sequences (full-screen editors)", "manual")]
+
   def extras(self):
     #-- timerTest/benchTest record their verdicts inline (expect), keeping each check
     #-- with its own command block; only the stop/launch cycles are collected here.
     items = []
     self.timerTest()
     self.benchTest()
+    self.dirSyntaxTest()
+    self.editorTest()
+    self.terminalTest()
+    self.warmBootTest()
+    self.interruptedWriteTest()
+    self.faultTest()
     ok = self.stop()
     items.append(("cpm86: Ctrl+] returns to host menu", ok, ""))
     items.append(("cpm86: relaunch after Ctrl+]", self.boot(), ""))

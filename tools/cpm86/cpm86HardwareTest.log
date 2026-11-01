@@ -1,4 +1,4 @@
-CP/M-86 hardware test - 2026-11-01 11:38:18
+CP/M-86 hardware test - 2026-11-01 18:25:06
 
 <<<RESET>>>
       PASS  board reset reaches host menu
@@ -8,9 +8,9 @@ Command: 2
 
 ---- basic ----
 Command: DIR
-  A: ASM86    CMD : BENCH86  CMD : BIDUMP   CMD : BINCOM   CMD | A: BS       CMD : COPY     CMD : CRC      CMD : DUMMP    CMD | A: ED       CMD : ERAQ     CMD : FIND     CMD : GENCMD   CMD | A: GREP     CMD : HELP     CMD : MUCHTEXT CMD : NSWEEP   CMD | A: PAGE     CMD : PIP      CMD : PUT      CMD :  ...
+  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : COPY     CMD : CRC      CMD | A: DUMMP    CMD : ED       CMD : ERAQ     CMD : FIND     CMD | A: GENCMD   CMD : GREP     CMD : HELP     CMD : MUCHTEXT CMD | A: NSWEEP   CMD : PAGE     CMD : PIP      CMD :  ...
 Command: STAT
-  A: RW, Free Space:        10k | A>
+  A: RW, Free Space:         6k | A>
 Command: DIR A:STAT.CMD
   A: STAT     CMD | A>
 Command: USER 3
@@ -32,7 +32,7 @@ Command: DIR A:STAT.CMD
 
 ---- read volumes ----
 Command: DIR
-  A: ASM86    CMD : BENCH86  CMD : BIDUMP   CMD : BINCOM   CMD | A: BS       CMD : COPY     CMD : CRC      CMD : DUMMP    CMD | A: ED       CMD : ERAQ     CMD : FIND     CMD : GENCMD   CMD | A: GREP     CMD : HELP     CMD : MUCHTEXT CMD : NSWEEP   CMD | A: PAGE     CMD : PIP      CMD : PUT      CMD :  ...
+  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : COPY     CMD : CRC      CMD | A: DUMMP    CMD : ED       CMD : ERAQ     CMD : FIND     CMD | A: GENCMD   CMD : GREP     CMD : HELP     CMD : MUCHTEXT CMD | A: NSWEEP   CMD : PAGE     CMD : PIP      CMD :  ...
       PASS  read: list volume A:
 Command: B:
   B>
@@ -227,7 +227,7 @@ Command: ERA C:HWTEST.CMD
 Command: DIR A:HWRO*.*
   NO FILE | A>
 Command: STAT A:
-  A: RW, Free Space:        10k | A>
+  A: RW, Free Space:         6k | A>
 Command: PIP A:HWRO.CMD=A:PIP.CMD
       PASS  read-only: write to A: is refused
 Command: ^C (Ctrl-C)
@@ -235,13 +235,13 @@ Command: ^C (Ctrl-C)
 Command: DIR A:HWRO*.*
   NO FILE | A>
 Command: STAT A:
-  A: RO, Free Space:        10k | A>
+  A: RO, Free Space:         6k | A>
       PASS  read-only: no file created on A:
-      PASS  read-only: free space on A: unchanged  -- before 10, after 10
+      PASS  read-only: free space on A: unchanged  -- before 6, after 6
 
 ---- timing ----
 Command: DIR
-  A: ASM86    CMD : BENCH86  CMD : BIDUMP   CMD : BINCOM   CMD | A: BS       CMD : COPY     CMD : CRC      CMD : DUMMP    CMD | A: ED       CMD : ERAQ     CMD : FIND     CMD : GENCMD   CMD | A: GREP     CMD : HELP     CMD : MUCHTEXT CMD : NSWEEP   CMD | A: PAGE     CMD : PIP      CMD : PUT      CMD :  ...
+  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : COPY     CMD : CRC      CMD | A: DUMMP    CMD : ED       CMD : ERAQ     CMD : FIND     CMD | A: GENCMD   CMD : GREP     CMD : HELP     CMD : MUCHTEXT CMD | A: NSWEEP   CMD : PAGE     CMD : PIP      CMD :  ...
       PASS  timing: volume listing completes in < 10 s  -- 0.5 s
 
 ---- unconfigured drive ----
@@ -249,24 +249,168 @@ Command: E:
   E:? | A>
       PASS  unconfigured: drive E: is rejected cleanly
 Command: TIMER86
-  measured delta 1094 ms
-      PASS  timer: guest delta of a 1 s host wait is 900-1100 ms  -- 1094 ms
+  measured delta 1092 ms
+      PASS  timer: guest delta of a 1 s host wait is 900-1100 ms  -- 1092 ms
 bench86: starting BENCH86, waiting up to 180 s for it to finish
 Command: A:BENCH86
-  BENCH86 v2 SCALE=1 | @BEGIN INTEGER | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 4140 ms | 8086 MODEL ONLY (not measured): 5MHz=6292 ms, 8MHz=3933 ms, 10MHz=3146 ms | Index vs 5MHz MODEL: 151 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 1552 ms |  ...
+  BENCH86 v2 SCALE=1 | @BEGIN INTEGER | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 4130 ms | 8086 MODEL ONLY (not measured): 5MHz=6292 ms, 8MHz=3933 ms, 10MHz=3146 ms | Index vs 5MHz MODEL: 152 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 1564 ms |  ...
 bench86: BENCH86 v2 SCALE=1
 bench86: @BEGIN INTEGER
 bench86: @END INTEGER PASS AX=4ED8 BX=D678
-bench86: Elapsed: 4140 ms
-bench86: Index vs 5MHz MODEL: 151 (100=model, higher=faster; theoretical)
+bench86: Elapsed: 4130 ms
+bench86: Index vs 5MHz MODEL: 152 (100=model, higher=faster; theoretical)
 bench86: @BEGIN SIEVE
 bench86: @END SIEVE PASS PRIMES=1028
-bench86: Elapsed: 1552 ms
-bench86: Index vs 5MHz MODEL: 289 (100=model, higher=faster; theoretical)
+bench86: Elapsed: 1564 ms
+bench86: Index vs 5MHz MODEL: 287 (100=model, higher=faster; theoretical)
 bench86: @DONE PASS
       PASS  bench86: BENCH86 runs from A: and completes
-      PASS  bench86: all benchmark sections report PASS  -- 2 sections, elapsed 4140,1552 ms
-      PASS  bench86: measured index values recorded  -- index vs 5MHz MODEL: 151,289
+      PASS  bench86: all benchmark sections report PASS  -- 2 sections, elapsed 4130,1564 ms
+      PASS  bench86: measured index values recorded  -- index vs 5MHz MODEL: 152,287
+Command: DIR A:STAT
+  NO FILE | A>
+      PASS  dir: named DIR without a type reports NO FILE (CCP $DIR/$SYS default)
+Command: DIR A:STAT.CMD
+  A: STAT     CMD | A>
+      PASS  dir: named DIR with explicit type lists the file
+Command: ERA C:HELLO.A86
+  NO FILE | A>
+Command: ERA C:HELLO.H86
+  NO FILE | A>
+Command: ERA C:HELLO.LST
+  NO FILE | A>
+Command: ERA C:HELLO.SYM
+  NO FILE | A>
+Command: ERA C:HELLO.CMD
+  NO FILE | A>
+Command: ERA B:HELLO.CMD
+  NO FILE | A>
+Command: ERA C:HELLO.A86
+  NO FILE | A>
+Command: ED C:HELLO.A86
+Command: TYPE C:HELLO.A86
+  ; HELLO - NATIVE ASM86 WORKFLOW PROOF (86-08) | CSEG | ORG 0 | START:  MOV AX,DS | MOV SS,AX | MOV SP,OFFSET STACKTOP | MOV CL,9 | MOV DX,OFFSET MSG | INT 0E0H | MOV CL,0 | INT 0E0H | DSEG | ORG 100H | MSG     DB 'HELLO FROM NATIVE ASM86',13,10,'$' | RB 512 | STACKTOP DB 0 | END | A>
+      PASS  workflow: ED insert + E writes C:HELLO.A86 and returns to A>
+Command: DIR C:HELLO.A86
+  C: HELLO    A86 | A>
+      PASS  workflow: HELLO.A86 is listed on C:
+Command: A:ASM86 C:HELLO
+  CP/M 8086 ASSEMBLER VER 1.1 | END OF PASS 1 | END OF PASS 2 | END OF ASSEMBLY.  NUMBER OF ERRORS:   0.  USE FACTOR:  0% | A>
+      PASS  workflow: A:ASM86 C:HELLO assembles with NUMBER OF ERRORS: 0  -- CP/M 8086 ASSEMBLER VER 1.1 END OF PASS 1 END OF PASS 2 END OF ASSEMBLY. NUMBER OF ERRORS: 0. USE FACTOR: 0% A>
+Command: DIR C:HELLO.H86
+  C: HELLO    H86 | A>
+      PASS  workflow: ASM86 produced HELLO.H86
+Command: A:GENCMD C:HELLO
+  BYTES READ    0031 | RECORDS WRITTEN 08 | A>
+      PASS  workflow: A:GENCMD C:HELLO returns to A>
+Command: DIR C:HELLO.CMD
+  C: HELLO    CMD | A>
+      PASS  workflow: GENCMD linked HELLO.CMD
+Command: C:
+  C>
+Command: HELLO
+  HELLO FROM NATIVE ASM86 | C>
+      PASS  workflow: the produced HELLO runs from C:
+Command: A:
+  A>
+Command: PIP B:HELLO.CMD=C:HELLO.CMD
+  A>
+      PASS  workflow: PIP copies HELLO.CMD from C: to B:
+Command: B:
+  B>
+Command: HELLO
+  HELLO FROM NATIVE ASM86 | B>
+      PASS  workflow: the PIP-copied HELLO runs from B:
+Command: A:
+  A>
+Command: ERA C:HELLO.A86
+  A>
+Command: ERA C:HELLO.H86
+  A>
+Command: ERA C:HELLO.LST
+  A>
+Command: ERA C:HELLO.SYM
+  A>
+Command: ERA C:HELLO.CMD
+  A>
+Command: ERA B:HELLO.CMD
+  A>
+Command: DIR
+  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : COPY     CMD : CRC      CMD | A: DUMMP    CMD : ED       CMD : ERAQ     CMD : FIND     CMD | A: GENCMD   CMD : GREP     CMD : HELP     CMD : MUCHTEXT CMD | A: NSWEEP   CMD : PAGE     CMD : PIP      CMD :  ...
+      PASS  terminal: console output uses CR/LF pairs
+Command: DIRZ + Ctrl-H + CR
+      PASS  terminal: Ctrl-H erases the last character on the CCP line
+Command: DIR + Ctrl-C + CR
+Command: ^C (Ctrl-C)
+      PASS  terminal: Ctrl-C leaves the CCP usable (1.1 has no line abort; the typed line runs)
+Command: A:
+  A>
+Command: USER 3
+  A>
+Command: USER
+  3 | A>
+Command: USER 0
+  A>
+Command: WBOOT86
+Command: USER
+  0 | A>
+      PASS  wboot: BDOS function 0 re-enters the CCP without the host menu  -- menuSeen=False, USER after warm boot=0
+Command: A:
+  A>
+Command: USER 0
+  A>
+Command: A:
+  A>
+Command: ERA D:BENCH86.CMD
+  NO FILE | A>
+Command: PIP D:BENCH86.CMD=A:BENCH86.CMD (interrupted)
+Command: 2
+Command: A:
+  A>
+Command: DIR D:BENCH86.CMD
+  D: BENCH86  CMD | A>
+Command: ERA D:BENCH86.CMD
+  A>
+Command: PIP D:BENCH86.CMD=A:BENCH86.CMD
+  A>
+Command: D:
+  D>
+Command: BENCH86
+  BENCH86 v2 SCALE=1 | @BEGIN INTEGER | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 4140 ms | 8086 MODEL ONLY (not measured): 5MHz=6292 ms, 8MHz=3933 ms, 10MHz=3146 ms | Index vs 5MHz MODEL: 151 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 1551 ms |  ...
+Command: A:
+  A>
+Command: ERA D:BENCH86.CMD
+  A>
+      PASS  interrupted write: D: stays usable after Ctrl+] mid-PIP  -- stopped=True relaunched=True partialAfterInterrupt=True recopy=True runFromD=True
+Command: A:
+  A>
+Command: ERA D:BENCH86.CMD
+  NO FILE | A>
+Command: PIP D:BENCH86.CMD=A:BENCH86.CMD (interrupted)
+<<<RESET>>>
+Command: 2
+Command: A:
+  A>
+Command: DIR D:BENCH86.CMD
+  D: BENCH86  CMD | A>
+Command: ERA D:BENCH86.CMD
+  A>
+Command: PIP D:BENCH86.CMD=A:BENCH86.CMD
+  A>
+Command: D:
+  D>
+Command: BENCH86
+  BENCH86 v2 SCALE=1 | @BEGIN INTEGER | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 4139 ms | 8086 MODEL ONLY (not measured): 5MHz=6292 ms, 8MHz=3933 ms, 10MHz=3146 ms | Index vs 5MHz MODEL: 152 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 1561 ms |  ...
+Command: A:
+  A>
+Command: ERA D:BENCH86.CMD
+  A>
+      PASS  interrupted write: D: stays usable after RTS reset mid-PIP  -- stopped=True relaunched=True partialAfterInterrupt=True recopy=True runFromD=True
+Command: A:
+  A>
+Command: BAD86
+Command: 2
+      PASS  fault: invalid opcode returns to the host menu without host reset  -- begin=True enterPrompt=True menu=True relaunch=True
 Command: 2
 Command: 2
 Command: 2
@@ -278,8 +422,7 @@ Command: 2
 ---- final reset ----
 <<<RESET>>>
       PASS  final reset returns to menu
-      SKIP  editor / compiler workflow  -- manual
       SKIP  terminal escape sequences (full-screen editors)  -- manual
 
 ==== SUMMARY ====
-passed 41, failed 0, skipped(manual) 2
+passed 59, failed 0, skipped(manual) 1
