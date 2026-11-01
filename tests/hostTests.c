@@ -2910,7 +2910,7 @@ static size_t countOccurrences(const char* text, const char* needle)
 static void testCpm80GuestBoot(void)
 {
   imageFile disk = {0};
-  char writableDiskPath[] = "cpm-write-test-XXXXXX";
+  char writableDiskPath[] = "/tmp/cpm-write-test-XXXXXX";
   int writableDiskDescriptor = mkstemp(writableDiskPath);
   assert(writableDiskDescriptor >= 0);
   assert(ftruncate(writableDiskDescriptor, cpm80SystemImageSize) == 0);
@@ -2922,7 +2922,7 @@ static void testCpm80GuestBoot(void)
   uint64_t directoryOffset = 2U * cpm80DiskSectorsPerTrack * cpm80DiskSectorSize;
   assert(imageWriteAt(&writableDisk, directoryOffset, emptyDirectory, sizeof(emptyDirectory)));
   assert(imageFlush(&writableDisk));
-  char largeDiskPath[] = "cpm-large-write-test-XXXXXX";
+  char largeDiskPath[] = "/tmp/cpm-large-write-test-XXXXXX";
   int largeDiskDescriptor = mkstemp(largeDiskPath);
   assert(largeDiskDescriptor >= 0);
   assert(ftruncate(largeDiskDescriptor, cpm80LargeImageSize) == 0);
@@ -2935,7 +2935,7 @@ static void testCpm80GuestBoot(void)
   assert(imageWriteAt(&largeDisk, largeDirectoryOffset, largeEmptyDirectory,
                       sizeof(largeEmptyDirectory)));
   assert(imageFlush(&largeDisk));
-  char bigDiskPath[] = "cpm-big-test-XXXXXX";
+  char bigDiskPath[] = "/tmp/cpm-big-test-XXXXXX";
   int bigDiskDescriptor = mkstemp(bigDiskPath);
   assert(bigDiskDescriptor >= 0);
   assert(ftruncate(bigDiskDescriptor, cpm80BigImageSize) == 0);
