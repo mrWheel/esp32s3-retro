@@ -1,0 +1,70 @@
+VI voor onze RETRO CP/M-80-emulator
+==================================
+
+VI.COM is een echte Z80/CP/M-80-versie van de STevie-editor die eerder
+voor CP/M-86 is aangepast. De vi-bediening, undo, zoeken, kopiëren en
+plakken zijn behouden. Scherm en toetsen werken met VT100/ANSI via BDOS.
+Dit is geen hernoemde VI.CMD. Gebruik de juiste versie per CP/M-systeem.
+
+Kopieer VI.COM en VI.HLP naar een CP/M-80-schijf. DEMO.TXT is optioneel.
+Je hoeft geen compiler, libraries of andere software te installeren.
+Er is geen schijfimage toegevoegd. De oorspronkelijke repositories en
+de schijven van de emulator zijn niet gewijzigd.
+
+Starten en stoppen
+------------------
+  VI DEMO.TXT
+
+Wacht op Normal Mode. Druk i om tekst te typen. Escape beëindigt invoer.
+Pijltjestoetsen bewegen de cursor. Vanuit Normal mode:
+
+  :w       opslaan, daarna Return
+  :wq      opslaan en afsluiten, daarna Return
+  :q       afsluiten als alles is opgeslagen, daarna Return
+  :q!      wijzigingen weggooien en afsluiten, daarna Return
+  H        ingebouwde toetsenhelp
+  HELP VI  uitgebreide Engelse help vanaf de CP/M-opdrachtregel
+
+Een navigatietoets in Insert/Replace beëindigt de invoergroep en beweegt.
+Druk daarna opnieuw i of a om verder te typen.
+Gebruik een VT100/ANSI-terminal van minimaal 80 kolommen en 24 regels.
+Zet lokale echo en XON/XOFF uit; stuur geen grote, snelle plaksessies.
+
+Geheugen en bestanden
+---------------------
+CP/M-80 heeft één adresruimte van 64 KiB voor programma, data en stack.
+Deze build is afgestemd op onze Z80-emulator met de BDOS nabij CC00h.
+Een 8080 zonder Z80-instructies wordt niet ondersteund.
+
+De tekstbuffer bevat maximaal 7999 bytes na omzetting van regeleinden.
+Invoer/undo gebruikt groepen van ongeveer 500 tekens. Bij de grens:
+Escape, gevolgd door i of a, begint een nieuwe groep.
+Het regelklembord deelt het resterende geheugen en is meestal circa
+2 KiB. Te grote kopieer-/wisbewerkingen worden veilig geweigerd.
+Dit is kleine STevie, geen moderne Vim; Unicode en plug-ins ontbreken.
+
+Tekst wordt opgeslagen met CRLF en Ctrl-Z, in 128-byte CP/M-records.
+Opslaan schrijft eerst een uniek VIxxxxxx.TMP-bestand. Een bestaand
+origineel wordt tijdens vervanging tijdelijk VIxxxxxx.BAK. Na succes
+wordt de tijdelijke back-up verwijderd. Bewaar oudere versies zelf.
+Bij een fout blijven buffer en genoemde herstelbestanden beschikbaar.
+De Engelse help beschrijft de bediening en het herstel uitgebreider.
+
+Validatie
+---------
+14 scenario's draaien de echte VI.COM in de Z80-kern van ons project
+met een gecontroleerde BDOS, inclusief schrijf-/hernoemfouten en
+onvoldoende klembordgeheugen.
+7 scenario's draaien bovendien de echte CCP, BDOS en BIOS van onze
+CP/M-80-emulator op de Mac. De opgeslagen bestanden zijn gecontroleerd:
+nieuw maken, herschrijven, undo, kopiëren/plakken, ANSI-pijlen, de maximale
+tekstbuffer en een leeg bestand. Alles keert terug naar de CP/M-prompt.
+Nog niet op de fysieke ESP32 met een echte terminal getest.
+
+Voor ontwikkelaars
+------------------
+De aangepaste broncode en tests zijn inbegrepen in source.
+Bouwen: Z88DK=/pad/naar/z88dk sh BUILD.sh
+Getest met z88dk 2.4 en de bijgeleverde SDCC-backend. De compiler staat
+niet in dit pakket en is niet nodig voor gebruik van VI.COM.
+Zie TEST-RESULTS.txt voor testresultaten en SHA-256 van de executable.

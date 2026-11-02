@@ -145,6 +145,9 @@ HEXIT:
         MOV DL,0
         INT 224
         JMP HEXIT
+; BDOS 1 (used by HGETKEY) echoes printable keys as they are typed and
+; leaves control keys silent, so stored keys are not echoed again here;
+; only keys that must disappear from the line are erased.
 HREADIN:
         XOR AL,AL
         MOV BYTE PTR HINLEN,AL
@@ -171,9 +174,9 @@ HRDLOOP:
         MOV AL,BYTE PTR HKEYCHAR
         MOV BYTE PTR [BX],AL
         INC BYTE PTR HINLEN
-        CALL HPUTC
         JMP HRDLOOP
 HRDBELL:
+        CALL HDELCHAR
         MOV AL,7
         CALL HPUTC
         JMP HRDLOOP
@@ -212,6 +215,11 @@ HDELCHAR:
         JMP HPUTC
 ; Poll for Ctrl-C only while reading an interactive or paging response.
 ; Queue other available keys so they remain available to that input.
+; Use the CP/M-80 GETKEY pair: BDOS 11 reports (and takes into the BDOS
+; type-ahead byte) a pending key, BDOS 1 returns it and echoes printable
+; keys. BDOS 6 reads the BIOS directly, bypassing the type-ahead byte that
+; the BDOS output check fills during printing, so the first typed key was
+; lost there and later reappeared at the CCP prompt.
 HCHECK:
         MOV AL,BYTE PTR HKEYCOUNT
         CMP AL,128
@@ -220,11 +228,8 @@ HCHECK:
         CALL HSYS
         OR AL,AL
         JZ HJ182
-        MOV CL,6
-        MOV DL,0FFH
+        MOV CL,1
         CALL HSYS
-        OR AL,AL
-        JZ HJ182
         CMP AL,3
         JNZ HJ183
         JMP HEXIT
@@ -1841,15 +1846,12 @@ HPAGING:
 HJ168:
         OR AL,AL
         RET
+; The response key was already echoed by BDOS 1 when it was typed.
 HMORE:
         MOV DX,OFFSET HMSGMOR
         CALL HPRINT
         CALL HGETKEY
         CALL HUPPER
-        PUSH AX
-        MOV AL,BYTE PTR HKEYCHAR
-        CALL HPUTC
-        POP AX
         PUSHF
         PUSH AX
         CALL HNEWLN
@@ -2075,4 +2077,4 @@ HKEYBUF RB 128
 ; Final initialized byte makes GENCMD include all reserved storage.
 HSTKTOP DB 0
         END
-
+

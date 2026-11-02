@@ -3675,6 +3675,146 @@ static void testCpm86BigSystemBoot(void)
   removeLargeSystemDisk(bigSystemPath);
 }
 
+//-- Runs the guest until needle appears in output written after mark. Output is never
+// cleared here, so earlier stages (and quoted prompt examples) cannot satisfy a later wait.
+static bool runCpm86UntilAfter(cpm86Core* core, cpm86BootFixture* fixture, const char* needle,
+                               size_t mark)
+{
+  size_t instructions = 0;
+  const size_t instructionBudget = 400000000;
+  while (instructions < instructionBudget)
+  {
+    if (strstr(fixture->output + mark, needle) != NULL)
+    {
+      return true;
+    }
+    size_t executed = 0;
+    cpm86CoreResult result = cpm86CoreRun(core, 4096, &executed);
+    if (result != cpm86CoreOk)
+    {
+      fprintf(stderr, "CP/M-86 HELP run failed: result=%d output=%s\n", result, fixture->output);
+      return false;
+    }
+    instructions += executed;
+  }
+  fprintf(stderr, "CP/M-86 HELP timeout: needle=%s output=%s\n", needle, fixture->output);
+  return false;
+}
+
+//-- Loads one command or key sequence into the console script for the next run step.
+static void feedCpm86Input(cpm86BootFixture* fixture, const char* input)
+{
+  fixture->input = input;
+  fixture->inputLength = strlen(input);
+  fixture->inputPosition = 0;
+}
+
+//-- Assembles bootDisks/cpm86/systemDsk/HELP.A86 with the stock ASM86 and GENCMD inside the
+// emulated guest, then verifies the interactive keyboard path. Regression (2026-11-02):
+// HCHECK polled BDOS 11 before reading with BDOS 6. BDOS-86 console status takes the pending
+// key into its own one-byte type-ahead buffer, which the BDOS 6 read path never drains, so
+// the first key typed at a HELP prompt was eaten by the status call and later reappeared at
+// the CCP prompt (typing QUICK lost the Q; Ctrl+C then showed "A>Q"). HCHECK now polls with
+// BDOS 6 alone. Set CPM86_HELP_CMD_OUTPUT to a file path to receive a copy of the built disk
+// image, from which the freshly assembled HELP.CMD can be extracted with tools/extractFiles.py.
+static void testCpm86Help(void)
+{
+  char systemDiskPath[256];
+  createBigSystemDisk("cpm86", systemDiskPath, sizeof(systemDiskPath));
+
+  imageFile disk = {0};
+  assert(imageOpen(&disk, systemDiskPath, false));
+
+  FILE* systemFile = fopen(CPM86_SYSTEM_FILE_PATH, "rb");
+  assert(systemFile != NULL);
+  uint8_t systemImage[10240];
+  assert(fread(systemImage, 1, sizeof(systemImage), systemFile) == sizeof(systemImage));
+  assert(fclose(systemFile) == 0);
+
+  cpm86BootFixture fixture = {.disks = {[0] = &disk}, .bigDisks = {[0] = true}};
+  const cpm86CoreConfig config = {
+      .ramSize = 640 * 1024,
+      .portRead = cpm86BootPortRead,
+      .portWrite = cpm86BootPortWrite,
+      .portContext = &fixture,
+      .readMilliseconds = NULL,
+      .clockContext = NULL,
+  };
+  cpm86Core* core = NULL;
+  assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);
+  assert(cpm86CoreLoad(core, 0x00510, systemImage + 128, sizeof(systemImage) - 128) == cpm86CoreOk);
+  const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
+  assert(cpm86CoreWrite(core, 0x00380, bdosVector, sizeof(bdosVector)) == cpm86CoreOk);
+  assert(cpm86BiosLoadOverlay(core, CPM86_BIOS_OVERLAY_PATH));
+  assert(cpm86CoreSetEntry(core, 0x0051, 0x2500) == cpm86CoreOk);
+
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 1));
+
+  //-- Build HELP from the checked-in source on the guest so the behaviour below tests that
+  // source rather than the binary stored on the disk image. The assembler needs a much
+  // larger instruction budget than the command prompts above.
+  size_t mark = fixture.outputLength;
+  feedCpm86Input(&fixture, "ASM86 HELP\r");
+  assert(runCpm86UntilAfter(core, &fixture, "A>", mark));
+  assert(strstr(fixture.output + mark, "NUMBER OF ERRORS:") != NULL);
+  mark = fixture.outputLength;
+  feedCpm86Input(&fixture, "GENCMD HELP\r");
+  assert(runCpm86UntilAfter(core, &fixture, "A>", mark));
+
+  //-- Start HELP: banner and file list, then the interactive prompt.
+  mark = fixture.outputLength;
+  feedCpm86Input(&fixture, "HELP\r");
+  assert(runCpm86UntilAfter(core, &fixture, "Available help files:", mark));
+  assert(strstr(fixture.output + mark, "CP/M-86 Help System 3.3") != NULL);
+
+  //-- Select HELP.HLP; the subtopic list is the last thing printed before the prompt.
+  mark = fixture.outputLength;
+  feedCpm86Input(&fixture, "HELP\r");
+  assert(runCpm86UntilAfter(core, &fixture, "Subtopics:", mark));
+  assert(strstr(fixture.output + mark, "STARTING") != NULL);
+
+  //-- Type QUICK at the topic prompt: every character must be echoed and the topic
+  // lookup must see the complete word. With the BDOS 11 status call alone this step
+  // showed only "UICK" and the frozen key reappeared at the CCP prompt later.
+  mark = fixture.outputLength;
+  feedCpm86Input(&fixture, "QUICK\r");
+  assert(runCpm86UntilAfter(core, &fixture, "Help topic not found.", mark));
+  assert(strstr(fixture.output + mark, "QUICK") != NULL);
+
+  //-- Ctrl+C exits HELP; the CCP must then show a clean prompt. With the BDOS 11 status call
+  // the frozen type-ahead key was echoed right after "A>" ("A>Q").
+  mark = fixture.outputLength;
+  feedCpm86Input(&fixture, "\x03");
+  assert(runCpm86UntilAfter(core, &fixture, "A>", mark));
+  mark = fixture.outputLength;
+  feedCpm86Input(&fixture, "\r");
+  assert(runCpm86UntilAfter(core, &fixture, "A>", mark));
+  assert(strstr(fixture.output + mark, "Q") == NULL);
+
+  const char* cmdOutput = getenv("CPM86_HELP_CMD_OUTPUT");
+  if (cmdOutput != NULL)
+  {
+    FILE* source = fopen(systemDiskPath, "rb");
+    assert(source != NULL);
+    FILE* destination = fopen(cmdOutput, "wb");
+    assert(destination != NULL);
+    uint8_t buffer[512];
+    size_t bytesRead;
+    while ((bytesRead = fread(buffer, 1, sizeof(buffer), source)) > 0)
+    {
+      assert(fwrite(buffer, 1, bytesRead, destination) == bytesRead);
+    }
+    assert(!ferror(source));
+    assert(!ferror(destination));
+    assert(fclose(source) == 0);
+    assert(fclose(destination) == 0);
+  }
+
+  cpm86CoreDestroy(core);
+  assert(imageClose(&disk));
+  removeLargeSystemDisk(systemDiskPath);
+}
+
 //-- Runs one console command to the next prompt (output is cleared first); returns the instructions
 // spent.
 static size_t runCpm80Command(cpm80Guest* guest, cpm80GuestFixture* fixture, const char* command,
@@ -4337,6 +4477,12 @@ int main(int argc, char** argv)
     puts("PASS: CP/M-80 HELP build and navigation");
     return 0;
   }
+  if (argc == 2 && strcmp(argv[1], "--cpm86-help") == 0)
+  {
+    testCpm86Help();
+    puts("PASS: CP/M-86 HELP build and keyboard handling");
+    return 0;
+  }
   testPaths();
   testApple2Core();
   testApple2Keyboard();
@@ -4361,6 +4507,7 @@ int main(int argc, char** argv)
   testCpm80LargeSystemBoot();
   testCpm86LargeSystemBoot();
   testCpm86BigSystemBoot();
+  testCpm86Help();
   puts("PASS: CPU fixtures, CP/M boot and disk tests");
   return 0;
 }

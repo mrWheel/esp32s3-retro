@@ -1,0 +1,299 @@
+///1SYSVIEW
+SYSVIEW.HLP - VT100/ANSI SYSTEM HARDWARE OVERVIEW
+
+Select a topic below. Press Return to move up one level.
+From CP/M: HELP SYSVIEW
+
+SYSVIEW displays a compact hardware overview and waits for a key.
+This patched CP/M-86 version uses a VT100/ANSI terminal through the
+CP/M console instead of writing directly to an IBM PC display.
+
+Start: SYSVIEW
+Refresh: R
+Exit to CP/M: Q or Esc
+
+The original SYSVIEW.DOC is included in full under ORIGINAL.
+Its IBM-display claims describe the original program, not this patch.
+
+///2STARTING
+START SYSVIEW
+
+Copy the patched SYSVIEW.CMD and this SYSVIEW.HLP to your CP/M-86
+disk. Keep a separate copy of the original program if you need it.
+
+At the CP/M prompt:
+  SYSVIEW
+
+Use a VT100/ANSI terminal with at least 80 columns and 24 rows.
+The program clears the terminal and displays the hardware overview.
+There are no command-line options or configuration files.
+
+To read this help:
+  HELP SYSVIEW
+
+SYSVIEW.CMD is a CP/M-86 program, not a DOS or CP/M-80 executable.
+A serial terminal or terminal emulator can display its console output.
+
+///2KEYS
+REFRESH AND EXIT
+
+  R or r       Read the information again and redraw the screen.
+  Q or q       Exit SYSVIEW and return to CP/M.
+  Esc          Exit SYSVIEW and return to CP/M.
+
+No Return is needed after a command key.
+Other ordinary character keys do not change the displayed values.
+Cursor keys are not required; some send sequences beginning with Esc
+and may therefore cause the program to exit.
+
+Exit restores normal text attributes and makes the cursor visible.
+The screen is not continuously refreshed. Use R when you want another
+snapshot. No speaker warning or animated exit is used in this edition.
+
+///2DISPLAY
+READ THE OVERVIEW
+
+Fields shown by the terminal edition:
+  Processor class         Broad CPU compatibility class.
+  IBM ROM date field      Eight characters from the IBM ROM date area.
+  Math coprocessor        Flag recorded in the BIOS equipment word.
+  Conventional memory     Memory size recorded in the BIOS data area.
+  Guest BIOS video mode   Numeric BIOS mode, not the terminal type.
+  Floppy drives           Count encoded in the BIOS equipment word.
+  Parallel/LPT ports      Count encoded in the BIOS equipment word.
+  Game port               Flag recorded in the BIOS equipment word.
+  Secondary video         Not probed by this terminal edition.
+
+These are reported values, not a comprehensive hardware test.
+A Yes flag does not prove that a device has been functionally tested.
+A guest emulator can supply partial, synthetic or missing BIOS data.
+
+///2PROCESSOR
+PROCESSOR CLASS
+
+The display distinguishes broad historical FLAGS-register classes:
+  8086/8088 compatible
+  80286
+  80386 or later
+
+The first category includes NEC V20/V30-compatible behaviour.
+The terminal edition does not identify a V20 separately.
+The last category does not identify an exact later processor model,
+clock speed, vendor or modern CPU features.
+
+In an emulator, the result describes its emulated CPU behaviour.
+It does not identify the physical processor in your Mac or host PC.
+CPU classification depends on the emulator implementing FLAGS
+behaviour consistently with the historical processor class.
+
+///2BIOSDATA
+BIOS DATA AND MISSING INFORMATION
+
+The terminal edition does not call IBM BIOS interrupts to obtain
+its display or keyboard input. Console I/O uses CP/M BDOS.
+
+It reads conventional PC BIOS data at segment 0040h:
+  offset 0010h   equipment word
+  offset 0013h   conventional-memory size in KiB
+  offset 0049h   video-mode byte
+
+The memory-size word is used as a simple plausibility check.
+If it is zero or greater than 1024, the related fields display:
+  Not reported (no valid IBM BIOS data area)
+
+This check cannot prove that every field is accurate. A non-PC CP/M
+system may not maintain these addresses at all, and an emulator may
+leave valid-looking but incomplete information there.
+Missing information is not the same as a verified missing device.
+
+///2ROMDATE
+IBM ROM DATE FIELD
+
+SYSVIEW reads eight bytes at F000:FFF5, the conventional IBM-compatible
+ROM date location. Non-printable bytes are displayed as question marks.
+
+A date-looking string belongs to the guest firmware image.
+It is not the current date, CP/M installation date or host date.
+On a non-IBM system or emulator without that ROM layout, the field
+may contain question marks or unrelated printable characters.
+The program does not validate that the string is a genuine date.
+
+///2MEMORY
+CONVENTIONAL MEMORY
+
+The memory figure is the conventional-memory count stored by the
+BIOS in its data area. One KiB is 1024 bytes.
+
+It is not a measurement of:
+  free CP/M transient program space
+  available heap space in a running application
+  extended or expanded memory
+  installed RAM in the host computer
+
+A value such as 640 KiB describes the conventional guest memory
+reported by its firmware data. SYSVIEW does not test RAM contents
+or probe physical memory to determine how much is installed.
+
+///2DEVICES
+DEVICE FLAGS AND COUNTS
+
+Math coprocessor:
+  Uses equipment-word bit 1. No floating-point instructions are run
+  to test whether the reported coprocessor works.
+
+Floppy drives:
+  If the floppy-present bit is set, bits 6-7 encode a count of 1-4.
+  Otherwise the displayed count is zero. No disk is accessed.
+
+Parallel/LPT ports:
+  Uses the count encoded in equipment-word bits 14-15.
+  No printer is contacted and no test page is sent.
+
+Game port:
+  Uses equipment-word bit 12. No joystick hardware is probed.
+
+The fields are withheld if the BIOS-data plausibility check fails.
+Emulated CP/M disk drives need not correspond to PC floppy hardware.
+For example, several mounted disk images can coexist with a BIOS
+floppy count of zero if that is how the emulator supplies its data.
+
+///2VIDEO
+VIDEO MODE AND REMOTE TERMINAL
+
+Guest BIOS video mode is the numeric byte stored in the BIOS data
+area. It describes the guest's recorded display mode, not the ANSI
+terminal connected to the CP/M console.
+
+For example, decimal mode 3 conventionally denotes a PC text mode.
+The terminal can still be a VT100/ANSI emulator connected remotely.
+SYSVIEW does not change that BIOS mode.
+
+Secondary video is deliberately shown as Not probed.
+The original low-level video-memory and display-controller probes
+are not executed in this edition. They are unsuitable as a general
+way to interrogate a remote terminal or a minimal emulator.
+
+///2TERMINAL
+TERMINAL REQUIREMENTS
+
+Use ANSI/VT100 emulation, at least 80 columns and 24 rows.
+The program uses these terminal operations:
+  ESC [ 0 m        Normal text attributes.
+  ESC [ 2 J        Clear the display.
+  ESC [ H          Move cursor to the upper-left corner.
+  ESC [ ? 25 l     Hide cursor while showing the overview.
+  ESC [ ? 25 h     Show cursor on exit.
+  ESC [ 24 ; 1 H   Position for returning to the command prompt.
+
+Spaces above separate parts for readability; they are not transmitted.
+A terminal without cursor-hide support can ignore those two sequences.
+Ordinary text uses ASCII with carriage-return/line-feed line endings.
+
+If literal bracket codes appear, check the terminal's emulation mode.
+If the display wraps, check its column count. If keys do not arrive,
+check the CP/M console connection and the terminal input settings.
+
+///2CHANGES
+WHAT THE VT100/ANSI PATCH CHANGES
+
+The startup branch now enters a replacement terminal front end.
+The original hardware-display path is retained in the binary but
+is not executed by the patched startup path.
+
+Removed from the executed path:
+  direct writes to IBM video memory
+  private IBM console control codes and BIOS keyboard input
+  screen animations and speaker/timer effects
+  IBM BIOS interrupt calls
+  active CRT-controller and video-memory probes
+
+Added:
+  ANSI display through CP/M BDOS direct console output
+  keyboard input through CP/M BDOS direct console input
+  R to refresh and Q as an additional exit key
+  checks for missing BIOS data and printable ROM-field characters
+
+The executable's load-group length and minimum allocation were
+expanded to include the added code. The original file was not edited
+in place during preparation; the patched file is supplied separately.
+
+///2TROUBLE
+COMMON QUESTIONS
+
+It shows Not reported for most hardware.
+  The guest may not maintain a plausible IBM BIOS data area.
+  The terminal interface still works; it cannot invent device data.
+
+It does not report my Mac's hardware.
+  Correct: SYSVIEW runs inside CP/M-86 and examines the guest.
+
+The floppy count differs from the number of CP/M drives.
+  Those are different things. The count comes from PC BIOS flags,
+  while CP/M can expose virtual disks in many other ways.
+
+Why is secondary video no longer identified?
+  Its original active hardware probes are bypassed for compatibility.
+
+Why is a V20 shown as 8086/8088 compatible?
+  The replacement uses broad FLAGS-based classification rather than
+  the original processor-specific instruction/timing test.
+
+The cursor remains hidden after an abnormal interruption.
+  Use your terminal's reset function. A normal Q or Esc exit restores
+  cursor visibility and normal text attributes.
+
+Can I redirect this to a plain-text log?
+  The output contains ANSI screen-control sequences. Use a terminal
+  capture that understands ANSI or remove those sequences afterwards.
+
+///2ORIGINAL
+ORIGINAL SYSVIEW.DOC - COMPLETE TEXT
+
+The following text is preserved from the document supplied by you.
+It describes the original IBM-display version. Hardware probing and
+terminal behaviour differ in the patch; see CHANGES and BIOSDATA.
+The original web address is retained as a historical reference.
+
+SYSVIEW  Version 0.1  [For IBM-Compatibles]
+System Hardware Overview
+Freeware from Kirk Lawrence
+
+SYSVIEW gives you a quick "inside" look at an IBM-compatible computer.  It's
+handy for scoping out unknown systems, or for confirming the hardware in a
+known computer.
+
+SYSVIEW identifies, and reports on the screen, various aspects of a computer's
+hardware content.
+
+SYSVIEW is a "work-in-progress," and future updates can be expected.
+Please report any bugs through The CP/M-86 Software Repository web site
+(http://www.seanet.com/~klaw)
+
+SYSVIEW runs on =any= IBM-compatible computer.  It is fully compatible with
+every type of video system...from MDA monochrome upwards.
+
+SYSVIEW.CMD is free.  As is always the case with "freeware," there are no
+guarantees whatsoever.  If you use the program, you do so entirely at your
+own risk and peril.  Your use of SYSVIEW.CMD shall be prima facie evidence
+under law that you understand and accept these terms and conditions.
+
+///2TESTING
+PATCH VALIDATION
+
+The patched 8086 code was exercised under QEMU with a simulated
+CP/M BDOS console and controlled BIOS-data memory fixtures.
+Tests checked initial display, refresh, Q/q/Esc exit, cursor restore,
+normal device counts, zero device flags and missing BIOS data.
+Any attempted PC BIOS video/keyboard/equipment/time interrupt in
+these tests would cause a failure.
+
+The tests did not boot your actual CP/M-86 disk or verify every CPU
+model. Hardware results depend on the data your guest supplies.
+
+The accompanying patch source and rebuild script document the changes.
+The supplied SYSVIEW.CMD is ready to copy; no assembler is needed
+merely to use it.
+
+HELP format: ///1 root and ///2 topics, ASCII text, CRLF line endings
+and trailing Ctrl-Z padding to a multiple of 128 bytes.
+

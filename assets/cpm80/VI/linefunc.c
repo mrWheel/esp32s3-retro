@@ -1,0 +1,208 @@
+/*
+ * STevie - ST editor for VI enthusiasts.    ...Tim Thompson...twitch!tjt...
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "stevie.h"
+
+static char* alloc(unsigned size);
+static char* ssearch(int dir, char* str);
+static char* fwdsearch(char* str);
+static char* bcksearch(char* str);
+
+/*
+ * nextline(curr)
+ *
+ * Return a pointer to the beginning of the next line after the
+ * 'curr' char.  Return NULL if there is no next line.
+ */
+
+char* nextline(char* curr)
+{
+  while (curr < vi_file_end)
+  {
+    if (*curr++ == '\n')
+      break;
+  }
+  if (curr >= vi_file_end)
+    return (NULL);
+  return (curr);
+}
+
+/*
+ * prevline(curr)
+ *
+ * Return a pointer to the beginning of the previous line before the
+ * 'curr' char.  Return NULL if there is no previous line.
+ */
+
+char* prevline(char* curr)
+{
+  int nnl = 0;
+
+  /* If we are currently positioned on a '\n', */
+  /* we are on a blank line.  Adjust accordingly. */
+  if (*curr == '\n')
+    nnl = -1;
+  while (curr > vi_file_mem)
+  {
+    /* look for the 2nd previous newline */
+    if (*curr == '\n')
+    {
+      nnl++;
+      if (nnl == 2)
+        break;
+    }
+    curr--;
+  }
+  if (curr <= vi_file_mem)
+  {
+    /* If we found 1 newline, we found the first line */
+    if (nnl == 1)
+      return (vi_file_mem);
+    else
+      return (NULL);
+  }
+  /* return the first char of the previous line */
+  return (++curr);
+}
+
+/*
+ * coladvance(p,col)
+ *
+ * Try to advance to the specified column, starting at p.
+ */
+
+char* coladvance(char* p, int col)
+{
+  int c, inc;
+
+  /* If we're on a blank ('\n' only) line, we can't do anything */
+  if (*p == '\n')
+    return (p);
+  /* try to advance to the specified column */
+  for (c = 0; col-- > 0; c++)
+  {
+    /* Count a tab for what it's worth */
+    if (*p == '\t')
+    {
+      inc = (7 - c % 8);
+      col -= inc;
+      c += inc;
+    }
+    p++;
+    /* Don't go past the end of */
+    /* the file or the line. */
+    if (p == vi_file_end || *p == '\n')
+    {
+      p--;
+      break;
+    }
+  }
+  return (p);
+}
+
+static char* alloc(unsigned size)
+{
+  char* p; /* pointer to new storage space */
+
+  p = malloc(size);
+  if (p == (char*)NULL)
+  { /* if there is no more room... */
+    message("alloc() is unable to find memory!");
+  }
+  return (p);
+}
+
+char* strsave(char* string)
+{
+  return (strcpy(alloc((unsigned)(strlen(string) + 1)), string));
+}
+
+static char* laststr = NULL;
+static int lastdir;
+
+static char* ssearch(int dir, char* str) /* dir: FORWARD or BACKWARD */
+{
+  char* copy = strsave(str);
+  if (laststr != NULL)
+    free(laststr);
+  laststr = copy;
+  lastdir = dir;
+  if (dir == BACKWARD)
+    return (bcksearch(laststr));
+  else
+    return (fwdsearch(laststr));
+}
+
+void dosearch(int dir, char* str)
+{
+  char* p;
+
+  if ((p = ssearch(dir, str)) == NULL)
+    message("Pattern not found");
+  else
+  {
+    char* savep;
+
+    cursupdate();
+    /* if we're backing up, we make sure the line we're on */
+    /* is on the screen. */
+    vi_curs_char = savep = p;
+    /* get to the beginning of the line */
+    beginline();
+    if (vi_curs_char < vi_top_char)
+      vi_top_char = vi_curs_char;
+    vi_curs_char = savep;
+    cursupdate();
+    updatescreen();
+  }
+}
+
+void repsearch(void)
+{
+  if (laststr == NULL)
+    beep();
+  else
+  {
+    dosearch(lastdir, laststr);
+  }
+}
+
+/* Bounded literal matching, including overlaps, with one wrap. */
+static char* fwdsearch(char* str)
+{
+  int len = vi_file_end - vi_file_mem, n = strlen(str), index, k;
+  if (n == 0 || n > len)
+    return NULL;
+  index = vi_curs_char - vi_file_mem + 1;
+  if (index >= len)
+    index = 0;
+  for (k = 0; k < len; k++)
+  {
+    if (n <= len - index && memcmp(vi_file_mem + index, str, n) == 0)
+      return vi_file_mem + index;
+    if (++index == len)
+      index = 0;
+  }
+  return NULL;
+}
+static char* bcksearch(char* str)
+{
+  int len = vi_file_end - vi_file_mem, n = strlen(str), index, k;
+  if (n == 0 || n > len)
+    return NULL;
+  index = vi_curs_char - vi_file_mem - 1;
+  if (index < 0)
+    index = len - 1;
+  for (k = 0; k < len; k++)
+  {
+    if (n <= len - index && memcmp(vi_file_mem + index, str, n) == 0)
+      return vi_file_mem + index;
+    if (--index < 0)
+      index = len - 1;
+  }
+  return NULL;
+}

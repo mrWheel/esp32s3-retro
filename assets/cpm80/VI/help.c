@@ -1,0 +1,74 @@
+/*
+ * STevie - ST editor for VI enthusiasts.    ...Tim Thompson...twitch!tjt...
+ */
+
+#include <ctype.h>
+#include "stevie.h"
+
+static void helpstr(char* s)
+{
+  while (*s)
+    windputc(*s++);
+}
+
+void help(void)
+{
+  windclear();
+
+  windgoto(0, 0);
+  helpstr("  --- Movement --------------------   --- Insert / Replace -----------");
+  windgoto(1, 0);
+  helpstr("  h j k l      left/down/up/right     i / I    insert cursor / first non-blank");
+  windgoto(2, 0);
+  helpstr("  b / w        back / forward word    a / A    append cursor / EOL");
+  windgoto(3, 0);
+  helpstr("  ^ 0 / $      begin / end of line    o / O    open line below / above");
+  windgoto(4, 0);
+  helpstr("  [#]G         goto line (G=last)     r <c>    replace single char");
+  windgoto(5, 0);
+  helpstr("  ^F / ^B      fwd / back screen      R        replace mode  (ESC)");
+  windgoto(6, 0);
+  helpstr("  ^D / ^U      down / up 10 lines     --- Delete ---------------------");
+  windgoto(7, 0);
+  helpstr("  ^G  file info   ^L  redraw           x        delete char");
+  windgoto(8, 0);
+  helpstr("  --- Search ------------------------  dw       delete word ");
+  windgoto(9, 0);
+  helpstr("  /str  ?str   fwd / back search       d$ / D   delete to end of line");
+  windgoto(10, 0);
+  helpstr("  n  // ??     repeat search           [#]dd    delete # lines");
+  windgoto(11, 0);
+  helpstr("  --- Yank & Put --------------------- --- Change --------------------");
+  windgoto(12, 0);
+  helpstr("  [#]yy        yank # lines            cc       change line");
+  windgoto(13, 0);
+  helpstr("  p / P        put after / before   cw       change word");
+  windgoto(14, 0);
+  helpstr("  --- : Commands --------------------- c$ / C   change to end of line");
+  windgoto(15, 0);
+  helpstr("  :w [f]  :wq  :x   write / quit       --- Misc ---------------------");
+  windgoto(16, 0);
+  helpstr("  :q  :q!           quit               u / .    undo / redo          ");
+  windgoto(17, 0);
+  helpstr("  :e[!] [f]  :r f   edit / read file   J        join lines");
+  windgoto(18, 0);
+  helpstr("  :f [n]  :.=  :$=  :set oct|hex|dec   >> <<    indent     ");
+  windgoto(19, 0);
+  helpstr("  :nnn              goto line nnn      n~       toggle case ");
+  windgoto(20, 0);
+  helpstr("  :h/H              help ");
+  windgoto(21, 0);
+  helpstr("  :v                show version");
+  windgoto(vi_rows - 1, 0);
+  windcolor(2);
+  helpstr(" Press any key ...");
+  windcolorreset();
+
+  windrefresh();
+  vgetc();
+  screenclear();
+  /* Reset message cache so the main loop's message("Normal Mode")
+   * repaints the status line after returning from help. */
+  message("");
+  updatescreen();
+}
