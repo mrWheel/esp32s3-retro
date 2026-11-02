@@ -1,111 +1,76 @@
 # ESP32-S3 Retro Computer
 
-An ESP32-S3-based retro-computer platform for running several different retro-computer systems on one device. Choose a machine from the shared menu and use its guest operating system through the USB console. The project is built with native ESP-IDF, not Arduino or PlatformIO.
+Several classic computing worlds, one small computer. ESP32-S3 Retro Computer lets you choose a retro system from a shared menu and explore its programs, languages and disk-based way of working through a USB terminal on your computer.
 
-The goal is to bring together the character of several classic systems in a compact, modern, self-contained computer. Each system has its own guest CPU, operating system, memory model and media design, while sharing one host for boot, storage, the menu and file transfer.
+Revisit CP/M commands, write BASIC on an Apple II, or explore the Apple Pascal environment. Programs run inside an emulated machine, with disk-image files taking the place of physical floppy disks. The reference device is a LOLIN S3 Pro with a microSD card; your computer supplies the keyboard and terminal screen.
 
-## Systems and current status
+## Choose your system
 
-| System | Status |
+| Menu | System | What to expect |
+| --- | --- | --- |
+| 1 | [CP/M-80](README_CPM80.md) | Classic CP/M 2.2 commands, utilities and compatible 8-bit software. |
+| 2 | [CP/M-86](README_CPM86.md) | The 16-bit CP/M environment, with its own programs and tools. |
+| 3 | [UCSD Pascal](README_UCSD.md) | Apple Pascal 1.3: a command menu, filer and Pascal programming environment. |
+| 4 | [Apple II](README_APPLE2.md) | A text-focused Apple II experience with ProDOS and BASIC. |
+| 5 | [SWTPC 6800](README_SWTPC.md) | Reserved for a future system; not yet available. |
+
+The individual guides describe how closely each experience resembles its original system and where compatibility is still limited. Apple II and SWTPC are machine names rather than operating-system names; they have their own guides because they are separate choices in the menu.
+
+## The main menu
+
+A simplified view of the startup screen (version and memory figures vary):
+
+```text
+ESP32-S3 Retro Computer Version [version]
+By Willem Aandewiel
+========================================
+SD: [card status]
+PSRAM: [memory size], free [available memory]
+
+1. CP/M-80
+2. CP/M-86
+3. UCSD Pascal
+4. Apple II
+5. SWTPC 6800 [not implemented]
+6. File Transfer
+
+Select system [1-6]:
+```
+
+Enter a number and press Enter to start. Unavailable systems show a status beside their name, for example when required system files are missing. File Transfer needs a valid Retro SD card. Resetting the device brings you back to this menu; save your work before doing so. CP/M-86 also supports Ctrl+] to return to the menu.
+
+Use an ANSI/VT100-compatible USB terminal, preferably with an 80-column by 24-line window. This is a keyboard-and-text-screen experience; it does not provide a modern desktop interface.
+
+## Your programs and disks
+
+A disk image is a file containing an entire retro disk, including its directory and programs. Each system uses its own disk formats and program types: copying a program to another system does not make it compatible.
+
+Choose **File Transfer** to open the browser-based disk manager using the address shown in the terminal. It lets you upload and download whole disk images, browse them, copy them on the SD card, and rename or delete them. Supported CP/M, ProDOS, UCSD Pascal and DOS 3.3 images also allow you to manage the files inside a disk. Support for reading a format in the manager does not mean every emulator can boot it.
+
+The browser offers help for each function. Press Enter in the USB console to stop File Transfer and return to the menu. Use this service on a trusted local network: it has no login and uses ordinary HTTP. Some browser and Apple-image workflows still need broader testing on the device.
+
+Keep backups of valuable disks. Read-only disks protect their contents inside the emulator; the disk manager can still replace or delete mapped images after warning you. Save and finish disk activity before resetting or removing power.
+
+## Included Python tools
+
+These tools run on your computer. For everyday file transfers you can use the browser manager instead.
+
+| Tool | What you can do with it |
 | --- | --- |
-| CP/M-80 | Integrated. Guest boot and command behavior have host-test coverage. The CP/M-80 design log records a user report of running it on an ESP32-S3; repeatable hardware and SD-drive acceptance is still outstanding. |
-| CP/M-86 | Integrated. Guest boot has host-test coverage and the ESP-IDF firmware build succeeds. It has not been flashed; hardware boot, performance and broader compatibility remain unverified. |
-| UCSD Pascal | Menu option 3 selects the sibling `/littlefs/ucsd/` and `/retro/images/ucsd/` profile and runs the shared Apple II emulator. The supplied 800K Pascal 1.3 3.5-inch image boots its 64K Pascal system on the host IIe model through the block-device autostart path. The current `drives.cfg` mounts it read/write on SD6.1 and maps `ApplePascal2-640K.po` read-only to SP4.1, `pascalWork1.po` read/write to SP5.1 and `pascalWork2.po` read/write to SP5.2. A prior guest fixture listed three volumes and opened `WORK1:SPIRODEMO.TEXT`, but current worktree media fail the expected `DATA3:` assertion; verify actual volume contents before relying on that result. File transfer is provided by the browser GUI; Pascal writes to the 800K boot image and ESP32-S3 behaviour remain unverified. |
-| Apple II | Motherboard emulator (optional real Apple IIe model with `MACHINE=IIE` and `littlefs/apple2/apple2e.rom`, 128 KiB main/aux RAM, needed for Pascal 1.3 128K; optional Saturn 128K slot-0 card with `RAMCARD=SATURN128` on the Apple II model) and a Videx-compatible slot-3 80×24 text-card profile are integrated. Host tests cover complete Applesoft `LIST` keywords, cursor bounds, screen clearing between `PR#0` and `PR#3`, scrolling and 80-column VRAM; hardware acceptance is unverified. |
-| SWTPC 6800 | Planned; currently a menu placeholder. |
+| [prepareSd.py](tools/prepareSd.py) | Prepare the Retro folders on an already formatted, mounted SD card. It does not format the card or supply disks. |
+| [diskImage.py](tools/diskImage.py) | Create an empty disk, add files, view its contents or extract files for CP/M-80, CP/M-86, Apple II ProDOS and UCSD Pascal. |
+| [buildDiskImage.py](tools/buildDiskImage.py) | Assemble a disk image from a folder of programs and files; supported systems offer different disk sizes and boot options. |
+| [createSystemDsk.py](tools/createSystemDsk.py) | Prepare a system disk from the project's system resources and supplied files. A disk packaged in the firmware needs a firmware update before the device uses the new contents. |
+| [extractFiles.py](tools/extractFiles.py) | Browse and manage files in existing images. It offers interactive menus for CP/M, Apple II and UCSD Pascal; CP/M and UCSD also support direct add, extract and remove actions. SWTPC is not implemented. |
 
-The current menu can start CP/M-80 and CP/M-86 when their required LittleFS resources validate, and Apple II with `littlefs/apple2/apple2.rom`, sourced from `assets/apple.rom`. Menu options 3 (UCSD Pascal) and 4 (Apple II) use that same Apple II emulator and differ only in their selected profile configuration. The Pascal profile boots the 800K `Apple Pascal 1.3 3.5.po` disk as a writable block-autostart device on SD6.1; host testing reaches the Pascal 1.3 command line and reports a 64K Pascal system. Its checked-in `drives.cfg` maps `ApplePascal2-640K.po` read-only on SP4.1, `pascalWork1.po` read/write on SP5.1 and `pascalWork2.po` read/write on SP5.2. SmartPort block devices are configurable on slots 4 through 7, with up to four units per slot; Pascal's ProDOS block interface exposes only two units per slot. A prior host fixture listed three volumes and opened `WORK1:SPIRODEMO.TEXT` from slot 5 unit 2, but the current worktree media fail the expected `DATA3:` assertion. Verify image contents before treating that earlier result as proof of the current profile. The browser GUI manages files in supported guest disk images; writes to the configured 800K boot volume and ESP32-S3 behaviour remain unverified. The system ROM boots to its `APPLE ][` prompt and the host-side CPU test executes Integer BASIC, verifies full `LIST` keywords in both output modes, and checks clean `PR#0`/`PR#3` screen transitions. Apple II slot 3 provides a Videx-compatible 80×24 text-card model with project-authored `PR#3` output firmware; its terminal output reflects card VRAM and scrolls at the bottom row. The profile is not evidence that the historical TU Delft card was a Videx card, and desktop/hardware behavior and system-ROM redistribution rights remain unverified. A separate project-authored diagnostic ROM remains available as a host-test fixture. A host test or successful firmware build does not, by itself, prove operation on the physical board. See the machine-specific design records and [verification log](docs/verification.md) for exact evidence and remaining work.
+The OS-specific folders under [tools/](tools/) contain the matching disk builders and file-browser helpers. [extractApple2Files.py](tools/apple2/extractApple2Files.py) is also available as a dedicated interactive Apple disk browser. The `*HardwareTest.py` tools for CP/M-80, CP/M-86, Apple II and UCSD Pascal check a connected device, while [transferTest.py](tools/transferTest.py) checks browser-service transfers. These checks create test files and are for deliberate testing, not normal use.
 
-## Shared host features
+Other Python helpers generate emulator resources, support BASIC conversion and disk formats, build sample programs or maintain project files. They are supporting tools rather than applications you need to start the computer. See [the tools guide](tools/README.md) for detailed usage; availability depends on the selected system and the system resources you provide.
 
-- USB Serial/JTAG console and a reset-to-menu startup flow.
-- A machine registry that checks implementation and required boot resources.
-- LittleFS for compact system resources and microSD storage for larger or writable images.
-- System boot disks may be configured read/write. When RW, the menu shows `[Writable!]` after the machine name; RO remains the default, and LittleFS writes persist until the next firmware build regenerates the image.
-- An SD-card layout rooted at `/retro/`, with FAT32 validation.
-- Browser-based SD file and whole-disk-image management for `/retro/images/<OS>/` (flat per-machine directories, no sub-directories), including guest-file operations for supported disk formats.
+## Screenshots
 
-File Transfer starts only when selected from the menu and a valid Retro SD card is available. It uses plain, unauthenticated HTTP; use it only on a trusted local network. Browser file access is confined to the documented SD image and staging directories.
+The system guides already include relative image links under [assets/images/](assets/images/), so they work in a local Markdown viewer and on GitHub. For now, these images are explicitly labelled placeholders, not captures of a running system. See the [image checklist](assets/images/README.md) for the filenames to replace when screenshots are available.
 
-The manager is now a Single Page Application that opens on a **Functions / Selection** screen with a contextual `[Help]` popup on each screen. Implemented whole-image workflows include Computer → SD uploads, SD → Computer downloads, byte-verified SD → SD copies, browsing, rename/move and deletion. The upload UI can select image files or, where supported, a Computer source folder. Downloads do not require a separate Computer destination-directory selection: the browser uses its save picker when enabled, or its configured download folder. Where supported, the selected upload-folder handle is remembered per machine profile in browser IndexedDB; this is browser-scoped and is not an absolute path stored in firmware LittleFS. SD-to-SD image copies use bounded buffers and compare the staged copy with its source before committing. The browser shows drive mappings and warns before destructive operations, but mapped images remain manageable whether their emulator drive is marked `RO` or `RW`; the manager does not rewrite `drives.cfg`. Drive configuration files themselves remain protected. If a replacement cannot be committed, the previous file is retained beside the destination as `manager-replace-backup.tmp`; the browser offers an explicit restore action.
+## Further reading
 
-Guest files inside **CP/M-80, CP/M-86, ProDOS, UCSD Pascal and DOS 3.3** disk images (140K, 640K and 800K Apple images in either sector order) can be listed, uploaded, downloaded, copied (image to image, SD file to and from image), renamed and deleted from the browser (SPA functions 2, 4, 5, 9 and 11), using a native journaled file-system layer (`components/guestFs`) that needs no host-side Python. Ordinary SD-file-only copies (functions 8 and 10) and SWTPC 6800 images are not implemented yet (SWTPC answers HTTP 501). The CP/M path is verified on the device; the Apple adapters are host-tested but not yet verified on the device or in the browser. `/retro/exchange/` remains an SD staging area for browser transfers. See [designDiskImageManager.md](designDiskImageManager.md) and the [verification log](docs/verification.md).
-
-## Hardware
-
-The configured target is the **LOLIN S3 Pro** with an ESP32-S3-WROOM-1, 16 MB flash and 8 MB octal PSRAM. CP/M-86's current 640 KiB guest-memory profile requires external PSRAM.
-
-The project uses the native USB Serial/JTAG connector and SPI2 for the microSD interface. The current reference wiring is:
-
-| Signal | GPIO |
-| --- | ---: |
-| MOSI | 11 |
-| MISO | 13 |
-| SCK | 12 |
-| CS | 10 |
-| USB D− / D+ | 19 / 20 |
-
-Check the exact board schematic, module circuitry, pin availability, flash and PSRAM settings before connecting hardware or changing configuration. A 16 or 32 GB microSDHC card formatted as FAT32 is recommended; exFAT is not required.
-
-The LOLIN S3 Pro's WS2812B RGB LED is connected to GPIO 38. The firmware shows green for CP/M-80, CP/M-86 and Apple II guest disk-record reads and red for writes (on the read-only Apple II disk only a refused write attempt turns it red), then turns the LED off 120 ms after the latest disk activity. This indicates guest disk-record I/O, not every access to the SD card or LittleFS.
-
-## Build
-
-Use the Espressif VS Code extension or an ESP-IDF terminal configured for **ESP-IDF 6.0.2** and the ESP32-S3 target. The project rejects other ESP-IDF versions and targets.
-
-```sh
-idf.py set-target esp32s3
-idf.py menuconfig
-idf.py build
-idf.py size
-```
-
-To flash and monitor a connected board, select the correct native USB serial port:
-
-```sh
-idf.py -p YOUR_USB_PORT flash monitor
-```
-
-Flashing is not required to run the host tests. These instructions do not claim hardware acceptance; see [Verification](#verification).
-
-## Prepare storage and disk images
-
-Format an SD card as FAT32 with your operating system, then prepare its layout:
-
-```sh
-python3 tools/prepareSd.py /path/to/mounted/card
-```
-
-This tool prepares the Retro directory layout; it does not format the card or create guest disk images. To explore the OS-specific disk-image tools and options:
-
-```sh
-python3 tools/buildDiskImage.py --help
-python3 tools/buildDiskImage.py --os cpm80 --help
-python3 tools/createSystemDsk.py --os cpm80 --profile SMALL
-```
-
-For complete instructions, image profiles and resource-rights guidance, see [Host tools](tools/README.md). Keep original user data backed up and safely eject the card before removing it.
-
-## Project map
-
-- [`projectPrompt.md`](projectPrompt.md) — shared host architecture, behavior and implementation rules.
-- [`designCPM80.md`](designCPM80.md) — implemented guest-system designs, constraints and verification records.
-- [`designCPM86.md`](designCPM86.md) — implemented guest-system designs, constraints and verification records.
-- [`designUCSD.md`](designUCSD.md), [`designApple2.md`](designApple2.md), [`designSWTPC.md`](designSWTPC.md) — designs for the remaining systems.
-- [`main/`](main/) — firmware startup, machine registry, storage, console and file-transfer host.
-- [`components/`](components/) — guest CPU/system cores and shared host components.
-- [`littlefs/`](littlefs/) — firmware-packaged boot resources.
-- [`sdcard/`](sdcard/) — sample Retro SD-card directory layout.
-- [`tools/`](tools/) — disk-image, SD preparation and transfer utilities.
-
-## Verification
-
-Portable C tests build separately from the ESP-IDF firmware:
-
-```sh
-cmake -S tests -B build-host
-cmake --build build-host
-ctest --test-dir build-host --output-on-failure
-```
-
-The test suite includes host-side guest boot coverage. Hardware checks still require a correctly configured ESP32-S3 board, a prepared FAT32 card and a physical run. The outstanding hardware acceptance work is recorded in [`docs/verification.md`](docs/verification.md).
+This README and the system guides focus on using and exploring the computer. Build instructions, wiring and implementation details belong in the existing [tools guide](tools/README.md), [verification records](docs/verification.md) and system design notes: [CP/M-80](designCPM80.md), [CP/M-86](designCPM86.md), [UCSD Pascal](designUCSD.md), [Apple II](designApple2.md) and [SWTPC](designSWTPC.md).

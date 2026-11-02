@@ -2,10 +2,12 @@
 #include "cpm86BiosOverlay.h"
 #include "cpm86Core.h"
 #include "cpm86DriveConfig.h"
+#include "cpm86SystemInfo.h"
 #include "hostConsole.h"
 #include "imageFile.h"
 #include "diskActivity.h"
 #include "storage.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_psram.h"
@@ -34,6 +36,7 @@ typedef struct
   bool configured;
   uint32_t tracks;
   uint8_t geometryCode;
+  char path[cpm86DrivePathCapacity];
 } cpm86DiskDrive;
 
 typedef struct
@@ -52,6 +55,8 @@ static cpm86Core* guestCore;
 static cpm86Disk diskController;
 static bool guestReady;
 static bool guestStopRequested;
+static size_t guestRamBytes;
+static cpm86InfoStream sysInfoStream;
 
 static uint32_t readMilliseconds(void* context)
 {
@@ -105,12 +110,48 @@ static bool diskRecordOffset(uint64_t* offset)
   return *offset <= imageSize(image) && sizeof(diskController.record) <= imageSize(image) - *offset;
 }
 
+//-- SYSVIEW snapshot (I/O ports F8h/F9h): built only when the guest arms it with OUT F8,1.
+//-- Collects firmware version, guest RAM/PSRAM, uptime, executed instructions and the
+//-- mounted virtual disks; the guest then drains the byte stream with IN F9.
+static void buildSysInfoSnapshot(void)
+{
+  cpm86InfoValues values;
+  memset(&values, 0, sizeof(values));
+  const esp_app_desc_t* appDesc = esp_app_get_description();
+  values.version = appDesc != NULL ? appDesc->version : "unknown";
+  values.guestRamBytes = guestRamBytes;
+  values.psramBytes = esp_psram_get_size();
+  values.uptimeMs = (uint64_t)esp_timer_get_time() / 1000ULL;
+  values.instructions = guestCore != NULL ? cpm86CoreInstructionCount(guestCore) : 0;
+  for (size_t drive = 0; drive < cpm86DiskDriveCount; ++drive)
+  {
+    const cpm86DiskDrive* entry = &diskController.drives[drive];
+    values.drives[drive].mounted = entry->configured;
+    values.drives[drive].readOnly = entry->image.readOnly;
+    values.drives[drive].bytes = entry->configured ? imageSize(&entry->image) : 0;
+    values.drives[drive].path = entry->configured ? entry->path : NULL;
+  }
+  cpm86InfoBuild(&sysInfoStream, &values);
+}
+
 static bool portRead(void* context, uint16_t port, uint8_t* value)
 {
   (void)context;
   if (value == NULL)
   {
     return false;
+  }
+  //-- Emulator information interface status port: always answers with the magic so the
+  //-- guest can probe support before writing anything.
+  if (port == cpm86InfoStatusPort)
+  {
+    *value = cpm86InfoMagic;
+    return true;
+  }
+  if (port == cpm86InfoDataPort)
+  {
+    *value = cpm86InfoRead(&sysInfoStream);
+    return true;
   }
 
   if (port == 0x00E0)
@@ -192,6 +233,15 @@ static bool startDiskTransfer(uint8_t command)
 static bool portWrite(void* context, uint16_t port, uint8_t value)
 {
   (void)context;
+  //-- Emulator information interface: OUT F8,1 rebuilds the snapshot read via IN F9.
+  if (port == cpm86InfoStatusPort)
+  {
+    if (value == cpm86InfoSnapshot)
+    {
+      buildSysInfoSnapshot();
+    }
+    return true;
+  }
   if (port == 0x00E2)
   {
     hostConsolePutChar((char)value);
@@ -477,6 +527,7 @@ esp_err_t cpm86MachineInitialize(void)
     return ESP_FAIL;
   }
   memset(&diskController, 0, sizeof(diskController));
+  memset(&sysInfoStream, 0, sizeof(sysInfoStream));
   reportedPortCount = 0;
   cpm86DriveConfig driveConfig[cpm86DiskDriveCount];
   char configError[128];
@@ -559,6 +610,13 @@ esp_err_t cpm86MachineInitialize(void)
                driveConfig[drive].path);
       continue;
     }
+    size_t pathLength = strlen(driveConfig[drive].path);
+    if (pathLength >= sizeof(diskController.drives[drive].path))
+    {
+      pathLength = sizeof(diskController.drives[drive].path) - 1;
+    }
+    memcpy(diskController.drives[drive].path, driveConfig[drive].path, pathLength);
+    diskController.drives[drive].path[pathLength] = '\0';
     diskController.drives[drive].tracks = tracks;
     diskController.drives[drive].geometryCode = geometryCode;
     diskController.drives[drive].configured = true;
@@ -568,8 +626,9 @@ esp_err_t cpm86MachineInitialize(void)
     ESP_LOGE(tag, "CP/M-86 A: system disk is unavailable: %s", systemDiskPath);
     return ESP_FAIL;
   }
+  guestRamBytes = 640 * 1024;
   cpm86CoreConfig config = {
-      .ramSize = 640 * 1024,
+      .ramSize = guestRamBytes,
       .portRead = portRead,
       .portWrite = portWrite,
       .portContext = &diskController,
