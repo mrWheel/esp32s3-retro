@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """List, add, extract and remove files on disk images, per operating system.
 
-Usage: extractFiles.py --os {cpm,cpm86,apple2,swtpc,ucsd} [image] [options]
+Usage: extractFiles.py --os {cpm,cpm80,cpm86,apple2,swtpc,ucsd} [image] [options]
   image                  disk image (default action: list its files; without image the menu starts)
   --add HOSTFILE         add a host file (full path) to the image
   --name NAME            name on the image for --add (default: host file name)
   --extract NAME         copy a file from the image to --dest (default: current directory)
   --remove NAME          remove a file from the image
 UCSD supports raw sector images, WOZ1/WOZ2 16-sector images and 2IMG sector-image containers; all support listing, adding, extracting and removing files.
-Currently implemented: ucsd and cpm (all actions, interactive menu when no image is given), apple2 (interactive menu, no image given).
+Currently implemented: ucsd, cpm, cpm80 and cpm86 (all actions, interactive menu when no image is given), apple2 (interactive menu, no image given).
+cpm80 and cpm86 restrict the menu and the actions to their own disk geometries; cpm accepts both.
 """
 
 import argparse
@@ -30,6 +31,7 @@ for module_directory in (
 
 OS_MODULES = {
     "cpm": "extractCpm",
+    "cpm80": "extractCpm80",
     "cpm86": "extractCpm86",
     "apple2": "extractApple2",
     "swtpc": "extractSwtpc",
@@ -51,7 +53,7 @@ def main(argv=None):
     arguments = parser.parse_args(argv)
     if not arguments.image and (arguments.add or arguments.remove or arguments.extract):
         parser.error("image is required")
-    if not arguments.image and arguments.os_key not in ("apple2", "ucsd", "cpm"):
+    if not arguments.image and arguments.os_key not in ("apple2", "ucsd", "cpm", "cpm80", "cpm86"):
         parser.error("image is required")
     return module.run(arguments)
 

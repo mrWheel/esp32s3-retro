@@ -26,15 +26,16 @@ RECORD = diskImageCpm.SECTOR_SIZE
 class CpmImage:
     """Raw CP/M image held in memory, with the attributes the menu expects of a disk image."""
 
-    def __init__(self, path):
+    def __init__(self, path, profiles=None):
         self.path = Path(path).expanduser()
         if not self.path.is_file():
             raise core.ToolError(f"image not found: {self.path}")
+        self.profiles = PROFILES if profiles is None else profiles
         self.data = bytearray(self.path.read_bytes())
 
     def save(self):
         try:
-            diskImageCpm.write_image(self.path, self.data, PROFILES, force=True)
+            diskImageCpm.write_image(self.path, self.data, self.profiles, force=True)
         except diskImageCpm.DiskImageError as error:
             raise core.ToolError(str(error)) from error
 
@@ -46,7 +47,7 @@ class CpmVolume:
     def __init__(self, image):
         self.image = image
         try:
-            self.profile = diskImageCpm._profile_for_size(len(image.data), PROFILES)
+            self.profile = diskImageCpm._profile_for_size(len(image.data), image.profiles)
         except diskImageCpm.DiskImageError as error:
             raise core.ToolError(f"{image.path.name}: {error}") from error
 
@@ -57,7 +58,7 @@ class CpmVolume:
 
     def scan(self):
         try:
-            return diskImageCpm.inspect_image(self.image.data, PROFILES)
+            return diskImageCpm.inspect_image(self.image.data, self.image.profiles)
         except diskImageCpm.DiskImageError as error:
             raise core.ToolError(f"{self.image.path.name}: {error}") from error
 
@@ -127,15 +128,31 @@ def openCpm(path, shared=None):
     return image, CpmVolume(image)
 
 
+def openWithProfiles(profiles):
+    """Menu opener that only accepts images matching these profiles (used by --os cpm80/cpm86)."""
+
+    def opener(path, shared=None):
+        image = shared if isinstance(shared, CpmImage) else CpmImage(path, profiles)
+        return image, CpmVolume(image)
+
+    return opener
+
+
 def add_arguments(parser):
     pass
 
 
 def run(arguments):
+    return runWithProfiles(arguments, PROFILES)
+
+
+def runWithProfiles(arguments, profiles):
+    """List/add/extract/remove for one set of profiles; starts the menu when no image is given."""
     if not arguments.image and not (arguments.add or arguments.remove or arguments.extract):
-        return core.main(["extractFiles"], ucsdMode=True, opener=openCpm)
+        return core.main(["extractFiles"], ucsdMode=True, opener=openWithProfiles(profiles))
     try:
-        image, volume = openCpm(arguments.image)
+        image = CpmImage(arguments.image, profiles)
+        volume = CpmVolume(image)
         if arguments.add:
             hostPath = Path(arguments.add).expanduser()
             if not hostPath.is_file():
