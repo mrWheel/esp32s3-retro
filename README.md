@@ -8,34 +8,19 @@ Revisit CP/M commands, write BASIC on an Apple II, or explore the Apple Pascal e
 
 | Menu | System | What to expect |
 | --- | --- | --- |
-| 1 | [CP/M-80](README_CPM80.md) | Classic CP/M 2.2 commands, utilities and compatible 8-bit software. |
-| 2 | [CP/M-86](README_CPM86.md) | The 16-bit CP/M environment, with its own programs and tools. |
-| 3 | [UCSD Pascal](README_UCSD.md) | Apple Pascal 1.3: a command menu, filer and Pascal programming environment. |
-| 4 | [Apple II](README_APPLE2.md) | A text-focused Apple II experience with ProDOS and BASIC. |
-| 5 | [SWTPC 6800](README_SWTPC.md) | Reserved for a future system; not yet available. |
+| 1 | [CP/M-80](assets/Readmes/README_CPM80.md) | Classic CP/M 2.2 commands, utilities and compatible 8-bit software. |
+| 2 | [CP/M-86](assets/Readmes/README_CPM86.md) | The 16-bit CP/M environment, with its own programs and tools. |
+| 3 | [UCSD Pascal](assets/Readmes/README_UCSD.md) | Apple Pascal 1.3: a command menu, filer and Pascal programming environment. |
+| 4 | [Apple II](assets/Readmes/README_APPLE2.md) | A text-focused Apple II experience with ProDOS and BASIC. |
+| 5 | [SWTPC 6800](assets/Readmes/README_SWTPC.md) | Reserved for a future system; not yet available. |
 
 The individual guides describe how closely each experience resembles its original system and where compatibility is still limited. Apple II and SWTPC are machine names rather than operating-system names; they have their own guides because they are separate choices in the menu.
 
 ## The main menu
 
-A simplified view of the startup screen (version and memory figures vary):
+The startup screen:
 
-```text
-ESP32-S3 Retro Computer Version [version]
-By Willem Aandewiel
-========================================
-SD: [card status]
-PSRAM: [memory size], free [available memory]
-
-1. CP/M-80
-2. CP/M-86
-3. UCSD Pascal
-4. Apple II
-5. SWTPC 6800 [not implemented]
-6. File Transfer
-
-Select system [1-6]:
-```
+![System Menu](assets/images/SysMenu.png)
 
 Enter a number and press Enter to start. Unavailable systems show a status beside their name, for example when required system files are missing. File Transfer needs a valid Retro SD card. Resetting the device brings you back to this menu; save your work before doing so. CP/M-86 also supports Ctrl+] to return to the menu.
 
@@ -66,10 +51,6 @@ These tools run on your computer. For everyday file transfers you can use the br
 The OS-specific folders under [tools/](tools/) contain the matching disk builders and file-browser helpers. [extractApple2Files.py](tools/apple2/extractApple2Files.py) is also available as a dedicated interactive Apple disk browser. The `*HardwareTest.py` tools for CP/M-80, CP/M-86, Apple II and UCSD Pascal check a connected device, while [transferTest.py](tools/transferTest.py) checks browser-service transfers. These checks create test files and are for deliberate testing, not normal use.
 
 Other Python helpers generate emulator resources, support BASIC conversion and disk formats, build sample programs or maintain project files. They are supporting tools rather than applications you need to start the computer. See [the tools guide](tools/README.md) for detailed usage; availability depends on the selected system and the system resources you provide.
-
-## Screenshots
-
-The system guides already include relative image links under [assets/images/](assets/images/), so they work in a local Markdown viewer and on GitHub. For now, these images are explicitly labelled placeholders, not captures of a running system. See the [image checklist](assets/images/README.md) for the filenames to replace when screenshots are available.
 
 ## Further reading
 

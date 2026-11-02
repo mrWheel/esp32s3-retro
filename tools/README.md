@@ -8,7 +8,7 @@ firmware, or test the running device. The firmware itself is the C/C++ code in
 `main/` and `components/`.
 
 | Program/file | Purpose | Classification |
-| --- | --- | --- |
+| ------ | ----------------------- | -------------- |
 | `tools/diskImage.py` | Create, add, list, extract and validate CP/M-80, CP/M-86, Apple II (ProDOS 8) and UCSD (Pascal) disk images. | Regular host-side media preparation |
 | `tools/buildDiskImage.py` | Build a complete OS data/system image using the selected OS builder. Apple II ProDOS data volumes are supported here too. | Regular host-side media preparation |
 | `tools/createSystemDsk.py` | Compose `littlefs/<os>/system.dsk`. CMake runs it automatically for the Apple II ProDOS system image; run it manually for CP/M system images. | Production-image preparation |
