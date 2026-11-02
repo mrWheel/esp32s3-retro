@@ -17,16 +17,22 @@ retro86bios.h86
   RETRO86_DATA_BIG_V1 images.
 
 system.dsk
-  Raw, 160 KiB, 40 tracks, 8 physical 512-byte sectors per track. Track 0 is
+  Raw image, 8 physical 512-byte sectors per track. Track 0 is
   reserved; CP/M-86 uses 32 128-byte records per track and DPB OFF=1.
+  Three profiles boot as A: (160 KiB = 40 tracks, 1 KiB blocks, 64
+  directory entries; 516 KiB = 129 tracks, 2 KiB blocks, 128 directory
+  entries; BIG = 8,392,704 bytes = 8 MiB, 2049 tracks, 16 KiB blocks,
+  512 directory entries).
   Contains ASM86.CMD, ED.CMD, GENCMD.CMD, and PIP.CMD. CPM.SYS is
   deliberately kept outside the disk at /littlefs/cpm86/cpm.sys; the firmware
   loads that file directly. The system-disk builder verifies the external
   kernel and BIOS overlay and does not put either on A:.
-  Rebuild this disk with `python3 tools/createSystemDsk.py --os cpm86 --profile SMALL`.
-  The LARGE profile (`--profile LARGE`, 528,384 bytes, 516 KiB) also boots as A:.
-  The firmware picks the DPB from the size of system.dsk (163,840 or 528,384
-  bytes), so drives.cfg only needs A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM.
+  Rebuild this disk with `python3 tools/createSystemDsk.py --os cpm86
+  --profile SMALL`, `--profile LARGE` or `--profile BIG`. The firmware build
+  selects the profile with the CPM86_SYSTEM_DISK_PROFILE option (default
+  LARGE); the BIG disk needs the 12 MiB bootfs LittleFS partition.
+  The firmware picks the DPB from the size of system.dsk (163,840, 528,384 or
+  8,392,704 bytes), so drives.cfg only needs A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM.
   Any other size is reported as an error and A: is not mounted.
 
 Resource sizes, the on-disk directory, the BIOS overlay and the

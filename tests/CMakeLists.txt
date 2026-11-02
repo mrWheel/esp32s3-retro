@@ -202,3 +202,15 @@ add_executable(guestFsConvertTests guestFsConvertTests.c ../components/guestFs/g
 target_include_directories(guestFsConvertTests PRIVATE ../components/guestFs/include)
 target_compile_options(guestFsConvertTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
 add_test(NAME guestFsConvert COMMAND guestFsConvertTests)
+
+# Emulator-info stream and real SYSVIEW guest execution on tiny8086.
+add_executable(cpm86SysviewTests cpm86SysviewTests.c
+  ../main/cpm86SystemInfo.c ../components/cpm86Core/tiny8086/tiny8086.c)
+target_include_directories(cpm86SysviewTests PRIVATE ../main ../components/cpm86Core/tiny8086)
+target_compile_options(cpm86SysviewTests PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(cpm86SysviewTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(cpm86SysviewTests PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME cpm86Sysview COMMAND cpm86SysviewTests
+  "${CMAKE_CURRENT_SOURCE_DIR}/../bootDisks/cpm86/systemDsk/SYSVIEW.CMD")

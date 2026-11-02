@@ -8,7 +8,7 @@
 
 //-- never remove or change this line,
 //-- it indicates the program version
-const char* PROG_VERSION = "v0.6.3";
+const char* PROG_VERSION = "v0.7.0";
 
 static const char* tag = "main";
 

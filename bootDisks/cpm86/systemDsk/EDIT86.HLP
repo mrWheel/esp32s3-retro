@@ -1,0 +1,246 @@
+///1EDIT86
+EDIT86 - CP/M-86 VT100/ANSI full-screen text editor
+
+EDIT86 is an independent 8086 editor inspired by the supplied CB86 EDIT
+2.04 package. It runs as a native CP/M-86 .CMD program. It requires no
+CBASIC compiler, runtime library, DOS, PC BIOS or video memory.
+
+The supplied EDIT.EXE is a DOS program, not a CP/M-86 executable.
+EDIT86 replaces that platform-specific implementation. It is not a
+complete source port: see DIFFERENCES before relying on old commands.
+
+Start: EDIT86 TEST.TXT
+Help:  HELP EDIT86
+Inside the editor: press Escape, type HELP, press Return.
+
+///2QUICKSTART
+QUICK START
+
+  A>EDIT86 TEST.TXT
+
+An existing file is loaded. If no file can be opened under that name,
+EDIT86 starts an empty buffer. If you omit the name, a filename prompt
+appears. Use a CP/M name with at most eight name characters and three
+extension characters, optionally preceded by a drive letter A: to P:.
+Paths, spaces, wildcards and the temporary extension $$$ are refused.
+
+Type text. Return splits a line; Backspace removes the character on the
+left and joins lines when used at the start of a line. Editing always
+inserts characters. Use arrows to move without changing text.
+
+Save and continue: Ctrl-O, then Return to dismiss the result message.
+Save and exit:     Escape, END, Return; Return after the save message.
+Exit:              Ctrl-Q. If changed, type Y and Return to discard.
+
+The status line shows filename, line, column and internal byte count.
+An asterisk means the buffer has changed since the last successful save.
+
+///2TERMINAL
+TERMINAL SETTINGS
+
+Use a VT100/ANSI terminal with at least 80 columns and 24 rows. EDIT86
+uses the first 24 rows and does not query or resize the terminal.
+Rows 1-22 show text; row 23 shows status; row 24 shows hints or prompts.
+Long lines scroll horizontally. Long files scroll vertically.
+
+The program uses ANSI cursor positioning, erase-to-end-of-line,
+reverse video, and VT100 wrap mode. Cursor visibility uses the common
+DEC extension ESC[?25h / ESC[?25l. Normal attributes, cursor visibility
+and automatic wrapping are restored when the program exits normally.
+
+Disable terminal software flow control (XON/XOFF), so Ctrl-S and Ctrl-Q
+reach the editor. On a Mac terminal, use: stty -ixon
+The Mac terminal must forward the intended arrow/Home/End/Page keys.
+
+Arrow keys accept both CSI (ESC[) and SS3 (ESCO) forms. Home/End accept
+H/F or 1~/4~/7~/8~. Page Up/Down use 5~/6~; Delete uses 3~.
+Modified keys and mouse/paste protocols are not implemented. Disable
+bracketed-paste mode or paste as ordinary text. Multiline paste with
+LF characters moves the cursor; use CR line endings for inserted lines.
+
+Escape alone opens the command prompt after a finite input-poll wait.
+Its timing depends on emulator speed. Control-key movement is available
+if a slow link separates bytes in an escape sequence.
+
+///2KEYS
+EDITING KEYS
+
+Arrows        Move left, right, up, down.
+Home / Ctrl-A Start of current line.
+End           End of current line.
+Page Up       Move up 21 lines.
+Page Down     Move down 21 lines.
+Ctrl-U        Move left.       Ctrl-F  Move right.
+Ctrl-Z        Move up.         Ctrl-J  Move down.
+Ctrl-T        Start of file.   Ctrl-B  End of file.
+Ctrl-R        Move up 21 lines.
+Return        Insert a line break.
+Tab           Insert spaces to the next eight-column tab stop.
+Backspace     Delete left; join with previous line at line start.
+DEL byte 127  Same as Backspace.
+Delete key    Delete right; join with next line on a line break.
+Ctrl-N        Delete the entire current line, including its line break.
+Ctrl-K        Copy current line to the clipboard, replacing its contents.
+Ctrl-X        Copy current line to clipboard, then delete that line.
+Ctrl-W        Insert clipboard contents at the current cursor position.
+Ctrl-D        Clear clipboard.
+Ctrl-G        Enter a search string.
+Ctrl-S        Repeat the last search.
+Ctrl-O        Save and continue editing.
+Ctrl-Q        Quit; ask before discarding unsaved changes.
+Escape        Open the command prompt.
+
+Ctrl means hold the Control key while pressing the indicated letter.
+Pressing Ctrl-Z edits/moves; it does not end text input.
+
+///2COMMANDS
+COMMAND PROMPT
+
+Press Escape, type a command, and press Return. Commands ignore case.
+Enter the command alone: leading/trailing spaces and arguments are not
+accepted. Empty input or Escape returns to editing.
+
+SAVE    Save the file and continue editing.
+END     Save the file and exit if saving succeeds.
+QUIT    Exit; ask for Y and Return when unsaved changes exist.
+HELP    Display a compact key reference; any key returns to editing.
+TOP     Move to the start of the file.
+BOTTOM  Move to the end of the file.
+
+A save result remains visible until Return is pressed. A failed END
+returns to editing rather than discarding the buffer.
+
+At input prompts, Backspace edits the response and Escape cancels.
+No DOS command shell, directory commands or CP/M command execution are
+available from this editor. Quit first to run another CP/M command.
+
+///2SEARCH
+SEARCH
+
+Ctrl-G asks for literal text, up to 63 printable ASCII characters.
+Return starts the search. Matching is case-sensitive and proceeds
+forward from the character after the cursor, without wrapping.
+Ctrl-S searches again with the same text. A match moves the cursor to
+the first matching character; it does not highlight or replace text.
+
+A failed search displays a message; press Return to continue.
+An empty search string disables repeat search. Escape cancels the
+prompt and also clears the previous search string.
+
+Wildcards, regular expressions, search across line breaks and the old
+EDIT ! pattern notation are not supported.
+
+///2CLIPBOARD
+LINE CLIPBOARD
+
+Ctrl-K copies one complete line to a 2048-byte clipboard. The line's
+newline is included if present. Ctrl-X copies and deletes that line.
+Ctrl-W inserts the clipboard exactly at the cursor: use Home first to
+insert copied whole lines before the current line.
+
+Each copy/cut replaces the clipboard. This differs from the original
+editor's accumulating 75-line buffer. A line longer than 2048 bytes
+cannot be copied or cut; a message appears and the text is retained.
+Ctrl-N can still delete such a line.
+
+Clipboard contents survive saves and searches, but not program exit.
+There is no undo, block selection, or multi-line accumulating clipboard.
+
+///2FILES
+TEXT FILE FORMAT AND LIMITS
+
+The buffer holds at most 40000 bytes after input normalization.
+ASCII characters 32-126 and LF are accepted. CR is discarded; tabs
+expand to spaces at eight-column stops. Ctrl-Z marks end of text.
+Other control characters and bytes above 126 cause loading to fail.
+Binary files, UTF-8, accented text and CP437 artwork are not supported.
+A rejected or oversized file is not opened for editing or rewritten.
+
+Use CRLF or LF text files. CR-only files lose their line separators.
+The buffer stores a line break as one LF. On saving, each LF becomes
+CRLF. Disk size may therefore exceed the internal byte count.
+
+Files use 128-byte CP/M records, padded with Ctrl-Z where needed.
+A final newline is not added automatically. Saving expands tabs and
+normalizes line endings even when the visible text was not changed.
+
+Use a writable drive with space for the temporary copy and backup.
+The editor uses the current CP/M user area. Drives are selected by an
+optional filename prefix, for example B:NOTES.TXT.
+
+///2SAVE
+SAVING AND BACKUPS
+
+EDIT86 writes NAME.$$$ first. If this temporary name already exists,
+saving is refused; the existing temporary file is preserved.
+After writing and closing the temporary file, EDIT86 renames the old
+original to NAME.BAK and installs the new file under the original name.
+For input NAME.BAK, the backup name is NAME.BK1 instead.
+
+The previous backup of that name is replaced during a later save.
+Files sharing the same base name also share temporary and backup names:
+NOTE.TXT and NOTE.BAS both use NOTE.$$$ and NOTE.BAK.
+
+A successful save clears the changed marker. This is not an undo or
+version history facility. Keep separate copies of valuable files.
+
+On a failed write/rename, do not erase recovery files blindly. Inspect
+the original, NAME.$$$ and NAME.BAK (or .BK1) after exiting. The buffer
+remains in memory after a failed save. It is not discarded by END.
+
+If the original was already renamed to its backup but installing the
+new file failed, the backup contains the old file and NAME.$$$ contains
+the new text. Recover those files before starting another save.
+
+///2DIFFERENCES
+DIFFERENCES FROM CB86 EDIT 2.04
+
+EDIT86 is an independent implementation, not a binary patch of EDIT.EXE
+and not a rebuild of the supplied EDIT.BAS. No DOS runtime is included.
+It uses native CP/M-86 BDOS calls and VT100/ANSI terminal output.
+
+Common movement controls and line copy/cut/paste are retained, but the
+clipboard is a single line rather than an accumulating 75-line buffer.
+Ctrl-O saves; Ctrl-Q quits; Ctrl-S repeats a literal search. Ctrl-N
+deletes the entire line. Character entry always inserts.
+
+The original's macros, macro files, DOS shell commands, printer/spooler,
+block operations, include/read/write range commands, pattern searches,
+function-key character palette and attribute settings are not present.
+Do not replay old EDIT macro files in this program.
+
+The original DOS files and source remain unchanged.
+
+///2EXAMPLE
+SHORT EXERCISE
+
+  A>EDIT86 NOTES.TXT
+
+Type: First line
+Press Return, then type: Second line
+Press Ctrl-T to return to the start.
+Press Ctrl-K to copy First line and its line break.
+Press Ctrl-B to move to the end. Press Return, then Ctrl-W.
+Press Ctrl-G, type Second, then Return to find that word.
+Press Ctrl-O and Return to save.
+Press Ctrl-Q to return to CP/M without a discard question.
+
+Reopen NOTES.TXT to inspect the result. If a previous NOTES.TXT existed,
+NOTES.BAK contains its contents from before that save.
+
+///2BUILD
+BUILD AND VALIDATION
+
+The distributed EDIT86.CMD runs directly under CP/M-86. No compiler or
+Python installation is required to use it.
+
+For rebuilding on a development computer, BUILD.py requires Python 3
+and NASM. Run: python3 BUILD.py EDIT86.CMD
+The output is an 8086 single-group CP/M-86 command file, not a DOS EXE.
+
+Automated tests execute the generated instructions in the RETRO86
+project's tiny8086 core with a controlled BDOS/file-system fixture.
+They exercise editing, ANSI keys, searching, saving, backups, temporary
+file collisions and simulated I/O failures. This does not substitute
+for a live terminal/ESP32 test, which has not been performed here.
+

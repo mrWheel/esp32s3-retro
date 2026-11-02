@@ -255,6 +255,11 @@ bool cpm86DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm86DiskProfile*
     *profile = cpm86DiskProfileSystemLarge;
     return true;
   }
+  if (imageSize == cpm86BigDiskSize)
+  {
+    *profile = cpm86DiskProfileSystemBig;
+    return true;
+  }
   return false;
 }
 
@@ -271,9 +276,10 @@ bool cpm86DriveConfigResolveSystemProfile(cpm86DriveConfig* drive, uint64_t imag
   {
     if (error != NULL && errorCapacity > 0)
     {
-      snprintf(error, errorCapacity, "size %llu matches no system profile (small=%llu, large=%llu)",
+      snprintf(error, errorCapacity,
+               "size %llu matches no system profile (small=%llu, large=%llu, big=%llu)",
                (unsigned long long)imageSize, (unsigned long long)cpm86SystemDiskSize,
-               (unsigned long long)cpm86LargeDiskSize);
+               (unsigned long long)cpm86LargeDiskSize, (unsigned long long)cpm86BigDiskSize);
     }
     return false;
   }

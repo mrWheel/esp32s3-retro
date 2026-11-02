@@ -42,7 +42,7 @@ EXECUTABLE_EXTENSIONS = {
 }
 PROFILE_MAP = {
     "cpm80": {"SMALL": "SYSTEM", "LARGE": "LARGE"},
-    "cpm86": {"SMALL": "CPM86", "LARGE": "LARGE"},
+    "cpm86": {"SMALL": "CPM86", "LARGE": "LARGE", "BIG": "BIG"},
     "apple2": {
         "PRODOS": "140K",
         "PRODOS_640K": "640K",

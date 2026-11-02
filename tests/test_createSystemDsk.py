@@ -136,6 +136,21 @@ class CreateSystemDskTests(unittest.TestCase):
         self.assertIn("ASM86.CMD", filenames)
         self.assertNotIn("CPM.SYS", filenames)
 
+    def test_cpm86_big_profile_uses_big_geometry(self):
+        output = self.root / "cpm86-big-system.dsk"
+
+        createSystemDsk.create_system_disk(
+            "cpm86",
+            "BIG",
+            output,
+        )
+
+        image = output.read_bytes()
+        filenames = [entry["filename"] for entry in diskImageCpm86.inspect_image(image)[0]]
+        self.assertEqual(len(image), diskImageCpm86.BIG_IMAGE_SIZE)
+        self.assertIn("ASM86.CMD", filenames)
+        self.assertNotIn("CPM.SYS", filenames)
+
     def test_cli_large_does_not_claim_it_is_unbootable(self):
         for os_name in ("cpm80", "cpm86"):
             output = self.root / f"{os_name}-cli-large.dsk"
@@ -162,7 +177,7 @@ class CreateSystemDskTests(unittest.TestCase):
     def test_all_boot_source_files_are_in_both_profiles(self):
         inspectors = {
             "cpm80": (diskImageCpm80, {"SMALL": diskImageCpm80.IMAGE_SIZE, "LARGE": diskImageCpm80.LARGE_IMAGE_SIZE}),
-            "cpm86": (diskImageCpm86, {"SMALL": diskImageCpm86.IMAGE_SIZE, "LARGE": diskImageCpm86.LARGE_IMAGE_SIZE}),
+            "cpm86": (diskImageCpm86, {"SMALL": diskImageCpm86.IMAGE_SIZE, "LARGE": diskImageCpm86.LARGE_IMAGE_SIZE, "BIG": diskImageCpm86.BIG_IMAGE_SIZE}),
         }
         for os_name, (module, sizes) in inspectors.items():
             source_names = sorted(

@@ -1,0 +1,22 @@
+
+REBOOT.CMD - A CP/M-86 Command Line Computer Reboot Utility
+Freeware from Kirk Lawrence and Tim Leitz - September, 1993
+
+
+When invoked from the command line, REBOOT does just that: it reboots your
+computer.
+
+REBOOT gives you the choice of performing either a cold boot (with memory
+check) or a warm boot (with no memory check).  When invoked with no command
+line argument, REBOOT does a cold boot.  For a warm boot, simply include a
+"W" or "/W" on the command line (REBOOT W or REBOOT /W).  The "w" parameter
+is case-insensitive; you may use either a capital or a lower-case "w."
+
+REBOOT has been tested on, and should work correctly with, every Intel 80x86-
+based computer.
+
+REBOOT.CMD is free.  As is always the case with "freeware," there are no guar-
+antees whatsoever.  If you use the program, you do so strictly and entirely at
+your own risk and peril.  Your use of REBOOT.CMD shall be prima facie evidence
+under law that you understand and accept these terms and conditions.
+

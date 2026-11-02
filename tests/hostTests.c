@@ -2744,10 +2744,12 @@ static void testCpm86SystemProfileDetection(void)
          profile == cpm86DiskProfileSystem);
   assert(cpm86DriveConfigSystemProfileFromSize(528384, &profile) &&
          profile == cpm86DiskProfileSystemLarge);
+  assert(cpm86DriveConfigSystemProfileFromSize(8392704, &profile) &&
+         profile == cpm86DiskProfileSystemBig);
   assert(!cpm86DriveConfigSystemProfileFromSize(0, &profile));
   assert(!cpm86DriveConfigSystemProfileFromSize(163841, &profile));
   assert(!cpm86DriveConfigSystemProfileFromSize(300000, &profile));
-  assert(!cpm86DriveConfigSystemProfileFromSize(8392704, &profile));
+  assert(!cpm86DriveConfigSystemProfileFromSize(8392705, &profile));
   assert(!cpm86DriveConfigSystemProfileFromSize(528384, NULL));
 
   cpm86DriveConfig drive = {
@@ -2756,9 +2758,11 @@ static void testCpm86SystemProfileDetection(void)
          drive.profile == cpm86DiskProfileSystemLarge);
   assert(cpm86DriveConfigResolveSystemProfile(&drive, 163840, error, sizeof(error)) &&
          drive.profile == cpm86DiskProfileSystem);
+  assert(cpm86DriveConfigResolveSystemProfile(&drive, 8392704, error, sizeof(error)) &&
+         drive.profile == cpm86DiskProfileSystemBig);
   assert(!cpm86DriveConfigResolveSystemProfile(&drive, 300000, error, sizeof(error)));
   assert(strstr(error, "300000") != NULL && strstr(error, "no system profile") != NULL);
-  assert(drive.profile == cpm86DiskProfileSystem);
+  assert(drive.profile == cpm86DiskProfileSystemBig);
 }
 
 static void testCpm80Cpu(void)
@@ -3454,6 +3458,20 @@ static void createLargeSystemDisk(const char* osName, char* diskPath, size_t dis
   assert(system(command) == 0);
 }
 
+static void createBigSystemDisk(const char* osName, char* diskPath, size_t diskPathCapacity)
+{
+  char temporaryDirectory[] = "/tmp/retro-big-system-XXXXXX";
+  assert(mkdtemp(temporaryDirectory) != NULL);
+  assert(snprintf(diskPath, diskPathCapacity, "%s/system.dsk", temporaryDirectory) <
+         (int)diskPathCapacity);
+  char command[1024];
+  assert(snprintf(command, sizeof(command),
+                  "python3 \"%s/tools/createSystemDsk.py\" --os %s --profile BIG --output \"%s\" "
+                  ">/dev/null",
+                  PROJECT_ROOT_PATH, osName, diskPath) < (int)sizeof(command));
+  assert(system(command) == 0);
+}
+
 static void removeLargeSystemDisk(const char* diskPath)
 {
   char directoryPath[256];
@@ -3601,6 +3619,60 @@ static void testCpm86LargeSystemBoot(void)
   cpm86CoreDestroy(core);
   assert(imageClose(&disk));
   removeLargeSystemDisk(largeSystemPath);
+}
+
+//-- The BIG system disk boots A: through the BIG (DPB2) geometry; the DIR listing must show the
+// installed utilities and must fail no disk reads.
+static void testCpm86BigSystemBoot(void)
+{
+  char bigSystemPath[256];
+  createBigSystemDisk("cpm86", bigSystemPath, sizeof(bigSystemPath));
+  imageFile disk = {0};
+  assert(imageOpen(&disk, bigSystemPath, false));
+  cpm86DriveConfig systemDrive = {
+      .profile = cpm86DiskProfileSystem, .readOnly = true, .configured = true};
+  char error[160];
+  assert(
+      cpm86DriveConfigResolveSystemProfile(&systemDrive, imageSize(&disk), error, sizeof(error)));
+  assert(systemDrive.profile == cpm86DiskProfileSystemBig);
+
+  FILE* systemFile = fopen(CPM86_SYSTEM_FILE_PATH, "rb");
+  assert(systemFile != NULL);
+  uint8_t systemImage[10240];
+  assert(fread(systemImage, 1, sizeof(systemImage), systemFile) == sizeof(systemImage));
+  assert(fclose(systemFile) == 0);
+
+  cpm86BootFixture fixture = {.disks = {[0] = &disk}, .bigDisks = {[0] = true}};
+  const cpm86CoreConfig config = {
+      .ramSize = 640 * 1024,
+      .portRead = cpm86BootPortRead,
+      .portWrite = cpm86BootPortWrite,
+      .portContext = &fixture,
+      .readMilliseconds = NULL,
+      .clockContext = NULL,
+  };
+  cpm86Core* core = NULL;
+  assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);
+  assert(cpm86CoreLoad(core, 0x00510, systemImage + 128, sizeof(systemImage) - 128) == cpm86CoreOk);
+  const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
+  assert(cpm86CoreWrite(core, 0x00380, bdosVector, sizeof(bdosVector)) == cpm86CoreOk);
+  assert(cpm86BiosLoadOverlay(core, CPM86_BIOS_OVERLAY_PATH));
+  assert(cpm86CoreSetEntry(core, 0x0051, 0x2500) == cpm86CoreOk);
+
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 1));
+  fixture.input = "DIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 2));
+  assert(strstr(fixture.output, "ASM86") != NULL);
+  assert(strstr(fixture.output, "PIP") != NULL);
+  assert(strstr(fixture.output, "STAT") != NULL);
+  assert(fixture.diskReadRequests > 0);
+  assert(fixture.diskReadFailures == 0);
+
+  cpm86CoreDestroy(core);
+  assert(imageClose(&disk));
+  removeLargeSystemDisk(bigSystemPath);
 }
 
 //-- Runs one console command to the next prompt (output is cleared first); returns the instructions
@@ -4288,6 +4360,7 @@ int main(int argc, char** argv)
   testCpm80Help();
   testCpm80LargeSystemBoot();
   testCpm86LargeSystemBoot();
+  testCpm86BigSystemBoot();
   puts("PASS: CPU fixtures, CP/M boot and disk tests");
   return 0;
 }

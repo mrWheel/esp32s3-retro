@@ -22,7 +22,8 @@ typedef enum
   cpm86DiskProfileSystemLarge,
   cpm86DiskProfileData,
   cpm86DiskProfileDataLarge,
-  cpm86DiskProfileDataBig
+  cpm86DiskProfileDataBig,
+  cpm86DiskProfileSystemBig
 } cpm86DiskProfile;
 
 typedef struct
@@ -44,8 +45,8 @@ cpm86DriveConfigResult cpm86DriveConfigLoad(const char* path,
                                             cpm86DriveConfig drives[cpm86DiskDriveCount],
                                             char* error, size_t errorCapacity);
 
-//-- Maps the size of the A: image to its profile (163840 = System, 528384 = SystemLarge); false for
-//any other size.
+//-- Maps the size of the A: image to its profile (163840 = System, 528384 = SystemLarge,
+// 8392704 = SystemBig); false for any other size.
 bool cpm86DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm86DiskProfile* profile);
 
 //-- Sets drive->profile for A: from imageSize.

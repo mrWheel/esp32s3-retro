@@ -523,8 +523,9 @@ adding another offset would skip the directory.
 
 | Profile name (`drives.cfg`) | Exact image size | Tracks | Block | Dir entries | DPB | EFh code | Role |
 | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
-| `RETRO86_SYSTEM` (alias `RETRO86_SYSTEM_V1`) | 163,840 | 40 | 1 KiB | 64 | DPB0 | $FF | A: (size may also be LARGE) |
+| `RETRO86_SYSTEM` (alias `RETRO86_SYSTEM_V1`) | 163,840 | 40 | 1 KiB | 64 | DPB0 | $FF | A: (size may also be LARGE or BIG) |
 | `RETRO86_SYSTEM` large variant | 528,384 | 129 | 2 KiB | 128 | DPB1 | $01 | A: large system |
+| `RETRO86_SYSTEM` big variant | 8,392,704 | 2049 | 16 KiB | 512 | DPB2 | $02 | A: big system |
 | `RETRO86_DATA_V1` | 163,840 | 40 | 1 KiB | 64 | DPB0 | $FF | B:–F: |
 | `RETRO86_DATA_LARGE_V1` | 528,384 | 129 | 2 KiB | 128 | DPB1 | $01 | B:–F: |
 | `RETRO86_DATA_BIG_V1` | 8,392,704 | 2049 | 16 KiB | 512 | DPB2 | $02 | B:–F: |
@@ -608,8 +609,8 @@ Parser requirements (see `main/cpm86DriveConfig.c`):
   B:–F: unconfigured.
 - A: profile resolution (`cpm86DriveConfigSystemProfileFromSize` /
   `cpm86DriveConfigResolveSystemProfile`): 163,840 → system-small, 528,384 →
-  system-large, any other size is an error and A: is not mounted (the error string
-  reports the size and the two accepted sizes).
+  system-large, 8,392,704 → system-big, any other size is an error and A: is not
+  mounted (the error string reports the size and the three accepted sizes).
 - Optional B:–F: mount only when configured, present, exactly the declared profile size,
   and openable with the requested access mode; otherwise the drive is absent. The
   firmware never creates blank media during boot.
@@ -684,7 +685,7 @@ options via `--help`) MUST produce images that satisfy §12 exactly:
 
 | Tool | Requirement |
 | --- | --- |
-| `tools/createSystemDsk.py --os cpm86 --profile SMALL\|LARGE [--source-dir …]` | Build A: from `bootDisks/cpm86/systemDsk` (only `.CMD`/`.SYS` names; CPM.SYS is refused on A:), using the `CPM86`/`LARGE` profile geometry; validates `cpm.sys` (10,240) and the overlay (1–4096) remain outside A:; replaces `littlefs/cpm86/system.dsk` only on success. |
+| `tools/createSystemDsk.py --os cpm86 --profile SMALL\|LARGE\|BIG [--source-dir …]` | Build A: from `bootDisks/cpm86/systemDsk` (only `.CMD`/`.SYS` names; CPM.SYS is refused on A:), using the `CPM86`/`LARGE`/`BIG` profile geometry; validates `cpm.sys` (10,240) and the overlay (1–4096) remain outside A:; replaces `littlefs/cpm86/system.dsk` only on success. |
 | `tools/diskImage.py --os cpm86 create/add/list/extract` (`tools/cpm86/diskImageCpm86.py`) | Create/inspect raw profile images (`CPM86`, `LARGE`, `BIG`); `add` validates 8.3 names, duplicates, extents, directory and block capacity, and writes atomically; `create` refuses an existing target without `--force`. This tool is the authority for multi-extent LARGE content. |
 | `tools/buildDiskImage.py --os cpm86` (`tools/cpm86/buildDiskImageCpm86.py`) | Deterministic system-image composer from a source directory; CPM.SYS first. |
 | `tools/cpm86/diskdefs` | cpmtools geometry definitions (`retro86-160`, `retro86-large`, `retro86-big`) for cross-checking geometry only — cpmtools cannot express EXM and its LARGE multi-extent layout is incompatible; never use `mkfs.cpm`/`cpmcp` as the authority for LARGE content. |
@@ -721,12 +722,12 @@ reports. Required coverage (current suites):
 3. **Timer (`testCpm86TimerPorts`):** capability byte with/without callback, F1 latches
    (F2–F4 do not re-call the callback even when the injected value changes), writes
    fault.
-4. **Boot (`testCpm86Boot`, `testCpm86LargeSystemBoot`):** real `cpm.sys` header checks,
-   real guest cold boot to `A>`, `DIR` lists the system files (incl. `ASM86`, `PIP`,
-   `STAT`), `TYPE` of a multi-extent text file, drive selection to a second configured
-   drive and `DIR` there, STAT message-table regression witness, and the same flow on a
-   generated LARGE A: image. The fixture exercises the production geometry gate via
-   `cpm86DriveRecordValid`.
+4. **Boot (`testCpm86Boot`, `testCpm86LargeSystemBoot`, `testCpm86BigSystemBoot`):** real
+   `cpm.sys` header checks, real guest cold boot to `A>`, `DIR` lists the system files
+   (incl. `ASM86`, `PIP`, `STAT`), `TYPE` of a multi-extent text file, drive selection to
+   a second configured drive and `DIR` there, STAT message-table regression witness, and
+   the same flow on generated LARGE and BIG A: images. The fixture exercises the
+   production geometry gate via `cpm86DriveRecordValid`.
 5. **Geometry (`testCpm86DriveGeometryMatrix`):** per profile 40/129/2049 tracks — first
    and last valid track, track 0 and overflow rejected, sector 31 accepted / 32 and
    `$FFFF` rejected, degenerate track counts rejected.
@@ -742,8 +743,8 @@ reports. Required coverage (current suites):
    on missing/invalid, every §14 rejection rule (duplicate, unknown drive/profile/mode,
    long line, traversal forms, backslash, comma in path, wrong prefixes, A: path/profile
    mismatch, system profile on B:), SD namespace prefixing to `/microSD/retro/...`, and
-   A: size-based profile detection (163,840 / 528,384 accepted; other sizes refused with
-   a useful error).
+   A: size-based profile detection (163,840 / 528,384 / 8,392,704 accepted; other sizes
+   refused with a useful error).
 
 ## 18. Verification: hardware acceptance
 

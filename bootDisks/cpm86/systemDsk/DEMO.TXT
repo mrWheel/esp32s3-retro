@@ -1,0 +1,6 @@
+EDIT86 VT100/ANSI test file
+
+Use the arrow keys to move.
+Try Ctrl-K, Ctrl-X and Ctrl-W.
+Ctrl-O saves; Ctrl-Q exits.
+
