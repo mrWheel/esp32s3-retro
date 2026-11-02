@@ -13,10 +13,10 @@ if(NOT DEFINED PYTHON)
   set(PYTHON python3)
 endif()
 set(APPLE2_SYSTEM_DISK_PROFILE "PRODOS_640K" CACHE STRING "Apple II system disk profile (PRODOS, PRODOS_640K, PRODOS_800K)")
-set(CPM86_SYSTEM_DISK_PROFILE "LARGE" CACHE STRING "CP/M-86 system disk profile (SMALL, LARGE, BIG)")
+set(CPM86_SYSTEM_DISK_PROFILE "CPM86_516K" CACHE STRING "CP/M-86 system disk profile (CPM86_160K, CPM86_516K, CPM86_8196K)")
 set(systemDiskJobs
   "apple2|${APPLE2_SYSTEM_DISK_PROFILE}|system.dsk"
-  "cpm80|LARGE|system.dsk"
+  "cpm80|CPM80_512K|system.dsk"
   "cpm86|${CPM86_SYSTEM_DISK_PROFILE}|system.dsk"
   "ucsd|PASCAL_800K|system.po")
 foreach(job IN LISTS systemDiskJobs)

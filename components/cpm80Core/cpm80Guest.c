@@ -159,8 +159,8 @@ static void installBios(cpm80Guest* guest)
     cpm80DiskProfile profile = guest->diskProfiles[drive];
     if (drive == 0 && profile != cpm80DiskProfileSystem)
     {
-      //-- The SYSTEM-sized CSV/ALV slots of A: are too small for a LARGE or BIG layout; use the
-      // free area above drive F:.
+      //-- The CPM80_256K-sized CSV/ALV slots of A: are too small for a CPM80_512K or CPM80_8M
+      // layout; use the free area above drive F:.
       csvAddress = cpm80BiosLargeSystemCsvAddress;
       alvAddress = cpm80BiosLargeSystemAlvAddress;
     }
@@ -354,11 +354,11 @@ const char* cpm80DiskProfileName(cpm80DiskProfile profile)
   switch (profile)
   {
   case cpm80DiskProfileBig:
-    return "BIG";
+    return "CPM80_8M";
   case cpm80DiskProfileLarge:
-    return "LARGE";
+    return "CPM80_512K";
   default:
-    return "SYSTEM";
+    return "CPM80_256K";
   }
 }
 

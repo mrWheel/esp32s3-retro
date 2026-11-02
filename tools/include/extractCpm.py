@@ -18,8 +18,9 @@ import diskImageCpm80
 import diskImageCpm86
 import extractApple2Files as core
 
-PROFILES = {f"CPM80-{name}": profile for name, profile in diskImageCpm80.PROFILES.items()}
-PROFILES.update({f"CPM86-{name}": profile for name, profile in diskImageCpm86.PROFILES.items()})
+#-- The profile names already carry the OS prefix (CPM80_256K ... CPM86_8196K) and are unique.
+PROFILES = dict(diskImageCpm80.PROFILES)
+PROFILES.update(diskImageCpm86.PROFILES)
 RECORD = diskImageCpm.SECTOR_SIZE
 
 

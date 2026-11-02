@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the CP/M-86 system disk image (CPM86 profile) from a directory of files."""
+"""Build the CP/M-86 system disk image (CPM86_160K profile) from a directory of files."""
 
 import sys
 from pathlib import Path
@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import diskImageCpm86
 
 DETAILS = (
-    "Composes system.dsk (CPM86 profile) from every file in --source-dir that has a\n"
+    "Composes system.dsk (CPM86_160K profile) from every file in --source-dir that has a\n"
     "valid CP/M 8.3 name; CPM.SYS is added first. --source-dir is required."
 )
 

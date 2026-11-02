@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CP/M-80 disk images: SYSTEM, LARGE and BIG geometries on top of diskImageCpm.
+"""CP/M-80 disk images: CPM80_256K, CPM80_512K and CPM80_8M geometries on top of diskImageCpm.
 
 Running this file directly is the same as `diskImage.py --os cpm80`.
 """
@@ -48,7 +48,7 @@ BIG_EXM = 7
 MAX_IMAGE_SIZE = max(IMAGE_SIZE, LARGE_IMAGE_SIZE, BIG_IMAGE_SIZE)
 
 PROFILES = {
-    "SYSTEM": {
+    "CPM80_256K": {
         "image_size": IMAGE_SIZE,
         "sectors_per_track": SECTORS_PER_TRACK,
         "block_size": BLOCK_SIZE,
@@ -56,7 +56,7 @@ PROFILES = {
         "directory_offset": DIRECTORY_OFFSET,
         "max_block_number": MAX_BLOCK_NUMBER,
     },
-    "LARGE": {
+    "CPM80_512K": {
         "image_size": LARGE_IMAGE_SIZE,
         "sectors_per_track": LARGE_SECTORS_PER_TRACK,
         "block_size": LARGE_BLOCK_SIZE,
@@ -64,7 +64,7 @@ PROFILES = {
         "directory_offset": LARGE_DIRECTORY_OFFSET,
         "max_block_number": DSM,
     },
-    "BIG": {
+    "CPM80_8M": {
         "image_size": BIG_IMAGE_SIZE,
         "sectors_per_track": BIG_SECTORS_PER_TRACK,
         "block_size": BIG_BLOCK_SIZE,
@@ -77,7 +77,7 @@ PROFILES = {
     },
 }
 IMAGE_PROFILES = PROFILES
-DEFAULT_PROFILE = "SYSTEM"
+DEFAULT_PROFILE = "CPM80_256K"
 
 
 def inspect_image(image):

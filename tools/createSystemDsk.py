@@ -40,9 +40,10 @@ EXECUTABLE_EXTENSIONS = {
     "cpm80": {".COM"},
     "cpm86": {".CMD", ".SYS"},
 }
+#-- The CP/M --profile values are the drives.cfg size identifiers themselves.
 PROFILE_MAP = {
-    "cpm80": {"SMALL": "SYSTEM", "LARGE": "LARGE"},
-    "cpm86": {"SMALL": "CPM86", "LARGE": "LARGE", "BIG": "BIG"},
+    "cpm80": {"CPM80_256K": "CPM80_256K", "CPM80_512K": "CPM80_512K"},
+    "cpm86": {"CPM86_160K": "CPM86_160K", "CPM86_516K": "CPM86_516K", "CPM86_8196K": "CPM86_8196K"},
     "apple2": {
         "PRODOS": "140K",
         "PRODOS_640K": "640K",

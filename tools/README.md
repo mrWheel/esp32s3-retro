@@ -34,7 +34,7 @@ their generated headers are part of the production firmware.
 `diskImage.py`, `buildDiskImage.py` and `prepareSd.py` select the target system with `--os cpm80|cpm86|apple2|swtpc|ucsd`. CP/M-80, CP/M-86, Apple II (ProDOS 8 data volumes) and UCSD (Pascal work volumes) are supported by both image entrypoints: `diskImage.py` creates, adds to, lists and extracts from existing images, and `buildDiskImage.py` builds volumes (Apple II can also be made bootable with `--bootable`). SWTPC is registered but not implemented. `-h` shows the general help (commands and OS overview); `-h` together with `--os <name>` adds the OS-specific profiles and rules. Images are written to `sdcard/retro/images/<os>/` (override with `--sd-root`); a path instead of a bare name is used as given. The Apple II and UCSD images use the `.po` extension, which the tools enforce. The device's File Transfer feature can copy images to the physical SD card.
 
 ```sh
-python3 tools/diskImage.py create --os cpm80 --profile LARGE work.dsk
+python3 tools/diskImage.py create --os cpm80 --profile CPM80_512K work.dsk
 python3 tools/diskImage.py add --os cpm80 work.dsk ~/cpm/*.COM 'utils/*.HLP'
 python3 tools/diskImage.py list --os cpm86 work.dsk
 python3 tools/diskImage.py extract --os cpm86 work.dsk ASM86.CMD --output ASM86.CMD
@@ -45,8 +45,8 @@ python3 tools/diskImage.py extract --os ucsd work.po PROGRAM.CODE --output progr
 python3 tools/buildDiskImage.py --os cpm80
 python3 tools/buildDiskImage.py --os cpm86 --source-dir ~/cpm86/files
 python3 tools/buildDiskImage.py --os apple2 --profile 800K --name DATA
-python3 tools/createSystemDsk.py --os cpm80 --profile SMALL
-python3 tools/createSystemDsk.py --os cpm80 --profile LARGE
+python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_256K
+python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_512K
 python3 tools/prepareSd.py --os cpm86
 python3 tools/diskImage.py --os cpm86 -h
 ```
@@ -57,7 +57,7 @@ python3 tools/diskImage.py --os cpm86 -h
 
   For CP/M-86 it needs `--source-dir` with `CPM.SYS` and the `.CMD` files (no sources are checked in). 
 
-  `tools/` contains the host-side command-line entrypoints listed above. OS-specific image modules, extraction adapters, and builders live in their matching `tools/<os>/` directories; shared modules, including `osProfiles.py`, `diskImageCpm.py` and `diskImageCommon.py`, live in `tools/include/`. The `diskImage.py` and `buildDiskImage.py` entrypoints dispatch to the OS modules using `--os`; for example, create CP/M-80 images with `python3 tools/diskImage.py create --os cpm80 --profile LARGE work.dsk`.
+  `tools/` contains the host-side command-line entrypoints listed above. OS-specific image modules, extraction adapters, and builders live in their matching `tools/<os>/` directories; shared modules, including `osProfiles.py`, `diskImageCpm.py` and `diskImageCommon.py`, live in `tools/include/`. The `diskImage.py` and `buildDiskImage.py` entrypoints dispatch to the OS modules using `--os`; for example, create CP/M-80 images with `python3 tools/diskImage.py create --os cpm80 --profile CPM80_512K work.dsk`.
   
   A new OS needs `tools/<os>/diskImage<Os>.py`, `tools/<os>/buildDiskImage<Os>.py` and one entry in `tools/include/osProfiles.py`. Main entrypoints add the shared and OS-specific directories to Python's module search path before importing these modules.
   `prepareSd.py` without a mount point prepares `sdcard/`, and without `--os` prepares all systems.
@@ -77,10 +77,10 @@ spelling `systemDsk`). Apple II uses a ProDOS base image. Use
 destination. The destination image is replaced when the build succeeds:
 
 ```sh
-python3 tools/createSystemDsk.py --os cpm80 --profile SMALL
-python3 tools/createSystemDsk.py --os cpm80 --profile LARGE
-python3 tools/createSystemDsk.py --os cpm86 --profile SMALL
-python3 tools/createSystemDsk.py --os cpm86 --profile BIG
+python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_256K
+python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_512K
+python3 tools/createSystemDsk.py --os cpm86 --profile CPM86_160K
+python3 tools/createSystemDsk.py --os cpm86 --profile CPM86_8196K
 python3 tools/createSystemDsk.py --os apple2 --profile PRODOS
 python3 tools/createSystemDsk.py --os apple2 --profile PRODOS --binary-load-address 0x800
 ```
@@ -91,12 +91,13 @@ keeps the executables, skips the files that do not fit, and prints
 `Disk too small`. If an executable itself cannot fit, the build fails rather
 than producing a disk missing a program.
 
-`SMALL` uses 256,256 bytes for CP/M-80 and 163,840 bytes for CP/M-86. `LARGE`
-uses 512,512 bytes for CP/M-80 and 528,384 bytes for CP/M-86. Both profiles boot
-as A:: the firmware detects the layout from the size of
-`littlefs/<os>/system.dsk`, so `drives.cfg` needs only `SYSTEM` (CP/M-80) or
-`RETRO86_SYSTEM` (CP/M-86) for A:. A size that matches no system profile is
-reported as an error and A: is not mounted. CP/M-86 is built from an empty
+The CP/M `--profile` values are the drives.cfg size identifiers themselves:
+`CPM80_256K` (256,256 bytes) and `CPM80_512K` (512,512 bytes) for CP/M-80,
+`CPM86_160K` (163,840 bytes), `CPM86_516K` (528,384 bytes) and `CPM86_8196K`
+(8,392,704 bytes) for CP/M-86. All of them boot as A:: the firmware detects
+the layout from the size of `littlefs/<os>/system.dsk` when drives.cfg is
+missing, and the A: line's identifier must then match the file size. A size
+that matches no system profile is reported as an error and A: is not mounted. CP/M-86 is built from an empty
 image plus the source directory only (never from an older `system.dsk`). It requires
 `littlefs/cpm86/cpm.sys` and `littlefs/cpm86/retro86bios.h86` to remain in place.
 The builder validates these runtime files but does not put them on A::
@@ -188,57 +189,62 @@ disposable images until guest writes have been qualified on the target hardware.
 ### CP/M-86 drives
 
 The CP/M-86 drive configuration is `littlefs/cpm86/drives.cfg` (flashed with LittleFS). The CP/M-86 BIOS supports drives A: through F:. A: is the
-read-only LittleFS system image; B: through F: are optional SD images. All six
-drives use the same validated 160 KiB `CPM86` image geometry (40 tracks, eight
-512-byte sectors per track, 128-byte guest records, 1 KiB allocation blocks and
-64 directory entries).
+read-only LittleFS system image; B: through F: are optional SD images. Every
+line ends with the size identifier of its image: `CPM86_160K` (163,840 bytes,
+40 tracks, eight 512-byte sectors per track, 128-byte guest records, 1 KiB
+allocation blocks and 64 directory entries), `CPM86_516K` (528,384 bytes,
+129 tracks, 2 KiB blocks, 128 directory entries) or `CPM86_8196K` (8,392,704
+bytes, 2049 tracks, 16 KiB blocks, 512 directory entries).
 
 The generated configuration maps E: to `work86.dsk` and sets it to read/write.
 Create the image if needed, then copy it to that path on the card:
 
 ```sh
-python3 tools/diskImage.py create --os cpm86 --profile CPM86 work86.dsk
+python3 tools/diskImage.py create --os cpm86 --profile CPM86_160K work86.dsk
 cp sdcard/retro/images/cpm86/work86.dsk /Volumes/SDCARD/retro/images/cpm86/work86.dsk
 ```
 
 The configuration uses one line per drive:
 
 ```text
-A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM
-B=/retro/images/cpm86/languages.dsk,RO,RETRO86_DATA_V1
-C=/retro/images/cpm86/tools.dsk,RO,RETRO86_DATA_V1
-D=/retro/images/cpm86/utilities.dsk,RO,RETRO86_DATA_V1
-E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_V1
-F=/retro/images/cpm86/archive.dsk,RW,RETRO86_DATA_V1
+A=/littlefs/cpm86/system.dsk,RO,CPM86_516K
+B=/retro/images/cpm86/languages.dsk,RO,CPM86_160K
+C=/retro/images/cpm86/tools.dsk,RO,CPM86_160K
+D=/retro/images/cpm86/utilities.dsk,RO,CPM86_160K
+E=/retro/images/cpm86/work86.dsk,RW,CPM86_160K
+F=/retro/images/cpm86/archive.dsk,RW,CPM86_160K
 ```
+
+(A: is always `/littlefs/cpm86/system.dsk`; its identifier must match the
+flashed system image size.)
 
 For a larger disk (516 KiB, 128 directory entries) create the image with
-`--profile LARGE` and give that drive's line (B:–F: only) the profile
-`RETRO86_DATA_LARGE_V1`:
+`--profile CPM86_516K` and give that drive's line the same identifier:
 
 ```sh
-python3 tools/diskImage.py create --os cpm86 --profile LARGE work86.dsk
+python3 tools/diskImage.py create --os cpm86 --profile CPM86_516K work86.dsk
 ```
 
 ```text
-E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_LARGE_V1
+E=/retro/images/cpm86/work86.dsk,RW,CPM86_516K
 ```
 
-For an 8 MiB disk (16 KiB blocks, 512 directory entries) use `--profile BIG`
-and the profile `RETRO86_DATA_BIG_V1` (B:–F: only):
+For an 8 MiB disk (16 KiB blocks, 512 directory entries) use
+`--profile CPM86_8196K` and the identifier `CPM86_8196K`:
 
 ```sh
-python3 tools/diskImage.py create --os cpm86 --profile BIG work86.dsk
+python3 tools/diskImage.py create --os cpm86 --profile CPM86_8196K work86.dsk
 ```
 
 ```text
-E=/retro/images/cpm86/work86.dsk,RW,RETRO86_DATA_BIG_V1
+E=/retro/images/cpm86/work86.dsk,RW,CPM86_8196K
 ```
 
-Use only the shown image roots and profile identifiers. Missing optional images
+Use only the shown image roots and size identifiers. Missing optional images
 are left offline; malformed or duplicate configuration lines disable B:–F:
 and retain the built-in A:. A drive is reported to CP/M-86 only when its image
-exists, has exactly its profile's size (163,840 or 528,384 bytes) and can be opened with the configured access
+exists, has exactly the size named by its identifier (163,840, 528,384 or
+8,392,704 bytes) and can be opened with the configured access
 mode. Do not switch an image to read/write unless its contents can be safely
 modified; use disposable media for write testing.
 
@@ -247,11 +253,11 @@ overwrites images. Existing `drives.cfg` files are preserved.
 
 ### CP/M-80 drives
 
-`diskImage.py --os cpm80` creates empty raw CP/M-80 images for either supported profile. `SYSTEM` uses 77 tracks × 26 128-byte records, two reserved tracks, 1 KiB blocks and 64 directory entries. `LARGE` uses 77 tracks × 52 128-byte records, two reserved tracks, 2 KiB blocks and 128 directory entries. Both profiles use allocation blocks 0–242. `BIG` is the CP/M 2.2 maximum of 8 MiB: 514 tracks × 128 128-byte records (8,421,376 bytes), two reserved tracks, 16 KiB blocks (DSM 511, EXM 7, 16-bit block pointers) and 512 directory entries. Create it with `python3 tools/diskImage.py create --os cpm80 --profile BIG big.dsk` and configure the drive as `E=/retro/images/cpm80/big.dsk,RW,BIG`. The guest DPB for `BIG` drives is generated by the firmware; the stock BDOS already supports DSM > 255. It uses only the Python standard library.
+`diskImage.py --os cpm80` creates empty raw CP/M-80 images for either supported size. `CPM80_256K` uses 77 tracks × 26 128-byte records, two reserved tracks, 1 KiB blocks and 64 directory entries. `CPM80_512K` uses 77 tracks × 52 128-byte records, two reserved tracks, 2 KiB blocks and 128 directory entries. Both use allocation blocks 0–242. `CPM80_8M` is the CP/M 2.2 maximum of 8 MiB: 514 tracks × 128 128-byte records (8,421,376 bytes), two reserved tracks, 16 KiB blocks (DSM 511, EXM 7, 16-bit block pointers) and 512 directory entries. Create it with `python3 tools/diskImage.py create --os cpm80 --profile CPM80_8M big.dsk` and configure the drive as `E=/retro/images/cpm80/big.dsk,RW,CPM80_8M`. The guest DPB for `CPM80_8M` drives is generated by the firmware; the stock BDOS already supports DSM > 255. It uses only the Python standard library.
 
 ```sh
 python3 tools/prepareSd.py /Volumes/SDCARD
-python3 tools/diskImage.py create --os cpm80 --profile LARGE ~/Desktop/work.dsk
+python3 tools/diskImage.py create --os cpm80 --profile CPM80_512K ~/Desktop/work.dsk
 python3 tools/diskImage.py add --os cpm80 ~/Desktop/work.dsk ~/Downloads/MBASIC.COM
 python3 tools/diskImage.py list --os cpm80 ~/Desktop/work.dsk
 cp ~/Desktop/work.dsk /Volumes/SDCARD/retro/images/cpm80/work.dsk

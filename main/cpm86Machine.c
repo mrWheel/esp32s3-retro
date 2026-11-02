@@ -551,7 +551,8 @@ esp_err_t cpm86MachineInitialize(void)
     uint64_t diskSize;
     if (drive == 0)
     {
-      //-- The A: layout (small, large or big) follows from the size of the image file.
+      //-- The built-in A: layout follows from the size of the image file; an explicit drives.cfg
+      // identifier must match it.
       char profileError[96];
       if (!resourceSize(driveConfig[0].path, &diskSize))
       {

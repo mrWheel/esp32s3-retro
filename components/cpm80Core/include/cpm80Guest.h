@@ -41,6 +41,9 @@ enum
   cpm80DmaAddress = 0x0080
 };
 
+//-- The three image geometries. Their drives.cfg identifiers are CPM80_256K (System,
+//-- cpm80SystemImageSize bytes), CPM80_512K (Large, cpm80LargeImageSize bytes) and
+//-- CPM80_8M (Big, cpm80BigImageSize bytes).
 typedef enum
 {
   cpm80DiskProfileSystem,

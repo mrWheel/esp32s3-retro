@@ -28,14 +28,15 @@ typedef struct
   uint8_t exm;
 } cpmProfile;
 
-//-- Mirrors tools/cpm80/diskImageCpm80.py and tools/cpm86/diskImageCpm86.py PROFILES.
+//-- Mirrors tools/cpm80/diskImageCpm80.py and tools/cpm86/diskImageCpm86.py PROFILES
+//-- (the drives.cfg size identifiers).
 static const cpmProfile cpmProfiles[] = {
-    {"cpm80", "SYSTEM", 256256, 1024, 64, 6656, 242, 2, 1, 0},
-    {"cpm80", "LARGE", 512512, 2048, 128, 13312, 242, 2, 1, 0},
-    {"cpm80", "BIG", 8421376, 16384, 512, 32768, 511, 1, 2, 7},
-    {"cpm86", "CPM86", 163840, 1024, 64, 4096, 155, 2, 1, 0},
-    {"cpm86", "LARGE", 528384, 2048, 128, 4096, 255, 2, 1, 0},
-    {"cpm86", "BIG", 8392704, 16384, 512, 4096, 511, 1, 2, 7},
+    {"cpm80", "CPM80_256K", 256256, 1024, 64, 6656, 242, 2, 1, 0},
+    {"cpm80", "CPM80_512K", 512512, 2048, 128, 13312, 242, 2, 1, 0},
+    {"cpm80", "CPM80_8M", 8421376, 16384, 512, 32768, 511, 1, 2, 7},
+    {"cpm86", "CPM86_160K", 163840, 1024, 64, 4096, 155, 2, 1, 0},
+    {"cpm86", "CPM86_516K", 528384, 2048, 128, 4096, 255, 2, 1, 0},
+    {"cpm86", "CPM86_8196K", 8392704, 16384, 512, 4096, 511, 1, 2, 7},
 };
 
 typedef struct

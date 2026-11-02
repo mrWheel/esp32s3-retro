@@ -28,7 +28,7 @@ class BootDisksBenchTests(unittest.TestCase):
                 self.assertEqual(copy.read_bytes(), (ROOT / asset).read_bytes())
 
     def test_system_disks_generate(self):
-        profiles = (("apple2", "PRODOS_640K"), ("cpm80", "LARGE"), ("cpm86", "LARGE"), ("ucsd", "PASCAL_800K"))
+        profiles = (("apple2", "PRODOS_640K"), ("cpm80", "CPM80_512K"), ("cpm86", "CPM86_516K"), ("ucsd", "PASCAL_800K"))
         with tempfile.TemporaryDirectory() as temporary:
             for osName, profile in profiles:
                 with self.subTest(os=osName):

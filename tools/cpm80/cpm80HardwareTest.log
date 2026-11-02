@@ -1,4 +1,4 @@
-CP/M-80 hardware test - 2026-10-31 16:50:44
+CP/M-80 hardware test - 2026-11-02 19:11:08
 
 <<<RESET>>>
       PASS  board reset reaches host menu
@@ -8,10 +8,10 @@ Command: 1
 
 ---- basic ----
 Command: DIR
-  A: ASM      COM : BENCH80  COM : DDT      COM : DUMP     COM | A: ED       COM : HELLO    COM : HELP     COM : LIB      COM | A: LINK     COM : LOAD     COM : MAC      COM : MORE     COM | A: PIP      COM : RMAC     COM : STAT     COM : SUBMIT   COM | A: TYPEL    COM : XREF     COM : XSUB     COM :  ...
+  A: ASM      COM : BENCH80  COM : DDT      COM : DUMP     COM | A: ED       COM : HELLO    COM : HELP     COM : LIB      COM | A: LINK     COM : LOAD     COM : MAC      COM : MORE     COM | A: PIP      COM : RMAC     COM : STAT     COM : SUBMIT   COM | A: TYPEL    COM : VI       COM : XREF     COM :  ...
       PASS  basic: DIR on A: lists PIP.COM and STAT.COM
 Command: STAT
-  A: R/W, Space: 270k | A>
+  A: R/W, Space: 216k | A>
       PASS  basic: STAT runs on A:
 Command: TYPE WELCOME.TXT
   CP/M utilities are installed. | Use DIR, STAT, and HELP for help. | A>
@@ -81,7 +81,7 @@ Command: A:
   A>
 bench80: starting BENCH80, waiting up to 600 s for it to finish
 Command: A:BENCH80
-  BENCH80 v2 SCALE=1 | @BEGIN INTEGER | . | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 6908 ms | Z80 MODEL ONLY (not measured): 1MHz=15000 ms, 2MHz=7500 ms, 4MHz=3750 ms | Index vs 1MHz MODEL: 217 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 4344 ms ...
+  BENCH80 v2 SCALE=1 | @BEGIN INTEGER | . | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 6908 ms | Z80 MODEL ONLY (not measured): 1MHz=15000 ms, 2MHz=7500 ms, 4MHz=3750 ms | Index vs 1MHz MODEL: 217 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 4350 ms ...
 bench80: BENCH80 v2 SCALE=1
 bench80: @BEGIN INTEGER
 bench80: @END INTEGER PASS AX=4ED8 BX=D678
@@ -89,16 +89,16 @@ bench80: Elapsed: 6908 ms
 bench80: Index vs 1MHz MODEL: 217 (100=model, higher=faster; theoretical)
 bench80: @BEGIN SIEVE
 bench80: @END SIEVE PASS PRIMES=1028
-bench80: Elapsed: 4344 ms
-bench80: Index vs 1MHz MODEL: 281 (100=model, higher=faster; theoretical)
+bench80: Elapsed: 4350 ms
+bench80: Index vs 1MHz MODEL: 280 (100=model, higher=faster; theoretical)
 bench80: @DONE PASS
       PASS  bench80: BENCH80 runs from A: and completes
-      PASS  bench80: all benchmark sections report PASS  -- 2 sections, elapsed 6908,4344 ms
-      PASS  bench80: measured index values recorded  -- index vs 1MHz MODEL: 217,281
+      PASS  bench80: all benchmark sections report PASS  -- 2 sections, elapsed 6908,4350 ms
+      PASS  bench80: measured index values recorded  -- index vs 1MHz MODEL: 217,280
 
 ---- read volumes ----
 Command: DIR
-  A: ASM      COM : BENCH80  COM : DDT      COM : DUMP     COM | A: ED       COM : HELLO    COM : HELP     COM : LIB      COM | A: LINK     COM : LOAD     COM : MAC      COM : MORE     COM | A: PIP      COM : RMAC     COM : STAT     COM : SUBMIT   COM | A: TYPEL    COM : XREF     COM : XSUB     COM :  ...
+  A: ASM      COM : BENCH80  COM : DDT      COM : DUMP     COM | A: ED       COM : HELLO    COM : HELP     COM : LIB      COM | A: LINK     COM : LOAD     COM : MAC      COM : MORE     COM | A: PIP      COM : RMAC     COM : STAT     COM : SUBMIT   COM | A: TYPEL    COM : VI       COM : XREF     COM :  ...
       PASS  read: list volume A:
 Command: B:
   B>
@@ -232,7 +232,7 @@ Command: ERA B:HWTEST.COM
 Command: DIR A:HWRO*.*
   NO FILE | A>
 Command: STAT A:
-  Bytes Remaining On A: 270k | A>
+  Bytes Remaining On A: 216k | A>
 Command: PIP A:HWRO.COM=A:PIP.COM
       PASS  read-only: write to A: is refused
 Command: ^C (Ctrl-C)
@@ -240,14 +240,14 @@ Command: ^C (Ctrl-C)
 Command: DIR A:HWRO*.*
   NO FILE | A>
 Command: STAT A:
-  Bytes Remaining On A: 270k | A>
+  Bytes Remaining On A: 216k | A>
       PASS  read-only: no file created on A:
-      PASS  read-only: free space on A: unchanged  -- before 270, after 270
+      PASS  read-only: free space on A: unchanged  -- before 216, after 216
 
 ---- timing ----
 Command: DIR
-  A: ASM      COM : BENCH80  COM : DDT      COM : DUMP     COM | A: ED       COM : HELLO    COM : HELP     COM : LIB      COM | A: LINK     COM : LOAD     COM : MAC      COM : MORE     COM | A: PIP      COM : RMAC     COM : STAT     COM : SUBMIT   COM | A: TYPEL    COM : XREF     COM : XSUB     COM :  ...
-      PASS  timing: volume listing completes in < 10 s  -- 0.7 s
+  A: ASM      COM : BENCH80  COM : DDT      COM : DUMP     COM | A: ED       COM : HELLO    COM : HELP     COM : LIB      COM | A: LINK     COM : LOAD     COM : MAC      COM : MORE     COM | A: PIP      COM : RMAC     COM : STAT     COM : SUBMIT   COM | A: TYPEL    COM : VI       COM : XREF     COM :  ...
+      PASS  timing: volume listing completes in < 10 s  -- 0.8 s
 
 ---- unconfigured drive ----
 Command: F:

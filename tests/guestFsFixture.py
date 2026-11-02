@@ -42,7 +42,8 @@ def build(outDir):
             base = [("ONE.BIN", 1, 1), ("A128.DAT", 128, 2), ("B129.DAT", 129, 3), ("MID.TXT", 1024, 4),
                     ("EXACT.BIN", blockSize * 3, 5)]
             added = [("MULTI.DAT", multiSize, 6), ("NEW.COM", 3000, 7), ("Z$-_.X-Y", 77, 8)]
-            stem = f"{osId}-{profileName}"
+            #-- The profile names already carry the OS prefix (CPM80_256K ... CPM86_8196K).
+            stem = profileName
             path = outDir / f"{stem}.base.dsk"
             expected = outDir / f"{stem}.expected.dsk"
             module.create_image(path, force=True, profile=profileName)

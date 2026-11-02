@@ -161,7 +161,7 @@ def build_disk(project_root: Path, output_path: Path) -> None:
 
 DETAILS = (
     "Composes system.dsk from the checked-in CCP/BDOS binaries and pinned\n"
-    "utilities under components/cpm80Core/os (SYSTEM profile)."
+    "utilities under components/cpm80Core/os (CPM80_256K profile)."
 )
 
 

@@ -5,7 +5,8 @@ Usage: python3 tools/cpm80/hardwareTest.py [--port /dev/cu.usbmodemXXXX] [--no-w
 
 Close idf.py monitor / minicom first. The script never flashes the board, but it
 RESETS the board (RTS) because CP/M-80 has no host-exit key.
-Write tests create and erase HWTEST.COM and FILLnn.TMP files on B: (LARGE) and C: (BIG).
+Write tests create and erase HWTEST.COM and FILLnn.TMP files on B: (CPM80_512K) and
+C: (CPM80_8M).
 RUN BENCH80 from A: records the measured timer values in cpm80HardwareTest.log. The
 suite waits for BENCH80 to finish (A> back, or a 600 s timeout) before continuing.
 The user-area test creates, isolates, deletes and re-checks USER.TXT on the writable C:.

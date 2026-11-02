@@ -924,9 +924,9 @@ static void testJournalGarbage(void)
   fixtureInfo fixture;
   testIo io;
   guestFsIo guest;
-  loadFixture(&fixture, "cpm80-SYSTEM");
+  loadFixture(&fixture, "CPM80_256K");
   journalPathFor(journal, sizeof(journal));
-  joinPath(basePath, sizeof(basePath), fixtureDirectory, "cpm80-SYSTEM.base.dsk");
+  joinPath(basePath, sizeof(basePath), fixtureDirectory, "CPM80_256K.base.dsk");
   workPath(imagePath, sizeof(imagePath), "garbage.dsk");
   copyFile(basePath, imagePath);
   ioOpen(&io, &guest, imagePath, false, -1);
@@ -943,12 +943,12 @@ static void testJournalGarbage(void)
 
   //-- A sealed journal whose payload is damaged is kept and reported.
   guestFsJournal made;
-  check(guestFsJournalBegin(&made, journal, "cpm80-SYSTEM", io.size) == guestFsOk);
+  check(guestFsJournalBegin(&made, journal, "CPM80_256K", io.size) == guestFsOk);
   check(guestFsJournalSave(&made, &guest, 6656, 32) == guestFsOk);
   check(guestFsJournalSeal(&made) == guestFsOk);
   guestFsJournalAbandon(&made);
   check(guestFsJournalPeek(journal, identity, sizeof(identity)) == guestFsOk &&
-        strcmp(identity, "cpm80-SYSTEM") == 0);
+        strcmp(identity, "CPM80_256K") == 0);
   FILE* damage = fopen(journal, "r+b");
   check(damage != NULL);
   check(fseek(damage, 148 + 20, SEEK_SET) == 0);
@@ -959,7 +959,7 @@ static void testJournalGarbage(void)
   remove(journal);
 
   //-- A journal for a differently sized image is not applied.
-  check(guestFsJournalBegin(&made, journal, "cpm80-SYSTEM", io.size + 128) == guestFsOk);
+  check(guestFsJournalBegin(&made, journal, "CPM80_256K", io.size + 128) == guestFsOk);
   check(guestFsJournalSave(&made, &guest, 6656, 32) == guestFsOk);
   check(guestFsJournalSeal(&made) == guestFsOk);
   guestFsJournalAbandon(&made);
@@ -994,12 +994,12 @@ static void testCopyAndFiles(void)
   testIo destinationIo;
   guestFsVolume* sourceVolume;
   guestFsVolume* destinationVolume;
-  loadFixture(&source, "cpm80-BIG");
-  loadFixture(&destination, "cpm86-LARGE");
-  joinPath(basePath, sizeof(basePath), fixtureDirectory, "cpm80-BIG.expected.dsk");
+  loadFixture(&source, "CPM80_8M");
+  loadFixture(&destination, "CPM86_516K");
+  joinPath(basePath, sizeof(basePath), fixtureDirectory, "CPM80_8M.expected.dsk");
   workPath(sourcePath, sizeof(sourcePath), "copySource.dsk");
   copyFile(basePath, sourcePath);
-  joinPath(basePath, sizeof(basePath), fixtureDirectory, "cpm86-LARGE.base.dsk");
+  joinPath(basePath, sizeof(basePath), fixtureDirectory, "CPM86_516K.base.dsk");
   workPath(destinationPath, sizeof(destinationPath), "copyDestination.dsk");
   copyFile(basePath, destinationPath);
   check(openVolume(sourcePath, &source, &sourceIo, &sourceVolume, false, -1, NULL, 0) == guestFsOk);
@@ -1090,9 +1090,9 @@ static void testImageFileBinding(void)
   guestFsIo guest;
   guestFsVolume* volume = NULL;
   fixtureInfo fixture;
-  loadFixture(&fixture, "cpm80-LARGE");
-  joinPath(basePath, sizeof(basePath), fixtureDirectory, "cpm80-LARGE.base.dsk");
-  joinPath(expectedPath, sizeof(expectedPath), fixtureDirectory, "cpm80-LARGE.expected.dsk");
+  loadFixture(&fixture, "CPM80_512K");
+  joinPath(basePath, sizeof(basePath), fixtureDirectory, "CPM80_512K.base.dsk");
+  joinPath(expectedPath, sizeof(expectedPath), fixtureDirectory, "CPM80_512K.expected.dsk");
   workPath(imagePath, sizeof(imagePath), "binding.dsk");
   journalPathFor(journal, sizeof(journal));
   copyFile(basePath, imagePath);
@@ -1216,9 +1216,9 @@ static void roundTripRealImage(const char* osId, const char* imageName)
 
 int main(int argc, char** argv)
 {
-  static const char* const stems[] = {"cpm80-SYSTEM", "cpm80-LARGE", "cpm80-BIG",
-                                      "cpm86-CPM86",  "cpm86-LARGE", "cpm86-BIG"};
-  static const char* const crashStems[] = {"cpm80-SYSTEM", "cpm86-LARGE", "cpm80-BIG"};
+  static const char* const stems[] = {"CPM80_256K", "CPM80_512K", "CPM80_8M",
+                                      "CPM86_160K", "CPM86_516K", "CPM86_8196K"};
+  static const char* const crashStems[] = {"CPM80_256K", "CPM86_516K", "CPM80_8M"};
   if (argc != 4)
   {
     fprintf(stderr, "usage: guestFsTests <fixtureDirectory> <outputDirectory> <projectRoot>\n");

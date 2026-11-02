@@ -230,12 +230,12 @@ Rules:
 | `$DA90–$DA9F` | A: DPH (16 bytes). | `installBios` |
 | `$DAA0–$DAAF` | A: DPB (16 bytes). | `installBios` |
 | `$DAB0–$DB2F` | A: 128-byte directory buffer. | `installBios` |
-| `$DB30–$DB3F` | A: SYSTEM CSV (16 bytes). | `installBios` |
-| `$DB40–$DB5E` | A: SYSTEM ALV (31 bytes). | `installBios` |
+| `$DB30–$DB3F` | A: CPM80_256K CSV (16 bytes). | `installBios` |
+| `$DB40–$DB5E` | A: CPM80_256K ALV (31 bytes). | `installBios` |
 | `$DB60–$DB6F` … per drive | B::`$DB60`, C::`$DC60`, D::`$DD60`, E::`$DE60` drive table slots, `$0100` bytes each. | `installBios` |
-| `$DF60–$E05F` | F: drive table slot (includes BIG ALV up to `$E05F`). | `installBios` |
-| `$E060–$E06F` | A: CSV when A: runs the LARGE profile (32 bytes) — the SYSTEM-sized A: slots are too small. | `installBios` |
-| `$E080–$E09E` | A: ALV when A: runs the LARGE profile (31 bytes). | `installBios` |
+| `$DF60–$E05F` | F: drive table slot (includes CPM80_8M ALV up to `$E05F`). | `installBios` |
+| `$E060–$E06F` | A: CSV when A: runs the CPM80_512K size (32 bytes) — the CPM80_256K-sized A: slots are too small. | `installBios` |
+| `$E080–$E09E` | A: ALV when A: runs the CPM80_512K size (31 bytes). | `installBios` |
 
 All other addresses are ordinary RAM. Memory is a single flat byte array: ROM/RAM
 distinction, write protection and banking are not implemented and not required.
@@ -257,12 +257,12 @@ contain the CP/M directory (after the 2 reserved tracks of the profile) and file
 allocations for the bundled software (§17). The BIOS is generated in guest memory at every
 boot and MUST NOT be stored in the image.
 
-Two A: profiles are bootable, distinguished by exact file size only:
+Two A: sizes are bootable, named by their drives.cfg size identifier:
 
-| Profile | Exact image size |
+| Size identifier | Exact image size |
 | --- | ---: |
-| SYSTEM | 256,256 bytes |
-| LARGE | 512,512 bytes |
+| CPM80_256K | 256,256 bytes |
+| CPM80_512K | 512,512 bytes |
 
 An A: image of any other size is invalid. The header is validated before every boot.
 
@@ -391,10 +391,11 @@ Each DPB is 16 bytes:
 | `$0D` | OFF | word — reserved-track offset |
 
 Addresses (all values fixed, from §10): A: DPH `$DA90`, DPB `$DAA0`, directory buffer
-`$DAB0`, CSV `$DB30`, ALV `$DB40`; A: LARGE overrides CSV `$E060`, ALV `$E080`. Drives
+`$DAB0`, CSV `$DB30`, ALV `$DB40`; A: CPM80_512K overrides CSV `$E060`, ALV `$E080`. Drives
 B:–F: DPH at `$DB60 + 0x100·(drive−1)`, with DPB at +`$10`, directory buffer at +`$20`,
 CSV at +`$A0`, ALV at +`$C0` relative to their DPH. Every directory buffer is 128 bytes.
-CSV sizes: SYSTEM 16, LARGE 32, BIG 0 (CKS = 0). ALV sizes: SYSTEM/LARGE 31, BIG 64.
+CSV sizes: CPM80_256K 16, CPM80_512K 32, CPM80_8M 0 (CKS = 0). ALV sizes: CPM80_256K and
+CPM80_512K 31, CPM80_8M 64.
 `installBios` zeroes the DPH, directory buffer, CSV and ALV of every drive at install.
 
 ## 14. Disk subsystem
@@ -408,11 +409,11 @@ Images are raw, identity-ordered sequences of 128-byte records:
 recordOffset = ((track · sectorsPerTrack) + sector) · 128 
 ```
 
-| Profile | Image size | Geometry (tracks × records/track) | Reserved tracks | Block size | Dir entries | DPB SPT,BSH,BLM,EXM,DSM,DRM,AL0,AL1,CKS,OFF |
+| Size identifier | Image size | Geometry (tracks × records/track) | Reserved tracks | Block size | Dir entries | DPB SPT,BSH,BLM,EXM,DSM,DRM,AL0,AL1,CKS,OFF |
 | --- | ---: | --- | ---: | ---: | ---: | --- |
-| SYSTEM | 256,256 | 77 × 26 | 2 | 1 KiB | 64 | `26, 3, 7, 0, 242, 63, $C0, 0, 16, 2` |
-| LARGE | 512,512 | 77 × 52 | 2 | 2 KiB | 128 | `52, 4, 15, 0, 242, 127, $C0, 0, 32, 2` |
-| BIG | 8,421,376 | 514 × 128 | 2 | 16 KiB | 512 | `128, 7, 127, 7, 511, 511, $80, 0, 0, 2` |
+| CPM80_256K | 256,256 | 77 × 26 | 2 | 1 KiB | 64 | `26, 3, 7, 0, 242, 63, $C0, 0, 16, 2` |
+| CPM80_512K | 512,512 | 77 × 52 | 2 | 2 KiB | 128 | `52, 4, 15, 0, 242, 127, $C0, 0, 32, 2` |
+| CPM80_8M | 8,421,376 | 514 × 128 | 2 | 16 KiB | 512 | `128, 7, 127, 7, 511, 511, $80, 0, 0, 2` |
 
 The profile geometry/DPB values above are the single source of truth (mirrored as named
 constants in `cpm80Guest.h`/`cpm80Guest.c`, e.g. `cpm80BigImageSize = 8421376`,
@@ -492,7 +493,7 @@ requires a writable A: (it writes `$$$.SUB`).
 Path: `/littlefs/cpm80/drives.cfg`. Grammar, per non-comment line:
 
 ```text
-drive=/path/to/image,RO|RW,SYSTEM|LARGE|BIG
+drive=/path/to/image,RO|RW,CPM80_256K|CPM80_512K|CPM80_8M
 ```
 
 Parser requirements (see `main/cpm80DriveConfig.c`):
@@ -502,10 +503,10 @@ Parser requirements (see `main/cpm80DriveConfig.c`):
   more are rejected.
 - Exactly one `=`; the drive name is one character `A`–`F` (case-sensitive uppercase);
   duplicates are rejected. The value is three comma-separated fields: path, mode
-  (`RO`/`RW` exactly), profile (`SYSTEM`/`LARGE`/`BIG` exactly); a comma inside the
-  profile name is rejected; an empty path is rejected.
+  (`RO`/`RW` exactly), size identifier (`CPM80_256K`/`CPM80_512K`/`CPM80_8M` exactly);
+  a comma inside the identifier is rejected; an empty path is rejected.
 - A: (`drive == A`) MUST name a LittleFS path under `/littlefs/cpm80/` and MUST NOT use
-  BIG; its RO/RW mode is honored. B:–F: MUST name paths in the SD namespace
+  CPM80_8M; its RO/RW mode is honored. B:–F: MUST name paths in the SD namespace
   `/retro/images/cpm80/`; the parser prefixes the stored path with `/microSD` to reach the
   VFS mount.
 - Path safety (all drives): reject anything not starting with the required prefix, an
@@ -516,15 +517,14 @@ Parser requirements (see `main/cpm80DriveConfig.c`):
   default table; any malformed line, over-long line or read error → `Invalid`, the whole
   file is discarded (partial entries are not kept) and the default table restored. A
   caller-visible error string identifies the failing line number.
-- Built-in default table: A: = `/littlefs/cpm80/system.dsk`, RO, SYSTEM with
-  size-detection enabled; B:–F: unconfigured.
-- A: profile resolution (`cpm80DriveConfigResolveSystemProfile`): the effective profile
-  comes from the exact image size (256,256 → SYSTEM, 512,512 → LARGE). When
-  `drives.cfg` declares SYSTEM (or the default table is used), either size is accepted.
-  An explicit `LARGE` on A: requires exactly 512,512 bytes. Any other size → A: is not
-  mounted.
-- Optional drives B:–F: mount only when configured, present, exactly the declared profile
-  size, and openable with the requested access mode. A missing/mis-sized/unopenable
+- Built-in default table: A: = `/littlefs/cpm80/system.dsk`, RO, with size-detection
+  enabled (profileFromSize); B:–F: unconfigured.
+- A: profile resolution (`cpm80DriveConfigResolveSystemProfile`): 256,256 bytes map to
+  CPM80_256K and 512,512 bytes to CPM80_512K; any other size → A: is not mounted. Only
+  the built-in default follows the file size; an explicit size identifier from
+  `drives.cfg` must equal the actual file size.
+- Optional drives B:–F: mount only when configured, present, exactly the size named by
+  the identifier, and openable with the requested access mode. A missing/mis-sized/unopenable
   optional image is simply absent to CP/M (SELDSK returns 0); it MUST NOT redirect to
   another drive.
 - The `RO` flag governs emulator access to the image only. Editing images while the
@@ -592,7 +592,7 @@ options via `--help`) MUST produce images that satisfy §11/§14 exactly:
 
 | Tool | Requirement |
 | --- | --- |
-| `tools/createSystemDsk.py --os cpm80 --profile SMALL\|LARGE [--source-dir …]` | Build the A: image with CCP/BDOS/header at §11 offsets, directory after 2 reserved tracks, and the §17 file set; replaces the target image only on success. |
+| `tools/createSystemDsk.py --os cpm80 --profile CPM80_256K\|CPM80_512K [--source-dir …]` | Build the A: image with CCP/BDOS/header at §11 offsets, directory after 2 reserved tracks, and the §17 file set; replaces the target image only on success. |
 | `tools/buildDiskImage.py --os cpm80` | Deterministic curated composer for `littlefs/cpm80/system.dsk`. |
 | `tools/diskImage.py --os cpm80 create/add/list/extract` | Create/inspect raw profile images; `add` validates 8.3 names, duplicates, extents, directory and block capacity, and writes atomically; `create` refuses an existing target without `--force`. |
 | `tools/prepareSd.py` | Create the `/retro/…` tree and a sample `drives.cfg` without overwriting an existing one or formatting the card. |
@@ -640,8 +640,9 @@ reports. Required coverage (current suites: `testCpm80Cpu`, `testCpm80GuestBoot`
    close/reopen of the backing file.
 7. **Drives.cfg:** defaults on missing/invalid, every §18 rejection rule (duplicate,
    unknown drive/profile/mode, long line, traversal forms, backslash, control chars,
-   A: BIG, wrong prefixes), SD namespace prefixing, A: size-based profile detection
-   (SYSTEM/LARGE/other), explicit-LARGE mismatch rejection, header mismatch rejection.
+   A: CPM80_8M, wrong prefixes), SD namespace prefixing, A: size-based profile detection
+   (CPM80_256K/CPM80_512K/other), explicit-CPM80_512K mismatch rejection, header mismatch
+   rejection.
 8. **Timer:** capability byte with/without callback, F1 latches (subsequent F2–F4 do not
    re-call the callback even when the injected value changes), zero bytes with no
    callback, writes ignored.
@@ -663,7 +664,7 @@ behavior.
 | H4 | A: configured RO: attempt a write (`PIP A:X.TXT=B:Y.TXT` style). | CP/M reports read-only failure; no crash; image bytes unchanged. |
 | H5 | A: (or a B:–F: drive) configured RW: create/modify a file, exit to menu (RESET), re-enter. | Data persists byte-identically after restart. |
 | H6 | Remove/rename one optional image; also supply a wrong-size image. | That drive is absent (`A>` on it gives the BDOS drive error); other drives and A: unaffected; no aliasing to A:. |
-| H7 | Mount a BIG (8,421,376-byte) image on C: or D: and `DIR` it. | Full directory listed; reads of the last track/sector succeed (exercises 514×128 geometry). |
+| H7 | Mount a CPM80_8M (8,421,376-byte) image on C: or D: and `DIR` it. | Full directory listed; reads of the last track/sector succeed (exercises 514×128 geometry). |
 | H8 | Terminal checks with a full-screen program (`DDT`, `ED`). | CR/LF, backspace, erase, cursor and clear behave in the 80×24 terminal; host logs never corrupt guest output. |
 | H9 | Timed guest workload via the timer ports (e.g. `BENCH80`). | F0 = `$B1`; elapsed values track wall-clock within tolerance of the injected batch scheduling. |
 | H10 | Sustained run ≥ 30 minutes with disk activity (e.g. repeated `DIR`, `SUBMIT` loop). | No watchdog reset; RGB LED shows green/red per read/write and idles 120 ms after activity. |

@@ -108,15 +108,15 @@ static bool parseLine(char* line, cpm80DriveConfig drives[cpm80DiskDriveCount],
   }
 
   cpm80DiskProfile profile;
-  if (strcmp(profileName, "SYSTEM") == 0)
+  if (strcmp(profileName, "CPM80_256K") == 0)
   {
     profile = cpm80DiskProfileSystem;
   }
-  else if (strcmp(profileName, "LARGE") == 0)
+  else if (strcmp(profileName, "CPM80_512K") == 0)
   {
     profile = cpm80DiskProfileLarge;
   }
-  else if (strcmp(profileName, "BIG") == 0)
+  else if (strcmp(profileName, "CPM80_8M") == 0)
   {
     profile = cpm80DiskProfileBig;
   }
@@ -138,8 +138,9 @@ static bool parseLine(char* line, cpm80DriveConfig drives[cpm80DiskDriveCount],
     return false;
   }
 
-  //-- A: is the LittleFS system image (SYSTEM or LARGE, never BIG); its RO/RW mode is configurable.
-  //-- B: to F: are SD images (SYSTEM = 256256 bytes, LARGE = 512512 bytes or BIG = 8421376 bytes).
+  //-- A: is the LittleFS system image (CPM80_256K or CPM80_512K, never CPM80_8M); its RO/RW mode
+  //-- is configurable. B: to F: are SD images. The identifier carries the image size:
+  //-- CPM80_256K = 256256 bytes, CPM80_512K = 512512 bytes or CPM80_8M = 8421376 bytes.
   const char* requiredPrefix = drive == 0 ? systemPathPrefix : largePathPrefix;
   size_t storedPathLength = strlen(imagePath) + (drive != 0 ? strlen(largeVfsPrefix) : 0);
   if ((drive == 0 && profile == cpm80DiskProfileBig) || !safePath(imagePath, requiredPrefix) ||
@@ -159,7 +160,8 @@ static bool parseLine(char* line, cpm80DriveConfig drives[cpm80DiskDriveCount],
   drives[drive].profile = profile;
   drives[drive].readOnly = readOnly;
   drives[drive].configured = true;
-  drives[drive].profileFromSize = drive == 0 && profile == cpm80DiskProfileSystem;
+  //-- An explicit identifier states the size; only the built-in default follows the file size.
+  drives[drive].profileFromSize = false;
   seen[drive] = true;
   return true;
 }
@@ -257,7 +259,7 @@ bool cpm80DriveConfigResolveSystemProfile(cpm80DriveConfig* drive, uint64_t imag
     if (error != NULL && errorCapacity > 0)
     {
       snprintf(error, errorCapacity,
-               "size %llu matches no system profile (SYSTEM=%llu, LARGE=%llu)",
+               "size %llu matches no system profile (CPM80_256K=%llu, CPM80_512K=%llu)",
                (unsigned long long)imageSize,
                (unsigned long long)cpm80DiskProfileImageSize(cpm80DiskProfileSystem),
                (unsigned long long)cpm80DiskProfileImageSize(cpm80DiskProfileLarge));

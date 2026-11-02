@@ -39,7 +39,7 @@ class DiskImageCpm80Tests(unittest.TestCase):
 
     def test_large_profile_uses_double_density_geometry_and_adds_files(self):
         large_path = Path(self.temporary_directory.name) / "large.dsk"
-        diskImageCpm80.create_image(large_path, profile="LARGE")
+        diskImageCpm80.create_image(large_path, profile="CPM80_512K")
         image = large_path.read_bytes()
         self.assertEqual(len(image), diskImageCpm80.LARGE_IMAGE_SIZE)
         self.assertTrue(

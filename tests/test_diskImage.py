@@ -22,7 +22,7 @@ class DiskImageCliTests(unittest.TestCase):
             common = ("--os", "cpm86", "--sd-root", str(root))
             run("diskImage.py", "create", *common, "small.dsk")
             self.assertNotEqual(run("diskImage.py", "add", *common, "small.dsk", str(source), check=False).returncode, 0)
-            run("diskImage.py", "create", *common, "--profile", "LARGE", "large.dsk")
+            run("diskImage.py", "create", *common, "--profile", "CPM86_516K", "large.dsk")
             image = root / "retro" / "images" / "cpm86" / "large.dsk"
             self.assertEqual(image.stat().st_size, 528384)
             run("diskImage.py", "add", *common, "large.dsk", str(source))
@@ -88,7 +88,7 @@ class DiskImageCliTests(unittest.TestCase):
         general = run("diskImage.py", "-h").stdout
         self.assertIn("apple2", general)
         specific = run("diskImage.py", "--os", "cpm86", "-h").stdout
-        self.assertIn("CPM86", specific)
+        self.assertIn("CPM86_160K", specific)
         self.assertIn("--os cpm86", specific)
 
     def test_planned_os_is_refused(self):

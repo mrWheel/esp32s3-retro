@@ -35,7 +35,7 @@ class CreateSystemDskTests(unittest.TestCase):
 
         skipped = createSystemDsk.create_system_disk(
             "cpm80",
-            "SMALL",
+            "CPM80_256K",
             self.output_path,
             source_dir=self.source_dir,
         )
@@ -61,7 +61,7 @@ class CreateSystemDskTests(unittest.TestCase):
 
         createSystemDsk.create_system_disk(
             "cpm80",
-            "LARGE",
+            "CPM80_512K",
             output,
             source_dir=self.source_dir,
         )
@@ -80,7 +80,7 @@ class CreateSystemDskTests(unittest.TestCase):
                 "--os",
                 "cpm80",
                 "--profile",
-                "SMALL",
+                "CPM80_256K",
                 "--source-dir",
                 str(self.source_dir),
                 "--output",
@@ -104,7 +104,7 @@ class CreateSystemDskTests(unittest.TestCase):
 
         createSystemDsk.create_system_disk(
             "cpm86",
-            "SMALL",
+            "CPM86_160K",
             output,
             source_dir=self.source_dir,
         )
@@ -126,7 +126,7 @@ class CreateSystemDskTests(unittest.TestCase):
 
         createSystemDsk.create_system_disk(
             "cpm86",
-            "LARGE",
+            "CPM86_516K",
             output,
         )
 
@@ -141,7 +141,7 @@ class CreateSystemDskTests(unittest.TestCase):
 
         createSystemDsk.create_system_disk(
             "cpm86",
-            "BIG",
+            "CPM86_8196K",
             output,
         )
 
@@ -152,7 +152,7 @@ class CreateSystemDskTests(unittest.TestCase):
         self.assertNotIn("CPM.SYS", filenames)
 
     def test_cli_large_does_not_claim_it_is_unbootable(self):
-        for os_name in ("cpm80", "cpm86"):
+        for os_name, profile in (("cpm80", "CPM80_512K"), ("cpm86", "CPM86_516K")):
             output = self.root / f"{os_name}-cli-large.dsk"
             result = subprocess.run(
                 [
@@ -161,7 +161,7 @@ class CreateSystemDskTests(unittest.TestCase):
                     "--os",
                     os_name,
                     "--profile",
-                    "LARGE",
+                    profile,
                     "--output",
                     str(output),
                 ],
@@ -176,8 +176,8 @@ class CreateSystemDskTests(unittest.TestCase):
 
     def test_all_boot_source_files_are_in_both_profiles(self):
         inspectors = {
-            "cpm80": (diskImageCpm80, {"SMALL": diskImageCpm80.IMAGE_SIZE, "LARGE": diskImageCpm80.LARGE_IMAGE_SIZE}),
-            "cpm86": (diskImageCpm86, {"SMALL": diskImageCpm86.IMAGE_SIZE, "LARGE": diskImageCpm86.LARGE_IMAGE_SIZE, "BIG": diskImageCpm86.BIG_IMAGE_SIZE}),
+            "cpm80": (diskImageCpm80, {"CPM80_256K": diskImageCpm80.IMAGE_SIZE, "CPM80_512K": diskImageCpm80.LARGE_IMAGE_SIZE}),
+            "cpm86": (diskImageCpm86, {"CPM86_160K": diskImageCpm86.IMAGE_SIZE, "CPM86_516K": diskImageCpm86.LARGE_IMAGE_SIZE, "CPM86_8196K": diskImageCpm86.BIG_IMAGE_SIZE}),
         }
         for os_name, (module, sizes) in inspectors.items():
             source_names = sorted(
@@ -197,7 +197,7 @@ class CreateSystemDskTests(unittest.TestCase):
 
     def test_unimplemented_os_is_rejected(self):
         with self.assertRaisesRegex(createSystemDsk.DiskImageError, "not implemented"):
-            createSystemDsk.create_system_disk("swtpc", "SMALL", self.output_path)
+            createSystemDsk.create_system_disk("swtpc", "CPM80_256K", self.output_path)
 
     def test_applesoft_token_values_follow_the_rom_token_order(self):
         names = (

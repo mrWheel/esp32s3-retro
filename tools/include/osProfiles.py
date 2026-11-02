@@ -62,11 +62,11 @@ OS_REGISTRY = {
         image_module="diskImageCpm80",
         build_module="buildDiskImageCpm80",
         details=(
-            "Profiles:\n"
-            "  SYSTEM  77 tracks x 26 x 128 B (256256 bytes), 1 KiB blocks, 64 directory entries\n"
-            "  LARGE   77 tracks x 52 x 128 B (512512 bytes), 2 KiB blocks, 128 directory entries\n"
-            "  BIG     514 tracks x 128 x 128 B (8421376 bytes), 16 KiB blocks, 512 directory entries,\n"
-            "          8 MiB of data (DSM 511, 16-bit block pointers)\n"
+            "Profiles (the identifier carries the image size):\n"
+            "  CPM80_256K   77 tracks x 26 x 128 B (256256 bytes), 1 KiB blocks, 64 directory entries\n"
+            "  CPM80_512K   77 tracks x 52 x 128 B (512512 bytes), 2 KiB blocks, 128 directory entries\n"
+            "  CPM80_8M     514 tracks x 128 x 128 B (8421376 bytes), 16 KiB blocks, 512 directory entries,\n"
+            "               8 MiB of data (DSM 511, 16-bit block pointers)\n"
             "Files need CP/M 8.3 names (upper-cased automatically); user area 0."
         ),
     ),
@@ -77,13 +77,13 @@ OS_REGISTRY = {
         image_module="diskImageCpm86",
         build_module="buildDiskImageCpm86",
         details=(
-            "Profiles:\n"
-            "  CPM86   40 tracks x 8 x 512 B (163840 bytes), track 0 reserved for boot,\n"
-            "          1 KiB blocks, 64 directory entries; drives A: through F: (RETRO86_DATA_V1)\n"
-            "  LARGE   129 tracks x 8 x 512 B (528384 bytes), 2 KiB blocks, 128 directory\n"
-            "          entries; drives B: through F: (RETRO86_DATA_LARGE_V1)\n"
-            "  BIG     2049 tracks x 8 x 512 B (8392704 bytes), 16 KiB blocks, 512 directory\n"
-            "          entries; drives B: through F: (RETRO86_DATA_BIG_V1)\n"
+            "Profiles (the identifier carries the image size):\n"
+            "  CPM86_160K   40 tracks x 8 x 512 B (163840 bytes), track 0 reserved for boot,\n"
+            "               1 KiB blocks, 64 directory entries; drives A: through F:\n"
+            "  CPM86_516K   129 tracks x 8 x 512 B (528384 bytes), 2 KiB blocks, 128 directory\n"
+            "               entries; drives B: through F:\n"
+            "  CPM86_8196K  2049 tracks x 8 x 512 B (8392704 bytes), 16 KiB blocks, 512 directory\n"
+            "               entries; drives B: through F:\n"
             "Files need CP/M 8.3 names (upper-cased automatically); user area 0.\n"
             "The drive configuration is littlefs/cpm86/drives.cfg; edit its image paths\n"
             "and RO/RW access modes. buildDiskImage.py needs --source-dir with CPM.SYS\n"

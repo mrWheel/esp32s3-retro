@@ -28,7 +28,7 @@ class ExtractCpmTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         self.image = self.root / "disk.dsk"
-        diskImageCpm80.create_image(self.image, profile="LARGE")
+        diskImageCpm80.create_image(self.image, profile="CPM80_512K")
 
     def run_quiet(self, args):
         with contextlib.redirect_stdout(io.StringIO()) as output:

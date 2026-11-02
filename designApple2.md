@@ -179,8 +179,8 @@ An 80×24 USB terminal is the host display; it does not magically grant the Appl
 
 Use the shared HOST-M1 image backend and `drives.cfg` conventions, preserving path, RO/RW, and image-profile semantics. For example, the existing CP/M configuration uses 
 
-- A=/littlefs/cpm86/system.dsk,RO,RETRO86_SYSTEM and 
-- C=/retro/images/cpm86/Utility.dsk,RW,RETRO86_DATA_BIG_V1.
+- A=/littlefs/cpm86/system.dsk,RO,CPM86_516K and 
+- C=/retro/images/cpm86/Utility.dsk,RW,CPM86_8196K.
 
 Apple-specific profile names and letter-to-slot mappings below are proposals, not claims about the current parser:
 

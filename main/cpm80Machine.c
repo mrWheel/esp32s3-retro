@@ -160,8 +160,9 @@ static void closeDiskImages(void)
   }
 }
 
-//-- The A: layout (SYSTEM or LARGE) follows from the size of the image file; the CCP/BDOS and
-// header sit at the same offsets in both.
+//-- The built-in A: layout (CPM80_256K or CPM80_512K) follows from the size of the image file;
+// the CCP/BDOS and header sit at the same offsets in both. A drives.cfg A: line declares its
+// size in the identifier and must match the file.
 static bool resolveSystemProfile(imageFile* image)
 {
   char error[128];

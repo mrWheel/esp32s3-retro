@@ -215,10 +215,10 @@ rebuild the CP/M-80 system disk when the executable or help text should be
 included in the generated image:
 
 ```sh
-python3 tools/createSystemDsk.py --os cpm80 --profile LARGE
+python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_512K
 ```
 
-Use `--profile LARGE` instead when building the LARGE profile. The durable
+Use `--profile CPM80_256K` when building the 256K profile. The durable
 inputs are in `bootDisks/cpm80/systemDsk/`; the generated image under
 `littlefs/cpm80/` is a build output and may be replaced by the next build.
 

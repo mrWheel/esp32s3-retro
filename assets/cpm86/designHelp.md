@@ -215,7 +215,7 @@ Rebuild the system disk from the repository root when the executable is to
 be included in the generated image:
 
 ```sh
-python3 tools/createSystemDsk.py --os cpm86 --profile LARGE
+python3 tools/createSystemDsk.py --os cpm86 --profile CPM86_516K
 ```
 
 The generated `littlefs/cpm86/system.dsk` is a build output and may be

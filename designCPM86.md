@@ -488,7 +488,7 @@ machine initialization.
 | EDh | IN | Transfer status: `$00` success, `$01` failure. |
 | EEh | IN | Next byte of an active read transfer; outside an active read → guest I/O fault. |
 | EEh | OUT | Next byte of an armed write transfer; the 128th byte commits the record (then mode → idle). Outside an active write → guest I/O fault. |
-| EFh | IN | Geometry code of the selected drive: `$00` when unselected/out of range/not configured, else the drive's code `$FF` (160 KiB DPB0), `$01` (large DPB1) or `$02` (BIG DPB2). |
+| EFh | IN | Geometry code of the selected drive: `$00` when unselected/out of range/not configured, else the drive's code `$FF` (CPM86_160K DPB0), `$01` (CPM86_516K DPB1) or `$02` (CPM86_8196K DPB2). |
 
 Transfer rules:
 
@@ -521,18 +521,20 @@ Images are raw, identity-ordered sequences of 128-byte records; 32 records (8 ph
 raw track 1 as its track 0, so the BIOS passes the guest track to the backend unchanged —
 adding another offset would skip the directory.
 
-| Profile name (`drives.cfg`) | Exact image size | Tracks | Block | Dir entries | DPB | EFh code | Role |
+| Size identifier (`drives.cfg`) | Exact image size | Tracks | Block | Dir entries | DPB | EFh code | Role |
 | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
-| `RETRO86_SYSTEM` (alias `RETRO86_SYSTEM_V1`) | 163,840 | 40 | 1 KiB | 64 | DPB0 | $FF | A: (size may also be LARGE or BIG) |
-| `RETRO86_SYSTEM` large variant | 528,384 | 129 | 2 KiB | 128 | DPB1 | $01 | A: large system |
-| `RETRO86_SYSTEM` big variant | 8,392,704 | 2049 | 16 KiB | 512 | DPB2 | $02 | A: big system |
-| `RETRO86_DATA_V1` | 163,840 | 40 | 1 KiB | 64 | DPB0 | $FF | B:–F: |
-| `RETRO86_DATA_LARGE_V1` | 528,384 | 129 | 2 KiB | 128 | DPB1 | $01 | B:–F: |
-| `RETRO86_DATA_BIG_V1` | 8,392,704 | 2049 | 16 KiB | 512 | DPB2 | $02 | B:–F: |
+| `CPM86_160K` | 163,840 | 40 | 1 KiB | 64 | DPB0 | $FF | A: (built-in) or B:–F: |
+| `CPM86_516K` | 528,384 | 129 | 2 KiB | 128 | DPB1 | $01 | A: (built-in) or B:–F: |
+| `CPM86_8196K` | 8,392,704 | 2049 | 16 KiB | 512 | DPB2 | $02 | A: (built-in) or B:–F: |
+
+The identifier carries the image size only; the drive letter decides the internal
+variant: the firmware models each size twice (`cpm86DiskProfileSystem*` for the
+built-in A: image, `cpm86DiskProfileData*` for SD images) and both share a geometry.
 
 SELDSK selects DPB0/1/2 purely from the EFh answer; the firmware stores the geometry code
-per mounted drive at initialize time. A: is mounted as system-small or system-large
-purely by the exact size of its image file (§14).
+per mounted drive at initialize time. A: is mounted as the `System*` variant matching the
+exact size of its image file; a declared identifier that contradicts the file size keeps
+A: unmounted (§14).
 
 ### 12.2 Geometry gate
 
@@ -586,14 +588,12 @@ Parser requirements (see `main/cpm86DriveConfig.c`):
   buffer without a newline is rejected as too long.
 - Exactly one `=` (not at the start); the drive name is one character `A`–`F`
   (case-sensitive uppercase); duplicates are rejected. The value is three
-  comma-separated fields: path, mode (`RO`/`RW` exactly), profile (one of
-  `RETRO86_SYSTEM`, `RETRO86_SYSTEM_V1`, `RETRO86_DATA_V1`, `RETRO86_DATA_LARGE_V1`,
-  `RETRO86_DATA_BIG_V1` exactly); a comma inside the profile name is rejected; empty
-  path or profile is rejected.
-- A: MUST use a `RETRO86_SYSTEM`/`RETRO86_SYSTEM_V1` profile and the exact path
-  `/littlefs/cpm86/system.dsk`; its RO/RW mode is honored (RW shows `[Writable!]` in the
-  menu and persists guest writes in LittleFS until the firmware rebuilds the image).
-  B:–F: MUST NOT use the system profile and MUST name paths in the SD namespace
+  comma-separated fields: path, mode (`RO`/`RW` exactly), size identifier (one of
+  `CPM86_160K`, `CPM86_516K`, `CPM86_8196K` exactly); a comma inside the identifier is
+  rejected; empty path or identifier is rejected.
+- A: MUST name the exact path `/littlefs/cpm86/system.dsk`; its RO/RW mode is honored
+  (RW shows `[Writable!]` in the menu and persists guest writes in LittleFS until the
+  firmware rebuilds the image). B:–F: MUST name paths in the SD namespace
   `/retro/images/cpm86/`; the stored path is resolved through `storageResolveRetroPath`,
   which prefixes `/microSD` to reach the VFS mount.
 - Path safety (all drives): must start with the required prefix, be longer than it, and
@@ -605,15 +605,17 @@ Parser requirements (see `main/cpm86DriveConfig.c`):
   `cpm86DriveConfigInvalid`, the whole file is discarded (partial entries are not kept)
   and the default table restored. The caller-visible error string identifies the failing
   line number.
-- Built-in default table: A: = `/littlefs/cpm86/system.dsk`, RO, `RETRO86_SYSTEM`;
-  B:–F: unconfigured.
+- Built-in default table: A: = `/littlefs/cpm86/system.dsk`, RO, size from the image
+  file (profileFromSize); B:–F: unconfigured.
 - A: profile resolution (`cpm86DriveConfigSystemProfileFromSize` /
-  `cpm86DriveConfigResolveSystemProfile`): 163,840 → system-small, 528,384 →
-  system-large, 8,392,704 → system-big, any other size is an error and A: is not
-  mounted (the error string reports the size and the three accepted sizes).
-- Optional B:–F: mount only when configured, present, exactly the declared profile size,
-  and openable with the requested access mode; otherwise the drive is absent. The
-  firmware never creates blank media during boot.
+  `cpm86DriveConfigResolveSystemProfile`): 163,840 → System, 528,384 → SystemLarge,
+  8,392,704 → SystemBig, any other size is an error and A: is not mounted (the error
+  string reports the size and the three accepted sizes). An explicit size identifier
+  from drives.cfg must equal the actual file size; only the built-in default
+  (profileFromSize) follows the file size.
+- Optional B:–F: mount only when configured, present, exactly the size named by the
+  identifier, and openable with the requested access mode; otherwise the drive is
+  absent. The firmware never creates blank media during boot.
 
 ## 15. Machine lifecycle integration
 
@@ -645,10 +647,11 @@ Fast, non-booting, never leaves files open:
    the unknown-port notice list.
 2. Load `drives.cfg`; log `Invalid` (with the error and the note that the built-in A: is
    used) or `Missing` (when the SD is ready) and continue with the restored defaults.
-3. For each configured drive: A: first resolves its profile from the exact image size
-   (failure → log, close all images, `ESP_FAIL`); then each drive is size-checked against
-   its profile and opened with its mode. A: failure is fatal; B:–F: failures are logged
-   and the drive stays offline. If A: is not mounted → `ESP_FAIL`.
+3. For each configured drive: A: first resolves its profile from the exact image size,
+   which must equal the identifier it declared (failure → log, close all images,
+   `ESP_FAIL`); then each drive is size-checked against its profile and opened with its
+   mode. A: failure is fatal; B:–F: failures are logged and the drive stays offline. If
+   A: is not mounted → `ESP_FAIL`.
 4. Create the core: `ramSize = 640 KiB`, port callbacks (§11),
    `readMilliseconds = esp_timer_get_time()/1000`. `cpm86CoreNoMemory` →
    `ESP_ERR_NO_MEM` with PSRAM/internal free-and-largest-block diagnostics; any other
@@ -685,8 +688,8 @@ options via `--help`) MUST produce images that satisfy §12 exactly:
 
 | Tool | Requirement |
 | --- | --- |
-| `tools/createSystemDsk.py --os cpm86 --profile SMALL\|LARGE\|BIG [--source-dir …]` | Build A: from `bootDisks/cpm86/systemDsk` (only `.CMD`/`.SYS` names; CPM.SYS is refused on A:), using the `CPM86`/`LARGE`/`BIG` profile geometry; validates `cpm.sys` (10,240) and the overlay (1–4096) remain outside A:; replaces `littlefs/cpm86/system.dsk` only on success. |
-| `tools/diskImage.py --os cpm86 create/add/list/extract` (`tools/cpm86/diskImageCpm86.py`) | Create/inspect raw profile images (`CPM86`, `LARGE`, `BIG`); `add` validates 8.3 names, duplicates, extents, directory and block capacity, and writes atomically; `create` refuses an existing target without `--force`. This tool is the authority for multi-extent LARGE content. |
+| `tools/createSystemDsk.py --os cpm86 --profile CPM86_160K\|CPM86_516K\|CPM86_8196K [--source-dir …]` | Build A: from `bootDisks/cpm86/systemDsk` (only `.CMD`/`.SYS` names; CPM.SYS is refused on A:), using the geometry named by the size identifier; validates `cpm.sys` (10,240) and the overlay (1–4096) remain outside A:; replaces `littlefs/cpm86/system.dsk` only on success. |
+| `tools/diskImage.py --os cpm86 create/add/list/extract` (`tools/cpm86/diskImageCpm86.py`) | Create/inspect raw profile images (`CPM86_160K`, `CPM86_516K`, `CPM86_8196K`); `add` validates 8.3 names, duplicates, extents, directory and block capacity, and writes atomically; `create` refuses an existing target without `--force`. This tool is the authority for multi-extent `CPM86_516K` content. |
 | `tools/buildDiskImage.py --os cpm86` (`tools/cpm86/buildDiskImageCpm86.py`) | Deterministic system-image composer from a source directory; CPM.SYS first. |
 | `tools/cpm86/diskdefs` | cpmtools geometry definitions (`retro86-160`, `retro86-large`, `retro86-big`) for cross-checking geometry only — cpmtools cannot express EXM and its LARGE multi-extent layout is incompatible; never use `mkfs.cpm`/`cpmcp` as the authority for LARGE content. |
 | `tools/prepareSd.py` | Create the `/retro/…` tree and a sample `drives.cfg` without overwriting an existing one or formatting the card. |
@@ -726,7 +729,7 @@ reports. Required coverage (current suites):
    `cpm.sys` header checks, real guest cold boot to `A>`, `DIR` lists the system files
    (incl. `ASM86`, `PIP`, `STAT`), `TYPE` of a multi-extent text file, drive selection to
    a second configured drive and `DIR` there, STAT message-table regression witness, and
-   the same flow on generated LARGE and BIG A: images. The fixture exercises the
+   the same flow on generated CPM86_516K and CPM86_8196K A: images. The fixture exercises the
    production geometry gate via `cpm86DriveRecordValid`.
 5. **Geometry (`testCpm86DriveGeometryMatrix`):** per profile 40/129/2049 tracks — first
    and last valid track, track 0 and overflow rejected, sector 31 accepted / 32 and
@@ -735,16 +738,16 @@ reports. Required coverage (current suites):
    out-of-range reads fail with status 1, last valid record reads, write/read-back of a
    128-byte record, and a read-only-opened image refuses the write with status 1 leaving
    the data untouched.
-7. **Storage full (`testCpm86StorageFull`):** guest-visible on disposable LARGE images —
+7. **Storage full (`testCpm86StorageFull`):** guest-visible on disposable CPM86_516K images —
    block-exhausted and directory-exhausted volumes refuse new files (PIP creates nothing,
    no `NO FILE`, DIR still lists the expected entries, the guest returns to a prompt) and
    an identical copy succeeds on an empty control volume.
 8. **Drives.cfg (`testCpm86DriveConfig`, `testCpm86SystemProfileDetection`):** defaults
-   on missing/invalid, every §14 rejection rule (duplicate, unknown drive/profile/mode,
-   long line, traversal forms, backslash, comma in path, wrong prefixes, A: path/profile
-   mismatch, system profile on B:), SD namespace prefixing to `/microSD/retro/...`, and
+   on missing/invalid, every §14 rejection rule (duplicate, unknown drive/size identifier/
+   mode, long line, traversal forms, backslash, comma in path, wrong prefixes, A: wrong
+   path, unknown identifier on B:–F:), SD namespace prefixing to `/microSD/retro/...`,
    A: size-based profile detection (163,840 / 528,384 / 8,392,704 accepted; other sizes
-   refused with a useful error).
+   refused with a useful error) and the explicit A: identifier matching the image size.
 
 ## 18. Verification: hardware acceptance
 

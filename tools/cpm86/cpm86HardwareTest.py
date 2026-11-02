@@ -32,7 +32,7 @@ class Cpm86(hwCpm.CpmAdapter):
   volumes = ["A:", "B:", "C:", "D:"]
   rwVolumes = ["D:", "B:"]
   #-- D: (work86-2.dsk) is 8 MiB: 60 x ~7.5 KiB files can never fill it. C: (work86-1.dsk)
-  #-- is the 516 KiB LARGE volume, fillable within the limit (measured 2026-11-01).
+  #-- is the 516 KiB CPM86_516K volume, fillable within the limit (measured 2026-11-01).
   fillVolume = "C:"
   fillLimit = 80
 

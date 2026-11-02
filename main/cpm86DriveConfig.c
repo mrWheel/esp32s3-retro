@@ -24,6 +24,22 @@ static void initializeDefaults(cpm86DriveConfig drives[cpm86DiskDriveCount])
   drives[0].profile = cpm86DiskProfileSystem;
   drives[0].readOnly = true;
   drives[0].configured = true;
+  drives[0].profileFromSize = true;
+}
+
+static const char* profileName(cpm86DiskProfile profile)
+{
+  switch (profile)
+  {
+  case cpm86DiskProfileSystemLarge:
+  case cpm86DiskProfileDataLarge:
+    return "CPM86_516K";
+  case cpm86DiskProfileDataBig:
+  case cpm86DiskProfileSystemBig:
+    return "CPM86_8196K";
+  default:
+    return "CPM86_160K";
+  }
 }
 
 static char* trim(char* text)
@@ -111,22 +127,20 @@ static bool parseLine(char* line, cpm86DriveConfig drives[cpm86DiskDriveCount],
     return false;
   }
 
+  //-- The identifier carries the image size; drive 0 is the built-in LittleFS boot image and
+  //-- drives B: to F: are SD images.
   cpm86DiskProfile profile;
-  if (strcmp(profileName, "RETRO86_SYSTEM") == 0 || strcmp(profileName, "RETRO86_SYSTEM_V1") == 0)
+  if (strcmp(profileName, "CPM86_160K") == 0)
   {
-    profile = cpm86DiskProfileSystem;
+    profile = drive == 0 ? cpm86DiskProfileSystem : cpm86DiskProfileData;
   }
-  else if (strcmp(profileName, "RETRO86_DATA_V1") == 0)
+  else if (strcmp(profileName, "CPM86_516K") == 0)
   {
-    profile = cpm86DiskProfileData;
+    profile = drive == 0 ? cpm86DiskProfileSystemLarge : cpm86DiskProfileDataLarge;
   }
-  else if (strcmp(profileName, "RETRO86_DATA_LARGE_V1") == 0)
+  else if (strcmp(profileName, "CPM86_8196K") == 0)
   {
-    profile = cpm86DiskProfileDataLarge;
-  }
-  else if (strcmp(profileName, "RETRO86_DATA_BIG_V1") == 0)
-  {
-    profile = cpm86DiskProfileDataBig;
+    profile = drive == 0 ? cpm86DiskProfileSystemBig : cpm86DiskProfileDataBig;
   }
   else
   {
@@ -147,11 +161,10 @@ static bool parseLine(char* line, cpm86DriveConfig drives[cpm86DiskDriveCount],
     return false;
   }
 
+  //-- A: is always the built-in system image; B: to F: live below the SD images directory.
   const char* requiredPrefix = drive == 0 ? systemPathPrefix : dataPathPrefix;
-  if ((drive == 0 &&
-       (profile != cpm86DiskProfileSystem || strcmp(imagePath, systemImagePath) != 0)) ||
-      (drive != 0 && profile == cpm86DiskProfileSystem) || !safePath(imagePath, requiredPrefix) ||
-      strlen(imagePath) >= sizeof(drives[drive].path))
+  if ((drive == 0 && strcmp(imagePath, systemImagePath) != 0) ||
+      !safePath(imagePath, requiredPrefix) || strlen(imagePath) >= sizeof(drives[drive].path))
   {
     return false;
   }
@@ -170,6 +183,8 @@ static bool parseLine(char* line, cpm86DriveConfig drives[cpm86DiskDriveCount],
   drives[drive].profile = profile;
   drives[drive].readOnly = readOnly;
   drives[drive].configured = true;
+  //-- An explicit identifier states the size; only the built-in default follows the file size.
+  drives[drive].profileFromSize = false;
   seen[drive] = true;
   return true;
 }
@@ -277,9 +292,19 @@ bool cpm86DriveConfigResolveSystemProfile(cpm86DriveConfig* drive, uint64_t imag
     if (error != NULL && errorCapacity > 0)
     {
       snprintf(error, errorCapacity,
-               "size %llu matches no system profile (small=%llu, large=%llu, big=%llu)",
+               "size %llu matches no system profile (CPM86_160K=%llu, CPM86_516K=%llu, "
+               "CPM86_8196K=%llu)",
                (unsigned long long)imageSize, (unsigned long long)cpm86SystemDiskSize,
                (unsigned long long)cpm86LargeDiskSize, (unsigned long long)cpm86BigDiskSize);
+    }
+    return false;
+  }
+  if (!drive->profileFromSize && drive->profile != detected)
+  {
+    if (error != NULL && errorCapacity > 0)
+    {
+      snprintf(error, errorCapacity, "drives.cfg says %s but the image is %s (size %llu)",
+               profileName(drive->profile), profileName(detected), (unsigned long long)imageSize);
     }
     return false;
   }
