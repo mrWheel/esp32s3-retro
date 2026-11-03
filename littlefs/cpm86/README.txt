@@ -29,13 +29,13 @@ system.dsk
   deliberately kept outside the disk at /littlefs/cpm86/cpm.sys; the firmware
   loads that file directly. The system-disk builder verifies the external
   kernel and BIOS overlay and does not put either on A:.
-  Rebuild this disk with `python3 tools/createSystemDsk.py --os cpm86
-  --profile CPM86_160K`, `--profile CPM86_516K`, `--profile CPM86_1440K` or
-  `--profile CPM86_8196K`. The firmware build
-  selects the profile with the CPM86_SYSTEM_DISK_PROFILE option (default
-  CPM86_516K); the 8196K disk needs the 12 MiB bootfs LittleFS partition.
+  Rebuild this disk with `python3 tools/diskManager.py --type SYSTEMDSK
+  --os cpm86 --profile CPM86_160K` (or CPM86_516K, CPM86_1440K, CPM86_8196K).
+  The firmware build selects the profile with the CPM86_SYSTEM_DISK_PROFILE
+  option (default CPM86_1440K); the 8196K disk does not fit the 8 MiB bootfs
+  LittleFS partition, so keep the A: profile at 1440K or smaller.
   The firmware picks the DPB from the size of system.dsk (163,840, 528,384,
-  1,474,560 or 8,392,704 bytes), so drives.cfg only needs A=/littlefs/cpm86/system.dsk,RO,CPM86_516K.
+  1,474,560 or 8,392,704 bytes), so drives.cfg only needs A=/littlefs/cpm86/system.dsk,RO,CPM86_1440K.
   Any other size is reported as an error and A: is not mounted.
 
 Resource sizes, the on-disk directory, the BIOS overlay and the

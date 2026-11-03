@@ -43,13 +43,3 @@ def build(arguments, output_path, project_root):
     except diskImageCpm86.DiskImageError:
         output_path.unlink(missing_ok=True)
         raise
-
-
-def main():
-    import buildDiskImage
-
-    buildDiskImage.main(default_os="cpm86")
-
-
-if __name__ == "__main__":
-    main()

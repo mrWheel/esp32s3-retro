@@ -171,13 +171,3 @@ def add_arguments(parser):
 
 def build(arguments, output_path, project_root):
     build_disk(project_root, output_path)
-
-
-def main() -> None:
-    import buildDiskImage
-
-    buildDiskImage.main(default_os="cpm80")
-
-
-if __name__ == "__main__":
-    main()

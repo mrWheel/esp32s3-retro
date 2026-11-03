@@ -592,9 +592,9 @@ options via `--help`) MUST produce images that satisfy §11/§14 exactly:
 
 | Tool | Requirement |
 | --- | --- |
-| `tools/createSystemDsk.py --os cpm80 --profile CPM80_256K\|CPM80_512K [--source-dir …]` | Build the A: image with CCP/BDOS/header at §11 offsets, directory after 2 reserved tracks, and the §17 file set; replaces the target image only on success. |
-| `tools/buildDiskImage.py --os cpm80` | Deterministic curated composer for `littlefs/cpm80/system.dsk`. |
-| `tools/diskImage.py --os cpm80 create/add/list/extract` | Create/inspect raw profile images; `add` validates 8.3 names, duplicates, extents, directory and block capacity, and writes atomically; `create` refuses an existing target without `--force`. |
+| `tools/diskManager.py --type SYSTEMDSK --os cpm80 --profile CPM80_256K\|CPM80_512K [--source-dir …]` | Deterministic curated composer: builds the A: image with CCP/BDOS/header at §11 offsets, directory after 2 reserved tracks, and the §17 file set; replaces `littlefs/cpm80/system.dsk` only on success. |
+| `tools/diskManager.py --type WORKDSK --os cpm80 [--profile …] <image>` | Create raw profile images; refuses an existing target without `--force`. |
+| `tools/extractFiles.py --os cpm80 <image> --add/--extract/--remove` | Inspect and edit raw profile images; `add` validates 8.3 names, duplicates, extents, directory and block capacity, and writes atomically. |
 | `tools/prepareSd.py` | Create the `/retro/…` tree and a sample `drives.cfg` without overwriting an existing one or formatting the card. |
 | `tools/cpm80/cpm80HardwareTest.py` | Drive a running device over the console for the hardware procedures of §23. |
 

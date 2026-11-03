@@ -12,7 +12,7 @@ license not verified.
 system.dsk is the bootable ProDOS 8 volume /SYSTEM (640K), generated from the base
 bootDisks/apple2/prodosEmpty.po plus every file in bootDisks/apple2/systemDsk by the
 firmware build (CMake configure time), or manually with:
-  PYTHONPATH=tools python3 tools/createSystemDsk.py --os apple2 --profile PRODOS
+  python3 tools/diskManager.py --type SYSTEMDSK --os apple2 --profile PRODOS
 HELLO.BAS becomes STARTUP (run by BASIC.SYSTEM at boot; the 80-column card is selected
 automatically when the machine starts) and TEST-NONGR.BAS becomes TEST.NONGR (tokenized
 Applesoft; LOAD TEST.NONGR, then RUN). SD6.1 may mount this image read-only or read/write.
@@ -33,7 +33,7 @@ tests/fixtures/apple2-diagnostic.rom and can be regenerated with:
 
 More disks: /littlefs/apple2/drives.cfg (littlefs/apple2/drives.cfg in the project)
 maps images to slots 4..7, drives 1..2, for example the 800K read/write ProDOS data volumes
-made with tools/buildDiskImage.py --os apple2 --name DATA1 data1.po:
+made with tools/diskManager.py --type WORKDSK --os apple2 --profile 800K DATA1.po:
   SD6.1=/littlefs/apple2/system.dsk,RO,APPLE2_640K
   SD6.2=/retro/images/apple2/data1.po,RW,APPLE2_800K
   SD5.1=/retro/images/apple2/data2.po,RW,APPLE2_800K

@@ -29,13 +29,14 @@ def _volume_name_from_path(image_path):
 
 
 def create_image(image_path, force=False, profile=DEFAULT_PROFILE):
+    """Create the volume and return a detail string for diskImage.py's uniform result line."""
     profile = profile.upper()
     if profile not in PROFILES:
         raise DiskImageError(f"Unknown profile {profile!r}; use one of {sorted(PROFILES)}")
     volume_name = _volume_name_from_path(image_path)
     data = prodos.build_blank_volume(volume_name, profile)
     atomic_write_image(image_path, data, replace_existing=force)
-    print(f"ProDOS volume /{volume_name}")
+    return f"volume /{volume_name}"
 
 
 def parse_filename(name):

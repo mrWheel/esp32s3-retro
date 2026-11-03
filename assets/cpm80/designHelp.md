@@ -215,7 +215,7 @@ rebuild the CP/M-80 system disk when the executable or help text should be
 included in the generated image:
 
 ```sh
-python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_512K
+python3 tools/diskManager.py --type SYSTEMDSK --os cpm80 --profile CPM80_512K
 ```
 
 Use `--profile CPM80_256K` when building the 256K profile. The durable

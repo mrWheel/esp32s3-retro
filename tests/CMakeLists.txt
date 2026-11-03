@@ -132,17 +132,17 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../littlefs/ucsd/ApplePascal1-140K.dsk"
     "${CMAKE_CURRENT_SOURCE_DIR}/../sdcard/retro/images/ucsd/pascalWork1.po"
     "${CMAKE_CURRENT_SOURCE_DIR}/../sdcard/retro/images/ucsd/ApplePascal2-640K.po")
 endif()
-add_test(NAME apple2ProdosSystemImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/createSystemDsk.py --os apple2
-  --profile PRODOS --output ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk)
-add_test(NAME apple2ProdosDataImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/buildDiskImage.py
-  --os apple2 --profile 800K --name DATA800 --output ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po)
+add_test(NAME apple2ProdosSystemImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/diskManager.py --type SYSTEMDSK --yes
+  --os apple2 --profile PRODOS --output ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk)
+add_test(NAME apple2ProdosDataImage COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/diskManager.py --type WORKDSK --yes
+  --os apple2 --profile 800K --force ${CMAKE_CURRENT_BINARY_DIR}/DATA800.po)
 set_tests_properties(apple2ProdosSystemImage apple2ProdosDataImage PROPERTIES FIXTURES_SETUP prodosImages)
 add_test(NAME apple2ProdosAutostart COMMAND apple2DiskTests --prodos-autostart-boot
-  ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po)
+  ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk ${CMAKE_CURRENT_BINARY_DIR}/DATA800.po)
 add_test(NAME apple2ProdosAutostart80Columns COMMAND apple2DiskTests --prodos-80col-boot
-  ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po)
+  ${CMAKE_CURRENT_BINARY_DIR}/prodosSystem.dsk ${CMAKE_CURRENT_BINARY_DIR}/DATA800.po)
 add_test(NAME apple2ProdosSmartPort COMMAND apple2DiskTests --prodos-smartport-boot
-  "${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2Downloads/appleDisks/ProDOS 2.4.2.dsk" ${CMAKE_CURRENT_BINARY_DIR}/prodosData800.po)
+  "${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2Downloads/appleDisks/ProDOS 2.4.2.dsk" ${CMAKE_CURRENT_BINARY_DIR}/DATA800.po)
 set_tests_properties(apple2ProdosAutostart apple2ProdosAutostart80Columns apple2ProdosSmartPort PROPERTIES FIXTURES_REQUIRED prodosImages)
 set(guestFsSources
   ../components/guestFs/guestFs.c

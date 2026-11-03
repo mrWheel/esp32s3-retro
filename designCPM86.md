@@ -94,7 +94,7 @@ only through the `cpm86CoreConfig` callbacks.
 | `tiny8086` CPU core | Project-owned (`components/cpm86Core/tiny8086/`), 8086tiny-style switch interpreter; no third-party license applies. | Instruction interpreter. |
 | `littlefs/cpm86/cpm.sys` | CMD-format CP/M-86 1.1 system file (10,240 bytes). CCP/BDOS from `tsupplis/cpm86-kernel` at commit `00927e17f43ea4241cc0809531cf68ce835e9c16`; its bundled IBM PC BIOS is NOT linked in. Rights per that repository's `LICENSE.md` and the user's non-commercial-use confirmation. | Genuine guest operating system. |
 | `littlefs/cpm86/retro86bios.h86` | Project-authored; assembled with ASM-86 1.1N from `components/cpm86Core/bios/retro86bios.a86`. | RETRO86_V1 BIOS overlay. |
-| `littlefs/cpm86/system.dsk` | Built by `tools/createSystemDsk.py --os cpm86` from `bootDisks/cpm86/systemDsk` (native `.CMD` utilities: `ASM86`, `ED`, `GENCMD`, `PIP`, `STAT`, `HELP`, `BENCH86`, `TIMER86`, `WBOOT86`, `BAD86`, …). | A: system disk. |
+| `littlefs/cpm86/system.dsk` | Built by `tools/diskManager.py --type SYSTEMDSK --os cpm86` from `bootDisks/cpm86/systemDsk` (native `.CMD` utilities: `ASM86`, `ED`, `GENCMD`, `PIP`, `STAT`, `HELP`, `BENCH86`, `TIMER86`, `WBOOT86`, `BAD86`, …). | A: system disk. |
 | Reference manuals | CP/M-86 System Guide June 1981 (BIOS entry table Table 5-1 p.57, DPB Tables 6-2/6-4/6-5 pp.67-71, memory region table and segment-aware DMA Table 5-4 pp.64-65, BDOS argument rule p.23), Programmer's Guide June 1981, CP/M-86 1.1 release notes 1982. | ABI authority; page audit recorded in `docs/cpm86/abiAudit.md`. |
 
 `GENCMD` and `ASM86` binary provenance is recorded as UNKNOWN in `docs/cpm86/abiAudit.md`;
@@ -688,9 +688,9 @@ options via `--help`) MUST produce images that satisfy §12 exactly:
 
 | Tool | Requirement |
 | --- | --- |
-| `tools/createSystemDsk.py --os cpm86 --profile CPM86_160K\|CPM86_516K\|CPM86_8196K [--source-dir …]` | Build A: from `bootDisks/cpm86/systemDsk` (only `.CMD`/`.SYS` names; CPM.SYS is refused on A:), using the geometry named by the size identifier; validates `cpm.sys` (10,240) and the overlay (1–4096) remain outside A:; replaces `littlefs/cpm86/system.dsk` only on success. |
-| `tools/diskImage.py --os cpm86 create/add/list/extract` (`tools/cpm86/diskImageCpm86.py`) | Create/inspect raw profile images (`CPM86_160K`, `CPM86_516K`, `CPM86_8196K`); `add` validates 8.3 names, duplicates, extents, directory and block capacity, and writes atomically; `create` refuses an existing target without `--force`. This tool is the authority for multi-extent `CPM86_516K` content. |
-| `tools/buildDiskImage.py --os cpm86` (`tools/cpm86/buildDiskImageCpm86.py`) | Deterministic system-image composer from a source directory; CPM.SYS first. |
+| `tools/diskManager.py --type SYSTEMDSK --os cpm86 --profile CPM86_160K\|CPM86_516K\|CPM86_1440K\|CPM86_8196K [--source-dir …]` | Deterministic system-image composer (`tools/cpm86/buildDiskImageCpm86.py` engine): builds A: from `bootDisks/cpm86/systemDsk` (only `.CMD`/`.SYS` names; CPM.SYS is refused on A:), using the geometry named by the size identifier; validates `cpm.sys` (10,240) and the overlay (1–4096) remain outside A:; replaces `littlefs/cpm86/system.dsk` only on success. |
+| `tools/diskManager.py --type WORKDSK --os cpm86 [--profile …] <image>` | Create raw profile images (`CPM86_160K`, `CPM86_516K`, `CPM86_1440K`, `CPM86_8196K`); refuses an existing target without `--force`. |
+| `tools/extractFiles.py --os cpm86 <image> --add/--extract/--remove` (`tools/cpm86/extractCpm86.py` adapter) | Inspect and edit raw profile images; `add` validates 8.3 names, duplicates, extents, directory and block capacity, and writes atomically. This tool is the authority for multi-extent `CPM86_516K` content. |
 | `tools/cpm86/diskdefs` | cpmtools geometry definitions (`retro86-160`, `retro86-large`, `retro86-big`) for cross-checking geometry only — cpmtools cannot express EXM and its LARGE multi-extent layout is incompatible; never use `mkfs.cpm`/`cpmcp` as the authority for LARGE content. |
 | `tools/prepareSd.py` | Create the `/retro/…` tree and a sample `drives.cfg` without overwriting an existing one or formatting the card. |
 | `tools/cpm86/cpm86HardwareTest.py` | Drive a running device over the console for the hardware procedures of §18.2. |

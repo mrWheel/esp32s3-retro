@@ -1,12 +1,37 @@
 """Definitions shared by every OS disk-image module."""
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
 
 class DiskImageError(ValueError):
     pass
+
+
+def show_plan(lines):
+    """Print the planned action so every run shows what is about to happen."""
+    for line in lines:
+        print(line)
+    print()
+
+
+def confirm_plan(lines, assume_yes):
+    """Show the planned action and require 'y' before anything is written to disk."""
+    show_plan(lines)
+    if assume_yes:
+        return
+    if not sys.stdin.isatty():
+        print("Aborted: confirmation is impossible without a terminal; re-run with --yes.", file=sys.stderr)
+        raise SystemExit(1)
+    try:
+        answer = input("Are you sure (y/N) ")
+    except EOFError:
+        answer = ""
+    if answer.strip().lower() not in ("y", "yes"):
+        print("Aborted by user.", file=sys.stderr)
+        raise SystemExit(1)
 
 
 def atomic_write_image(path, data, replace_existing=False):

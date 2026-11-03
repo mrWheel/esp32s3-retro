@@ -134,13 +134,3 @@ def build(arguments, output_path, project_root):
           f" ({arguments.profile}{', bootable' if boot_image is not None else ''})")
     for source_name, name in added:
         print(f"  {source_name} -> {name}")
-
-
-def main():
-    import buildDiskImage
-
-    buildDiskImage.main(default_os="apple2")
-
-
-if __name__ == "__main__":
-    main()

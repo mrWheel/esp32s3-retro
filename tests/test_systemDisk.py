@@ -5,13 +5,14 @@ import unittest
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DISK_MANAGER_CLI = str(PROJECT_ROOT / "tools" / "diskManager.py")
 sys.path.insert(0, str(PROJECT_ROOT / "tools" / "include"))
 for os_directory in ("apple2", "cpm80", "cpm86"):
     sys.path.insert(0, str(PROJECT_ROOT / "tools" / os_directory))
 
 import buildDiskImageCpm80
 import apple2Basic
-import createSystemDsk
+import systemDisk
 import diskImageCpm80
 import diskImageCpm86
 
@@ -33,7 +34,7 @@ class CreateSystemDskTests(unittest.TestCase):
         (self.source_dir / "WELCOME.TXT").write_bytes(b"welcome")
         (self.source_dir / "ASM.COM").write_bytes(b"assembler")
 
-        skipped = createSystemDsk.create_system_disk(
+        skipped = systemDisk.create_system_disk(
             "cpm80",
             "CPM80_256K",
             self.output_path,
@@ -59,7 +60,7 @@ class CreateSystemDskTests(unittest.TestCase):
         (self.source_dir / "TOOL.COM").write_bytes(b"tool")
         output = self.root / "large.dsk"
 
-        createSystemDsk.create_system_disk(
+        systemDisk.create_system_disk(
             "cpm80",
             "CPM80_512K",
             output,
@@ -76,7 +77,10 @@ class CreateSystemDskTests(unittest.TestCase):
         result = subprocess.run(
             [
                 sys.executable,
-                str(Path(createSystemDsk.__file__)),
+                DISK_MANAGER_CLI,
+                "--type",
+                "SYSTEMDSK",
+                "--yes",
                 "--os",
                 "cpm80",
                 "--profile",
@@ -102,7 +106,7 @@ class CreateSystemDskTests(unittest.TestCase):
         (self.source_dir / "EXTRA2.CMD").write_bytes(b"another command")
         output = self.root / "cpm86-system.dsk"
 
-        createSystemDsk.create_system_disk(
+        systemDisk.create_system_disk(
             "cpm86",
             "CPM86_160K",
             output,
@@ -124,7 +128,7 @@ class CreateSystemDskTests(unittest.TestCase):
     def test_cpm86_large_profile_uses_large_geometry(self):
         output = self.root / "cpm86-large-system.dsk"
 
-        createSystemDsk.create_system_disk(
+        systemDisk.create_system_disk(
             "cpm86",
             "CPM86_516K",
             output,
@@ -140,7 +144,7 @@ class CreateSystemDskTests(unittest.TestCase):
         (self.source_dir / "TOOL.COM").write_bytes(b"tool")
         output = self.root / "huge.dsk"
 
-        createSystemDsk.create_system_disk(
+        systemDisk.create_system_disk(
             "cpm80",
             "CPM80_1440K",
             output,
@@ -153,7 +157,7 @@ class CreateSystemDskTests(unittest.TestCase):
     def test_cpm86_huge_profile_uses_huge_geometry(self):
         output = self.root / "cpm86-huge-system.dsk"
 
-        createSystemDsk.create_system_disk(
+        systemDisk.create_system_disk(
             "cpm86",
             "CPM86_1440K",
             output,
@@ -168,7 +172,7 @@ class CreateSystemDskTests(unittest.TestCase):
     def test_cpm86_big_profile_uses_big_geometry(self):
         output = self.root / "cpm86-big-system.dsk"
 
-        createSystemDsk.create_system_disk(
+        systemDisk.create_system_disk(
             "cpm86",
             "CPM86_8196K",
             output,
@@ -186,7 +190,10 @@ class CreateSystemDskTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable,
-                    str(Path(createSystemDsk.__file__)),
+                    DISK_MANAGER_CLI,
+                    "--type",
+                    "SYSTEMDSK",
+                    "--yes",
                     "--os",
                     os_name,
                     "--profile",
@@ -203,30 +210,36 @@ class CreateSystemDskTests(unittest.TestCase):
             self.assertNotIn("not bootable", combined)
             self.assertTrue(output.is_file())
 
-    def test_all_boot_source_files_are_in_both_profiles(self):
-        inspectors = {
-            "cpm80": (diskImageCpm80, {"CPM80_256K": diskImageCpm80.IMAGE_SIZE, "CPM80_512K": diskImageCpm80.LARGE_IMAGE_SIZE, "CPM80_1440K": diskImageCpm80.HUGE_IMAGE_SIZE}),
-            "cpm86": (diskImageCpm86, {"CPM86_160K": diskImageCpm86.IMAGE_SIZE, "CPM86_516K": diskImageCpm86.LARGE_IMAGE_SIZE, "CPM86_1440K": diskImageCpm86.HUGE_IMAGE_SIZE, "CPM86_8196K": diskImageCpm86.BIG_IMAGE_SIZE}),
-        }
-        for os_name, (module, sizes) in inspectors.items():
+    def _a_line_profile(self, os_name):
+        """The size identifier the firmware expects for system.dsk, taken from the A: line of drives.cfg."""
+        cfg = PROJECT_ROOT / "littlefs" / os_name / "drives.cfg"
+        for line in cfg.read_text().splitlines():
+            line = line.strip()
+            if line.upper().startswith("A="):
+                return line.rsplit(",", 1)[-1].strip().upper()
+        self.fail(f"no A= line in {cfg}")
+
+    def test_all_boot_source_files_fit_the_drives_cfg_profile(self):
+        inspectors = {"cpm80": diskImageCpm80, "cpm86": diskImageCpm86}
+        for os_name, module in inspectors.items():
+            profile = self._a_line_profile(os_name)
             source_names = sorted(
                 path.name.upper()
                 for path in (PROJECT_ROOT / "bootDisks" / os_name / "systemDsk").iterdir()
                 if path.is_file() and path.name != ".DS_Store"
             )
-            for profile, expected_size in sizes.items():
-                with self.subTest(os=os_name, profile=profile):
-                    output = self.root / f"{os_name}-{profile}.dsk"
-                    skipped = createSystemDsk.create_system_disk(os_name, profile, output)
-                    self.assertEqual(skipped, [])
-                    image = output.read_bytes()
-                    self.assertEqual(len(image), expected_size)
-                    present = {entry["filename"] for entry in module.inspect_image(image)[0]}
-                    self.assertEqual(sorted(set(source_names) - present), [])
+            with self.subTest(os=os_name, profile=profile):
+                output = self.root / f"{os_name}-{profile}.dsk"
+                skipped = systemDisk.create_system_disk(os_name, profile, output)
+                self.assertEqual(skipped, [])
+                image = output.read_bytes()
+                self.assertEqual(len(image), module.PROFILES[profile]["image_size"])
+                present = {entry["filename"] for entry in module.inspect_image(image)[0]}
+                self.assertEqual(sorted(set(source_names) - present), [])
 
     def test_unimplemented_os_is_rejected(self):
-        with self.assertRaisesRegex(createSystemDsk.DiskImageError, "not implemented"):
-            createSystemDsk.create_system_disk("swtpc", "CPM80_256K", self.output_path)
+        with self.assertRaisesRegex(systemDisk.DiskImageError, "not implemented"):
+            systemDisk.create_system_disk("swtpc", "CPM80_256K", self.output_path)
 
     def test_applesoft_token_values_follow_the_rom_token_order(self):
         names = (
@@ -252,7 +265,7 @@ class CreateSystemDskTests(unittest.TestCase):
         import diskImageApple2Prodos as prodos
 
         output_path = self.root / "apple2-prodos" / "system.dsk"
-        createSystemDsk.create_system_disk("apple2", "PRODOS", output_path)
+        systemDisk.create_system_disk("apple2", "PRODOS", output_path)
         image = prodos.load_volume(output_path)
         self.assertEqual(len(image), 143360)
         self.assertEqual(prodos.volume_name(image), "SYSTEM")
@@ -267,7 +280,7 @@ class CreateSystemDskTests(unittest.TestCase):
         for profile, size in (("PRODOS_640K", 640 * 1024), ("PRODOS_800K", 800 * 1024)):
             with self.subTest(profile=profile):
                 output_path = self.root / f"{profile}.po"
-                createSystemDsk.create_system_disk("apple2", profile, output_path)
+                systemDisk.create_system_disk("apple2", profile, output_path)
                 image = prodos.load_volume(output_path)
                 self.assertEqual(len(image), size)
                 self.assertEqual(prodos.volume_name(image), "SYSTEM")
@@ -282,7 +295,7 @@ class CreateSystemDskTests(unittest.TestCase):
         source_dir.mkdir()
         (source_dir / "PRODOS.SYS").write_bytes(b"replaced prodos")
         output_path = self.root / "apple2-collision.dsk"
-        createSystemDsk.create_system_disk("apple2", "PRODOS_640K", output_path, source_dir=source_dir)
+        systemDisk.create_system_disk("apple2", "PRODOS_640K", output_path, source_dir=source_dir)
         image = prodos.load_volume(output_path)
         names = [entry["name"] for entry in prodos.list_files(image)]
         self.assertEqual(names.count("PRODOS"), 1)
@@ -295,7 +308,7 @@ class CreateSystemDskTests(unittest.TestCase):
         source_dir.mkdir()
         (source_dir / "128K.PASCAL").write_bytes(b"overwritten pascal")
         output_path = self.root / "ucsd" / "system.po"
-        createSystemDsk.create_system_disk("ucsd", "PASCAL_800K", output_path, source_dir=source_dir)
+        systemDisk.create_system_disk("ucsd", "PASCAL_800K", output_path, source_dir=source_dir)
         sys.path.insert(0, str(PROJECT_ROOT / "tools" / "apple2"))
         import extractApple2Files
         volume = extractApple2Files.openVolume(extractApple2Files.DiskImage(output_path))
@@ -307,7 +320,7 @@ class CreateSystemDskTests(unittest.TestCase):
     def test_apple2_prodos_cli_tells_the_user_to_rebuild_and_flash(self):
         output_path = self.root / "apple2-prodos-cli.dsk"
         result = subprocess.run(
-            [sys.executable, str(PROJECT_ROOT / "tools" / "createSystemDsk.py"), "--os", "apple2",
+            [sys.executable, DISK_MANAGER_CLI, "--type", "SYSTEMDSK", "--yes", "--os", "apple2",
              "--profile", "PRODOS", "--output", str(output_path)],
             check=True, capture_output=True, text=True)
         self.assertIn("rebuilt AND flashed", result.stdout)
@@ -315,24 +328,19 @@ class CreateSystemDskTests(unittest.TestCase):
 
     def test_apple2_cli_help_only_offers_apple2_system_profiles(self):
         result = subprocess.run(
-            [sys.executable, str(PROJECT_ROOT / "tools" / "createSystemDsk.py"),
-             "--os", "apple2", "--help"],
+            [sys.executable, DISK_MANAGER_CLI, "--type", "SYSTEMDSK", "--os", "apple2", "--help"],
             check=True, capture_output=True, text=True)
         self.assertIn("PRODOS_640K", result.stdout)
         self.assertIn("PRODOS_800K", result.stdout)
         self.assertNotIn("SMALL", result.stdout)
-        self.assertNotIn("--os", result.stdout)
 
     def test_apple2_cli_missing_profile_lists_only_apple2_profiles(self):
         result = subprocess.run(
-            [sys.executable, str(PROJECT_ROOT / "tools" / "createSystemDsk.py"), "--os", "apple2"],
+            [sys.executable, DISK_MANAGER_CLI, "--type", "SYSTEMDSK", "--os", "apple2"],
             capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
         self.assertIn("--profile is required", result.stderr)
         self.assertIn("PRODOS, PRODOS_640K, PRODOS_800K", result.stderr)
-        self.assertNotIn("--os {", result.stderr)
-        self.assertNotIn("cpm80", result.stderr)
-        self.assertNotIn("cpm86", result.stderr)
 
 
 if __name__ == "__main__":

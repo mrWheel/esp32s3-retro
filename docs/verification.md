@@ -1,5 +1,11 @@
 # Verification record
 
+> Tooling note (2026-11-03): the dated records below keep the tool names of their date.
+> `tools/createSystemDsk.py`, `tools/buildDiskImage.py` and `tools/diskImage.py` have since
+> been merged into `tools/diskManager.py` (`--type SYSTEMDSK` / `--type WORKDSK`), file
+> add/list/extract now run through `tools/extractFiles.py`, and the optional
+> `tools/fetchCpm80Software.py` importer was removed. Run the current tools for new work.
+
 ## CP/M boot implementation — 2026-10-04
 
 - Host test command: `cmake -S tests -B /tmp/retro-host-tests && cmake --build /tmp/retro-host-tests && ctest --test-dir /tmp/retro-host-tests --output-on-failure`.
@@ -114,7 +120,7 @@ Executed (host and build only):
 
 NOT verified (needs the user's device/browser): the `/api/guest/*` handlers (they are thin and cannot be host-tested), the SPA screens, large uploads/downloads over Wi-Fi, SD-file export/import commit path, journal recovery after a real power cut on the SD card, behaviour of emulators on images edited by the manager, and OSes other than CP/M-80/86 (HTTP 501 by design). Nothing was flashed or uploaded by the coding agent.
 
-Suggested hardware checks: list each real CP/M image from function 11; download a file from `cpm80/languages.dsk` (BIG) and compare with `tools/extractCpm.py` output; upload a multi-block file to `work1.dsk` and boot CP/M to `DIR`/run it; overwrite and delete it; copy between `work1.dsk` and `cpm86/work86.dsk`; export a guest file to `/retro/images/cpm80/` and import it back; pull power during an upload and check that the next File Transfer start leaves the image in the old or new state.
+Suggested hardware checks: list each real CP/M image from function 11; download a file from `cpm80/languages.dsk` (BIG) and compare with `tools/extractFiles.py --os cpm80 <image> --extract` output; upload a multi-block file to `work1.dsk` and boot CP/M to `DIR`/run it; overwrite and delete it; copy between `work1.dsk` and `cpm86/work86.dsk`; export a guest file to `/retro/images/cpm80/` and import it back; pull power during an upload and check that the next File Transfer start leaves the image in the old or new state.
 
 ## Guest file access, ProDOS / UCSD Pascal / DOS 3.3 adapters — 2026-10-22
 

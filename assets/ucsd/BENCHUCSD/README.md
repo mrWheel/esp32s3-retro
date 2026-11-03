@@ -11,7 +11,7 @@ The model values (`INTMODEL`, `SIEVEMODEL`, scale 1) were measured by compiling 
 the program in the guest on the cycle-exact 6502 core; the model for scale n is n times that.
 
 `BENCHUCSD.TEXT` is part of `bootDisks/ucsd/systemDsk/`, so a system disk generated with
-`python3 tools/createSystemDsk.py --os ucsd --profile PASCAL_800K` already contains it. To add it to another volume:
+`python3 tools/diskManager.py --type SYSTEMDSK --os ucsd --profile PASCAL_800K` already contains it. To add it to another volume:
 
 ```sh
 python3 tools/extractFiles.py --os ucsd /path/to/work.po \

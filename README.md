@@ -43,9 +43,7 @@ These tools run on your computer. For everyday file transfers you can use the br
 | Tool | What you can do with it |
 | --- | --- |
 | [prepareSd.py](tools/prepareSd.py) | Prepare the Retro folders on an already formatted, mounted SD card. It does not format the card or supply disks. |
-| [diskImage.py](tools/diskImage.py) | Create an empty disk, add files, view its contents or extract files for CP/M-80, CP/M-86, Apple II ProDOS and UCSD Pascal. |
-| [buildDiskImage.py](tools/buildDiskImage.py) | Assemble a disk image from a folder of programs and files; supported systems offer different disk sizes and boot options. |
-| [createSystemDsk.py](tools/createSystemDsk.py) | Prepare a system disk from the project's system resources and supplied files. A disk packaged in the firmware needs a firmware update before the device uses the new contents. |
+| [diskManager.py](tools/diskManager.py) | The one disk command line: `--type SYSTEMDSK` builds the bootable system disk for the firmware (a firmware update is needed before the device uses it), `--type WORKDSK` creates an empty work disk for the SD card. Every writing run shows a summary and asks `Are you sure (y/N)` (skip with `--yes`); `--type` also accepts unique abbreviations (`SYS`, `WORK`, …). |
 | [extractFiles.py](tools/extractFiles.py) | Browse and manage files in existing images. It offers interactive menus for CP/M, Apple II and UCSD Pascal; CP/M and UCSD also support direct add, extract and remove actions. SWTPC is not implemented. |
 
 The OS-specific folders under [tools/](tools/) contain the matching disk builders and file-browser helpers. [extractApple2Files.py](tools/apple2/extractApple2Files.py) is also available as a dedicated interactive Apple disk browser. The `*HardwareTest.py` tools for CP/M-80, CP/M-86, Apple II and UCSD Pascal check a connected device, while [transferTest.py](tools/transferTest.py) checks browser-service transfers. These checks create test files and are for deliberate testing, not normal use.

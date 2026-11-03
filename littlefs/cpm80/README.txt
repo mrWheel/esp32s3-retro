@@ -25,28 +25,29 @@ identifier. CPM80_256K is 256,256 bytes (77 tracks × 26 128-byte sectors,
 1,474,560 bytes (360 tracks × 32 sectors, 8 KiB blocks, 128 directory
 entries); CPM80_8M is 8,421,376 bytes (514 tracks × 128 sectors, 16 KiB
 blocks, 512 directory entries). Each of B:–F: may use any of the four
-profiles. Create a 1.44 MB image with: python3 tools/diskImage.py create
+profiles. Create a 1.44 MB image with: python3 tools/diskManager.py --type WORKDSK
 --os cpm80 --profile CPM80_1440K x.dsk. The included prepareSd.py creates a sample drives.cfg
 without replacing an existing one. Create a writable work image with
-python3 tools/diskImage.py create --os cpm80 --profile CPM80_1440K ~/Desktop/work.dsk, add
-licensed local programs with python3 tools/diskImage.py add --os cpm80, copy it to the
+python3 tools/diskManager.py --type WORKDSK --os cpm80 --profile CPM80_1440K ~/Desktop/work.dsk,
+add licensed local programs with python3 tools/extractFiles.py --os cpm80 --add FILE, copy it to the
 path configured for E:, then safely eject the card. A: remains available from
 LittleFS even when the SD card or drives.cfg is missing or invalid. See
 tools/README.md for configuration, image creation and software rights details.
 
 Build the A: image from the files in bootDisks/cpm80/systemDsk with
-python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_512K (the profile
-the firmware build always uses). Executable files are installed first. The
+python3 tools/diskManager.py --type SYSTEMDSK --os cpm80 --profile CPM80_1440K (the
+profile the firmware build uses by default; keep it equal to the A: identifier
+in drives.cfg). Executable files are installed first. The
 CPM80_256K and CPM80_1440K profiles create 256,256-byte (1 KiB blocks, 64
 directory entries) and 1,474,560-byte (8 KiB blocks, 128 directory entries)
 images that boot as A: as well; CPM80_8M never boots as A:. The firmware
 selects the A: profile from the size of littlefs/cpm80/system.dsk (256,256,
 512,512 or 1,474,560 bytes), so drives.cfg only needs
-A=/littlefs/cpm80/system.dsk,RO,CPM80_512K. A size that matches none of these
+A=/littlefs/cpm80/system.dsk,RO,CPM80_1440K. A size that matches none of these
 profiles is reported as an error and A: is not mounted.
 
-The older curated image composer remains available as
-python3 tools/buildDiskImage.py --os cpm80 --output littlefs/cpm80/system.dsk.
+The deterministic CCP/BDOS + pinned-utilities composer is the internal module
+tools/cpm80/buildDiskImageCpm80.py, driven by diskManager.py --type SYSTEMDSK.
 See designCPM80.md and components/cpm80Core/os/README.md for source, license
 scope and geometry details. Firmware verifies the exact boot image size and
 signature.

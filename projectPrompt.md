@@ -774,13 +774,10 @@ Detailed options and current examples are maintained in [`tools/README.md`](tool
 
 | Program | Purpose and usage |
 |---|---|
-| `tools/diskImage.py` | Create, populate, list/validate, and extract files from supported CP/M disk images. Select a machine with `--os`; `--help` shows supported commands and profiles. |
-| `tools/buildDiskImage.py` | Build an OS-specific data or system image through the registered machine builder. Use `--os`, optional profile/source options, and `--output` or `--sd-root` as shown by `--help`. |
-| `tools/createSystemDsk.py` | Compose a machine system disk from its checked-in resources and optional source directory. Use `--os`, `--profile`, and optional `--source-dir` / `--output`; the selected image is replaced when the build succeeds. |
+| `tools/diskManager.py` | The single disk-image command line. `--type SYSTEMDSK` composes the bootable machine system disk (`littlefs/<os>/system.dsk`) from the checked-in resources and `bootDisks/<os>/systemDsk/`; `--type WORKDSK` creates an empty work disk under `sdcard/retro/images/<os>/`. Use `--os`, `--profile`, and optional `--source-dir` / `--output` / `--force` as shown by `--help`; `--type` also accepts unique abbreviations in any case (`SYS`, `WORK`, …); every writing run prints a summary and asks `Are you sure (y/N)` unless `--yes` is given. |
 | `tools/prepareSd.py` | Prepare the Retro directory tree and marker on an already formatted FAT32 volume, optionally for one `--os`. It does not format the card, remove files, create disk images, or overwrite existing drive configuration. |
 | `tools/extractFiles.py` | List, add, extract, or remove files through the operating-system-specific image adapters. Choose the target with `--os`; available actions differ by filesystem. |
 | `tools/apple2/extractApple2Files.py` | Interactively browse Apple II disk images and copy/remove files between disk images and host folders; also used by the Apple II, CP/M, and UCSD adapters. |
-| `tools/fetchCpm80Software.py` | Optional CP/M-80 resource importer. Lists archive links and imports only explicitly selected files or ZIP members; the user must supply rights evidence, which the program does not verify. See `designCPM80.md` for CP/M-80 profiles and resource rules. |
 | `tools/apple2/buildApple2DiskBootRom.py` | Generate the project-authored Apple II Disk II boot-ROM header used by the firmware. |
 | `tools/ucsd/buildApple2PascalCardRom.py` | Generate the project-authored Apple Pascal-compatible slot-3 80-column card firmware header used by the Apple II implementation. |
 | `tools/apple2/buildApple2TestRom.py` | Generate the minimal Apple II diagnostic ROM fixture for host tests; test-only. |
@@ -798,8 +795,8 @@ Typical preparation commands:
 
 ```sh
 python3 tools/prepareSd.py --help
-python3 tools/diskImage.py create --os cpm80 --help
-python3 tools/buildDiskImage.py --os cpm80 --help
+python3 tools/diskManager.py --type SYSTEMDSK --os cpm80 --help
+python3 tools/diskManager.py --type WORKDSK --os cpm80 --help
 ```
 
 The help commands are safe to run and show the exact arguments before

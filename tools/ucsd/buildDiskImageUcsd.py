@@ -64,13 +64,3 @@ def build(arguments, output_path, project_root):
     output_path.write_bytes(data)
     print(f"Pascal volume {diskImageApple2Pascal.normalize_volume_name(arguments.name)}:"
           f" ({arguments.profile})")
-
-
-def main():
-    import buildDiskImage
-
-    buildDiskImage.main(default_os="ucsd")
-
-
-if __name__ == "__main__":
-    main()

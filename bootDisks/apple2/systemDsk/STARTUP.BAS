@@ -1,0 +1,2 @@
+10 PRINT "RUN HELP for help"
+20 END

@@ -136,30 +136,19 @@ class DiskImageCpm80Tests(unittest.TestCase):
         with self.assertRaisesRegex(diskImageCpm80.DiskImageError, "8.3"):
             diskImageCpm80.parse_filename("../BAD.COM")
 
-    def test_command_line_creates_and_populates_work_image(self):
-        cli = Path(diskImageCpm80.__file__)
-        source = self.image_path.parent / "MBASIC.COM"
-        source.write_bytes(b"local interpreter binary")
+    def test_command_line_creates_work_image(self):
+        #-- diskManager.py is the single command line; --yes skips the confirmation prompt
+        cli = Path(diskImageCpm80.__file__).parents[1] / "diskManager.py"
         self.image_path.unlink()
         subprocess.run(
-            [sys.executable, str(cli), "create", str(self.image_path)],
+            [sys.executable, str(cli), "--type", "WORKDSK", "--yes", "--os", "cpm80",
+             "--profile", "CPM80_256K", str(self.image_path)],
             check=True,
             capture_output=True,
             text=True,
         )
-        subprocess.run(
-            [sys.executable, str(cli), "add", str(self.image_path), str(source)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        output = subprocess.run(
-            [sys.executable, str(cli), "list", str(self.image_path)],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-        self.assertIn("MBASIC.COM", output)
+        self.assertTrue(self.image_path.is_file())
+        self.assertEqual(self.image_path.stat().st_size, diskImageCpm80.IMAGE_SIZE)
 
 
 if __name__ == "__main__":

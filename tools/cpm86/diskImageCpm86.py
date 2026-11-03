@@ -4,8 +4,8 @@
 The BIOS (components/cpm86Core/bios/retro86bios.a86) has four DPBs, one per
 profile: CPM86_160K (163840 bytes), CPM86_516K (528384 bytes), CPM86_1440K
 (1474560 bytes) and CPM86_8196K (8392704 bytes). Add further profiles only
-after the BIOS and firmware support them. Running this file directly is the
-same as `diskImage.py --os cpm86`.
+after the BIOS and firmware support them. This is an engine module imported by
+tools/diskManager.py (--os cpm86); it has no command line of its own.
 """
 
 import sys
@@ -124,11 +124,3 @@ def list_files(image_path):
     diskImageCpm.list_files(image_path, PROFILES)
 
 
-def main():
-    import diskImage
-
-    diskImage.main(default_os="cpm86")
-
-
-if __name__ == "__main__":
-    main()

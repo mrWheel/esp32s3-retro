@@ -2,7 +2,8 @@
 """CP/M-80 disk images: CPM80_256K, CPM80_512K, CPM80_1440K and CPM80_8M geometries on top of
 diskImageCpm.
 
-Running this file directly is the same as `diskImage.py --os cpm80`.
+This is an engine module imported by tools/diskManager.py (--os cpm80); it has
+no command line of its own.
 """
 
 import sys
@@ -122,11 +123,3 @@ def list_files(image_path):
     diskImageCpm.list_files(image_path, PROFILES)
 
 
-def main():
-    import diskImage
-
-    diskImage.main(default_os="cpm80")
-
-
-if __name__ == "__main__":
-    main()

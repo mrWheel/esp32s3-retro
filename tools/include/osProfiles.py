@@ -42,7 +42,7 @@ class OsInfo:
 
     @property
     def buildable(self):
-        """True when buildDiskImage.py can build images for this OS (also when diskImage.py cannot yet)."""
+        """True when the OS has image builders (used by diskManager.py --type SYSTEMDSK)."""
         return self.supported or self.build_only
 
     @property
@@ -89,8 +89,8 @@ OS_REGISTRY = {
             "               entries; drives B: through F:\n"
             "Files need CP/M 8.3 names (upper-cased automatically); user area 0.\n"
             "The drive configuration is littlefs/cpm86/drives.cfg; edit its image paths\n"
-            "and RO/RW access modes. buildDiskImage.py needs --source-dir with CPM.SYS\n"
-            "and the .CMD utilities."
+            "and RO/RW access modes. diskManager.py --type SYSTEMDSK takes its files from\n"
+            "bootDisks/cpm86/systemDisk/; CPM.SYS stays outside A: (littlefs/cpm86/cpm.sys)."
         ),
     ),
     "apple2": OsInfo(
@@ -102,13 +102,14 @@ OS_REGISTRY = {
         default_system_image="data800.po",
         build_only=True,
         details=(
-            "diskImage.py creates and edits ProDOS 8 data volumes (.po): 800K (1600 blocks, default), 640K or 140K.\n"
-            "The volume name comes from the image file name (upper-cased; 'DATA' when it is not a valid name).\n"
+            "diskManager.py --type WORKDSK creates empty ProDOS 8 data volumes (.po): 800K (1600 blocks,\n"
+            "default), 640K or 140K. The volume name comes from the image file name (upper-cased;\n"
+            "'DATA' when it is not a valid name).\n"
             "ProDOS names use A-Z, 0-9 and '.' and start with a letter (1..15 characters).\n"
-            "The file type comes from the suffix: .BAS, .TXT, .BIN, .SYS; a .BIN file needs a load address,\n"
-            "which diskImage.py add does not supply (use buildDiskImage.py --binary-load-address).\n"
-            "buildDiskImage.py builds the same volumes and can add ProDOS boot files (--bootable, --boot-from).\n"
-            "The firmware's system.dsk is made by createSystemDsk.py."
+            "The file type comes from the suffix: .BAS, .TXT, .BIN, .SYS; a .BIN file needs a load address\n"
+            "(a NAME.ADDR file, or --binary-load-address with --type SYSTEMDSK).\n"
+            "Files are added, listed and extracted with tools/extractFiles.py --os apple2.\n"
+            "The firmware's bootable system disk is made by diskManager.py --type SYSTEMDSK."
         ),
     ),
     "swtpc": OsInfo("swtpc", "SWTPC 6800", False),
@@ -121,12 +122,13 @@ OS_REGISTRY = {
         default_system_image="work.po",
         build_only=True,
         details=(
-            "diskImage.py creates and edits blank, formatted Apple Pascal work volumes (.po): 640K (1280 blocks,\n"
-            "default) or 140K (280 blocks). The volume name comes from the image file name (upper-cased, 1..7\n"
-            "characters; 'WORK' when it is not a valid name).\n"
+            "diskManager.py --type WORKDSK creates empty, formatted Apple Pascal work volumes (.po): 640K\n"
+            "(1280 blocks, default) or 140K (280 blocks). The volume name comes from the image file name\n"
+            "(upper-cased, 1..7 characters; 'WORK' when it is not a valid name).\n"
             "Pascal names are upper-cased without the characters ' $=?,[#:/' (15 characters max).\n"
             "The file kind comes from the suffix: .TEXT (3), .CODE (2), .DATA (5); anything else is data (5).\n"
-            "buildDiskImage.py builds the same blank volumes. The Pascal boot disk is not built by these tools."
+            "Files are added, listed and extracted with tools/extractFiles.py --os ucsd.\n"
+            "The bootable Pascal system disk is made by diskManager.py --type SYSTEMDSK."
         ),
     ),
 }
@@ -138,7 +140,7 @@ def os_overview():
         if info.supported:
             state = "supported"
         elif info.build_only:
-            state = "buildDiskImage.py only"
+            state = "system disk only"
         else:
             state = "planned (not implemented yet)"
         lines.append(f"  {info.key:<8} {info.label:<14} {state}")

@@ -70,6 +70,7 @@ CP/M-80 tooling tests; details are recorded below.
   run. The expected UCSD boot image
   `littlefs/ucsd/ApplePascal1-680-0004-01.dsk` is absent in this worktree.
 - `python3 -m unittest tests/test_createSystemDsk.py tests/test_diskImage.py tests/test_extractCpm.py`
+  (since renamed/merged: `tests/test_systemDisk.py` and `tests/test_diskManager.py`; `tests/test_diskImage.py` was removed)
   ran 27 tests: 26 passed and 1 failed. The failure was
   `test_build_cpm80_matches_checked_in_image`, which found a byte-level
   mismatch between a generated CP/M-80 image and the checked-in image; it is
@@ -81,7 +82,7 @@ CP/M-80 tooling tests; details are recorded below.
   ESP-IDF Kconfig boolean defaults.
 - No firmware was flashed by the assessor. The firmware already on the board
   (menu banner `v0.4.11`; build identity vs. the current `build/` not
-  verified) was exercised with `python3 tools/cpm86/hardwareTest.py` over the
+  verified; the suite is now `python3 tools/cpm86/cpm86HardwareTest.py`) was exercised with `python3 tools/cpm86/hardwareTest.py` over the
   USB console on 2026-10-24: **20 passed, 0 failed, 4 manual**. Passed on
   hardware: menu, cold boot to `A>`, `DIR`/`STAT` on A:, drive selection and
   `DIR` on B:, C:, D:, clean rejection of E:/F: (`E:?`), `PIP` copy A:->D:
