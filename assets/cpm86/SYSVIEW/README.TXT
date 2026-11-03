@@ -1,8 +1,6 @@
-SYSVIEW - VT100/ANSI terminal edition for CP/M-86
+SYSVIEW - emulator information viewer for CP/M-86 (RETRO86)
 
 Copy SYSVIEW.CMD and SYSVIEW.HLP to your CP/M-86 disk.
-Keep a backup of the previous SYSVIEW.CMD before replacing it there.
-The original file on your Mac has not been modified by this task.
 
 Start: SYSVIEW
 Help:  HELP SYSVIEW
@@ -26,12 +24,22 @@ Verification: QEMU execution with simulated CP/M console and controlled
 BIOS data. Checked redraw, keys, normal/missing data, zero flags and
 ANSI cleanup. Actual CP/M disk/emulator integration is not tested.
 
-Optional rebuild (requires Python 3 and NASM):
-  python3 patch/REBUILD.PY /path/to/original/SYSVIEW.CMD rebuilt.CMD
+Build (requires Python 3 and NASM):
+  python3 BUILD.py SYSVIEW.CMD
 
-The rebuild refuses a different original, an existing output file,
-or an output path equal to the original. Source code in SYSVANSI.ASM
-is the added terminal front end; the original binary remains required.
+SYSVIEW.ASM is the single source; the separate patch step and its
+directory are removed.
 
-Original SHA256:
-8fbda99b53cb377c7897d6fb750b2dd6499b12ebc440a101a49522f57e89973e
+Two programs live in one .CMD. The started program is the host
+information viewer (SYSVIEW 1.0), which asks the RETRO86 firmware for
+the RETRO86-SYSINFO/1 stream on ports 0xF8/0xF9 (see
+main/cpm86Machine.c). This is the edition that shows real data on
+RETRO86.
+
+The VT100/ANSI terminal front end (formerly patch/SYSVANSI.ASM, now
+at load offset 0x1800) is dormant: RETRO86 has no IBM BIOS data area
+and no ROM date at F000:FFF5, so on this machine it can only print
+'Not reported'. It is kept for IBM-compatible guests and uses CP/M
+BDOS console I/O only. To start it instead of the viewer, replace the
+entry jump in SYSVIEW.ASM with its stack stub (shown in the source
+comment at 'start:').
