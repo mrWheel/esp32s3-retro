@@ -9,7 +9,7 @@ firmware, or test the running device. The firmware itself is the C/C++ code in
 
 | Program/file | Purpose | Classification |
 | ------ | ----------------------- | -------------- |
-| `tools/diskManager.py` | The one disk-image command line: `--type SYSTEMDSK` builds the bootable `littlefs/<os>/system.dsk` (or `system.po`) from the OS boot resources plus `bootDisks/<os>/systemDsk/`; `--type WORKDSK` creates an empty work disk under `sdcard/retro/images/<os>/`. Every writing run shows a summary and asks `Are you sure (y/N)` (skip with `--yes`). `--type` also accepts unique abbreviations in any case (`S`, `SYS`, `WORK`, ...). | Regular host-side media preparation and production-image preparation |
+| `tools/diskManager.py` | The one disk-image command line: `--type SYSTEMDSK` builds the bootable `littlefs/<os>/system.dsk` (or `system.po`) from the OS boot resources plus `bootDisks/<os>/systemDsk/`; `--type WORKDSK` creates an empty work disk under `sdcard/retro/images/<os>/`. Every writing run shows a summary and asks `Are you sure (y/N)` (skip with `--yes`). `--type` also accepts unique abbreviations in any case (`S`, `SYS`, `WORK`, ...). In a terminal every option missing on the command line is asked for; for SYSTEMDSK the profile of the system disk mounted in `littlefs/<os>/drives.cfg` is offered as the profile default. | Regular host-side media preparation and production-image preparation |
 | `tools/extractFiles.py` | List, add, extract and remove files inside existing images through the OS-specific adapters (`--os cpm80|cpm86|apple2|ucsd`). | Regular host-side media preparation |
 | `tools/prepareSd.py` | Create the documented directory layout on an existing SD-card mount; does not format the card. | Regular host-side SD preparation |
 
@@ -70,6 +70,24 @@ Apple II WORKDSK takes the ProDOS volume name from the image file name
 profile/sources/output and the effect) and asks `Are you sure (y/N)`; anything
 but `y`/`yes` aborts without touching any file. For scripts pass `--yes` (or
 `-y`); without a terminal a writing run is refused unless `--yes` is given.
+
+  In a terminal every option missing on the command line is asked for, in
+order: disk type, OS, profile and the remaining values of the chosen type
+(work disk name, or system disk output path and source directory; the Apple
+II also asks for the ProDOS volume name). The profile list follows the chosen
+OS. For SYSTEMDSK the profile of the system disk mounted in
+`littlefs/<os>/drives.cfg` is offered as the default when it is a valid
+choice, so ENTER keeps the current system disk's profile; WORKDSK always asks
+for the geometry without a default. Answers may be a number, the exact name or a unique abbreviation;
+ENTER accepts an offered default and invalid answers are asked again.
+`--base-image`, `--binary-load-address`, `--sd-root`, `--force` and `--yes`
+stay command-line only. Without a terminal nothing is asked and missing
+required options are refused as before.
+
+```sh
+python3 tools/diskManager.py                     (asks everything)
+python3 tools/diskManager.py --type SYSTEMDSK    (asks OS and profile)
+```
 
   Files go in and out of existing images with `extractFiles.py` (list, add,
 extract, remove; `--os cpm80|cpm86|cpm|ucsd` take the image as argument,

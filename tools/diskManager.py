@@ -25,6 +25,7 @@ EXAMPLES = """examples:
   diskManager.py --type WORKDSK --os ucsd --profile 140K work.po
   diskManager.py --yes --type WORKDSK --os cpm80 work.dsk
   diskManager.py --type SYS --os ucsd --profile PASCAL_800K
+  diskManager.py --type SYSTEMDSK          (asks for the OS and the profile)
 
 --type takes SYSTEMDSK or WORKDSK; any unique abbreviation in any case is
 accepted (S, SY, SYS, ..., W, WO, WORK, ...).
@@ -39,7 +40,15 @@ extracted with tools/extractFiles.py.
 Every run prints a summary of the planned action and asks "Are you sure
 (y/N)"; anything but y/yes aborts without writing. For scripts and
 non-interactive use pass --yes (or -y): without a terminal a writing run is
-refused unless --yes is given."""
+refused unless --yes is given.
+
+In a terminal every option missing on the command line is asked for: disk
+type, OS, profile (SYSTEMDSK offers the profile of the system disk mounted in
+littlefs/<os>/drives.cfg as the default; WORKDSK always asks for the
+geometry) and the remaining values of the chosen type (work disk name, system
+disk output and source directory).
+ENTER accepts an offered default; invalid answers are asked again. Without a
+terminal nothing is asked and missing required options are refused as before."""
 
 
 def unique_disk_type(type_name):
@@ -48,6 +57,141 @@ def unique_disk_type(type_name):
     if len(matches) != 1:
         return None
     return matches[0]
+
+
+def unique_option(value, options):
+    """Return the single option a value uniquely abbreviates (None when unknown or ambiguous)."""
+    matches = [name for name in options if name.upper().startswith(value.upper())]
+    return matches[0] if len(matches) == 1 else None
+
+
+def current_system_profile(os_name):
+    """The diskManager profile of the system disk mounted in littlefs/<os>/drives.cfg (None when unknown)."""
+    profile_map = systemDisk.PROFILE_MAP.get(os_name)
+    systemName = "system.po" if os_name == "ucsd" else "system.dsk"
+    configFile = systemDisk.PROJECT_ROOT / "littlefs" / os_name / "drives.cfg"
+    if not profile_map or not configFile.is_file():
+        return None
+    sizeToProfile = {size.upper(): profile for profile, size in profile_map.items()}
+    for line in configFile.read_text(encoding="utf-8", errors="replace").splitlines():
+        text = line.strip()
+        if not text or text.startswith("#") or "=" not in text:
+            continue
+        fields = [field.strip() for field in text.split("=", 1)[1].split(",")]
+        if len(fields) < 3:
+            continue
+        imagePath = fields[0].strip().strip("/").lower()
+        if not imagePath.endswith(f"littlefs/{os_name}/{systemName}".lower()):
+            continue
+        sizeName = fields[2].upper()
+        if sizeName.startswith("APPLE2_"):
+            sizeName = sizeName[len("APPLE2_"):]
+        return sizeToProfile.get(sizeName)
+    return None
+
+
+def _ask_line(label):
+    """Read one answer line; Ctrl-C or end of input aborts the run."""
+    try:
+        answer = input(f"{label}: ")
+    except (EOFError, KeyboardInterrupt):
+        print()
+        raise SystemExit(130)
+    return answer.strip()
+
+
+def prompt_choice(label, options, default=None, lookup=None):
+    """Ask for one of the options by number, exact name or unique abbreviation; ENTER takes the default."""
+    choices = ", ".join(f"{number}) {name}" for number, name in enumerate(options, start=1))
+    suffix = f" [{default}]" if default is not None else ""
+    while True:
+        answer = _ask_line(f"{label}: {choices}{suffix}")
+        if not answer:
+            if default is not None:
+                return default
+        elif answer.isdigit() and 1 <= int(answer) <= len(options):
+            return options[int(answer) - 1]
+        else:
+            for name in options:
+                if answer.upper() == name.upper():
+                    return name
+            if lookup is not None:
+                match = lookup(answer)
+                if match is not None:
+                    return match
+        print(f"Choose one of: {', '.join(options)}")
+
+
+def prompt_yes_no(label):
+    """Ask a yes/no question; ENTER takes the default 'no'."""
+    return _ask_line(f"{label} (y/N)").lower() in ("y", "yes")
+
+
+def prompt_os(type_name):
+    """Ask for the target OS; only OSes usable for this disk type are accepted."""
+    options = tuple(osProfiles.OS_REGISTRY)
+    while True:
+        os_name = prompt_choice("Which operating system", options, lookup=lambda value: unique_option(value, options))
+        info = osProfiles.OS_REGISTRY[os_name]
+        available = info.buildable if type_name == "SYSTEMDSK" else info.supported
+        if available:
+            return os_name
+        print(f"{info.label} cannot be used to create a {type_name}.")
+
+
+def prompt_profile(type_name, info):
+    """Ask for the disk profile; SYSTEMDSK offers the mounted system disk's profile as the default."""
+    if type_name == "SYSTEMDSK":
+        options = tuple(systemDisk.PROFILE_MAP[info.key])
+        default = current_system_profile(info.key)
+        if default not in options:
+            default = None
+    else:
+        #-- WORKDSK has no default here: the geometry is always asked (the CLI default is unchanged).
+        options = tuple(info.profiles)
+        default = None
+    return prompt_choice("Which profile", options, default=default)
+
+
+def prompt_image_name():
+    """Ask for the WORKDSK image name or path (a bare name goes to the images directory)."""
+    while True:
+        answer = _ask_line("Work disk name")
+        if answer:
+            return answer
+
+
+def prompt_path(label, default_path):
+    """Ask for a path; ENTER keeps the default."""
+    answer = _ask_line(f"{label} [{default_path}]")
+    return Path(answer) if answer else default_path
+
+
+def interactive_mode(argv):
+    """True when missing options may be asked for: an attached terminal and no -h/--help request."""
+    return sys.stdin.isatty() and not any(token in ("-h", "--help") for token in argv)
+
+
+def prompt_missing_options(type_name, info, arguments):
+    """Ask for every option that was not given on the command line (terminal runs only)."""
+    if arguments.profile is None:
+        arguments.profile = prompt_profile(type_name, info)
+    if type_name == "WORKDSK":
+        if arguments.image is None:
+            arguments.image = Path(prompt_image_name())
+        if not arguments.force:
+            image_path = osProfiles.resolve_image_path(arguments.sd_root, info.key, arguments.image)
+            if image_path.exists() and prompt_yes_no(f"{image_path} already exists, replace it"):
+                arguments.force = True
+        return
+    if arguments.output is None:
+        arguments.output = prompt_path("Output path", systemDisk.system_disk_output_path(info.key, None))
+    if arguments.source_dir is None:
+        arguments.source_dir = prompt_path("Source directory", systemDisk.source_directory(info.key, None))
+    if info.key == "apple2" and arguments.volume_name is None:
+        answer = _ask_line(f"Volume name [{systemDisk.PRODOS_VOLUME_NAME}]")
+        if answer:
+            arguments.volume_name = answer
 
 
 def build_parser(os_name, type_name):
@@ -234,9 +378,18 @@ def main(argv=None):
             f"--type '{known.disk_type}' does not match SYSTEMDSK or WORKDSK; "
             "unique abbreviations such as SYS or WORK are accepted"
         )
+    ask = interactive_mode(argv)
+    if ask and type_name is None:
+        type_name = prompt_choice("Create what", DISK_TYPES, lookup=unique_disk_type)
+        argv = argv + ["--type", type_name]
+    if ask and os_name is None:
+        os_name = prompt_os(type_name)
+        argv = argv + ["--os", os_name]
     parser = build_parser(os_name, type_name)
     arguments = parser.parse_args(argv)
     info = osProfiles.require_supported(parser, arguments.os_name)
+    if ask:
+        prompt_missing_options(type_name, info, arguments)
     if type_name == "SYSTEMDSK":
         run_system_disk(parser, info, arguments)
     else:

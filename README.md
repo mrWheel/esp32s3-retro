@@ -2,6 +2,10 @@
 
 Several classic computing worlds, one small computer. ESP32-S3 Retro Computer lets you choose a retro system from a shared menu and explore its programs, languages and disk-based way of working through a USB terminal on your computer.
 
+<div align="center">
+<img src="./assets/images/esp32s3-retro.jpg" width="50%">
+</div>
+
 Revisit CP/M commands, write BASIC on an Apple II, or explore the Apple Pascal environment. Programs run inside an emulated machine, with disk-image files taking the place of physical floppy disks. The reference device is a LOLIN S3 Pro with a microSD card; your computer supplies the keyboard and terminal screen.
 
 ## Choose your system
@@ -20,7 +24,9 @@ The individual guides describe how closely each experience resembles its origina
 
 The startup screen:
 
-![System Menu](./assets/images/SysMenu.png)
+<div align="center">
+<img src="./assets/images/SysMenu.png" width="75%">
+</div>
 
 Enter a number and press Enter to start. Unavailable systems show a status beside their name, for example when required system files are missing. File Transfer needs a valid Retro SD card. Resetting the device brings you back to this menu; save your work before doing so. CP/M-86 also supports Ctrl+] to return to the menu.
 
