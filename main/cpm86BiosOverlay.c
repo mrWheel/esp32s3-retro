@@ -9,7 +9,7 @@ enum
 {
   biosSegmentBase = 0x510,
   biosOverlayStart = 0x24B7,
-  biosOverlayEnd = 0x2A0A,
+  biosOverlayEnd = 0x2A23,
   biosOverlayCapacity = biosOverlayEnd - biosOverlayStart,
   biosOverlayFileLimit = 4096
 };
@@ -31,7 +31,7 @@ static int hexDigit(char character)
   return -1;
 }
 
-static bool decodeByte(const char *text, uint8_t *value)
+static bool decodeByte(const char* text, uint8_t* value)
 {
   int high = hexDigit(text[0]);
   int low = hexDigit(text[1]);
@@ -43,9 +43,9 @@ static bool decodeByte(const char *text, uint8_t *value)
   return true;
 }
 
-static bool applyRecord(const char *line, uint8_t overlay[biosOverlayCapacity],
-                        bool written[biosOverlayCapacity], bool *hasData, bool *hasStart,
-                        bool *hasEnd)
+static bool applyRecord(const char* line, uint8_t overlay[biosOverlayCapacity],
+                        bool written[biosOverlayCapacity], bool* hasData, bool* hasStart,
+                        bool* hasEnd)
 {
   if (line[0] != ':')
   {
@@ -117,7 +117,7 @@ static bool applyRecord(const char *line, uint8_t overlay[biosOverlayCapacity],
   return false;
 }
 
-bool cpm86BiosLoadOverlay(cpm86Core *core, const char *path)
+bool cpm86BiosLoadOverlay(cpm86Core* core, const char* path)
 {
   if (core == NULL || path == NULL)
   {
@@ -152,7 +152,7 @@ bool cpm86BiosLoadOverlay(cpm86Core *core, const char *path)
       break;
     }
     bool cpMEndOfFile = false;
-    char *endMarker = memchr(line, 0x1A, length);
+    char* endMarker = memchr(line, 0x1A, length);
     if (endMarker != NULL)
     {
       length = (size_t)(endMarker - line);
@@ -205,9 +205,8 @@ bool cpm86BiosLoadOverlay(cpm86Core *core, const char *path)
     {
       ++index;
     }
-    if (start < index &&
-        cpm86CoreLoad(core, biosSegmentBase + biosOverlayStart + (uint32_t)start,
-                      overlay + start, index - start) != cpm86CoreOk)
+    if (start < index && cpm86CoreLoad(core, biosSegmentBase + biosOverlayStart + (uint32_t)start,
+                                       overlay + start, index - start) != cpm86CoreOk)
     {
       return false;
     }

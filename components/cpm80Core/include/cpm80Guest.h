@@ -22,12 +22,17 @@ enum
   cpm80TimerCapability = 0xB1,
   cpm80SystemImageSize = 256256,
   cpm80LargeImageSize = 512512,
+  cpm80HugeImageSize = 1474560,
   cpm80BigImageSize = 8421376,
   cpm80SystemHeaderOffset = cpm80CcpSize + cpm80BdosSize,
   cpm80SystemHeaderSize = 16,
   cpm80DiskTracks = 77,
   cpm80DiskSectorsPerTrack = 26,
   cpm80LargeDiskSectorsPerTrack = 52,
+  cpm80HugeDiskTracks = 360,
+  cpm80HugeDiskSectorsPerTrack = 32,
+  cpm80HugeDiskBlockSize = 8192,
+  cpm80HugeDiskDirectoryEntries = 128,
   cpm80BigDiskTracks = 514,
   cpm80BigDiskSectorsPerTrack = 128,
   cpm80BigDiskBlockSize = 16384,
@@ -41,13 +46,14 @@ enum
   cpm80DmaAddress = 0x0080
 };
 
-//-- The three image geometries. Their drives.cfg identifiers are CPM80_256K (System,
-//-- cpm80SystemImageSize bytes), CPM80_512K (Large, cpm80LargeImageSize bytes) and
-//-- CPM80_8M (Big, cpm80BigImageSize bytes).
+//-- The four image geometries. Their drives.cfg identifiers are CPM80_256K (System,
+//-- cpm80SystemImageSize bytes), CPM80_512K (Large, cpm80LargeImageSize bytes),
+//-- CPM80_1440K (Huge, cpm80HugeImageSize bytes) and CPM80_8M (Big, cpm80BigImageSize bytes).
 typedef enum
 {
   cpm80DiskProfileSystem,
   cpm80DiskProfileLarge,
+  cpm80DiskProfileHuge,
   cpm80DiskProfileBig
 } cpm80DiskProfile;
 

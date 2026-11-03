@@ -136,6 +136,35 @@ class CreateSystemDskTests(unittest.TestCase):
         self.assertIn("ASM86.CMD", filenames)
         self.assertNotIn("CPM.SYS", filenames)
 
+    def test_cpm80_huge_profile_uses_huge_geometry(self):
+        (self.source_dir / "TOOL.COM").write_bytes(b"tool")
+        output = self.root / "huge.dsk"
+
+        createSystemDsk.create_system_disk(
+            "cpm80",
+            "CPM80_1440K",
+            output,
+            source_dir=self.source_dir,
+        )
+
+        self.assertEqual(output.stat().st_size, diskImageCpm80.HUGE_IMAGE_SIZE)
+        self.assertIn("TOOL.COM", [entry["filename"] for entry in diskImageCpm80.inspect_image(output.read_bytes())[0]])
+
+    def test_cpm86_huge_profile_uses_huge_geometry(self):
+        output = self.root / "cpm86-huge-system.dsk"
+
+        createSystemDsk.create_system_disk(
+            "cpm86",
+            "CPM86_1440K",
+            output,
+        )
+
+        image = output.read_bytes()
+        filenames = [entry["filename"] for entry in diskImageCpm86.inspect_image(image)[0]]
+        self.assertEqual(len(image), diskImageCpm86.HUGE_IMAGE_SIZE)
+        self.assertIn("ASM86.CMD", filenames)
+        self.assertNotIn("CPM.SYS", filenames)
+
     def test_cpm86_big_profile_uses_big_geometry(self):
         output = self.root / "cpm86-big-system.dsk"
 
@@ -176,8 +205,8 @@ class CreateSystemDskTests(unittest.TestCase):
 
     def test_all_boot_source_files_are_in_both_profiles(self):
         inspectors = {
-            "cpm80": (diskImageCpm80, {"CPM80_256K": diskImageCpm80.IMAGE_SIZE, "CPM80_512K": diskImageCpm80.LARGE_IMAGE_SIZE}),
-            "cpm86": (diskImageCpm86, {"CPM86_160K": diskImageCpm86.IMAGE_SIZE, "CPM86_516K": diskImageCpm86.LARGE_IMAGE_SIZE, "CPM86_8196K": diskImageCpm86.BIG_IMAGE_SIZE}),
+            "cpm80": (diskImageCpm80, {"CPM80_256K": diskImageCpm80.IMAGE_SIZE, "CPM80_512K": diskImageCpm80.LARGE_IMAGE_SIZE, "CPM80_1440K": diskImageCpm80.HUGE_IMAGE_SIZE}),
+            "cpm86": (diskImageCpm86, {"CPM86_160K": diskImageCpm86.IMAGE_SIZE, "CPM86_516K": diskImageCpm86.LARGE_IMAGE_SIZE, "CPM86_1440K": diskImageCpm86.HUGE_IMAGE_SIZE, "CPM86_8196K": diskImageCpm86.BIG_IMAGE_SIZE}),
         }
         for os_name, (module, sizes) in inspectors.items():
             source_names = sorted(

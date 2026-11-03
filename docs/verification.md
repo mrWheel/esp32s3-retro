@@ -131,3 +131,71 @@ Suggested hardware checks: list `apple2/data1.po`, `apple2/test1.dsk` and `ucsd/
 ## drives.cfg transfer (2026-10-22)
 
 - Firmware build with the new `<OS>/drives.cfg` upload exception and the drives.cfg entry in the SPA function 1/3 selectors: `idf.py build` PASS. Not exercised: upload/download of drives.cfg on a device or in a browser, the 413/422 rejection paths, replacement with a failed transfer.
+
+## 1.44 MB (1440K) disk profiles for CP/M-80 and CP/M-86 — 2026-11-03
+
+Added the CPM80_1440K and CPM86_1440K profiles (both 1,474,560 bytes:
+360 tracks of 4,096 bytes, 8 KiB allocation blocks, DSM=178, 128 directory
+entries, EXM=0, 8-bit block pointers) for system disks and data disks.
+CP/M-80 reserves two tracks (OFF=2, 32 128-byte records per track); CP/M-86
+reserves one (OFF=1, eight 512-byte physical sectors per track, 32 guest
+records, geometry code 03h, new DPB3 with SELDSK dispatch). Updated:
+guest adapters and drive configuration validation, the RETRO86_V1 BIOS
+source, the Python tools (osProfiles, diskImage, diskImageCpm80,
+diskImageCpm86, createSystemDsk, extractors, diskdefs), the LittleFS
+READMEs, the drives.cfg samples and tools/README.md, plus
+docs/cpm86/virtualIo.md, abiAudit.md, diskdefsValidation.md and
+assesmentCPM86.md.
+
+Executed (host, build and hardware):
+
+- The BIOS overlay was re-assembled from components/cpm86Core/bios/
+  retro86bios.a86 with the guest ASM86 inside the host test; the extracted
+  H86 matches the checked-in littlefs/cpm86/retro86bios.h86 byte for byte
+  (`cpm86BiosAssembly` PASS). `biosOverlayEnd` moved to 0x2A23.
+- Host tests (`cmake -S tests -B /tmp/retro-host-tests`, ASan/UBSan): all
+  CP/M-80/86, guestFs and hostCore fixtures pass, including the new 1440K
+  geometry, boot-as-A:, DIR and multi-record file fixtures. Six failures
+  (apple2DiskStream, ucsdPascalBoot, apple2ProdosAutostart twice,
+  guestFsDos33 and its dependent) reproduce identically on a clean HEAD
+  worktree and are pre-existing and unrelated.
+- Python tool tests: the new 1440K create/list/add/extract and system-disk
+  subtests pass for both OSes. Pre-existing failures remain
+  (test_build_cpm80_matches_checked_in_image, the Apple II ProDOS upload
+  notice test, and test_all_boot_source_files_are_in_both_profiles from
+  bootDisks growth).
+- `cpmtools` audit re-run with the new `retro86-huge` diskdef:
+  single-extent files up to 16 KiB round-trip byte-identical; multi-extent
+  files above 16 KiB written by `cpmcp` are incompatible (cpmtools derives
+  CP/M-3-style extents from the block size, DPB3 uses EXM=0). Recorded in
+  docs/cpm86/diskdefsValidation.md; the project validator stays
+  diskImageCpm86.py.
+- ESP-IDF 6.0.2 build PASS (`retroHost.bin` 1,337,280 bytes). Flashed by
+  the coding agent over /dev/tty.usbmodem202401 with the user's explicit
+  session authorization.
+- Work images: `work1440.dsk` (cpm80 E:) and `work86-1440.dsk` (cpm86 F:)
+  created with tools/diskImage.py, uploaded through menu 6 (File Transfer,
+  PUT /api/file?area=images&path=...) and read back at 1,474,560 bytes
+  each.
+
+Hardware results (ESP32-S3, /dev/cu.usbmodem202401, 115200):
+
+- CP/M-80 suite: 47 passed, 1 failed, 2 manual. The single failure was a
+  40 s timeout on one `DIR C:` (the 8 MiB work2.dsk); the same file was
+  listed successfully right after the reset, and a follow-up manual run
+  copied to C:, listed it and erased it cleanly. E: is the new
+  CPM80_1440K image: `STAT E:` reported 1424k free, PIP copy from A:,
+  `DIR`, `TYPE` readback, `ERA` and `NO FILE` after erase all passed.
+- CP/M-86 suite: 58 passed, 1 failed, 1 manual. The failure was the timer
+  tolerance (DELTA 1103 ms against 900-1100 ms); three TIMER86
+  re-measurements in a row gave 1094, 1090 and 1093 ms, so the check
+  itself is at its boundary and the clock is healthy. F: is the new
+  CPM86_1440K image: `STAT F:` reported "RW, Free Space: 1,424k", PIP
+  copy, `DIR`, `TYPE` readback, `ERA` (gone afterwards) and a second
+  1,280-byte file all passed. The regenerated overlay is exercised on
+  hardware by the normal CPM86_516K A: boot of every run.
+
+Open: a 1440K A: system disk was verified by the host boot tests only (the
+device keeps the 512K/516K A: images); the single `DIR C:` timeout was
+transient and not reproduced; the pre-existing Apple/UCSD/DOS 3.3 host
+failures and the three Python reference failures are unchanged.

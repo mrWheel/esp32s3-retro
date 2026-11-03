@@ -47,6 +47,7 @@ python3 tools/buildDiskImage.py --os cpm86 --source-dir ~/cpm86/files
 python3 tools/buildDiskImage.py --os apple2 --profile 800K --name DATA
 python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_256K
 python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_512K
+python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_1440K
 python3 tools/prepareSd.py --os cpm86
 python3 tools/diskImage.py --os cpm86 -h
 ```
@@ -79,7 +80,9 @@ destination. The destination image is replaced when the build succeeds:
 ```sh
 python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_256K
 python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_512K
+python3 tools/createSystemDsk.py --os cpm80 --profile CPM80_1440K
 python3 tools/createSystemDsk.py --os cpm86 --profile CPM86_160K
+python3 tools/createSystemDsk.py --os cpm86 --profile CPM86_1440K
 python3 tools/createSystemDsk.py --os cpm86 --profile CPM86_8196K
 python3 tools/createSystemDsk.py --os apple2 --profile PRODOS
 python3 tools/createSystemDsk.py --os apple2 --profile PRODOS --binary-load-address 0x800
@@ -92,9 +95,10 @@ keeps the executables, skips the files that do not fit, and prints
 than producing a disk missing a program.
 
 The CP/M `--profile` values are the drives.cfg size identifiers themselves:
-`CPM80_256K` (256,256 bytes) and `CPM80_512K` (512,512 bytes) for CP/M-80,
-`CPM86_160K` (163,840 bytes), `CPM86_516K` (528,384 bytes) and `CPM86_8196K`
-(8,392,704 bytes) for CP/M-86. All of them boot as A:: the firmware detects
+`CPM80_256K` (256,256 bytes), `CPM80_512K` (512,512 bytes) and
+`CPM80_1440K` (1,474,560 bytes) for CP/M-80, and `CPM86_160K` (163,840 bytes),
+`CPM86_516K` (528,384 bytes), `CPM86_1440K` (1,474,560 bytes) and
+`CPM86_8196K` (8,392,704 bytes) for CP/M-86. All of them boot as A:: the firmware detects
 the layout from the size of `littlefs/<os>/system.dsk` when drives.cfg is
 missing, and the A: line's identifier must then match the file size. A size
 that matches no system profile is reported as an error and A: is not mounted. CP/M-86 is built from an empty
@@ -103,7 +107,7 @@ image plus the source directory only (never from an older `system.dsk`). It requ
 The builder validates these runtime files but does not put them on A::
 firmware loads them directly from LittleFS. In particular, the duplicate
 `CPM.SYS` is never placed on the generated CP/M-86 A: image.
-The firmware build (`idf.py build`/`flash`) runs `createSystemDsk.py` at CMake configure time (see `CMakeLists.txt`) for Apple II, CP/M-80 (LARGE), CP/M-86 (LARGE by default) and UCSD (PASCAL_800K), so the `system.dsk`/`system.po` files in `littlefs/` always match `bootDisks/<os>/systemDsk/`; changing a file there re-runs the configure step. The `APPLE2_SYSTEM_DISK_PROFILE` CMake option selects `PRODOS` (140K), `PRODOS_640K`, or `PRODOS_800K`; for example, use `-DAPPLE2_SYSTEM_DISK_PROFILE=PRODOS_800K` for an 800K bootable system volume in the `bootfs` LittleFS partition. The `CPM86_SYSTEM_DISK_PROFILE` CMake option selects `SMALL` (160 KiB), `LARGE` (516 KiB, default) or `BIG` (8 MiB); for example, use `-DCPM86_SYSTEM_DISK_PROFILE=BIG` for an 8 MiB A: system disk in the `bootfs` LittleFS partition. `--os ucsd --profile PASCAL_800K` copies `assets/ucsd/ucsdDiskImages/Apple Pascal 1.3 3.5.po` and adds the files of `bootDisks/ucsd/systemDsk/` (default output `littlefs/ucsd/system.po`); `128K.APPLE`/`128K.PASCAL` are placed as `SYSTEM.APPLE`/`SYSTEM.PASCAL`, and a source file named like an existing base-volume file overwrites it. An Apple II source file named `NAME#ADDR.BIN` (ADDR is 1-4 hex digits) is stored as `NAME` (without extension) with load address ADDR; a `NAME.ADDR` file (hex, e.g. `6000`) next to `NAME.BIN` still gives that file's load address. Bench programs (BENCH2, BENCH2ASM, BENCH80, BENCH86, BENCHUCSD) are copied from `assets/` into these folders; `tests/test_bootDisksBench.py` checks that the copies are current.
+The firmware build (`idf.py build`/`flash`) runs `createSystemDsk.py` at CMake configure time (see `CMakeLists.txt`) for Apple II, CP/M-80 (always `CPM80_512K`), CP/M-86 (`CPM86_516K` by default) and UCSD (PASCAL_800K), so the `system.dsk`/`system.po` files in `littlefs/` always match `bootDisks/<os>/systemDsk/`; changing a file there re-runs the configure step. The `APPLE2_SYSTEM_DISK_PROFILE` CMake option selects `PRODOS` (140K), `PRODOS_640K`, or `PRODOS_800K`; for example, use `-DAPPLE2_SYSTEM_DISK_PROFILE=PRODOS_800K` for an 800K bootable system volume in the `bootfs` LittleFS partition. The `CPM86_SYSTEM_DISK_PROFILE` CMake option selects `CPM86_160K`, `CPM86_516K` (default), `CPM86_1440K` or `CPM86_8196K`; for example, use `-DCPM86_SYSTEM_DISK_PROFILE=CPM86_1440K` for a 1.44 MB A: system disk in the `bootfs` LittleFS partition. `--os ucsd --profile PASCAL_800K` copies `assets/ucsd/ucsdDiskImages/Apple Pascal 1.3 3.5.po` and adds the files of `bootDisks/ucsd/systemDsk/` (default output `littlefs/ucsd/system.po`); `128K.APPLE`/`128K.PASCAL` are placed as `SYSTEM.APPLE`/`SYSTEM.PASCAL`, and a source file named like an existing base-volume file overwrites it. An Apple II source file named `NAME#ADDR.BIN` (ADDR is 1-4 hex digits) is stored as `NAME` (without extension) with load address ADDR; a `NAME.ADDR` file (hex, e.g. `6000`) next to `NAME.BIN` still gives that file's load address. Bench programs (BENCH2, BENCH2ASM, BENCH80, BENCH86, BENCHUCSD) are copied from `assets/` into these folders; `tests/test_bootDisksBench.py` checks that the copies are current.
 The Apple II emulator uses ProDOS disks only; DOS 3.3 is not supported. For Apple II,
 `createSystemDsk.py` copies the bootable base volume `bootDisks/apple2/prodosEmpty.po`
 (140K, volume `/SYSTEM`: `PRODOS`, `BASIC.SYSTEM`, `QUIT.SYSTEM`, `BITSY.BOOT`), adds every
@@ -193,8 +197,9 @@ read-only LittleFS system image; B: through F: are optional SD images. Every
 line ends with the size identifier of its image: `CPM86_160K` (163,840 bytes,
 40 tracks, eight 512-byte sectors per track, 128-byte guest records, 1 KiB
 allocation blocks and 64 directory entries), `CPM86_516K` (528,384 bytes,
-129 tracks, 2 KiB blocks, 128 directory entries) or `CPM86_8196K` (8,392,704
-bytes, 2049 tracks, 16 KiB blocks, 512 directory entries).
+129 tracks, 2 KiB blocks, 128 directory entries), `CPM86_1440K` (1,474,560
+bytes, 360 tracks, 8 KiB blocks, 128 directory entries) or `CPM86_8196K`
+(8,392,704 bytes, 2049 tracks, 16 KiB blocks, 512 directory entries).
 
 The generated configuration maps E: to `work86.dsk` and sets it to read/write.
 Create the image if needed, then copy it to that path on the card:
@@ -229,6 +234,17 @@ python3 tools/diskImage.py create --os cpm86 --profile CPM86_516K work86.dsk
 E=/retro/images/cpm86/work86.dsk,RW,CPM86_516K
 ```
 
+For a 1.44 MB disk (360 tracks, 8 KiB blocks, 128 directory entries) use
+`--profile CPM86_1440K` and the identifier `CPM86_1440K`:
+
+```sh
+python3 tools/diskImage.py create --os cpm86 --profile CPM86_1440K work86.dsk
+```
+
+```text
+E=/retro/images/cpm86/work86.dsk,RW,CPM86_1440K
+```
+
 For an 8 MiB disk (16 KiB blocks, 512 directory entries) use
 `--profile CPM86_8196K` and the identifier `CPM86_8196K`:
 
@@ -243,8 +259,8 @@ E=/retro/images/cpm86/work86.dsk,RW,CPM86_8196K
 Use only the shown image roots and size identifiers. Missing optional images
 are left offline; malformed or duplicate configuration lines disable B:–F:
 and retain the built-in A:. A drive is reported to CP/M-86 only when its image
-exists, has exactly the size named by its identifier (163,840, 528,384 or
-8,392,704 bytes) and can be opened with the configured access
+exists, has exactly the size named by its identifier (163,840, 528,384,
+1,474,560 or 8,392,704 bytes) and can be opened with the configured access
 mode. Do not switch an image to read/write unless its contents can be safely
 modified; use disposable media for write testing.
 
@@ -253,7 +269,7 @@ overwrites images. Existing `drives.cfg` files are preserved.
 
 ### CP/M-80 drives
 
-`diskImage.py --os cpm80` creates empty raw CP/M-80 images for either supported size. `CPM80_256K` uses 77 tracks × 26 128-byte records, two reserved tracks, 1 KiB blocks and 64 directory entries. `CPM80_512K` uses 77 tracks × 52 128-byte records, two reserved tracks, 2 KiB blocks and 128 directory entries. Both use allocation blocks 0–242. `CPM80_8M` is the CP/M 2.2 maximum of 8 MiB: 514 tracks × 128 128-byte records (8,421,376 bytes), two reserved tracks, 16 KiB blocks (DSM 511, EXM 7, 16-bit block pointers) and 512 directory entries. Create it with `python3 tools/diskImage.py create --os cpm80 --profile CPM80_8M big.dsk` and configure the drive as `E=/retro/images/cpm80/big.dsk,RW,CPM80_8M`. The guest DPB for `CPM80_8M` drives is generated by the firmware; the stock BDOS already supports DSM > 255. It uses only the Python standard library.
+`diskImage.py --os cpm80` creates empty raw CP/M-80 images for any of the four supported sizes. `CPM80_256K` uses 77 tracks × 26 128-byte records, two reserved tracks, 1 KiB blocks and 64 directory entries. `CPM80_512K` uses 77 tracks × 52 128-byte records, two reserved tracks, 2 KiB blocks and 128 directory entries. Both use allocation blocks 0–242. `CPM80_1440K` uses 360 tracks × 32 128-byte records (1,474,560 bytes), two reserved tracks, 8 KiB blocks (DSM 178) and 128 directory entries. Create it with `python3 tools/diskImage.py create --os cpm80 --profile CPM80_1440K work1440.dsk` and configure the drive as `E=/retro/images/cpm80/work1440.dsk,RW,CPM80_1440K`. `CPM80_8M` is the CP/M 2.2 maximum of 8 MiB: 514 tracks × 128 128-byte records (8,421,376 bytes), two reserved tracks, 16 KiB blocks (DSM 511, EXM 7, 16-bit block pointers) and 512 directory entries. Create it with `python3 tools/diskImage.py create --os cpm80 --profile CPM80_8M big.dsk` and configure the drive as `E=/retro/images/cpm80/big.dsk,RW,CPM80_8M`. The guest DPB for `CPM80_8M` drives is generated by the firmware; the stock BDOS already supports DSM > 255. It uses only the Python standard library.
 
 ```sh
 python3 tools/prepareSd.py /Volumes/SDCARD
@@ -263,7 +279,7 @@ python3 tools/diskImage.py list --os cpm80 ~/Desktop/work.dsk
 cp ~/Desktop/work.dsk /Volumes/SDCARD/retro/images/cpm80/work.dsk
 ```
 
-The local-file `add` step accepts ordinary files with valid CP/M 8.3 names; use `--name MBASIC.COM` if the host filename needs changing. Create refuses to overwrite an existing image unless `--force` is supplied. `add` preserves the image if a file is invalid, duplicated, or does not fit. The drive configuration is `littlefs/cpm80/drives.cfg` (flashed with LittleFS); edit that file to choose the drive letter, image path, `RO`/`RW` access and `SYSTEM`/`LARGE` profile. Copy the finished `work.dsk` to the path named by that configuration and safely eject the card before inserting it in the ESP32-S3. At the CP/M prompt, switch to `E:` and use `DIR`; a write-enabled CP/M image is required.
+The local-file `add` step accepts ordinary files with valid CP/M 8.3 names; use `--name MBASIC.COM` if the host filename needs changing. Create refuses to overwrite an existing image unless `--force` is supplied. `add` preserves the image if a file is invalid, duplicated, or does not fit. The drive configuration is `littlefs/cpm80/drives.cfg` (flashed with LittleFS); edit that file to choose the drive letter, image path, `RO`/`RW` access and size identifier (`CPM80_256K`, `CPM80_512K`, `CPM80_1440K` or `CPM80_8M`). Copy the finished `work.dsk` to the path named by that configuration and safely eject the card before inserting it in the ESP32-S3. At the CP/M prompt, switch to `E:` and use `DIR`; a write-enabled CP/M image is required.
 
 ## Import resources from an HTML archive
 

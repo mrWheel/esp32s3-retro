@@ -58,6 +58,27 @@ class DiskImageCpm80Tests(unittest.TestCase):
         self.assertEqual([entry["filename"] for entry in entries], ["LARGE.COM", "LARGE.COM"])
         self.assertEqual([entry["extent"] for entry in entries], [0, 1])
 
+    def test_huge_profile_uses_1440k_geometry_and_adds_files(self):
+        huge_path = Path(self.temporary_directory.name) / "huge.dsk"
+        diskImageCpm80.create_image(huge_path, profile="CPM80_1440K")
+        image = huge_path.read_bytes()
+        self.assertEqual(len(image), diskImageCpm80.HUGE_IMAGE_SIZE)
+        self.assertTrue(
+            all(
+                value == diskImageCpm80.EMPTY
+                for value in image[
+                    diskImageCpm80.HUGE_DIRECTORY_OFFSET : diskImageCpm80.HUGE_DIRECTORY_OFFSET
+                    + diskImageCpm80.HUGE_DIRECTORY_SIZE
+                ]
+            )
+        )
+        self.assertEqual(len(diskImageCpm80.inspect_image(image)[1]), diskImageCpm80.HUGE_DIRECTORY_ENTRIES)
+        payload = bytes(range(256)) * 100
+        diskImageCpm80.add_files(huge_path, [("HUGE.COM", payload)])
+        entries, _, _ = diskImageCpm80.inspect_image(huge_path.read_bytes())
+        self.assertEqual([entry["filename"] for entry in entries], ["HUGE.COM", "HUGE.COM"])
+        self.assertEqual([entry["extent"] for entry in entries], [0, 1])
+
     def test_install_validated_raw_image_refuses_unrequested_overwrite(self):
         destination = self.image_path.parent / "copy.dsk"
         data = self.image_path.read_bytes()

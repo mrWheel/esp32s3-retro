@@ -34,6 +34,9 @@ static const char* profileName(cpm86DiskProfile profile)
   case cpm86DiskProfileSystemLarge:
   case cpm86DiskProfileDataLarge:
     return "CPM86_516K";
+  case cpm86DiskProfileDataHuge:
+  case cpm86DiskProfileSystemHuge:
+    return "CPM86_1440K";
   case cpm86DiskProfileDataBig:
   case cpm86DiskProfileSystemBig:
     return "CPM86_8196K";
@@ -137,6 +140,10 @@ static bool parseLine(char* line, cpm86DriveConfig drives[cpm86DiskDriveCount],
   else if (strcmp(profileName, "CPM86_516K") == 0)
   {
     profile = drive == 0 ? cpm86DiskProfileSystemLarge : cpm86DiskProfileDataLarge;
+  }
+  else if (strcmp(profileName, "CPM86_1440K") == 0)
+  {
+    profile = drive == 0 ? cpm86DiskProfileSystemHuge : cpm86DiskProfileDataHuge;
   }
   else if (strcmp(profileName, "CPM86_8196K") == 0)
   {
@@ -270,6 +277,11 @@ bool cpm86DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm86DiskProfile*
     *profile = cpm86DiskProfileSystemLarge;
     return true;
   }
+  if (imageSize == cpm86HugeDiskSize)
+  {
+    *profile = cpm86DiskProfileSystemHuge;
+    return true;
+  }
   if (imageSize == cpm86BigDiskSize)
   {
     *profile = cpm86DiskProfileSystemBig;
@@ -293,9 +305,10 @@ bool cpm86DriveConfigResolveSystemProfile(cpm86DriveConfig* drive, uint64_t imag
     {
       snprintf(error, errorCapacity,
                "size %llu matches no system profile (CPM86_160K=%llu, CPM86_516K=%llu, "
-               "CPM86_8196K=%llu)",
+               "CPM86_1440K=%llu, CPM86_8196K=%llu)",
                (unsigned long long)imageSize, (unsigned long long)cpm86SystemDiskSize,
-               (unsigned long long)cpm86LargeDiskSize, (unsigned long long)cpm86BigDiskSize);
+               (unsigned long long)cpm86LargeDiskSize, (unsigned long long)cpm86HugeDiskSize,
+               (unsigned long long)cpm86BigDiskSize);
     }
     return false;
   }

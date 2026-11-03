@@ -30,8 +30,8 @@ cpm80DriveConfigResult cpm80DriveConfigLoad(const char* path,
                                             cpm80DriveConfig drives[cpm80DiskDriveCount],
                                             char* error, size_t errorCapacity);
 
-//-- Maps the size of the A: image to its profile (256256 = CPM80_256K, 512512 = CPM80_512K);
-//-- false for any other size.
+//-- Maps the size of the A: image to its profile (256256 = CPM80_256K, 512512 = CPM80_512K,
+//-- 1474560 = CPM80_1440K); false for any other size.
 bool cpm80DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm80DiskProfile* profile);
 
 //-- Sets drive->profile for A: from imageSize. An explicit size identifier in drives.cfg

@@ -1521,6 +1521,7 @@ typedef struct
 {
   imageFile* disks[cpm86DiskDriveCount];
   bool largeDisks[cpm86DiskDriveCount];
+  bool hugeDisks[cpm86DiskDriveCount];
   bool bigDisks[cpm86DiskDriveCount];
   uint8_t record[128];
   uint16_t track;
@@ -1567,6 +1568,7 @@ static bool cpm86BootPortRead(void* context, uint16_t port, uint8_t* value)
     bool available = fixture->drive < cpm86DiskDriveCount && fixture->disks[fixture->drive] != NULL;
     *value = !available                            ? 0
              : fixture->bigDisks[fixture->drive]   ? 0x02
+             : fixture->hugeDisks[fixture->drive]  ? 0x03
              : fixture->largeDisks[fixture->drive] ? 0x01
                                                    : 0xFF;
     return true;
@@ -1592,6 +1594,7 @@ static bool cpm86BootDiskOffset(cpm86BootFixture* fixture, uint64_t* offset)
   }
   //-- Phase 86-05: the fixture now exercises the production geometry gate itself.
   uint32_t tracks = fixture->bigDisks[fixture->drive]     ? (uint32_t)cpm86BigDiskTracks
+                    : fixture->hugeDisks[fixture->drive]  ? (uint32_t)cpm86HugeDiskTracks
                     : fixture->largeDisks[fixture->drive] ? (uint32_t)cpm86LargeDiskTracks
                                                           : (uint32_t)cpm86SystemDiskTracks;
   if (!cpm86DriveRecordValid(tracks, fixture->track, fixture->sector))
@@ -1834,11 +1837,12 @@ static void writeCpm86LargeFilledImage(const char* path, size_t fileCount, size_
 }
 
 //-- Phase 86-05 (CPM86-VERIFY-053): pure geometry matrix for the production record gate
-//-- cpm86DriveRecordValid across the three profile track counts.
+//-- cpm86DriveRecordValid across the four profile track counts.
 static void testCpm86DriveGeometryMatrix(void)
 {
-  const uint32_t tracks[] = {cpm86SystemDiskTracks, cpm86LargeDiskTracks, cpm86BigDiskTracks};
-  for (size_t profile = 0; profile < 3; ++profile)
+  const uint32_t tracks[] = {cpm86SystemDiskTracks, cpm86LargeDiskTracks, cpm86HugeDiskTracks,
+                             cpm86BigDiskTracks};
+  for (size_t profile = 0; profile < 4; ++profile)
   {
     //-- Reserved boot track is never readable/writable.
     assert(!cpm86DriveRecordValid(tracks[profile], 0, 0));
@@ -2162,6 +2166,54 @@ static void writeCpm86BigTextImage(const char* path, size_t lineCount)
   free(content);
 }
 
+//-- Builds a CPM86_1440K image the way tools/diskImageCpm.py does: 8 KiB blocks, 8-bit block
+// pointers,
+//-- EXM 0, one 8 KiB directory block (block 0 reserved for the directory). The file spans the
+// data blocks 1 and 2.
+static void writeCpm86HugeTextImage(const char* path, size_t lineCount)
+{
+  enum
+  {
+    imageBytes = 1474560,
+    reservedBytes = 4096,
+    blockBytes = 8192,
+    recordBytes = 128
+  };
+  uint8_t* image = malloc(imageBytes);
+  assert(image != NULL);
+  memset(image, 0xE5, imageBytes);
+
+  size_t fileBytes = lineCount * 7;
+  assert(fileBytes > blockBytes && fileBytes <= 128 * recordBytes);
+  size_t recordCount = (fileBytes + recordBytes - 1) / recordBytes;
+  size_t blockCount = (recordCount * recordBytes + blockBytes - 1) / blockBytes;
+  uint8_t* data = image + reservedBytes + 1 * blockBytes;
+  memset(data, 0x1A, blockCount * blockBytes);
+  for (size_t line = 0; line < lineCount; ++line)
+  {
+    char text[8];
+    snprintf(text, sizeof(text), "L%04u\r\n", (unsigned)(line + 1));
+    memcpy(data + line * 7, text, 7);
+  }
+
+  uint8_t* entry = image + reservedBytes;
+  memset(entry, 0, 32);
+  memcpy(entry + 1, "BIG     TXT", 11);
+  entry[12] = 0;
+  entry[15] = (uint8_t)recordCount;
+  for (size_t pointer = 0; pointer < blockCount; ++pointer)
+  {
+    entry[16 + pointer] = (uint8_t)(1 + pointer);
+  }
+  assert(blockCount == 2);
+
+  FILE* file = fopen(path, "wb");
+  assert(file != NULL);
+  assert(fwrite(image, 1, imageBytes, file) == (size_t)imageBytes);
+  assert(fclose(file) == 0);
+  free(image);
+}
+
 //-- Builds a CPM86_516K image the way tools/diskImageCpm.py does: 2 KiB blocks, one
 //-- 16 KiB (128 record) directory entry per extent, extent numbers 0,1,2,... and 8 block pointers
 // per entry.
@@ -2429,6 +2481,43 @@ static void testCpm86Boot(void)
   assert(unlink(bigDiskPath) == 0);
   fixture.bigDisks[3] = false;
 
+  //-- A 16,100 byte file in blocks 1 and 2 of a 1440 KiB HUGE drive: the BIOS must select DPB3
+  //(EF=3), and the BDOS must follow 8-bit block pointers with EXM 0 over the HUGE track range.
+  const size_t hugeLineCount = 2300;
+  char hugeDiskPath[] = "/tmp/cpm86-huge-text-XXXXXX";
+  int hugeDescriptor = mkstemp(hugeDiskPath);
+  assert(hugeDescriptor >= 0);
+  close(hugeDescriptor);
+  writeCpm86HugeTextImage(hugeDiskPath, hugeLineCount);
+  imageFile hugeDisk = {0};
+  assert(imageOpen(&hugeDisk, hugeDiskPath, true));
+  assert(imageSize(&hugeDisk) == 1474560);
+  fixture.disks[3] = &hugeDisk;
+  fixture.hugeDisks[3] = true;
+  fixture.outputLength = 0;
+  fixture.output[0] = '\0';
+  fixture.input = "D:\rTYPE BIG.TXT\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompt(core, &fixture, "D>", 2));
+  typed = fixture.output;
+  for (size_t line = 1; line <= hugeLineCount; ++line)
+  {
+    char expected[8];
+    snprintf(expected, sizeof(expected), "L%04u\r\n", (unsigned)line);
+    typed = strstr(typed, expected);
+    if (typed == NULL)
+    {
+      fprintf(stderr, "CP/M-86 HUGE TYPE lost line %zu of %zu\n", line, hugeLineCount);
+    }
+    assert(typed != NULL);
+    typed += 7;
+  }
+  assert(fixture.diskReadFailures == 0);
+  assert(imageClose(&hugeDisk));
+  assert(unlink(hugeDiskPath) == 0);
+  fixture.hugeDisks[3] = false;
+
   cpm86CoreDestroy(core);
   assert(imageClose(&disk));
   assert(unlink(temporaryDiskPath) == 0);
@@ -2537,7 +2626,7 @@ static void testCpm80DriveConfig(void)
                                    "B=/retro/images/cpm80/languages.dsk,RO,CPM80_256K\n"
                                    "C=/retro/images/cpm80/tools.dsk,RO,CPM80_512K\n"
                                    "D=/retro/images/cpm80/utilities.dsk,RO,CPM80_512K\n"
-                                   "E=/retro/images/cpm80/work.dsk,RW,CPM80_512K\n"
+                                   "E=/retro/images/cpm80/work.dsk,RW,CPM80_1440K\n"
                                    "F=/retro/images/cpm80/archive.dsk,RW,CPM80_512K\n";
   char configPath[] = "/tmp/cpm80-drives-config-test-XXXXXX";
   int descriptor = mkstemp(configPath);
@@ -2556,6 +2645,7 @@ static void testCpm80DriveConfig(void)
   assert(drives[1].configured && drives[1].profile == cpm80DiskProfileSystem && drives[1].readOnly);
   assert(strcmp(drives[5].path, "/microSD/retro/images/cpm80/archive.dsk") == 0);
   assert(drives[5].configured && drives[5].profile == cpm80DiskProfileLarge && !drives[5].readOnly);
+  assert(drives[4].configured && drives[4].profile == cpm80DiskProfileHuge && !drives[4].readOnly);
 
   file = fopen(configPath, "wb");
   assert(file != NULL);
@@ -2568,7 +2658,7 @@ static void testCpm80DriveConfig(void)
   {
     assert(!drives[drive].configured);
   }
-  //-- A: accepts both explicit system sizes; CPM80_8M and foreign paths stay invalid.
+  //-- A: accepts all three explicit system sizes; CPM80_8M and foreign paths stay invalid.
   static const char largeSystemConfig[] = "A=/littlefs/cpm80/system.dsk,RO,CPM80_512K\n";
   file = fopen(configPath, "wb");
   assert(file != NULL);
@@ -2577,6 +2667,15 @@ static void testCpm80DriveConfig(void)
   assert(fclose(file) == 0);
   assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigLoaded);
   assert(drives[0].configured && drives[0].profile == cpm80DiskProfileLarge && drives[0].readOnly &&
+         !drives[0].profileFromSize);
+  static const char hugeSystemConfig[] = "A=/littlefs/cpm80/system.dsk,RO,CPM80_1440K\n";
+  file = fopen(configPath, "wb");
+  assert(file != NULL);
+  assert(fwrite(hugeSystemConfig, 1, sizeof(hugeSystemConfig) - 1, file) ==
+         sizeof(hugeSystemConfig) - 1);
+  assert(fclose(file) == 0);
+  assert(cpm80DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm80DriveConfigLoaded);
+  assert(drives[0].configured && drives[0].profile == cpm80DiskProfileHuge && drives[0].readOnly &&
          !drives[0].profileFromSize);
   static const char writableSystemConfig[] = "A=/littlefs/cpm80/system.dsk,RW,CPM80_256K\n";
   file = fopen(configPath, "wb");
@@ -2620,20 +2719,26 @@ static void testCpm80SystemProfileDetection(void)
          profile == cpm80DiskProfileSystem);
   assert(cpm80DriveConfigSystemProfileFromSize(512512, &profile) &&
          profile == cpm80DiskProfileLarge);
+  assert(cpm80DriveConfigSystemProfileFromSize(1474560, &profile) &&
+         profile == cpm80DiskProfileHuge);
   assert(!cpm80DriveConfigSystemProfileFromSize(0, &profile));
   assert(!cpm80DriveConfigSystemProfileFromSize(256257, &profile));
   assert(!cpm80DriveConfigSystemProfileFromSize(300000, &profile));
+  assert(!cpm80DriveConfigSystemProfileFromSize(1474559, &profile));
+  assert(!cpm80DriveConfigSystemProfileFromSize(1474561, &profile));
   assert(!cpm80DriveConfigSystemProfileFromSize(8421376, &profile));
   assert(!cpm80DriveConfigSystemProfileFromSize(512512, NULL));
 
   //-- The built-in default (profileFromSize) follows the file size; an unknown size is a clear
-  //error.
+  // error.
   cpm80DriveConfig drive = {.profile = cpm80DiskProfileSystem,
                             .readOnly = true,
                             .configured = true,
                             .profileFromSize = true};
   assert(cpm80DriveConfigResolveSystemProfile(&drive, 512512, error, sizeof(error)) &&
          drive.profile == cpm80DiskProfileLarge);
+  assert(cpm80DriveConfigResolveSystemProfile(&drive, 1474560, error, sizeof(error)) &&
+         drive.profile == cpm80DiskProfileHuge);
   assert(cpm80DriveConfigResolveSystemProfile(&drive, 256256, error, sizeof(error)) &&
          drive.profile == cpm80DiskProfileSystem);
   assert(!cpm80DriveConfigResolveSystemProfile(&drive, 300000, error, sizeof(error)));
@@ -2662,7 +2767,7 @@ static void testCpm86DriveConfig(void)
                                    "B=/retro/images/cpm86/languages.dsk,RO,CPM86_160K\n"
                                    "C=/retro/images/cpm86/tools.dsk,RO,CPM86_160K\n"
                                    "D=/retro/images/cpm86/utilities.dsk,RO,CPM86_8196K\n"
-                                   "E=/retro/images/cpm86/work86.dsk,RW,CPM86_160K\n"
+                                   "E=/retro/images/cpm86/work86.dsk,RW,CPM86_1440K\n"
                                    "F=/retro/images/cpm86/archive.dsk,RW,CPM86_516K\n";
   char configPath[] = "/tmp/cpm86-drives-config-test-XXXXXX";
   int descriptor = mkstemp(configPath);
@@ -2681,7 +2786,8 @@ static void testCpm86DriveConfig(void)
   assert(drives[3].configured && drives[3].profile == cpm86DiskProfileDataBig &&
          drives[3].readOnly);
   assert(strcmp(drives[4].path, "/microSD/retro/images/cpm86/work86.dsk") == 0);
-  assert(drives[4].configured && drives[4].profile == cpm86DiskProfileData && !drives[4].readOnly);
+  assert(drives[4].configured && drives[4].profile == cpm86DiskProfileDataHuge &&
+         !drives[4].readOnly);
   assert(strcmp(drives[5].path, "/microSD/retro/images/cpm86/archive.dsk") == 0);
   assert(drives[5].configured && drives[5].profile == cpm86DiskProfileDataLarge &&
          !drives[5].readOnly);
@@ -2719,7 +2825,7 @@ static void testCpm86DriveConfig(void)
       assert(!drives[drive].configured);
     }
   }
-  //-- A: accepts all three size identifiers; CPM86_516K selects the SystemLarge layout.
+  //-- A: accepts all four size identifiers; CPM86_516K selects the SystemLarge layout.
   static const char largeSystemConfig[] = "A=/littlefs/cpm86/system.dsk,RO,CPM86_516K\n";
   file = fopen(configPath, "wb");
   assert(file != NULL);
@@ -2728,6 +2834,15 @@ static void testCpm86DriveConfig(void)
   assert(fclose(file) == 0);
   assert(cpm86DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm86DriveConfigLoaded);
   assert(drives[0].configured && drives[0].profile == cpm86DiskProfileSystemLarge &&
+         drives[0].readOnly && !drives[0].profileFromSize);
+  static const char hugeSystemConfig[] = "A=/littlefs/cpm86/system.dsk,RO,CPM86_1440K\n";
+  file = fopen(configPath, "wb");
+  assert(file != NULL);
+  assert(fwrite(hugeSystemConfig, 1, sizeof(hugeSystemConfig) - 1, file) ==
+         sizeof(hugeSystemConfig) - 1);
+  assert(fclose(file) == 0);
+  assert(cpm86DriveConfigLoad(configPath, drives, error, sizeof(error)) == cpm86DriveConfigLoaded);
+  assert(drives[0].configured && drives[0].profile == cpm86DiskProfileSystemHuge &&
          drives[0].readOnly && !drives[0].profileFromSize);
   assert(unlink(configPath) == 0);
 
@@ -2747,11 +2862,15 @@ static void testCpm86SystemProfileDetection(void)
          profile == cpm86DiskProfileSystem);
   assert(cpm86DriveConfigSystemProfileFromSize(528384, &profile) &&
          profile == cpm86DiskProfileSystemLarge);
+  assert(cpm86DriveConfigSystemProfileFromSize(1474560, &profile) &&
+         profile == cpm86DiskProfileSystemHuge);
   assert(cpm86DriveConfigSystemProfileFromSize(8392704, &profile) &&
          profile == cpm86DiskProfileSystemBig);
   assert(!cpm86DriveConfigSystemProfileFromSize(0, &profile));
   assert(!cpm86DriveConfigSystemProfileFromSize(163841, &profile));
   assert(!cpm86DriveConfigSystemProfileFromSize(300000, &profile));
+  assert(!cpm86DriveConfigSystemProfileFromSize(1474559, &profile));
+  assert(!cpm86DriveConfigSystemProfileFromSize(1474561, &profile));
   assert(!cpm86DriveConfigSystemProfileFromSize(8392705, &profile));
   assert(!cpm86DriveConfigSystemProfileFromSize(528384, NULL));
 
@@ -2764,6 +2883,8 @@ static void testCpm86SystemProfileDetection(void)
          drive.profile == cpm86DiskProfileSystemLarge);
   assert(cpm86DriveConfigResolveSystemProfile(&drive, 163840, error, sizeof(error)) &&
          drive.profile == cpm86DiskProfileSystem);
+  assert(cpm86DriveConfigResolveSystemProfile(&drive, 1474560, error, sizeof(error)) &&
+         drive.profile == cpm86DiskProfileSystemHuge);
   assert(cpm86DriveConfigResolveSystemProfile(&drive, 8392704, error, sizeof(error)) &&
          drive.profile == cpm86DiskProfileSystemBig);
   assert(!cpm86DriveConfigResolveSystemProfile(&drive, 300000, error, sizeof(error)));
@@ -3489,6 +3610,21 @@ static void createBigSystemDisk(const char* osName, char* diskPath, size_t diskP
   assert(system(command) == 0);
 }
 
+static void createHugeSystemDisk(const char* osName, char* diskPath, size_t diskPathCapacity)
+{
+  const char* profile = strcmp(osName, "cpm86") == 0 ? "CPM86_1440K" : "CPM80_1440K";
+  char temporaryDirectory[] = "/tmp/retro-huge-system-XXXXXX";
+  assert(mkdtemp(temporaryDirectory) != NULL);
+  assert(snprintf(diskPath, diskPathCapacity, "%s/system.dsk", temporaryDirectory) <
+         (int)diskPathCapacity);
+  char command[1024];
+  assert(snprintf(command, sizeof(command),
+                  "python3 \"%s/tools/createSystemDsk.py\" --os %s --profile %s --output \"%s\" "
+                  ">/dev/null",
+                  PROJECT_ROOT_PATH, osName, profile, diskPath) < (int)sizeof(command));
+  assert(system(command) == 0);
+}
+
 static void removeLargeSystemDisk(const char* diskPath)
 {
   char directoryPath[256];
@@ -3584,6 +3720,83 @@ static void testCpm80LargeSystemBoot(void)
   cpm80GuestDestroy(&guest);
   assert(imageClose(&disk));
   removeLargeSystemDisk(largeSystemPath);
+}
+
+//-- The CPM80_1440K system disk boots A: through the HUGE DPB (8 KiB blocks, 128 entries); the
+// DIR listing must show the installed utilities and TYPE must read them without disk failures.
+static void testCpm80HugeSystemBoot(void)
+{
+  char hugeSystemPath[256];
+  createHugeSystemDisk("cpm80", hugeSystemPath, sizeof(hugeSystemPath));
+  imageFile disk = {0};
+  assert(imageOpen(&disk, hugeSystemPath, true));
+  assert(imageSize(&disk) == cpm80HugeImageSize);
+
+  //-- Same steps as the firmware: size -> profile, then the CCP/BDOS from offset 0.
+  cpm80DriveConfig systemDrive = {.profile = cpm80DiskProfileSystem,
+                                  .readOnly = true,
+                                  .configured = true,
+                                  .profileFromSize = true};
+  char error[160];
+  assert(
+      cpm80DriveConfigResolveSystemProfile(&systemDrive, imageSize(&disk), error, sizeof(error)));
+  assert(systemDrive.profile == cpm80DiskProfileHuge);
+  uint8_t ccpImage[cpm80CcpSize];
+  uint8_t bdosImage[cpm80BdosSize];
+  assert(imageReadAt(&disk, 0, ccpImage, sizeof(ccpImage)));
+  assert(imageReadAt(&disk, sizeof(ccpImage), bdosImage, sizeof(bdosImage)));
+
+  cpm80GuestFixture fixture = {.disks = {[0] = &disk},
+                               .availableDrives = {[0] = true},
+                               .diskProfiles = {[0] = systemDrive.profile}};
+  const cpm80HostOps host = {.consoleAvailable = cpm80TestConsoleAvailable,
+                             .consoleRead = cpm80TestConsoleRead,
+                             .consoleWrite = cpm80TestConsoleWrite,
+                             .diskDriveAvailable = cpm80TestDiskDriveAvailable,
+                             .diskDriveProfile = cpm80TestDiskDriveProfile,
+                             .diskReadRecord = cpm80TestDiskRead,
+                             .diskWriteRecord = cpm80TestDiskWrite,
+                             .yield = cpm80TestYield,
+                             .context = &fixture};
+  cpm80Guest guest = {0};
+  assert(cpm80GuestInitialize(&guest, &host, ccpImage, bdosImage) == cpm80GuestInitOk);
+  assert(cpm80GuestColdBoot(&guest));
+
+  //-- A: carries the HUGE DPB (SPT 32, BSH 6, BLM 63, EXM 0, DSM 178, DRM 127, AL0 0x80,
+  // CKS 32, OFF 2) and its own CSV/ALV areas (the SYSTEM-sized slots would overlap).
+  const uint8_t* memory = guest.cpu.memory;
+  uint16_t dpbAddress = (uint16_t)(memory[0xDA90 + 10] | (memory[0xDA90 + 11] << 8));
+  uint16_t csvAddress = (uint16_t)(memory[0xDA90 + 12] | (memory[0xDA90 + 13] << 8));
+  uint16_t alvAddress = (uint16_t)(memory[0xDA90 + 14] | (memory[0xDA90 + 15] << 8));
+  assert(dpbAddress == 0xDAA0);
+  assert(memory[dpbAddress] == 32 && memory[dpbAddress + 1] == 0);
+  assert(memory[dpbAddress + 2] == 6 && memory[dpbAddress + 3] == 63 &&
+         memory[dpbAddress + 4] == 0);
+  assert(memory[dpbAddress + 5] == 178 && memory[dpbAddress + 6] == 0);
+  assert(memory[dpbAddress + 7] == 127 && memory[dpbAddress + 8] == 0);
+  assert(memory[dpbAddress + 9] == 0x80 && memory[dpbAddress + 10] == 0);
+  assert(memory[dpbAddress + 11] == 32 && memory[dpbAddress + 13] == 2);
+  assert(csvAddress + 32 <= alvAddress || alvAddress + 31 <= csvAddress);
+  assert(csvAddress >= 0xE060 && alvAddress >= 0xE060);
+
+  runCpm80UntilPrompt(&guest, &fixture, "A>", 1);
+  fixture.input = "DIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  runCpm80UntilPrompt(&guest, &fixture, "A>", 2);
+  assert(strstr(fixture.output, "ASM      COM") != NULL);
+  assert(strstr(fixture.output, "ZSID     COM") != NULL);
+  assert(strstr(fixture.output, "WELCOME  TXT") != NULL);
+
+  fixture.input = "TYPE WELCOME.TXT\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  runCpm80UntilPrompt(&guest, &fixture, "A>", 3);
+  assert(strstr(fixture.output, "CP/M utilities are installed.") != NULL);
+
+  cpm80GuestDestroy(&guest);
+  assert(imageClose(&disk));
+  removeLargeSystemDisk(hugeSystemPath);
 }
 
 static void testCpm86LargeSystemBoot(void)
@@ -3694,6 +3907,62 @@ static void testCpm86BigSystemBoot(void)
   cpm86CoreDestroy(core);
   assert(imageClose(&disk));
   removeLargeSystemDisk(bigSystemPath);
+}
+
+//-- The CPM86_1440K system disk boots A: through the HUGE (DPB3, EFh=$03) geometry; the DIR
+// listing must show the installed utilities and must fail no disk reads.
+static void testCpm86HugeSystemBoot(void)
+{
+  char hugeSystemPath[256];
+  createHugeSystemDisk("cpm86", hugeSystemPath, sizeof(hugeSystemPath));
+  imageFile disk = {0};
+  assert(imageOpen(&disk, hugeSystemPath, false));
+  cpm86DriveConfig systemDrive = {.profile = cpm86DiskProfileSystem,
+                                  .readOnly = true,
+                                  .configured = true,
+                                  .profileFromSize = true};
+  char error[160];
+  assert(
+      cpm86DriveConfigResolveSystemProfile(&systemDrive, imageSize(&disk), error, sizeof(error)));
+  assert(systemDrive.profile == cpm86DiskProfileSystemHuge);
+
+  FILE* systemFile = fopen(CPM86_SYSTEM_FILE_PATH, "rb");
+  assert(systemFile != NULL);
+  uint8_t systemImage[10240];
+  assert(fread(systemImage, 1, sizeof(systemImage), systemFile) == sizeof(systemImage));
+  assert(fclose(systemFile) == 0);
+
+  cpm86BootFixture fixture = {.disks = {[0] = &disk}, .hugeDisks = {[0] = true}};
+  const cpm86CoreConfig config = {
+      .ramSize = 640 * 1024,
+      .portRead = cpm86BootPortRead,
+      .portWrite = cpm86BootPortWrite,
+      .portContext = &fixture,
+      .readMilliseconds = NULL,
+      .clockContext = NULL,
+  };
+  cpm86Core* core = NULL;
+  assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);
+  assert(cpm86CoreLoad(core, 0x00510, systemImage + 128, sizeof(systemImage) - 128) == cpm86CoreOk);
+  const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
+  assert(cpm86CoreWrite(core, 0x00380, bdosVector, sizeof(bdosVector)) == cpm86CoreOk);
+  assert(cpm86BiosLoadOverlay(core, CPM86_BIOS_OVERLAY_PATH));
+  assert(cpm86CoreSetEntry(core, 0x0051, 0x2500) == cpm86CoreOk);
+
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 1));
+  fixture.input = "DIR\r";
+  fixture.inputLength = strlen(fixture.input);
+  fixture.inputPosition = 0;
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 2));
+  assert(strstr(fixture.output, "ASM86") != NULL);
+  assert(strstr(fixture.output, "PIP") != NULL);
+  assert(strstr(fixture.output, "STAT") != NULL);
+  assert(fixture.diskReadRequests > 0);
+  assert(fixture.diskReadFailures == 0);
+
+  cpm86CoreDestroy(core);
+  assert(imageClose(&disk));
+  removeLargeSystemDisk(hugeSystemPath);
 }
 
 //-- Runs the guest until needle appears in output written after mark. Output is never
@@ -3833,6 +4102,141 @@ static void testCpm86Help(void)
 
   cpm86CoreDestroy(core);
   assert(imageClose(&disk));
+  removeLargeSystemDisk(systemDiskPath);
+}
+
+//-- Assembles the checked-in BIOS source components/cpm86Core/bios/retro86bios.a86 with the
+// stock ASM86 inside the emulated guest and compares the produced Intel-Hex with the checked-in
+// overlay littlefs/cpm86/retro86bios.h86 (the file the firmware and every boot test load). This
+// keeps the hand-regenerated overlay honest: a source edit without a regenerated .h86 fails.
+// Set CPM86_BIOS_H86_OUTPUT to a file path to receive the freshly assembled .h86 instead of the
+// comparison (that output is what gets checked in after a deliberate source change).
+static void testCpm86BiosAssembly(void)
+{
+  char systemDiskPath[256];
+  createBigSystemDisk("cpm86", systemDiskPath, sizeof(systemDiskPath));
+
+  //-- Stage the BIOS source as BIOS.A86 with CRLF line endings (the guest assembler reads
+  // CR-terminated lines) and add it to the system disk.
+  char stagingDirectory[] = "/tmp/retro-bios-asm-XXXXXX";
+  assert(mkdtemp(stagingDirectory) != NULL);
+  char sourcePath[512];
+  char extractedDirectory[512];
+  assert(snprintf(sourcePath, sizeof(sourcePath), "%s/BIOS.A86", stagingDirectory) <
+         (int)sizeof(sourcePath));
+  assert(snprintf(extractedDirectory, sizeof(extractedDirectory), "%s/out", stagingDirectory) <
+         (int)sizeof(extractedDirectory));
+  char command[1024];
+  assert(snprintf(command, sizeof(command),
+                  "sed 's/$/\\r/' \"%s/components/cpm86Core/bios/retro86bios.a86\" > \"%s\"",
+                  PROJECT_ROOT_PATH, sourcePath) < (int)sizeof(command));
+  assert(system(command) == 0);
+  assert(snprintf(command, sizeof(command),
+                  "python3 \"%s/tools/extractFiles.py\" --os cpm86 \"%s\" --add \"%s\" > /dev/null",
+                  PROJECT_ROOT_PATH, systemDiskPath, sourcePath) < (int)sizeof(command));
+  assert(system(command) == 0);
+
+  imageFile disk = {0};
+  assert(imageOpen(&disk, systemDiskPath, false));
+
+  FILE* systemFile = fopen(CPM86_SYSTEM_FILE_PATH, "rb");
+  assert(systemFile != NULL);
+  uint8_t systemImage[10240];
+  assert(fread(systemImage, 1, sizeof(systemImage), systemFile) == sizeof(systemImage));
+  assert(fclose(systemFile) == 0);
+
+  cpm86BootFixture fixture = {.disks = {[0] = &disk}, .bigDisks = {[0] = true}};
+  const cpm86CoreConfig config = {
+      .ramSize = 640 * 1024,
+      .portRead = cpm86BootPortRead,
+      .portWrite = cpm86BootPortWrite,
+      .portContext = &fixture,
+      .readMilliseconds = NULL,
+      .clockContext = NULL,
+  };
+  cpm86Core* core = NULL;
+  assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);
+  assert(cpm86CoreLoad(core, 0x00510, systemImage + 128, sizeof(systemImage) - 128) == cpm86CoreOk);
+  const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
+  assert(cpm86CoreWrite(core, 0x00380, bdosVector, sizeof(bdosVector)) == cpm86CoreOk);
+  assert(cpm86BiosLoadOverlay(core, CPM86_BIOS_OVERLAY_PATH));
+  assert(cpm86CoreSetEntry(core, 0x0051, 0x2500) == cpm86CoreOk);
+
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 1));
+
+  size_t mark = fixture.outputLength;
+  feedCpm86Input(&fixture, "ASM86 BIOS\r");
+  assert(runCpm86UntilAfter(core, &fixture, "A>", mark));
+  assert(strstr(fixture.output + mark, "NUMBER OF ERRORS:") != NULL);
+
+  //-- Pull the freshly assembled Intel-Hex off the guest disk.
+  assert(snprintf(command, sizeof(command), "mkdir -p \"%s\"", extractedDirectory) <
+         (int)sizeof(command));
+  assert(system(command) == 0);
+  assert(snprintf(command, sizeof(command),
+                  "python3 \"%s/tools/extractFiles.py\" --os cpm86 \"%s\" --extract BIOS.H86 "
+                  "--dest \"%s\" > /dev/null",
+                  PROJECT_ROOT_PATH, systemDiskPath, extractedDirectory) < (int)sizeof(command));
+  assert(system(command) == 0);
+  char extractedPath[600];
+  assert(snprintf(extractedPath, sizeof(extractedPath), "%s/BIOS.H86", extractedDirectory) <
+         (int)sizeof(extractedPath));
+
+  //-- Read the assembled text and cut it at the end of the ":00000001FF" EOF record: the CP/M
+  // file carries 128-byte record padding (0x1A and beyond) after the real Intel-Hex content.
+  FILE* assembled = fopen(extractedPath, "rb");
+  assert(assembled != NULL);
+  static uint8_t assembledBytes[8192];
+  size_t assembledLength = fread(assembledBytes, 1, sizeof(assembledBytes), assembled);
+  assert(!ferror(assembled));
+  assert(fclose(assembled) == 0);
+  assert(assembledLength > 0 && assembledLength < sizeof(assembledBytes));
+  const char eofRecord[] = ":00000001FF";
+  uint8_t* eof = memmem(assembledBytes, assembledLength, eofRecord, sizeof(eofRecord) - 1);
+  assert(eof != NULL);
+  size_t contentLength = (size_t)(eof - assembledBytes) + (sizeof(eofRecord) - 1);
+  while (contentLength < assembledLength &&
+         (assembledBytes[contentLength] == '\r' || assembledBytes[contentLength] == '\n'))
+  {
+    ++contentLength;
+  }
+
+  const char* outputPath = getenv("CPM86_BIOS_H86_OUTPUT");
+  if (outputPath != NULL)
+  {
+    FILE* destination = fopen(outputPath, "wb");
+    assert(destination != NULL);
+    assert(fwrite(assembledBytes, 1, contentLength, destination) == contentLength);
+    assert(!ferror(destination));
+    assert(fclose(destination) == 0);
+  }
+  else
+  {
+    //-- Regression: the checked-in overlay must equal a fresh assembly of the checked-in source.
+    FILE* checkedIn = fopen(CPM86_BIOS_OVERLAY_PATH, "rb");
+    assert(checkedIn != NULL);
+    static uint8_t checkedInBytes[8192];
+    size_t checkedInLength = fread(checkedInBytes, 1, sizeof(checkedInBytes), checkedIn);
+    assert(!ferror(checkedIn));
+    assert(fclose(checkedIn) == 0);
+    if (checkedInLength != contentLength ||
+        memcmp(checkedInBytes, assembledBytes, contentLength) != 0)
+    {
+      fprintf(stderr,
+              "CP/M-86 BIOS overlay is stale (%zu checked-in vs %zu assembled bytes): "
+              "re-assemble components/cpm86Core/bios/retro86bios.a86 with "
+              "CPM86_BIOS_H86_OUTPUT and check in the result\n",
+              checkedInLength, contentLength);
+    }
+    assert(checkedInLength == contentLength);
+    assert(memcmp(checkedInBytes, assembledBytes, contentLength) == 0);
+  }
+
+  cpm86CoreDestroy(core);
+  assert(imageClose(&disk));
+  assert(snprintf(command, sizeof(command), "rm -rf \"%s\"", stagingDirectory) <
+         (int)sizeof(command));
+  assert(system(command) == 0);
   removeLargeSystemDisk(systemDiskPath);
 }
 
@@ -4504,6 +4908,12 @@ int main(int argc, char** argv)
     puts("PASS: CP/M-86 HELP build and keyboard handling");
     return 0;
   }
+  if (argc == 2 && strcmp(argv[1], "--cpm86-bios-assembly") == 0)
+  {
+    testCpm86BiosAssembly();
+    puts("PASS: CP/M-86 BIOS source assembles to the checked-in overlay");
+    return 0;
+  }
   testPaths();
   testApple2Core();
   testApple2Keyboard();
@@ -4526,9 +4936,12 @@ int main(int argc, char** argv)
   testCpm80More();
   testCpm80Help();
   testCpm80LargeSystemBoot();
+  testCpm80HugeSystemBoot();
   testCpm86LargeSystemBoot();
   testCpm86BigSystemBoot();
+  testCpm86HugeSystemBoot();
   testCpm86Help();
+  testCpm86BiosAssembly();
   puts("PASS: CPU fixtures, CP/M boot and disk tests");
   return 0;
 }

@@ -16,6 +16,7 @@ from diskImageCommon import DiskImageError
 WILDCARD_CHARS = "*?["
 EXAMPLES = """examples:
   diskImage.py create --os cpm80 --profile CPM80_512K work.dsk
+  diskImage.py create --os cpm80 --profile CPM80_1440K work1440.dsk
   diskImage.py create --os cpm80 --profile CPM80_8M big.dsk
   diskImage.py add    --os cpm80 work.dsk ~/cpm/*.COM 'utils/*.HLP'
   diskImage.py list   --os cpm86 work86.dsk

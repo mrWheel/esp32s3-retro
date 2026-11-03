@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """CP/M-86 disk images: the RETRO86 geometries on top of diskImageCpm.
 
-The BIOS (components/cpm86Core/bios/retro86bios.a86) has three DPBs, one per
-profile: CPM86_160K (163840 bytes), CPM86_516K (528384 bytes) and
-CPM86_8196K (8392704 bytes). Add further profiles only after the BIOS and firmware
-support them. Running this file directly is the same as `diskImage.py --os cpm86`.
+The BIOS (components/cpm86Core/bios/retro86bios.a86) has four DPBs, one per
+profile: CPM86_160K (163840 bytes), CPM86_516K (528384 bytes), CPM86_1440K
+(1474560 bytes) and CPM86_8196K (8392704 bytes). Add further profiles only
+after the BIOS and firmware support them. Running this file directly is the
+same as `diskImage.py --os cpm86`.
 """
 
 import sys
@@ -48,7 +49,15 @@ BIG_DIRECTORY_ENTRIES = 512
 BIG_IMAGE_SIZE = PHYSICAL_SECTOR_SIZE * BIG_SECTORS_PER_TRACK * BIG_TRACKS
 BIG_DSM = 511
 BIG_EXM = 7
-MAX_IMAGE_SIZE = max(IMAGE_SIZE, LARGE_IMAGE_SIZE, BIG_IMAGE_SIZE)
+
+HUGE_SECTORS_PER_TRACK = 8
+HUGE_TRACKS = 360
+HUGE_BLOCK_SIZE = 8192
+HUGE_DIRECTORY_ENTRIES = 128
+HUGE_IMAGE_SIZE = PHYSICAL_SECTOR_SIZE * HUGE_SECTORS_PER_TRACK * HUGE_TRACKS
+HUGE_MAX_BLOCK_NUMBER = (HUGE_IMAGE_SIZE - DIRECTORY_OFFSET) // HUGE_BLOCK_SIZE - 1
+
+MAX_IMAGE_SIZE = max(IMAGE_SIZE, LARGE_IMAGE_SIZE, HUGE_IMAGE_SIZE, BIG_IMAGE_SIZE)
 
 PROFILES = {
     "CPM86_160K": {
@@ -66,6 +75,15 @@ PROFILES = {
         "directory_entries": LARGE_DIRECTORY_ENTRIES,
         "directory_offset": DIRECTORY_OFFSET,
         "max_block_number": LARGE_DSM,
+    },
+    "CPM86_1440K": {
+        "image_size": HUGE_IMAGE_SIZE,
+        "sectors_per_track": HUGE_SECTORS_PER_TRACK,
+        "block_size": HUGE_BLOCK_SIZE,
+        "directory_entries": HUGE_DIRECTORY_ENTRIES,
+        "directory_offset": DIRECTORY_OFFSET,
+        "max_block_number": HUGE_MAX_BLOCK_NUMBER,
+        "first_data_block": 1,
     },
     "CPM86_8196K": {
         "image_size": BIG_IMAGE_SIZE,

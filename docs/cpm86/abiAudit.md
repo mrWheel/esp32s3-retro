@@ -157,23 +157,23 @@ Block (DPB), field widths as printed [SG Table 6-2 pp.69-70 / PDF 76-77]:
 | CKS | 16-bit | size of the directory check vector |
 | OFF | 16-bit | number of reserved tracks at the beginning of the logical disk (auto-added by SETTRK) [SG pp.71-72 / PDF 78-79] |
 
-Comparison with the three DPBs in `retro86bios.a86` (DPB0 lines 292-299, DPB1 lines 301-308,
-DPB2 lines 310-317; 15 bytes each, exactly the manual's field sequence/widths) and against the
+Comparison with the four DPBs in `retro86bios.a86` (DPB0 lines 297-304, DPB1 lines 306-313,
+DPB2 lines 315-322, DPB3 lines 324-331; 15 bytes each, exactly the manual's field sequence/widths) and against the
 manual's derivation tables (BSH/BLM Table 6-3 p.70; EXM Table 6-4 p.70; entries-per-block
 Table 6-5 p.71; AL0 worked example p.71; CKS rule p.70):
 
-| Field | DPB0 | DPB1 | DPB2 | Check against manual |
-| --- | --- | --- | --- | --- |
-| SPT | 20h=32 | 20h=32 | 20h=32 | Width matches; value consistent with the host's 32 x 128-byte-record tracks |
-| BSH/BLM | 3/07h (1024) | 4/0Fh (2048) | 7/7Fh (16384) | Exact Table 6-3 rows |
-| EXM | 00h | 00h | 07h | Table 6-4: BLS1024 DSM<256 -> 0; BLS2048 DSM<256 -> 0; BLS16384 DSM>255 -> 7 |
-| DSM | 9Bh=155 | 0FFh=255 | 1FFh=511 | Width matches; BLSx(DSM+1) = 155.7K/512K/8M matches the 40/129/2049-track profiles minus the OFF-reserved track |
-| DRM | 3Fh=63 | 7Fh=127 | 1FFh=511 | 16-bit allowed [SG p.71] |
-| AL0/AL1 | C0h/00 | C0h/00 | 80h/00 | Table 6-5 entries-per-block (32/64/512 at BLS 1K/2K/16K): 2/2/1 reserved blocks -> C0h/C0h/80h. All consistent |
-| CKS | 10h=16 | 20h=32 | 0000h | Removable rule CKS=(DRM+1)/4 gives 16/32; fixed disk => 0 [SG p.70] |
-| OFF | 1 | 1 | 1 | Reserved boot track; SETTRK adds it [SG p.71] (matches the design's recorded OFF handling, `designCPM86.md:372`) |
+| Field | DPB0 | DPB1 | DPB2 | DPB3 | Check against manual |
+| --- | --- | --- | --- | --- | --- |
+| SPT | 20h=32 | 20h=32 | 20h=32 | 20h=32 | Width matches; value consistent with the host's 32 x 128-byte-record tracks |
+| BSH/BLM | 3/07h (1024) | 4/0Fh (2048) | 7/7Fh (16384) | 6/3Fh (8192) | Exact Table 6-3 rows |
+| EXM | 00h | 00h | 07h | 00h | Table 6-4: BLS1024 DSM<256 -> 0; BLS2048 DSM<256 -> 0; BLS16384 DSM>255 -> 7; BLS8192 DSM<256 -> 0 |
+| DSM | 9Bh=155 | 0FFh=255 | 1FFh=511 | 0B2h=178 | Width matches; BLSx(DSM+1) = 155.7K/512K/1432K/8M matches the 40/129/360/2049-track profiles minus the OFF-reserved track |
+| DRM | 3Fh=63 | 7Fh=127 | 1FFh=511 | 7Fh=127 | 16-bit allowed [SG p.71] |
+| AL0/AL1 | C0h/00 | C0h/00 | 80h/00 | 80h/00 | Table 6-5 entries-per-block (32/64/64/512 at BLS 1K/2K/8K/16K): 2/2/1/1 reserved blocks -> C0h/C0h/80h/80h. All consistent |
+| CKS | 10h=16 | 20h=32 | 0000h | 20h=32 | Removable rule CKS=(DRM+1)/4 gives 16/32/32; fixed disk => 0 [SG p.70] |
+| OFF | 1 | 1 | 1 | 1 | Reserved boot track; SETTRK adds it [SG p.71] (matches the design's recorded OFF handling, `designCPM86.md:372`) |
 
-DPH comparison [SG Table 6-1 / PDF 74]: project DPH0..DPH5 (lines 244-290) are `dw 0` (XLT),
+DPH comparison [SG Table 6-1 / PDF 74]: project DPH0..DPH5 (lines 249-295) are `dw 0` (XLT),
 three scratch `dw 0`, DIRBUF, DPB, CSV, ALV - matches the manual layout; SELDSK returns the DPH
 offset in BX and 0000H for an invalid drive (lines 102-114), matching Table 5-4 [SG p.62 / PDF 69].
 
@@ -286,7 +286,7 @@ format.
    selected on entry [SG p.62 / PDF 69]; the project ignores DL and re-selects the physical
    drive via port 0E8h on every call (lines 84-114). The manual presents the hint as informational
    ("it is possible to determine"), so this is compliant but forgoes the intended optimisation.
-8. DPB/DPH: exact layout match; every derived value in the three project DPBs independently
+8. DPB/DPH: exact layout match; every derived value in the four project DPBs independently
    re-derives to the manual's tables (section 4), including the 16-bit DRM (511) case which is
    only legal with the matching 16K-block AL0=80h and EXM=07h.
 9. Manual-internal inconsistency noted for the record: Function 52 (GET DMA BASE) diagram shows

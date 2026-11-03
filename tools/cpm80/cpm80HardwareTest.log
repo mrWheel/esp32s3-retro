@@ -1,4 +1,4 @@
-CP/M-80 hardware test - 2026-11-02 19:11:08
+CP/M-80 hardware test - 2026-11-02 23:31:51
 
 <<<RESET>>>
       PASS  board reset reaches host menu
@@ -81,11 +81,11 @@ Command: A:
   A>
 bench80: starting BENCH80, waiting up to 600 s for it to finish
 Command: A:BENCH80
-  BENCH80 v2 SCALE=1 | @BEGIN INTEGER | . | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 6908 ms | Z80 MODEL ONLY (not measured): 1MHz=15000 ms, 2MHz=7500 ms, 4MHz=3750 ms | Index vs 1MHz MODEL: 217 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 4350 ms ...
+  BENCH80 v2 SCALE=1 | @BEGIN INTEGER | . | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 6907 ms | Z80 MODEL ONLY (not measured): 1MHz=15000 ms, 2MHz=7500 ms, 4MHz=3750 ms | Index vs 1MHz MODEL: 217 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 4350 ms ...
 bench80: BENCH80 v2 SCALE=1
 bench80: @BEGIN INTEGER
 bench80: @END INTEGER PASS AX=4ED8 BX=D678
-bench80: Elapsed: 6908 ms
+bench80: Elapsed: 6907 ms
 bench80: Index vs 1MHz MODEL: 217 (100=model, higher=faster; theoretical)
 bench80: @BEGIN SIEVE
 bench80: @END SIEVE PASS PRIMES=1028
@@ -93,7 +93,7 @@ bench80: Elapsed: 4350 ms
 bench80: Index vs 1MHz MODEL: 280 (100=model, higher=faster; theoretical)
 bench80: @DONE PASS
       PASS  bench80: BENCH80 runs from A: and completes
-      PASS  bench80: all benchmark sections report PASS  -- 2 sections, elapsed 6908,4350 ms
+      PASS  bench80: all benchmark sections report PASS  -- 2 sections, elapsed 6907,4350 ms
       PASS  bench80: measured index values recorded  -- index vs 1MHz MODEL: 217,280
 
 ---- read volumes ----
@@ -124,7 +124,7 @@ Command: A:
 Command: E:
   E>
 Command: DIR
-  E: VEDPLUS  TXT : VEDPLUS  COM : VEDPLUS  HST : VEDIT    COM | E: VEDIT    HST : README   TXT : README   HST : HWTEST   COM | E: BENCH80  COM : BENCH80  ASM | E>
+  NO FILE | E>
 Command: A:
   A>
       PASS  read: list volume E:
@@ -146,8 +146,9 @@ Command: PIP C:HWTEST.COM=B:HWTEST.COM[V]
   A>
       PASS  write: copy B: -> C:
 Command: DIR C:HWTEST.COM
-  C: HWTEST   COM | A>
-      PASS  write: file visible on C:
+  <<<timeout: no 'A>' within 40 s>>>
+  DIR C:HWTEST.COM
+      FAIL  write: file visible on C:
 <<<RESET>>>
       PASS  persistence: board reset reaches host menu
 Command: 1
@@ -262,4 +263,5 @@ Command: ^C (Ctrl-C)
       SKIP  terminal escape sequences (full-screen editors)  -- manual
 
 ==== SUMMARY ====
-passed 48, failed 0, skipped(manual) 2
+passed 47, failed 1, skipped(manual) 2
+  FAILED: write: file visible on C:

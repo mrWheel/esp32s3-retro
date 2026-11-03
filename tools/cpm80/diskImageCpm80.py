@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""CP/M-80 disk images: CPM80_256K, CPM80_512K and CPM80_8M geometries on top of diskImageCpm.
+"""CP/M-80 disk images: CPM80_256K, CPM80_512K, CPM80_1440K and CPM80_8M geometries on top of
+diskImageCpm.
 
 Running this file directly is the same as `diskImage.py --os cpm80`.
 """
@@ -45,7 +46,15 @@ BIG_IMAGE_SIZE = SECTOR_SIZE * BIG_SECTORS_PER_TRACK * BIG_TRACKS
 BIG_DIRECTORY_OFFSET = RESERVED_TRACKS * SECTOR_SIZE * BIG_SECTORS_PER_TRACK
 BIG_DSM = 511
 BIG_EXM = 7
-MAX_IMAGE_SIZE = max(IMAGE_SIZE, LARGE_IMAGE_SIZE, BIG_IMAGE_SIZE)
+HUGE_SECTORS_PER_TRACK = 32
+HUGE_TRACKS = 360
+HUGE_BLOCK_SIZE = 8192
+HUGE_DIRECTORY_ENTRIES = 128
+HUGE_IMAGE_SIZE = SECTOR_SIZE * HUGE_SECTORS_PER_TRACK * HUGE_TRACKS
+HUGE_DIRECTORY_OFFSET = RESERVED_TRACKS * SECTOR_SIZE * HUGE_SECTORS_PER_TRACK
+HUGE_DIRECTORY_SIZE = HUGE_DIRECTORY_ENTRIES * 32
+HUGE_MAX_BLOCK_NUMBER = (HUGE_IMAGE_SIZE - HUGE_DIRECTORY_OFFSET) // HUGE_BLOCK_SIZE - 1
+MAX_IMAGE_SIZE = max(IMAGE_SIZE, LARGE_IMAGE_SIZE, HUGE_IMAGE_SIZE, BIG_IMAGE_SIZE)
 
 PROFILES = {
     "CPM80_256K": {
@@ -63,6 +72,15 @@ PROFILES = {
         "directory_entries": LARGE_DIRECTORY_ENTRIES,
         "directory_offset": LARGE_DIRECTORY_OFFSET,
         "max_block_number": DSM,
+    },
+    "CPM80_1440K": {
+        "image_size": HUGE_IMAGE_SIZE,
+        "sectors_per_track": HUGE_SECTORS_PER_TRACK,
+        "block_size": HUGE_BLOCK_SIZE,
+        "directory_entries": HUGE_DIRECTORY_ENTRIES,
+        "directory_offset": HUGE_DIRECTORY_OFFSET,
+        "max_block_number": HUGE_MAX_BLOCK_NUMBER,
+        "first_data_block": 1,
     },
     "CPM80_8M": {
         "image_size": BIG_IMAGE_SIZE,

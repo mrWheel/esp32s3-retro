@@ -89,6 +89,7 @@ class DiskImageCliTests(unittest.TestCase):
         self.assertIn("apple2", general)
         specific = run("diskImage.py", "--os", "cpm86", "-h").stdout
         self.assertIn("CPM86_160K", specific)
+        self.assertIn("CPM86_1440K", specific)
         self.assertIn("--os cpm86", specific)
 
     def test_planned_os_is_refused(self):

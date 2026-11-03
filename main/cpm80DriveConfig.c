@@ -116,6 +116,10 @@ static bool parseLine(char* line, cpm80DriveConfig drives[cpm80DiskDriveCount],
   {
     profile = cpm80DiskProfileLarge;
   }
+  else if (strcmp(profileName, "CPM80_1440K") == 0)
+  {
+    profile = cpm80DiskProfileHuge;
+  }
   else if (strcmp(profileName, "CPM80_8M") == 0)
   {
     profile = cpm80DiskProfileBig;
@@ -138,9 +142,10 @@ static bool parseLine(char* line, cpm80DriveConfig drives[cpm80DiskDriveCount],
     return false;
   }
 
-  //-- A: is the LittleFS system image (CPM80_256K or CPM80_512K, never CPM80_8M); its RO/RW mode
-  //-- is configurable. B: to F: are SD images. The identifier carries the image size:
-  //-- CPM80_256K = 256256 bytes, CPM80_512K = 512512 bytes or CPM80_8M = 8421376 bytes.
+  //-- A: is the LittleFS system image (CPM80_256K, CPM80_512K or CPM80_1440K, never CPM80_8M);
+  //-- its RO/RW mode is configurable. B: to F: are SD images. The identifier carries the image
+  //-- size: CPM80_256K = 256256 bytes, CPM80_512K = 512512 bytes, CPM80_1440K = 1474560 bytes
+  //-- or CPM80_8M = 8421376 bytes.
   const char* requiredPrefix = drive == 0 ? systemPathPrefix : largePathPrefix;
   size_t storedPathLength = strlen(imagePath) + (drive != 0 ? strlen(largeVfsPrefix) : 0);
   if ((drive == 0 && profile == cpm80DiskProfileBig) || !safePath(imagePath, requiredPrefix) ||
@@ -247,6 +252,11 @@ bool cpm80DriveConfigSystemProfileFromSize(uint64_t imageSize, cpm80DiskProfile*
     *profile = cpm80DiskProfileLarge;
     return true;
   }
+  if (imageSize == cpm80DiskProfileImageSize(cpm80DiskProfileHuge))
+  {
+    *profile = cpm80DiskProfileHuge;
+    return true;
+  }
   return false;
 }
 
@@ -259,10 +269,12 @@ bool cpm80DriveConfigResolveSystemProfile(cpm80DriveConfig* drive, uint64_t imag
     if (error != NULL && errorCapacity > 0)
     {
       snprintf(error, errorCapacity,
-               "size %llu matches no system profile (CPM80_256K=%llu, CPM80_512K=%llu)",
+               "size %llu matches no system profile (CPM80_256K=%llu, CPM80_512K=%llu, "
+               "CPM80_1440K=%llu)",
                (unsigned long long)imageSize,
                (unsigned long long)cpm80DiskProfileImageSize(cpm80DiskProfileSystem),
-               (unsigned long long)cpm80DiskProfileImageSize(cpm80DiskProfileLarge));
+               (unsigned long long)cpm80DiskProfileImageSize(cpm80DiskProfileLarge),
+               (unsigned long long)cpm80DiskProfileImageSize(cpm80DiskProfileHuge));
     }
     return false;
   }

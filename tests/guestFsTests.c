@@ -1216,8 +1216,8 @@ static void roundTripRealImage(const char* osId, const char* imageName)
 
 int main(int argc, char** argv)
 {
-  static const char* const stems[] = {"CPM80_256K", "CPM80_512K", "CPM80_8M",
-                                      "CPM86_160K", "CPM86_516K", "CPM86_8196K"};
+  static const char* const stems[] = {"CPM80_256K", "CPM80_512K", "CPM80_1440K", "CPM80_8M",
+                                      "CPM86_160K", "CPM86_516K", "CPM86_1440K", "CPM86_8196K"};
   static const char* const crashStems[] = {"CPM80_256K", "CPM86_516K", "CPM80_8M"};
   if (argc != 4)
   {

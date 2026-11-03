@@ -43,7 +43,8 @@ CP/M-80 tooling tests; details are recorded below.
   The firmware loads the guest system and BIOS, installs the BDOS vector, and
   starts the guest rather than printing a simulated prompt.
 - The configured disk profiles include the 160 KiB system/data profile, the
-  528,384-byte LARGE profile, and the 8,392,704-byte BIG profile.
+  528,384-byte LARGE profile, the 1,474,560-byte HUGE (1.44 MB) profile, and
+  the 8,392,704-byte BIG profile.
 - Host tests cover selected CPU instructions and flags, memory bounds and
   physical-address wrap, ports and timer behavior, drive-configuration
   validation, guest boot, `DIR`, additional drives, and reading files that

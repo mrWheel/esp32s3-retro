@@ -1,6 +1,7 @@
 """CP/M-80 file operations for extractFiles.py; menu options 7 and 10 use Dest. Path.
 
-Accepts only images matching a diskImageCpm80 profile (CPM80_256K, CPM80_512K, CPM80_8M).
+Accepts only images matching a diskImageCpm80 profile (CPM80_256K, CPM80_512K, CPM80_1440K,
+CPM80_8M).
 Without an image or action the interactive menu of tools/apple2/extractApple2Files.py starts.
 """
 

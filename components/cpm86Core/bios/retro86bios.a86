@@ -97,8 +97,13 @@ SELDSK:
 	jmp	SELDSK_DPB
 SELDSK_TRYBIG:
 	cmp	al,2
-	jne	SELDSK_DPB
+	jne	SELDSK_TRYHUGE
 	mov	dx,offset DPB2
+	jmp	SELDSK_DPB
+SELDSK_TRYHUGE:
+	cmp	al,3
+	jne	SELDSK_DPB
+	mov	dx,offset DPB3
 SELDSK_DPB:
 	sub	ch,ch
 	mov	bx,cx
@@ -314,6 +319,15 @@ DPB2:
 	dw	01FFh
 	db	80h,00h
 	dw	0000h
+	dw	0001h
+
+DPB3:
+	dw	0020h
+	db	06h,3Fh,00h
+	dw	00B2h
+	dw	007Fh
+	db	80h,00h
+	dw	0020h
 	dw	0001h
 
 DIRBUF rb	128

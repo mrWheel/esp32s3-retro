@@ -45,6 +45,15 @@ enum
   cpm80LargeVirtualDpbAl1 = 0,
   cpm80LargeVirtualDpbCks = 32,
   cpm80LargeVirtualDpbOff = 2,
+  cpm80HugeVirtualDpbBsh = 6,
+  cpm80HugeVirtualDpbBlm = 63,
+  cpm80HugeVirtualDpbExm = 0,
+  cpm80HugeVirtualDpbDsm = 178,
+  cpm80HugeVirtualDpbDrm = 127,
+  cpm80HugeVirtualDpbAl0 = 0x80,
+  cpm80HugeVirtualDpbAl1 = 0,
+  cpm80HugeVirtualDpbCks = 32,
+  cpm80HugeVirtualDpbOff = 2,
   cpm80BigVirtualDpbBsh = 7,
   cpm80BigVirtualDpbBlm = 127,
   cpm80BigVirtualDpbExm = 7,
@@ -159,42 +168,52 @@ static void installBios(cpm80Guest* guest)
     cpm80DiskProfile profile = guest->diskProfiles[drive];
     if (drive == 0 && profile != cpm80DiskProfileSystem)
     {
-      //-- The CPM80_256K-sized CSV/ALV slots of A: are too small for a CPM80_512K or CPM80_8M
-      // layout; use the free area above drive F:.
+      //-- The CPM80_256K-sized CSV/ALV slots of A: are too small for a CPM80_512K, CPM80_1440K
+      // or CPM80_8M layout; use the free area above drive F:.
       csvAddress = cpm80BiosLargeSystemCsvAddress;
       alvAddress = cpm80BiosLargeSystemAlvAddress;
     }
     bool large = profile == cpm80DiskProfileLarge;
+    bool huge = profile == cpm80DiskProfileHuge;
     bool big = profile == cpm80DiskProfileBig;
     uint16_t spt = cpm80DiskProfileSectorsPerTrack(profile);
     uint16_t dsm = big     ? cpm80BigVirtualDpbDsm
+                   : huge  ? cpm80HugeVirtualDpbDsm
                    : large ? cpm80LargeVirtualDpbDsm
                            : cpm80VirtualDpbDsm;
     uint16_t drm = big     ? cpm80BigVirtualDpbDrm
+                   : huge  ? cpm80HugeVirtualDpbDrm
                    : large ? cpm80LargeVirtualDpbDrm
                            : cpm80VirtualDpbDrm;
     uint16_t cks = big     ? cpm80BigVirtualDpbCks
+                   : huge  ? cpm80HugeVirtualDpbCks
                    : large ? cpm80LargeVirtualDpbCks
                            : cpm80VirtualDpbCks;
     uint16_t off = big     ? cpm80BigVirtualDpbOff
+                   : huge  ? cpm80HugeVirtualDpbOff
                    : large ? cpm80LargeVirtualDpbOff
                            : cpm80VirtualDpbOff;
     uint8_t bsh = big     ? cpm80BigVirtualDpbBsh
+                  : huge  ? cpm80HugeVirtualDpbBsh
                   : large ? cpm80LargeVirtualDpbBsh
                           : cpm80VirtualDpbBsh;
     uint8_t blm = big     ? cpm80BigVirtualDpbBlm
+                  : huge  ? cpm80HugeVirtualDpbBlm
                   : large ? cpm80LargeVirtualDpbBlm
                           : cpm80VirtualDpbBlm;
     uint8_t exm = big     ? cpm80BigVirtualDpbExm
+                  : huge  ? cpm80HugeVirtualDpbExm
                   : large ? cpm80LargeVirtualDpbExm
                           : cpm80VirtualDpbExm;
     uint8_t al0 = big     ? cpm80BigVirtualDpbAl0
+                  : huge  ? cpm80HugeVirtualDpbAl0
                   : large ? cpm80LargeVirtualDpbAl0
                           : cpm80VirtualDpbAl0;
     uint8_t al1 = big     ? cpm80BigVirtualDpbAl1
+                  : huge  ? cpm80HugeVirtualDpbAl1
                   : large ? cpm80LargeVirtualDpbAl1
                           : cpm80VirtualDpbAl1;
-    uint16_t csvSize = big ? 0 : large ? cpm80BiosLargeCsvSize : cpm80BiosCsvSize;
+    uint16_t csvSize = big ? 0 : (large || huge) ? cpm80BiosLargeCsvSize : cpm80BiosCsvSize;
     uint16_t alvSize = big ? cpm80BiosBigAlvSize : cpm80BiosAlvSize;
 
     memset(memory + dphAddress, 0, 16);
@@ -324,6 +343,8 @@ uint16_t cpm80DiskProfileSectorsPerTrack(cpm80DiskProfile profile)
   {
   case cpm80DiskProfileBig:
     return cpm80BigDiskSectorsPerTrack;
+  case cpm80DiskProfileHuge:
+    return cpm80HugeDiskSectorsPerTrack;
   case cpm80DiskProfileLarge:
     return cpm80LargeDiskSectorsPerTrack;
   default:
@@ -333,7 +354,15 @@ uint16_t cpm80DiskProfileSectorsPerTrack(cpm80DiskProfile profile)
 
 uint16_t cpm80DiskProfileTracks(cpm80DiskProfile profile)
 {
-  return profile == cpm80DiskProfileBig ? cpm80BigDiskTracks : cpm80DiskTracks;
+  switch (profile)
+  {
+  case cpm80DiskProfileBig:
+    return cpm80BigDiskTracks;
+  case cpm80DiskProfileHuge:
+    return cpm80HugeDiskTracks;
+  default:
+    return cpm80DiskTracks;
+  }
 }
 
 uint64_t cpm80DiskProfileImageSize(cpm80DiskProfile profile)
@@ -342,6 +371,8 @@ uint64_t cpm80DiskProfileImageSize(cpm80DiskProfile profile)
   {
   case cpm80DiskProfileBig:
     return cpm80BigImageSize;
+  case cpm80DiskProfileHuge:
+    return cpm80HugeImageSize;
   case cpm80DiskProfileLarge:
     return cpm80LargeImageSize;
   default:
@@ -355,6 +386,8 @@ const char* cpm80DiskProfileName(cpm80DiskProfile profile)
   {
   case cpm80DiskProfileBig:
     return "CPM80_8M";
+  case cpm80DiskProfileHuge:
+    return "CPM80_1440K";
   case cpm80DiskProfileLarge:
     return "CPM80_512K";
   default:
@@ -546,6 +579,7 @@ cpm80GuestInitResult cpm80GuestInitialize(cpm80Guest* guest, const cpm80HostOps*
         (!host->diskDriveProfile(host->context, drive, &guest->diskProfiles[drive]) ||
          (guest->diskProfiles[drive] != cpm80DiskProfileSystem &&
           guest->diskProfiles[drive] != cpm80DiskProfileLarge &&
+          guest->diskProfiles[drive] != cpm80DiskProfileHuge &&
           guest->diskProfiles[drive] != cpm80DiskProfileBig)))
     {
       memset(guest, 0, sizeof(*guest));

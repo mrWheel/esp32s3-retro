@@ -97,7 +97,8 @@ firmware build alone.
 
 ## Disk drives
 
-The BIOS exposes up to six 160 KiB raw images as drives A: through F:. A: is
+The BIOS exposes up to six raw images (160 KiB, 516 KiB, 1440 KiB or 8 MiB
+geometry) as drives A: through F:. A: is
 the required LittleFS system image; B: through F: are optional SD-card images
 loaded from `/littlefs/cpm86/drives.cfg`. Each drive has its own DPH,
 checksum vector and allocation vector. Disk records are 128 bytes; each track
@@ -113,18 +114,19 @@ pairs.
 | EDh | IN | Returns 00h on success or 01h on failure. |
 | EEh | IN | Reads the next byte of a successful read transfer. |
 | EEh | OUT | Supplies the next byte of a write transfer. Exactly 128 bytes commit the record. |
-| EFh | IN | Returns FFh when the selected drive is configured and open with the 160 KiB geometry, 01h when open with the large geometry, 02h when open with the BIG (8 MiB) geometry; otherwise 00h. |
+| EFh | IN | Returns FFh when the selected drive is configured and open with the 160 KiB geometry, 01h when open with the large (516 KiB) geometry, 02h when open with the BIG (8 MiB) geometry, 03h when open with the HUGE (1.44 MB) geometry; otherwise 00h. |
 
 Drive selection probes EFh before returning a DPH; an unavailable drive returns
 no DPH and does not replace the current drive. Every transfer validates the
-selected drive, raw track 1–39 (1–128 for the CPM86_516K geometry, 1–2048 for the CPM86_8196K geometry), record 0–31 and the complete record range
+selected drive, raw track 1–39 (1–128 for the CPM86_516K geometry, 1–359 for the CPM86_1440K geometry, 1–2048 for the CPM86_8196K geometry), record 0–31 and the complete record range
 against that drive's image size. Invalid coordinates, read-only write
 attempts, short I/O and flush/sync failures set the transfer status to 01h.
 Reads and writes transfer exactly 128 bytes; accessing EEh outside an active
 transfer is an I/O error.
 
-The raw image has 40 tracks, eight 512-byte physical sectors per track, and
-163,840 bytes total. Raw track 0 is reserved. CP/M-86's DPB uses OFF=1, so the
+The 160 KiB raw image has 40 tracks, eight 512-byte physical sectors per
+track, and 163,840 bytes total; every supported geometry uses eight 512-byte
+physical sectors per track. Raw track 0 is reserved. CP/M-86's DPB uses OFF=1, so the
 BIOS sends the guest track unchanged; adding another track would skip the
 filesystem's first track. Record byte offset is:
 
@@ -135,10 +137,13 @@ filesystem's first track. Record byte offset is:
 Every configured image must be exactly the size named by its `drives.cfg`
 identifier: 163,840 bytes (`CPM86_160K`, all drives including the built-in A:),
 528,384 bytes for a `CPM86_516K` drive (129 tracks of 32 records, 2 KiB blocks,
-128 directory entries, DSM=255, 512 KiB of data) or 8,392,704 bytes for a
+128 directory entries, DSM=255, 512 KiB of data), 1,474,560 bytes for a
+`CPM86_1440K` drive (360 tracks of 32 records, 8 KiB blocks, 128 directory
+entries, DSM=178, EXM=0 and 8-bit block pointers, 1.4 MiB of data, DPB3) or
+8,392,704 bytes for a
 `CPM86_8196K` drive (2049 tracks of 32 records, 16 KiB blocks, 512 directory
 entries, DSM=511, EXM=7 and 16-bit block pointers, 8 MiB of data, DPB2).
-SELDSK uses the EFh answer to choose between DPB0, DPB1 and DPB2. Its access
+SELDSK uses the EFh answer to choose between DPB0, DPB1, DPB2 and DPB3. Its access
 mode is set in `drives.cfg`.
 Completed record writes are flushed and synced before reporting successful
 completion.

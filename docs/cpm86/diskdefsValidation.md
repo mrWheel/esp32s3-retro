@@ -1,6 +1,8 @@
 # CP/M-86 diskdefs validation (step 86-04)
 
-Date: 2026-11-01. Tool: cpmtools 2.23 (Homebrew). Object under test:
+Date: 2026-11-01; updated 2026-11-02 with the `retro86-huge` diskdef for the
+new `CPM86_1440K` profile (sections 2-5 gained a huge column).
+Tool: cpmtools 2.23 (Homebrew). Object under test:
 `tools/cpm86/diskdefs` against the BIOS DPBs in
 `components/cpm86Core/bios/retro86bios.a86` and the in-repo image tool
 `tools/cpm86/diskImageCpm86.py` (shared engine `tools/include/diskImageCpm.py`).
@@ -26,22 +28,23 @@ on this machine; without them the tools fail in misleading ways:
 
 ## 2. Geometry audit (diskdef vs DPB vs diskImageCpm86.py)
 
-| Field | retro86-160 / DPB0 | retro86-large / DPB1 | retro86-big / DPB2 |
-|-------|--------------------|----------------------|--------------------|
-| seclen / SPT | 512 / 32 | 512 / 32 | 512 / 32 |
-| tracks | 40 (40x8x512) | 129 (129x8x512) | 2049 (2049x8x512) |
-| blocksize / BSH | 1024 / 3 | 2048 / 4 | 16384 / 7 |
-| maxdir / DRM | 64 / 63h | 128 / 7Fh | 512 / 1FFh |
-| EXM | 0 | 0 (fixed in VERIFY-028) | 7 |
-| DSM | 9Bh (155) | FFh (255) | 1FFh (511) |
-| AL0 / CKS / OFF | C0 / 10h / 1 | C0 / 20h / 1 | 80 / 0 / 1 |
-| diskdef os | 2.2 | 2.2 | 2.2 |
-| firmware tool | BLOCK_SIZE 1024 | LARGE_BLOCK_SIZE 2048 | BIG_BLOCK_SIZE 16384, `block_pointer_size 2`, `first_data_block 1`, `exm 7` |
+| Field | retro86-160 / DPB0 | retro86-large / DPB1 | retro86-huge / DPB3 | retro86-big / DPB2 |
+|-------|--------------------|----------------------|---------------------|--------------------|
+| seclen / SPT | 512 / 32 | 512 / 32 | 512 / 32 | 512 / 32 |
+| tracks | 40 (40x8x512) | 129 (129x8x512) | 360 (360x8x512) | 2049 (2049x8x512) |
+| blocksize / BSH | 1024 / 3 | 2048 / 4 | 8192 / 6 | 16384 / 7 |
+| maxdir / DRM | 64 / 63h | 128 / 7Fh | 128 / 7Fh | 512 / 1FFh |
+| EXM | 0 | 0 (fixed in VERIFY-028) | 0 | 7 |
+| DSM | 9Bh (155) | FFh (255) | B2h (178) | 1FFh (511) |
+| AL0 / CKS / OFF | C0 / 10h / 1 | C0 / 20h / 1 | 80 / 20h / 1 | 80 / 0 / 1 |
+| diskdef os | 2.2 | 2.2 | 2.2 | 2.2 |
+| firmware tool | BLOCK_SIZE 1024 | LARGE_BLOCK_SIZE 2048 | HUGE_BLOCK_SIZE 8192, `first_data_block 1` | BIG_BLOCK_SIZE 16384, `block_pointer_size 2`, `first_data_block 1`, `exm 7` |
 
 `retro86-big` was added to `tools/cpm86/diskdefs` in this phase; the earlier
-file only covered 160 and LARGE. The DPB fields, the firmware tool constants
-and the diskdef geometry agree for all three profiles (sectrk 8, one reserved
-track, image sizes 163840 / 528384 / 8392704 bytes). cpmtools 2.23 has no
+file only covered 160 and LARGE. `retro86-huge` was added when the
+`CPM86_1440K` profile was introduced. The DPB fields, the firmware tool
+constants and the diskdef geometry agree for all four profiles (sectrk 8, one
+reserved track, image sizes 163840 / 528384 / 1474560 / 8392704 bytes). cpmtools 2.23 has no
 `exm` diskdef keyword, so the EXM column cannot be expressed in a diskdef;
 cpmtools derives an extent layout internally from `blocksize` instead, which
 is the source of the interop differences in section 4.
@@ -49,14 +52,16 @@ is the source of the interop differences in section 4.
 ## 3. cpmcp round trip (exit criterion of 86-04)
 
 For each profile: `mkfs.cpm` + `cpmcp` copy-in + `cpmls` + `cpmcp` copy-out,
-byte-identical (size and content) for every file transferred: 11/11.
+byte-identical (size and content) for every file transferred: 15/15 (the
+160/large/big columns date from 2026-11-01; the huge column was re-run on
+2026-11-02 with the new diskdef).
 
-| File | size | 160 | large | big |
-|------|------|-----|-------|-----|
-| TINY.BIN | 128 B | OK | OK | OK |
-| BOUNDARY.BIN | 16384 B | OK | OK | OK |
-| MULTI.BIN | 20000 B | OK | OK | OK |
-| HUGE.BIN | 65536 B | not placed | OK | OK |
+| File | size | 160 | large | huge | big |
+|------|------|-----|-------|------|-----|
+| TINY.BIN | 128 B | OK | OK | OK | OK |
+| BOUNDARY.BIN | 16384 B | OK | OK | OK | OK |
+| MULTI.BIN | 20000 B | OK | OK | OK | OK |
+| HUGE.BIN | 65536 B | not placed | OK | OK | OK |
 
 `cpmcp` could not place the 64 KiB file on the 160 profile at all (no
 directory entry was created and it reported no usable copy); that content
@@ -66,24 +71,26 @@ shape is therefore only proven on LARGE and BIG.
 
 The round trip only proves cpmtools agrees with itself. Every image was
 therefore re-read with the in-repo decoder that implements the firmware
-layout (same extent/rc/pointer semantics as DPB0/1/2): `extract_file` per
+layout (same extent/rc/pointer semantics as DPB0/1/2/3): `extract_file` per
 file, compared against the original source bytes.
 
-| File | 160 | large | big |
-|------|-----|-------|-----|
-| TINY.BIN | extract MATCH | extract MATCH | extract MATCH |
-| BOUNDARY.BIN | extract MATCH | extract MATCH | extract MATCH |
-| MULTI.BIN | extract MATCH (two entries EX=0/EX=1) | FAIL: missing CP/M extent | extract MATCH |
-| HUGE.BIN | (absent) | FAIL: missing CP/M extent | extract MATCH |
+| File | 160 | large | huge | big |
+|------|-----|-------|------|-----|
+| TINY.BIN | extract MATCH | extract MATCH | extract MATCH | extract MATCH |
+| BOUNDARY.BIN | extract MATCH | extract MATCH | extract MATCH | extract MATCH |
+| MULTI.BIN | extract MATCH (two entries EX=0/EX=1) | FAIL: missing CP/M extent | FAIL: missing CP/M extent | extract MATCH |
+| HUGE.BIN | (absent) | FAIL: missing CP/M extent | FAIL: missing CP/M extent | extract MATCH |
 
-Directory-dump detail for the LARGE failures: cpmtools stored the 20 KiB file
-as a single entry `EX=1 rc=29` with 10 block bytes spilling into the reserved
-bytes 24..25, and the 64 KiB file as two entries `EX=1`/`EX=3` with 12 block
-bytes each. That is a CP/M-3-style two-entries-per-32-KiB-group layout. The
-firmware DPB1 (`EXM=0`) expects one 16 KiB extent (128 records, 8 two-KiB
-block pointers in bytes 16..23) per entry with extent numbers 0,1,2,3,... -
-exactly the mismatch already noted as a caveat in CPM86-VERIFY-028, now
-proven with images. On BIG the derived cpmtools extents happen to decode
+Directory-dump detail for the LARGE and HUGE failures: cpmtools stored the
+20 KiB file as a single entry `EX=1 rc=29` with 10 block bytes spilling into
+the reserved bytes 24..25, and the 64 KiB file as two entries `EX=1`/`EX=3`
+with 12 block bytes each (identical entries were observed on the huge
+profile). That is a CP/M-3-style two-entries-per-32-KiB-group layout. The
+firmware DPB1 and DPB3 (`EXM=0`) expect one 16 KiB extent (128 records, 8
+two-KiB or 4 eight-KiB block pointers in bytes 16..23) per entry with extent
+numbers 0,1,2,3,... - exactly the mismatch already noted as a caveat in
+CPM86-VERIFY-028, now proven with images, and now reproduced on the 8 KiB
+block profile as well. On BIG the derived cpmtools extents happen to decode
 correctly under `EXM=7`.
 
 ## 5. Verdict per profile
@@ -101,6 +108,15 @@ correctly under `EXM=7`.
   readable by the guest. Validator for multi-extent LARGE content remains
   `tools/cpm86/diskImageCpm86.py` plus the `testCpm86Boot` two-extent `TYPE`
   fixture (CPM86-VERIFY-028).
+- `retro86-huge` (new): geometry valid and consistent with DPB3 (mkfs accepts
+  the 8 KiB blocks); single-extent files up to 16 KiB extract
+  byte-identically, but cpmtools' internal extent layout (CP/M-3-style,
+  EXM=1-like) is incompatible with DPB3 `EXM=0` for files above 16 KiB:
+  cpmcp-written multi-extent HUGE files are unreadable by the firmware
+  decoder and must not be assumed readable by the guest. Validator for
+  multi-extent CPM86_1440K content remains
+  `tools/cpm86/diskImageCpm86.py` plus the `testCpm86Boot` two-extent `TYPE`
+  fixture.
 - `retro86-big` (new): geometry valid (mkfs accepts the 16 KiB blocks); all
   four content shapes extract byte-identically through the firmware decoder.
   Multi-extent BIG content has not yet been exercised by the real guest on
@@ -113,7 +129,9 @@ correctly under `EXM=7`.
    (mkfs.cpm + cpmls agree with the BIOS DPBs on every auditable field).
 2. It is not a trustworthy content validator for multi-extent LARGE files;
    `diskImageCpm86.py` + guest `TYPE` fixtures stay authoritative there.
-3. `retro86-big` diskdef added and validated.
+3. `retro86-big` diskdef added and validated; `retro86-huge` diskdef added and
+   validated for single-extent content, with the same multi-extent caveat as
+   `retro86-large`.
 4. cpmtools cannot express EXM; the 160-profile EXM=0-with-1-KiB-block design
    limit (max ~8 KiB per guest file) and the unproven multi-extent BIG guest
    case are handed to the geometry audit (CPM86-ISSUE-005).

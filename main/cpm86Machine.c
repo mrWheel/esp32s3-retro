@@ -501,9 +501,11 @@ machineState cpm86MachineProbe(const retroMachine* machine)
   if (!cpm86DriveConfigSystemProfileFromSize(diskSize, &systemProfile))
   {
     ESP_LOGE(tag,
-             "Invalid CP/M-86 system disk size %llu (expected %u, %u or %u): %s; A: is not mounted",
+             "Invalid CP/M-86 system disk size %llu (expected %u, %u, %u or %u): %s; A: is not "
+             "mounted",
              (unsigned long long)diskSize, (unsigned)cpm86SystemDiskSize,
-             (unsigned)cpm86LargeDiskSize, (unsigned)cpm86BigDiskSize, systemDiskPath);
+             (unsigned)cpm86LargeDiskSize, (unsigned)cpm86HugeDiskSize, (unsigned)cpm86BigDiskSize,
+             systemDiskPath);
     return machineResourceInvalid;
   }
   imageFile systemDisk = {0};
@@ -578,6 +580,13 @@ esp_err_t cpm86MachineInitialize(void)
       expectedSize = cpm86LargeDiskSize;
       tracks = cpm86LargeDiskTracks;
       geometryCode = 0x01;
+    }
+    else if (driveConfig[drive].profile == cpm86DiskProfileDataHuge ||
+             driveConfig[drive].profile == cpm86DiskProfileSystemHuge)
+    {
+      expectedSize = cpm86HugeDiskSize;
+      tracks = cpm86HugeDiskTracks;
+      geometryCode = 0x03;
     }
     else if (driveConfig[drive].profile == cpm86DiskProfileDataBig ||
              driveConfig[drive].profile == cpm86DiskProfileSystemBig)
