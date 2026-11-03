@@ -8,6 +8,8 @@ Several classic computing worlds, one small computer. ESP32-S3 Retro Computer le
 
 Revisit CP/M commands, write BASIC on an Apple II, or explore the Apple Pascal environment. Programs run inside an emulated machine, with disk-image files taking the place of physical floppy disks. The reference device is a LOLIN S3 Pro with a microSD card; your computer supplies the keyboard and terminal screen.
 
+This emulator does not support graphics and is not suitable for playing games. It is designed for running and developing serious, text-based software, offering a hands-on way to relive the early days of personal computing and experience programming the retro way.
+
 ## Choose your system
 
 | Menu | System | What to expect |
