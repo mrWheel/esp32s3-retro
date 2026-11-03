@@ -48,7 +48,9 @@ littlefs/<os>/drives.cfg as the default; WORKDSK always asks for the
 geometry) and the remaining values of the chosen type (work disk name, system
 disk output and source directory).
 ENTER accepts an offered default; invalid answers are asked again. Without a
-terminal nothing is asked and missing required options are refused as before."""
+terminal -- or when --yes is given -- nothing is asked and missing required
+options are refused as before, so configure-time callers such as the top-level
+CMakeLists never block on input()."""
 
 
 def unique_disk_type(type_name):
@@ -168,8 +170,12 @@ def prompt_path(label, default_path):
 
 
 def interactive_mode(argv):
-    """True when missing options may be asked for: an attached terminal and no -h/--help request."""
-    return sys.stdin.isatty() and not any(token in ("-h", "--help") for token in argv)
+    """True when missing options may be asked for: an attached terminal and no -h/--help request.
+
+    --yes (or -y) forces the scripted path: prompts for missing options are never shown and
+    every missing option keeps the default the prompt would have offered. Without it a
+    configure-time caller such as the CMakeLists diskManager job would block on input()."""
+    return sys.stdin.isatty() and not any(token in ("-h", "--help", "--yes", "-y") for token in argv)
 
 
 def prompt_missing_options(type_name, info, arguments):
@@ -255,7 +261,8 @@ def build_parser(os_name, type_name):
         "--yes",
         "-y",
         action="store_true",
-        help="do not ask for confirmation before the planned action is executed",
+        help="do not ask for confirmation before the planned action is executed; also never "
+        "prompts for missing options (scripted use: defaults and the normal error paths apply)",
     )
     parser.add_argument("image", nargs="?", type=Path, help="WORKDSK: work disk name or path")
     return parser

@@ -548,6 +548,12 @@ static uint8_t readPort(void* context, uint8_t port)
     }
     return (uint8_t)(guest->millisecondsSnapshot >> ((port - cpm80TimerLowPort) * 8));
   }
+  //-- Ports the core does not implement belong to the host when it installs a handler
+  //-- (RETRO80-SYSINFO/1 on F8h/F9h); without a handler the historical 0xFF is returned.
+  if (guest->host.portInput != NULL)
+  {
+    return guest->host.portInput(guest->host.context, port);
+  }
   return 0xFF;
 }
 
@@ -557,6 +563,11 @@ static void writePort(void* context, uint8_t port, uint8_t value)
   if (port == cpm80BiosServicePort)
   {
     serviceBios(guest, value);
+    return;
+  }
+  if (guest->host.portOutput != NULL)
+  {
+    guest->host.portOutput(guest->host.context, port, value);
   }
 }
 

@@ -1,9 +1,11 @@
 #include "cpm80Machine.h"
 #include "cpm80Guest.h"
 #include "cpm80DriveConfig.h"
+#include "cpm80SystemInfo.h"
 #include "hostConsole.h"
 #include "imageFile.h"
 #include "diskActivity.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_psram.h"
@@ -21,6 +23,7 @@ static imageFile diskImages[cpm80DiskDriveCount];
 static cpm80DriveConfig driveTable[cpm80DiskDriveCount];
 static cpm80Guest guest;
 static bool guestReady;
+static cpm80InfoStream sysInfoStream;
 
 static bool consoleAvailable(void* context)
 {
@@ -103,6 +106,56 @@ static void guestYield(void* context)
 {
   (void)context;
   vTaskDelay(1);
+}
+
+//-- SYSVIEW snapshot (I/O ports F8h/F9h): built only when the guest arms it with OUT F8,1.
+//-- Collects firmware version, guest RAM/PSRAM, uptime, executed T-states and the mounted
+//-- virtual disks; the guest then drains the byte stream with IN F9 (RETRO80-SYSINFO/1).
+static void buildSysInfoSnapshot(void)
+{
+  cpm80InfoValues values;
+  memset(&values, 0, sizeof(values));
+  const esp_app_desc_t* appDesc = esp_app_get_description();
+  values.version = appDesc != NULL ? appDesc->version : "unknown";
+  values.guestRamBytes = cpm80MemorySize;
+  values.psramBytes = esp_psram_get_size();
+  values.uptimeMs = (uint64_t)esp_timer_get_time() / 1000ULL;
+  values.tstates = guestReady ? (uint64_t)guest.cpu.processor.cyc : 0;
+  for (uint8_t drive = 0; drive < cpm80InfoDriveCount; ++drive)
+  {
+    bool mounted = diskImages[drive].file != NULL;
+    values.drives[drive].mounted = mounted;
+    values.drives[drive].readOnly = driveTable[drive].readOnly;
+    values.drives[drive].bytes = mounted ? imageSize(&diskImages[drive]) : 0;
+    values.drives[drive].path = mounted ? driveTable[drive].path : NULL;
+  }
+  cpm80InfoBuild(&sysInfoStream, &values);
+}
+
+static uint8_t sysInfoPortInput(void* context, uint8_t port)
+{
+  (void)context;
+  //-- Emulator information interface status port: always answers with the magic so the
+  //-- guest can probe support before writing anything; IN F9 drains the snapshot stream.
+  if (port == cpm80InfoStatusPort)
+  {
+    return cpm80InfoMagic;
+  }
+  if (port == cpm80InfoDataPort)
+  {
+    return cpm80InfoRead(&sysInfoStream);
+  }
+  return 0xFF;
+}
+
+static void sysInfoPortOutput(void* context, uint8_t port, uint8_t value)
+{
+  (void)context;
+  //-- Emulator information interface: OUT F8,1 rebuilds the snapshot read via IN F9.
+  if (port == cpm80InfoStatusPort && value == cpm80InfoSnapshot)
+  {
+    buildSysInfoSnapshot();
+  }
 }
 
 static void loadDriveConfig(void)
@@ -228,6 +281,7 @@ esp_err_t cpm80MachineInitialize(void)
     ESP_LOGE(tag, "CP/M guest is already initialized");
     return ESP_FAIL;
   }
+  memset(&sysInfoStream, 0, sizeof(sysInfoStream));
   loadDriveConfig();
   if (!imageOpen(&diskImages[0], driveTable[0].path, driveTable[0].readOnly))
   {
@@ -286,7 +340,9 @@ esp_err_t cpm80MachineInitialize(void)
                              .yield = guestYield,
                              .context = NULL,
                              .readMilliseconds = readMilliseconds,
-                             .clockContext = NULL};
+                             .clockContext = NULL,
+                             .portInput = sysInfoPortInput,
+                             .portOutput = sysInfoPortOutput};
   cpm80GuestInitResult guestInitResult =
       cpm80GuestInitialize(&guest, &host, systemBinaries, systemBinaries + cpm80CcpSize);
   free(systemBinaries);
@@ -345,5 +401,6 @@ void cpm80MachineRun(void)
   puts("\nCP/M stopped.");
   cpm80GuestDestroy(&guest);
   guestReady = false;
+  memset(&sysInfoStream, 0, sizeof(sysInfoStream));
   closeDiskImages();
 }

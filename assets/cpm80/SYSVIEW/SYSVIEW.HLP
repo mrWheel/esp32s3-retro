@@ -1,0 +1,81 @@
+///1SYSVIEW
+SYSVIEW.HLP - VT100/ANSI SYSTEM OVERVIEW FOR CP/M-80
+
+Select a topic below. Press Return to move up one level.
+From CP/M: HELP SYSVIEW
+
+SYSVIEW displays a compact emulator overview and waits for a key.
+It uses the CP/M console (VT100/ANSI) and the RETRO80-SYSINFO/1
+emulator information interface.
+
+Start: SYSVIEW
+Refresh: R
+Exit to CP/M: Q or Esc
+
+///2STARTING
+START SYSVIEW
+
+Copy SYSVIEW.COM and this SYSVIEW.HLP to your CP/M-80 disk; the
+RETRO80 system disk already carries both on A:.
+
+At the CP/M prompt:
+  SYSVIEW
+
+Use a VT100/ANSI terminal with at least 80 columns and 24 rows.
+The program clears the terminal and displays the overview.
+There are no command-line options or configuration files.
+
+To read this help:
+  HELP SYSVIEW
+
+SYSVIEW.COM is a CP/M-80 transient program, not a CP/M-86 CMD.
+
+///2KEYS
+REFRESH AND EXIT
+
+  R or r       Rebuild the host snapshot and redraw the screen.
+  Q or q       Exit SYSVIEW and return to CP/M.
+  Esc          Exit SYSVIEW and return to CP/M.
+
+No Return is needed after a command key.
+Other ordinary keys do not change the displayed values.
+Cursor keys are not required; some send sequences beginning with Esc
+and may therefore cause the program to exit.
+
+Exit restores normal text attributes and makes the cursor visible.
+The screen is not continuously refreshed. Use R for a new snapshot.
+
+///2DISPLAY
+READ THE OVERVIEW
+
+Fields shown by SYSVIEW itself (through the CP/M BDOS):
+  CP/M BDOS version    Version word returned by BDOS function 12.
+  Current CP/M drive   Drive letter returned by BDOS function 25.
+  User area            User number returned by BDOS function 32.
+
+Fields shown by the host stream (RETRO80-SYSINFO/1):
+  Firmware             Firmware version string of the retro host.
+  CPU core             The z80 instruction emulator running the guest.
+  Guest RAM            The 64 KiB CP/M-80 guest address space.
+  Host PSRAM           PSRAM installed on the ESP32-S3 board.
+  Host uptime          Seconds since the host booted.
+  Guest Z80 T-states   T-states executed since the last guest boot.
+  Console / LIST / READER   Virtual device behaviour.
+  Mounted virtual disks     Size, mode and SD/LittleFS path per slot.
+
+Hardware information is emulator information, not host Mac
+information. Long paths wrap. Non-printable characters never reach
+the terminal.
+
+///2INTERFACE
+RETRO80-SYSINFO/1
+
+  IN  F8             A6h when the firmware supports the interface,
+                     FFh on older firmware (no writes happen then).
+  OUT F8,1           Build a fresh snapshot on the host.
+  IN  F9             Next snapshot byte; 00h ends the stream.
+
+The stream begins with the header "RETRO80-SYSINFO/1" followed by
+CR LF. A wrong header prints an "Invalid or unsupported" message.
+The guest never decodes CPU FLAGS or guesses BIOS data; every host
+value is delivered explicitly by the firmware.

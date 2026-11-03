@@ -73,6 +73,11 @@ typedef struct
   //-- Optional monotonic millisecond source; NULL disables the guest timer.
   hostReadMilliseconds readMilliseconds;
   void* clockContext;
+  //-- Optional handlers for guest IN/OUT ports the core does not implement. Without them
+  //-- unknown port reads return 0xFF and writes are ignored (the historical behaviour).
+  //-- Used by the RETRO80-SYSINFO/1 interface on ports F8h/F9h in main/cpm80Machine.c.
+  uint8_t (*portInput)(void* context, uint8_t port);
+  void (*portOutput)(void* context, uint8_t port, uint8_t value);
 } cpm80HostOps;
 
 typedef struct

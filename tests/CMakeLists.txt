@@ -216,3 +216,17 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
 endif()
 add_test(NAME cpm86Sysview COMMAND cpm86SysviewTests
   "${CMAKE_CURRENT_SOURCE_DIR}/../bootDisks/cpm86/systemDsk/SYSVIEW.CMD")
+
+# Emulator-info stream and real SYSVIEW guest execution on the CP/M-80 guest core.
+add_executable(cpm80SysviewTests cpm80SysviewTests.c
+  ../components/cpm80Core/cpm80Cpu.c ../components/cpm80Core/cpm80Guest.c
+  ../components/z80/z80.c ../main/cpm80SystemInfo.c)
+target_include_directories(cpm80SysviewTests PRIVATE ../components/cpm80Core/include
+  ../components/hostCore/include ../components/z80 ../main)
+target_compile_options(cpm80SysviewTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(cpm80SysviewTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(cpm80SysviewTests PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME cpm80Sysview COMMAND cpm80SysviewTests
+  "${CMAKE_CURRENT_SOURCE_DIR}/../bootDisks/cpm80/systemDsk/SYSVIEW.COM")
