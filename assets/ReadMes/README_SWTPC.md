@@ -14,7 +14,7 @@ No working SWTPC emulator or operating-system profile has been implemented, so t
 
 ## Screen preview
 
-![SWTPC 6800 future screen — screenshot pending](assets/images/swtpc-screen-placeholder.svg)
+![SWTPC 6800 future screen — screenshot pending](../images/swtpc-screen-placeholder.svg)
 
 *Screenshot pending: this is a labelled placeholder, not an emulator capture.*
 

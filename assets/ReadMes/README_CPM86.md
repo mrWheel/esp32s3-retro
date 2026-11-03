@@ -14,8 +14,8 @@ The system executes CP/M-86 on an emulated 8086 with its own disk and console su
 
 ## Screen preview
 
-![CP/M-86 STAT DSK: command](assets/images/cpm86_StatDsk.png)
+![CP/M-86 STAT DSK: command](../images/CPM86_StatDsk.png)
 
-![CP/M-86 BENCH86 program](assets/images/cpm86_Bench.png)
+![CP/M-86 BENCH86 program](../images/CPM86_Bench.png)
 
 [← Back to the main README](../../README.md)

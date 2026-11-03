@@ -16,10 +16,10 @@ The display is rendered as terminal text. Graphics are not rendered, and games o
 
 ## Screen preview
 
-![Apple II ProDOS Catalog](assets/images/apple2_Catalog.png)
+![Apple II ProDOS Catalog](../images/Apple2_Catalog.png)
 
-![Apple II ProDOS Bench](assets/images/apple2_Bench.png)
+![Apple II ProDOS Bench](../images/Apple2_Bench.png)
 
-![Apple II ProDOS Bench List](assets/images/apple2_BenchListing.png)
+![Apple II ProDOS Bench List](../images/Apple2_BenchListing.png)
 
 [← Back to the main README](../../README.md)

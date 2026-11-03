@@ -14,10 +14,10 @@ This profile runs Apple Pascal inside the shared Apple II emulator, using an App
 
 ## Screen preview
 
-![UCSD Pascal Startup screen](assets/images/UCSD_Startup.png)
+![UCSD Pascal Startup screen](../images/UCSD_Startup.png)
 
-![UCSD Pascal eXecute Benchucsd program](assets/images/UCSD_Bench.png)
+![UCSD Pascal eXecute Benchucsd program](../images/UCSD_Bench.png)
 
-![UCSD Pascal Filer->Volumes](assets/images/UCSD_Volumes.png)
+![UCSD Pascal Filer->Volumes](../images/UCSD_Volumes.png)
 
 [← Back to the main README](../../README.md)

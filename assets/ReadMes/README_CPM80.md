@@ -14,8 +14,8 @@ The emulator runs genuine CP/M command-processor and operating-system code on an
 
 ## Screen preview
 
-![CP/M-80 STAT DSK: command](assets/images/cpm80_StatDsk.png)
+![CP/M-80 STAT DSK: command](../images/CPM80_StatDsk.png)
 
-![CP/M-80 BENCH80 program](assets/images/cpm80_Bench.png)
+![CP/M-80 BENCH80 program](../images/CPM80_Bench.png)
 
 [← Back to the main README](../../README.md)

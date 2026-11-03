@@ -8,11 +8,11 @@ Revisit CP/M commands, write BASIC on an Apple II, or explore the Apple Pascal e
 
 | Menu | System | What to expect |
 | --- | --- | --- |
-| 1 | [CP/M-80](./assets/Readmes/README_CPM80.md) | Classic CP/M 2.2 commands, utilities and compatible 8-bit software. |
-| 2 | [CP/M-86](./assets/Readmes/README_CPM86.md) | The 16-bit CP/M environment, with its own programs and tools. |
-| 3 | [UCSD Pascal](./assets/Readmes/README_UCSD.md) | Apple Pascal 1.3: a command menu, filer and Pascal programming environment. |
-| 4 | [Apple II](./assets/Readmes/README_APPLE2.md) | A text-focused Apple II experience with ProDOS and BASIC. |
-| 5 | [SWTPC 6800](./assets/Readmes/README_SWTPC.md) | Reserved for a future system; not yet available. |
+| 1 | [CP/M-80](./assets/readMes/README_CPM80.md) | Classic CP/M 2.2 commands, utilities and compatible 8-bit software. |
+| 2 | [CP/M-86](./assets/readMes/README_CPM86.md) | The 16-bit CP/M environment, with its own programs and tools. |
+| 3 | [UCSD Pascal](./assets/readMes/README_UCSD.md) | Apple Pascal 1.3: a command menu, filer and Pascal programming environment. |
+| 4 | [Apple II](./assets/readMes/README_APPLE2.md) | A text-focused Apple II experience with ProDOS and BASIC. |
+| 5 | [SWTPC 6800](./assets/readMes/README_SWTPC.md) | Reserved for a future system; not yet available. |
 
 The individual guides describe how closely each experience resembles its original system and where compatibility is still limited. Apple II and SWTPC are machine names rather than operating-system names; they have their own guides because they are separate choices in the menu.
 
