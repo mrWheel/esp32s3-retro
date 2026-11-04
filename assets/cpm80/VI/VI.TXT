@@ -67,4 +67,3 @@ De aangepaste broncode en tests zijn inbegrepen in source.
 Bouwen: Z88DK=/pad/naar/z88dk sh BUILD.sh
 Getest met z88dk 2.4 en de bijgeleverde SDCC-backend. De compiler staat
 niet in dit pakket en is niet nodig voor gebruik van VI.COM.
-Zie TEST-RESULTS.txt voor testresultaten en SHA-256 van de executable.

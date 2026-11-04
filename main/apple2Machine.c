@@ -3,11 +3,14 @@
 #include "apple2DiskImage.h"
 #include "apple2DriveConfig.h"
 #include "apple2Keyboard.h"
+#include "apple2SystemInfo.h"
 #include "diskActivity.h"
 #include "hostConsole.h"
 #include "storage.h"
+#include "esp_app_desc.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_psram.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -31,6 +34,8 @@ static char driveConfigPath[apple2DriveConfigPathCapacity];
 static const size_t bootSlotIndex = 6 - apple2DriveConfigFirstSlot;
 static apple2Core* guestCore;
 static apple2DiskImage guestDisks[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
+static apple2InfoStream sysInfoStream;
+static uint64_t sysInfoCycles;
 static uint8_t renderedCells[apple2TextRows][apple2VidexTextColumns];
 static bool screenRendered;
 static bool renderedFlashOn;
@@ -630,6 +635,85 @@ static uint32_t totalWriteFailures(void)
   return total;
 }
 
+//-- SYSVIEW snapshot (slot-1 I/O at $C090/$C091): built only when the guest arms it with a write
+//-- of 1 to $C090. Collects firmware version, profile, RAM/PSRAM, uptime, executed cycles and the
+//-- mounted virtual volumes; the guest then drains the byte stream from $C091
+//-- (RETROAPPLE-SYSINFO/1). Only the guest thread reaches the collector while the core runs.
+static void collectSysInfo(void* context, apple2InfoValues* values)
+{
+  (void)context;
+  static char profileText[96];
+  static char ramText[96];
+  static char consoleText[160];
+  const esp_app_desc_t* appDesc = esp_app_get_description();
+  bool iie = apple2DriveConfigMachineIsIIe(driveConfigPath);
+  bool ucsd = strcmp(driveConfigPath, ucsdConfigPath) == 0;
+  memset(values, 0, sizeof(*values));
+  values->version = appDesc != NULL ? appDesc->version : "unknown";
+  snprintf(profileText, sizeof(profileText), "%s profile (menu %u), %s model",
+           ucsd ? "UCSD Pascal" : "Apple II", ucsd ? 3U : 4U, iie ? "Apple IIe" : "Apple II Plus");
+  values->profile = profileText;
+  if (iie)
+  {
+    snprintf(ramText, sizeof(ramText), "128 KiB (64 KiB main + 64 KiB auxiliary)");
+  }
+  else if (apple2DriveConfigRamCardIsSaturn128(driveConfigPath))
+  {
+    snprintf(ramText, sizeof(ramText), "176 KiB (48 KiB motherboard + 128 KiB Saturn card)");
+  }
+  else
+  {
+    snprintf(ramText, sizeof(ramText), "64 KiB (48 KiB motherboard + 16 KiB Language Card)");
+  }
+  values->ramText = ramText;
+  if (iie)
+  {
+    snprintf(consoleText, sizeof(consoleText),
+             "IIe 80-column text page; rendered to the ANSI/VT100 host console");
+  }
+  else
+  {
+    snprintf(consoleText, sizeof(consoleText),
+             "40x24 motherboard text plus slot-3 80-column card; rendered to the ANSI/VT100 host "
+             "console");
+  }
+  values->consoleText = consoleText;
+  values->psramBytes = esp_psram_get_size();
+  values->uptimeMs = (uint64_t)esp_timer_get_time() / 1000ULL;
+  values->cycles = sysInfoCycles;
+  apple2DriveConfig config[apple2DriveConfigSlotCount][apple2DriveConfigDevicesPerSlot];
+  char configError[128];
+  if (apple2DriveConfigLoad(driveConfigPath, config, configError, sizeof(configError)) !=
+      apple2DriveConfigLoaded)
+  {
+    return;
+  }
+  size_t index = 0;
+  for (size_t slotIndex = 0; slotIndex < apple2DriveConfigSlotCount; ++slotIndex)
+  {
+    for (size_t driveIndex = 0;
+         driveIndex < apple2DriveConfigDevicesPerSlot && index < apple2InfoVolumeCapacity;
+         ++driveIndex)
+    {
+      const apple2DriveConfig* entry = &config[slotIndex][driveIndex];
+      const apple2DiskImage* image = &guestDisks[slotIndex][driveIndex];
+      if (!entry->configured || image->image.file == NULL)
+      {
+        continue;
+      }
+      apple2InfoVolume* volume = &values->volumes[index++];
+      volume->mounted = true;
+      volume->readOnly = entry->readOnly;
+      volume->smartPort = entry->smartPort;
+      volume->slot = (uint8_t)(slotIndex + apple2DriveConfigFirstSlot);
+      volume->unit = (uint8_t)(driveIndex + 1);
+      volume->bytes = imageSize(&image->image);
+      volume->path = entry->path;
+      volume->volumeName = image->probe.volumeName[0] != '\0' ? image->probe.volumeName : NULL;
+    }
+  }
+}
+
 esp_err_t apple2MachineInitializeWithConfig(const char* configPath)
 {
   if (configPath == NULL ||
@@ -728,8 +812,18 @@ esp_err_t apple2MachineInitializeWithConfig(const char* configPath)
     releaseDisk();
     apple2CoreDestroy(guestCore);
     guestCore = NULL;
+    return attachResult;
   }
-  return attachResult;
+  //-- The emulator information interface is an add-on: a busy slot 1 never prevents the machine
+  //-- from starting.
+  sysInfoCycles = 0;
+  apple2CoreResult infoResult = apple2InfoAttach(guestCore, &sysInfoStream, collectSysInfo, NULL);
+  if (infoResult != apple2CoreOk)
+  {
+    ESP_LOGW(tag, "emulator information interface unavailable in slot %u",
+             (unsigned)apple2InfoSlot);
+  }
+  return ESP_OK;
 }
 
 void apple2MachineRun(void)
@@ -767,6 +861,7 @@ void apple2MachineRun(void)
       releaseDisk();
       return;
     }
+    sysInfoCycles += cyclesPerPeriod;
     //-- Green marks reads; red marks attempted writes.
     uint32_t writeAttempts = totalWriteAttempts();
     if (writeAttempts != seenWriteAttempts)

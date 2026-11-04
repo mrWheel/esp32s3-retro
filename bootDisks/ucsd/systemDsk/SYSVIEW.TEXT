@@ -1,0 +1,116 @@
+PROGRAM SYSVIEW;
+{ RETROAPPLE emulator information viewer for the ESP32-S3 Retro host. }
+{ By Willem Aandewiel }
+{ Reads the emulator information interface in slot 1 ($C090/$C091). }
+{ Apple Pascal has no MEM[], so the registers are read with the }
+{ variant-record pointer idiom used by BENCHUCSD. }
+{ Keys: R = refresh; Q = exit. }
+CONST
+  PORTADDR = -16240;
+  MAGIC = 166;
+  ARM = 1;
+  CR = 13;
+  LF = 10;
+  SIGLAST = 19;
+  MAXREAD = 4000;
+  PAUSELINES = 22;
+  BANNERLINES = 3;
+TYPE
+  BYTEARR = PACKED ARRAY[0..255] OF CHAR;
+  PTRREC = RECORD
+    CASE BOOLEAN OF
+      TRUE: (A: INTEGER);
+      FALSE: (P: ^BYTEARR)
+  END;
+VAR
+  PT: PTRREC;
+  SIG: PACKED ARRAY[0..SIGLAST] OF CHAR;
+  CH: CHAR;
+  B, LINES, COUNT, I: INTEGER;
+  HEADEROK, EXITED: BOOLEAN;
+
+PROCEDURE SETUPSIGNAL;
+BEGIN
+  SIG := 'RETROAPPLE-SYSINFO/1'
+END;
+
+FUNCTION READREG(N: INTEGER): INTEGER;
+BEGIN
+  READREG := ORD(PT.P^[N])
+END;
+
+PROCEDURE CHECKHEADER;
+BEGIN
+  HEADEROK := TRUE;
+  FOR I := 0 TO SIGLAST DO
+    IF READREG(1) <> ORD(SIG[I]) THEN
+      HEADEROK := FALSE;
+  IF READREG(1) <> CR THEN
+    HEADEROK := FALSE;
+  IF READREG(1) <> LF THEN
+    HEADEROK := FALSE
+END;
+
+PROCEDURE SHOWSTREAM;
+BEGIN
+  CHECKHEADER;
+  IF NOT HEADEROK THEN
+    WRITELN('Invalid or unsupported emulator information response.')
+  ELSE
+  BEGIN
+    {//-- The banner already occupies the first three screen rows; counting from row 0 would }
+    {//-- push the pause two rows past the bottom of the 24 row screen. }
+    LINES := BANNERLINES;
+    COUNT := 0;
+    REPEAT
+      B := READREG(1);
+      IF (B <> CR) AND (B <> LF) THEN
+        WRITE(CHR(B))
+      ELSE IF B = LF THEN
+      BEGIN
+        WRITELN;
+        LINES := LINES + 1;
+        IF LINES >= PAUSELINES THEN
+        BEGIN
+          WRITE('Type any key to continue or Q to exit');
+          READ(CH);
+          WRITELN;
+          IF (CH = 'Q') OR (CH = 'q') THEN
+            EXITED := TRUE;
+          LINES := 0
+        END
+      END;
+      COUNT := COUNT + 1
+    UNTIL (B = 0) OR EXITED OR (COUNT > MAXREAD)
+  END
+END;
+
+BEGIN
+  SETUPSIGNAL;
+  PT.A := PORTADDR;
+  IF READREG(0) <> MAGIC THEN
+  BEGIN
+    WRITELN('Emulator information interface is not available.');
+    WRITELN('Install the matching RETROAPPLE firmware update first.')
+  END
+  ELSE
+    REPEAT
+      EXITED := FALSE;
+      WRITE(CHR(12));
+      WRITELN('SYSVIEW 1.0 - RETROAPPLE emulator information');
+      WRITELN('By Willem Aandewiel');
+      WRITELN('------------------------------------------------------------');
+      PT.P^[0] := CHR(ARM);
+      SHOWSTREAM;
+      IF NOT EXITED THEN
+        REPEAT
+          WRITELN;
+          WRITELN('R = refresh    Q = exit');
+          READ(CH)
+        UNTIL (CH = 'Q') OR (CH = 'q') OR (CH = 'R') OR (CH = 'r');
+      IF (CH = 'Q') OR (CH = 'q') THEN
+        EXITED := TRUE
+    UNTIL EXITED;
+  WRITELN;
+  WRITELN('SYSVIEW finished.')
+END.

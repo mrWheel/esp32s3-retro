@@ -1,0 +1,59 @@
+PROGRAM VIDEOTEST;
+
+VAR
+  CH: CHAR;
+
+procedure Delay(ms: Integer);
+var
+  i, j: Integer;
+begin
+  { De buitenste lus bepaalt het aantal milliseconden }
+  for i := 1 to ms do
+    { De binnenste lus zorgt voor de daadwerkelijke tijdsvertraging }
+    { Pas de waarde 35 aan op basis van jouw specifieke Apple II model }
+    for j := 1 to 35 do 
+      begin
+        { Lege body: doet niets, kost alleen processortijd }
+      end;
+end;
+
+BEGIN
+  { Scherm leegmaken }
+  WRITE(CHR(12)); { Vaak gebruikt in UCSD Pascal voor een Form Feed / Clear Screen }
+  
+  Delay(1000);
+
+  { Rechts Boven: x=67 (79 minus de lengte van de tekst 'Rechts Boven'), y=0 }
+  GOTOXY(67, 0);
+  WRITE('Rechts Boven');
+  
+  Delay(1000);
+
+  { Rechts Onder: x=67, y=23 }
+  GOTOXY(67, 23);
+  WRITE('Rechts Onder');
+
+  Delay(1000);
+  
+  { Links Onder: x=0, y=23 }
+  GOTOXY(0, 23);
+  WRITE('Links Onder');
+
+  Delay(1000);
+  
+  { Links Boven: x=0, y=0 }
+  GOTOXY(0, 0);
+  WRITE('Links Boven');
+
+  Delay(1000);
+    
+  { Wachten totdat de gebruiker 'Q' of 'q' typt }
+  REPEAT 
+    { In het midden: x=28, y=12 }
+    GOTOXY(28, 12);
+    WRITE('Enter Q to Quit:      ');
+
+    GOTOXY(45,12);
+    READ(CH);
+  UNTIL (CH = 'Q') OR (CH = 'q');
+END.

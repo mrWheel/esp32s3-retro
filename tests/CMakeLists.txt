@@ -99,6 +99,24 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(apple2Fast6502Tests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(apple2Fast6502Tests PRIVATE -fsanitize=address,undefined)
 endif()
+# RETROAPPLE-SYSINFO/1 stream builder and slot-1 register protocol, including an executed
+# 6502 drain stub.
+add_executable(
+  apple2SysviewTests
+  apple2SysviewTests.c
+  ../components/hostCore/hostCore.c
+  ../components/apple2Core/apple2Disk.c
+  ../main/apple2SystemInfo.c
+)
+target_include_directories(apple2SysviewTests PRIVATE ../components/hostCore/include ../components/apple2Core/include ../components/apple2Core
+  ../components/apple2Core/third_party/chips ../main)
+target_compile_options(apple2SysviewTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -funsigned-char)
+target_compile_definitions(apple2SysviewTests PRIVATE
+  APPLE2_SYSTEM_ROM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/apple2/apple2_roms/apple.rom")
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(apple2SysviewTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(apple2SysviewTests PRIVATE -fsanitize=address,undefined)
+endif()
 add_executable(cpm80TimerTests cpm80TimerTests.c ../components/cpm80Core/cpm80Cpu.c ../components/cpm80Core/cpm80Guest.c
   ../components/z80/z80.c)
 target_include_directories(cpm80TimerTests PRIVATE ../components/hostCore/include ../components/cpm80Core/include ../components/z80)
@@ -106,6 +124,7 @@ target_compile_options(cpm80TimerTests PRIVATE -Wall -Wextra -Werror -UNDEBUG -f
 target_compile_definitions(cpm80TimerTests PRIVATE BENCH80_COM_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../assets/cpm80/BENCH80/BENCH80.COM")
 add_test(NAME cpm86Conformance COMMAND cpm86ConformanceTests)
 add_test(NAME apple2Fast6502 COMMAND apple2Fast6502Tests)
+add_test(NAME apple2Sysview COMMAND apple2SysviewTests)
 add_test(NAME cpm80Timer COMMAND cpm80TimerTests)
 add_test(NAME cpm80Help COMMAND hostTests --cpm80-help)
 add_test(NAME cpm86Help COMMAND hostTests --cpm86-help)

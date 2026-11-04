@@ -27,9 +27,6 @@ ANSI cleanup. Actual CP/M disk/emulator integration is not tested.
 Build (requires Python 3 and NASM):
   python3 BUILD.py SYSVIEW.CMD
 
-SYSVIEW.ASM is the single source; the separate patch step and its
-directory are removed.
-
 Two programs live in one .CMD. The started program is the host
 information viewer (SYSVIEW 1.0), which asks the RETRO86 firmware for
 the RETRO86-SYSINFO/1 stream on ports 0xF8/0xF9 (see
