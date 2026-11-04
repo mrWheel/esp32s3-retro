@@ -235,8 +235,9 @@ static void run(const char* filename, bool supported, bool badHeader, const char
     assert(strstr(f->output, "disk image with spaces.dsk") != NULL);
     assert(strstr(f->output, "  F: not mounted") != NULL);
     assert(strstr(f->output, "Mounted: 5 of 6") != NULL);
-    assert(strstr(f->output, "-- More --") != NULL);
+    assert(strstr(f->output, "Type any key to continue") != NULL);
     assert(strstr(f->output, "\033[2K") != NULL);
+    assert(strstr(f->output, "\033[A") != NULL);
   }
   printf("PASS: supported=%u badHeader=%u snapshots=%u keys=\"%s\", %zu output bytes\n", supported,
          badHeader, snapshots, keys, f->used);
@@ -247,8 +248,8 @@ static void run(const char* filename, bool supported, bool badHeader, const char
 int main(int argc, char** argv)
 {
   assert(argc == 2);
-  //-- First draw pages at -- More -- (Space), r rebuilds (second snapshot), q exits from
-  //-- the second More prompt, so two snapshots and three keys are consumed.
+  //-- First draw pauses at the continue prompt (any key), r rebuilds (second snapshot),
+  //-- q exits from the second continue prompt, so two snapshots and three keys are used.
   run(argv[1], true, false, " rq", 2, 1);
   run(argv[1], false, false, "q", 0, 0);
   run(argv[1], true, true, "q", 1, 0);

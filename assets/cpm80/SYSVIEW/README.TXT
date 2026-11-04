@@ -31,5 +31,5 @@ The result SYSVIEW.COM is a flat CP/M transient loaded at 0100h.
 
 Verification: host test tests/cpm80SysviewTests.c runs the built SYSVIEW.COM
 in the CP/M-80 guest core with a simulated BDOS, controlled ports and
-scripted keys (redraw, keys, missing/invalid data, More paging, ANSI
+scripted keys (redraw, keys, missing/invalid data, continue-prompt paging, ANSI
 cleanup), and the program was run on the ESP32-S3 hardware console.

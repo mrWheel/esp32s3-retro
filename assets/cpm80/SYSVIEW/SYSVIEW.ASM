@@ -106,8 +106,8 @@ key:
         or a
         jr z,key
         ret
-; Prints the character in A and counts printed lines; every 20th line shows
-; a More prompt, mirroring the CP/M-86 SYSVIEW behaviour.
+; Prints the character in A and counts printed lines; every 22nd line pauses:
+; the line above stays blank and the continue prompt sits on line 24 (bottom).
 output:
         push af
         push bc
@@ -123,7 +123,7 @@ output:
         ld hl,lines
         inc (hl)
         ld a,(hl)
-        cp 20
+        cp 22
         ret c
         push af
         push bc
@@ -133,17 +133,10 @@ output:
         call rawputs
 moreWait:
         call key
-        cp 27
-        jp z,exit
         cp 'q'
         jp z,exit
         cp 'Q'
         jp z,exit
-        cp ' '
-        jp z,moreContinue
-        cp 13
-        jr nz,moreWait
-moreContinue:
         ld de,erase
         call rawputs
         xor a
@@ -188,7 +181,7 @@ putsEnd:
         pop af
         ret
 ; Prints the NUL-terminated string at DE without line counting (used for the
-; More prompt, its erase line and the exit restore sequence).
+; continue prompt, its erase line and the exit restore sequence).
 rawputs:
         push af
         push bc
@@ -301,7 +294,9 @@ missing: defm "Emulator information interface is not available.",13,10
         defm "No BIOS data guesses or CPU FLAGS-based detection are used.",13,10,0
 invalid: defm 13,10,"Invalid or unsupported emulator information response.",13,10,0
 prompt: defm 13,10,"R = refresh    Q or Esc = exit to CP/M",13,10,0
-more:   defm "-- More -- Space/Return = continue; Q/Esc = exit",0
-erase:  defm 13,27,"[2K",0
+; The continue prompt blanks line 23 with CR LF and prints on line 24; the
+; erase sequence clears that prompt line and walks the cursor back to line 23.
+more:   defm 13,10,"Type any key to continue or Q to exit",0
+erase:  defm 13,27,"[2K",27,"[A",0
 restore: defm 27,"[0m",27,"[?25h",13,10,0
         end start
