@@ -51,7 +51,7 @@ terminal emulation inside the host console.
 | USB Serial/JTAG byte-stream console | common host | `hostConsoleCharAvailable/GetChar/PutChar` |
 | LittleFS mount, SD/FatFS mount | common host | VFS paths |
 | Virtual image random access | common host | `imageOpen/imageReadAt/imageWriteAt/imageFlush/imageClose/imageSize`, `resourceSize` |
-| Disk-activity RGB indicator (GPIO 38) | common host | `diskActivityRead()` green, `diskActivityWrite()` red, off 120 ms after last activity |
+| Disk-activity RGB indicator (GPIO 38) | common host | `diskActivityRead()` green, `diskActivityWrite()` red; red held at least 300 ms (reads cannot interrupt it), green held 100 ms and overridable by red |
 | Z80 core | `components/z80/` | Upstream instruction interpreter |
 | CPU adapter, guest, BIOS, drives | CP/M-80 machine | Everything below this line |
 
@@ -667,7 +667,7 @@ behavior.
 | H7 | Mount a CPM80_8M (8,421,376-byte) image on C: or D: and `DIR` it. | Full directory listed; reads of the last track/sector succeed (exercises 514×128 geometry). |
 | H8 | Terminal checks with a full-screen program (`DDT`, `ED`). | CR/LF, backspace, erase, cursor and clear behave in the 80×24 terminal; host logs never corrupt guest output. |
 | H9 | Timed guest workload via the timer ports (e.g. `BENCH80`). | F0 = `$B1`; elapsed values track wall-clock within tolerance of the injected batch scheduling. |
-| H10 | Sustained run ≥ 30 minutes with disk activity (e.g. repeated `DIR`, `SUBMIT` loop). | No watchdog reset; RGB LED shows green/red per read/write and idles 120 ms after activity. |
+| H10 | Sustained run ≥ 30 minutes with disk activity (e.g. repeated `DIR`, `SUBMIT` loop). | No watchdog reset; RGB LED shows green/red per read/write; red is held at least 300 ms (reads cannot interrupt it) and green idles 100 ms after the last read. |
 | H11 | Repeated enter/exit cycles (≥ 20) and re-entry after guest halt. | Stable: initialize/run/destroy each time, no leaks (heap logging stays flat), menu remains usable. |
 
 ## 24. Definition of done

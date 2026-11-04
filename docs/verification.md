@@ -205,3 +205,20 @@ Open: a 1440K A: system disk was verified by the host boot tests only (the
 device keeps the 512K/516K A: images); the single `DIR C:` timeout was
 transient and not reproduced; the pre-existing Apple/UCSD/DOS 3.3 host
 failures and the three Python reference failures are unchanged.
+
+## Disk-activity RGB asymmetric hold times — 2026-11-04
+
+The single 120 ms hold in `main/diskActivity.c` was replaced by two hold
+times: red (write) is held at least 300 ms (`DISK_ACTIVITY_HOLD_RED_MS`)
+and may only change to green after that hold elapsed — reads arriving
+during the red hold are ignored; green (read) is held 100 ms
+(`DISK_ACTIVITY_HOLD_GRN_MS`) after the last read and can be overwritten
+by red at any time. A repeated event of the shown colour restarts its hold
+without re-transmitting.
+
+Executed (host):
+
+- ESP-IDF 6.0.2 ESP32-S3 build: PASS (`idf.py -B build-agent-check build`,
+  `retroHost.bin` 1,341,104 bytes).
+
+Physical RGB hold behaviour: NOT RUN; flashing is done by the user.

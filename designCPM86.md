@@ -53,7 +53,7 @@ emulation inside the host console.
 | USB Serial/JTAG byte-stream console | common host | `hostConsoleCharAvailable/PeekChar/GetChar/PutChar` |
 | LittleFS mount, SD/FatFS mount, path resolver | common host | VFS paths, `storageResolveRetroPath`, `storageReady` |
 | Virtual image random access | common host | `imageOpen/imageReadAt/imageWriteAt/imageFlush/imageClose/imageSize`, `resourceSize` |
-| Disk-activity RGB indicator (GPIO 38) | common host | `diskActivityRead()` green, `diskActivityWrite()` red, off 120 ms after last activity |
+| Disk-activity RGB indicator (GPIO 38) | common host | `diskActivityRead()` green, `diskActivityWrite()` red; red held at least 300 ms (reads cannot interrupt it), green held 100 ms and overridable by red |
 | 8086 core, adapter, guest BIOS, drives | CP/M-86 machine | Everything below this line |
 
 The CP/M-86 machine MUST NOT start Wi-Fi or any HTTP server, MUST NOT open the console or

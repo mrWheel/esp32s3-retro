@@ -10,7 +10,8 @@
 #include <stdint.h>
 
 #define DISK_ACTIVITY_GPIO GPIO_NUM_38
-#define DISK_ACTIVITY_HOLD_MS 300 //-used to be-120
+#define DISK_ACTIVITY_HOLD_RED_MS 300
+#define DISK_ACTIVITY_HOLD_GRN_MS 100
 #define DISK_ACTIVITY_BRIGHTNESS 32
 
 typedef enum
@@ -38,7 +39,7 @@ static const char* colorName(diskActivityColor color)
 static esp_err_t setColor(diskActivityColor color)
 {
   //-- The LED on this board shows the first byte as red (RGB order, measured with the start-up
-  //self-test).
+  // self-test).
   uint8_t rgb[3] = {0, 0, 0};
   if (color == diskActivityGreen)
   {
@@ -68,7 +69,7 @@ static esp_err_t setColor(diskActivityColor color)
 
 #if DISK_ACTIVITY_DEBUG_LOG
 //-- Shows RED, GREEN and BLUE for three seconds each (with the LED off in between) at start, sent
-//as raw RGB bytes, to prove which colour the LED really shows.
+// as raw RGB bytes, to prove which colour the LED really shows.
 static void ledSelfTest(void)
 {
   static const uint8_t patterns[3][3] = {{DISK_ACTIVITY_BRIGHTNESS, 0, 0},
@@ -103,6 +104,7 @@ static void activityTask(void* context)
   diskActivityColor color = diskActivityOff;
   diskActivityColor shownColor = diskActivityOff;
   TickType_t timeout = portMAX_DELAY;
+  TickType_t redShownTick = 0;
 #if DISK_ACTIVITY_DEBUG_LOG
   ledSelfTest();
 #endif
@@ -116,9 +118,31 @@ static void activityTask(void* context)
     diskActivityColor nextColor;
     if (xQueueReceive(activityQueue, &nextColor, timeout) == pdTRUE)
     {
-      color = nextColor;
+      TickType_t now = xTaskGetTickCount();
+      if (nextColor == diskActivityRed)
+      {
+        //-- A write always wins: red may overwrite green at any time and restarts the red hold.
+        color = diskActivityRed;
+        redShownTick = now;
+        timeout = pdMS_TO_TICKS(DISK_ACTIVITY_HOLD_RED_MS);
+      }
+      else
+      {
+        TickType_t redHold = pdMS_TO_TICKS(DISK_ACTIVITY_HOLD_RED_MS);
+        TickType_t redElapsed = now - redShownTick;
+        if (shownColor == diskActivityRed && redElapsed < redHold)
+        {
+          //-- A read must not break the red hold; wait out the remaining red time instead.
+          timeout = redHold - redElapsed;
+        }
+        else
+        {
+          color = diskActivityGreen;
+          timeout = pdMS_TO_TICKS(DISK_ACTIVITY_HOLD_GRN_MS);
+        }
+      }
       //-- A continuous stream of reads must not keep re-sending the same colour; only a change is
-      //transmitted.
+      // transmitted.
       if (color != shownColor)
       {
         esp_err_t result = setColor(color);
@@ -128,7 +152,6 @@ static void activityTask(void* context)
         }
         shownColor = color;
       }
-      timeout = pdMS_TO_TICKS(DISK_ACTIVITY_HOLD_MS);
       if (timeout == 0)
       {
         timeout = 1;
