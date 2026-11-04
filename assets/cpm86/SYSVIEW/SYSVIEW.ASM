@@ -119,12 +119,14 @@ key:
  or al,al
  jz key
  ret
+; Prints the character in AL and counts printed lines; every 22nd line pauses:
+; the line above stays blank and the continue prompt sits on line 24 (bottom).
 output:
  call raw
  cmp al,10
  jne .return
  inc byte [lines]
- cmp byte [lines],20
+ cmp byte [lines],22
  jb .return
  push ax
  push bx
@@ -135,17 +137,10 @@ output:
  call rawputs
 .wait:
  call key
- cmp al,27
- je .quit
  cmp al,'q'
  je .quit
  cmp al,'Q'
  je .quit
- cmp al,' '
- je .continue
- cmp al,13
- jne .wait
-.continue:
  mov si,erase
  call rawputs
  mov byte [lines],0
@@ -261,8 +256,10 @@ missing db 'Emulator information interface is not available.',13,10
  db 'No IBM BIOS guesses or CPU FLAGS-based detection are used.',13,10,0
 invalid db 13,10,'Invalid or unsupported emulator information response.',13,10,0
 prompt db 13,10,'R = refresh    Q or Esc = exit to CP/M',13,10,0
-more db '-- More -- Space/Return = continue; Q/Esc = exit',0
-erase db 13,27,'[2K',0
+; The continue prompt blanks line 23 with CR LF and prints on line 24; the
+; erase sequence clears that prompt line and walks the cursor back to line 23.
+more db 13,10,'Type any key to continue or Q to exit',0
+erase db 13,27,'[2K',27,'[A',0
 restore db 27,'[0m',27,'[?25h',13,10,0
  align 2
  times 512 db 0

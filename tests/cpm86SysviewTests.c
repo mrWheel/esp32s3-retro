@@ -133,7 +133,9 @@ static void run(const char* filename, bool supported, bool badHeader, const char
     assert(strstr(f->output, "Mounted: 6 of 6"));
     assert(strstr(f->output, "1122h"));
     assert(strstr(f->output, "User area: 3"));
-    assert(strstr(f->output, "-- More --"));
+    assert(strstr(f->output, "Type any key to continue"));
+    assert(strstr(f->output, "\033[2K"));
+    assert(strstr(f->output, "\033[A"));
   }
   assert(strstr(f->output, "\033[?25h"));
   printf("PASS: supported=%u badHeader=%u snapshots=%u, %zu output bytes\n", supported, badHeader,
@@ -144,6 +146,9 @@ static void run(const char* filename, bool supported, bool badHeader, const char
 int main(int argc, char** argv)
 {
   assert(argc == 2);
+  //-- First draw pauses at the continue prompt (any key), r rebuilds (second snapshot),
+  //-- the space continues that second pause and q exits at the final prompt, so two
+  //-- snapshots and four keys are used.
   run(argv[1], true, false, " r q", 2);
   run(argv[1], false, false, "q", 0);
   run(argv[1], true, true, "q", 1);
