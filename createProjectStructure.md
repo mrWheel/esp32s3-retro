@@ -202,12 +202,12 @@ If no filesystem offset is found and there is a filesystem image, it logs a warn
 
 ### ESP-IDF flash manifest handling
 
-For ESP-IDF builds, the script reads `build/flasher_args.json` and copies all flash artifacts listed there. It classifies files by name and preserves a sensible output name, including:
+For ESP-IDF builds, the script reads `build/flasher_args.json` and copies all flash artifacts listed there. It classifies files by name — and, for filesystem images, by partition subtype — and preserves a sensible output name, including:
 
 - `bootloader.bin`
 - `partitions.bin`
 - `boot_app0.bin`
-- `LittleFS.bin` for littlefs/spiffs/fatfs images when a matching build artifact is found
+- `LittleFS.bin` for littlefs/spiffs/fatfs images when a matching build artifact is found, including images named after their partition label (for example `bootfs.bin`)
 - other paths are mapped to `firmware.bin` when appropriate
 
 It also adds an optional filesystem image when one is found in the build directory and a partition offset is available.

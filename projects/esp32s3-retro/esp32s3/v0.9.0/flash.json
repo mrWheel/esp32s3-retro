@@ -17,7 +17,7 @@
     },
     {
       "offset": "0x310000",
-      "file": "bootfs.bin"
+      "file": "LittleFS.bin"
     }
   ]
 }

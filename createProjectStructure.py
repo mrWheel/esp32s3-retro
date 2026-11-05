@@ -14,7 +14,7 @@ import os
 import urllib.request
 from pathlib import Path
 
-scriptVersion = "v2.8 (2026-08-14)"
+scriptVersion = "v2.9 (2026-11-05)"
 configFilePath = Path("~/.ssh/createProjectStructure.json").expanduser()
 defaultsMarkerName = ".createProjectStructure-defaults.json"
 
@@ -1034,6 +1034,25 @@ def classifyEspIdfFlashFile(source: Path) -> str:
     return "firmware.bin"
 
 
+def classifyEspIdfFilesystemByPartition(
+    source: Path,
+    partitions: dict[str, dict[str, str]],
+) -> str | None:
+    # ESP-IDF names filesystem images after the partition label (for example
+    # bootfs.bin), which the web flasher does not recognise as a filesystem.
+    # Map the label through the partition subtype to a known artifact name.
+    label = source.stem.lower()
+    for part in partitions.values():
+        if part.get("name", "").lower() != label:
+            continue
+        subtype = (part.get("subtype") or "").lower()
+        if subtype == "littlefs":
+            return "LittleFS.bin"
+        if subtype in {"spiffs", "fatfs"}:
+            return f"{subtype}.bin"
+    return None
+
+
 def findEspIdfExportScript() -> Path | None:
     candidates: list[Path] = []
     configuredIdfPath = os.environ.get("IDF_PATH")
@@ -1132,6 +1151,12 @@ def buildEspIdfProject(projectPath: Path, targetProjectDir: Path, version: str) 
         if not source.is_file():
             raise RuntimeError(f"ESP-IDF flash file does not exist: {source}")
         destinationName = classifyEspIdfFlashFile(source)
+        # ESP-IDF may name a filesystem image after the partition label
+        # (for example bootfs.bin); rename it to a recognised filesystem name.
+        if not any(token in destinationName.lower() for token in ("littlefs", "spiffs", "fatfs")):
+            partitionFsName = classifyEspIdfFilesystemByPartition(source, partitions)
+            if partitionFsName:
+                destinationName = partitionFsName
         if destinationName in usedNames:
             destinationName = source.name
         shutil.copy2(source, targetVersionDir / destinationName)

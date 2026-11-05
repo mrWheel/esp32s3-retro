@@ -1,6 +1,6 @@
 # -------------------------------------------------------------------------------
 #
-#-- Version Date: 28-03-2026 -- (dd-mm-eeyy)
+#-- Version Date: 22-10-2026 -- (dd-mm-eeyy)
 #
 # GitHub Actions workflow: Auto tag and manage GitHub Releases based on a version
 # string found in your PlatformIO firmware source file.
