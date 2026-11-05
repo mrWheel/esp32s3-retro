@@ -1,5 +1,7 @@
 # designUCSD.md — Native Apple II Pascal engineering memory
 
+[← Back to the UCSD Pascal guide](assets/readMes/README_UCSD.md)
+
 Revision: 2026-10-12. Status: shared Apple II launch/configuration integration and Pascal 1.3 128K host boot are verified. A prior host fixture verified three-volume Filer enumeration and opening a native `.TEXT` file, but the current worktree's Pascal test fails its expected `DATA3:` assertion after disk-image/configuration changes. Reconcile the current media with the active `drives.cfg` before treating that earlier guest result as current. Compiler, filesystem writes, ESP32-S3 operation and end-to-end acceptance remain unverified.
 
 ## Provenance and purpose
@@ -756,3 +758,7 @@ Before accepting additional Apple II milestones, confirm HOST-M1/CP/M acceptance
 ## Implementation record — drives.cfg moved to LittleFS
 
 The profile `config.cfg` files are removed. Menu option 3 reads `/littlefs/ucsd/drives.cfg` and option 4 reads `/littlefs/apple2/drives.cfg` directly (CP/M-80 and CP/M-86 likewise use `/littlefs/<os>/drives.cfg`), so a flashed LittleFS always carries the drive configuration together with the system disk images. Earlier records in this document that mention `config.cfg` or an SD-side `drives.cfg` describe the superseded design.
+
+---
+
+[← Back to the UCSD Pascal guide](assets/readMes/README_UCSD.md)

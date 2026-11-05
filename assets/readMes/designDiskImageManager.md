@@ -1,11 +1,23 @@
 # Disk Image Manager Design
 
+[← Back to the main README](../../README.md)
+
 ## 1. Overview
 
-The Disk Image Manager is the browser-based file-management service for disk images on the ESP32-S3 Retro Computer. It runs in the firmware's File Transfer mode and provides access to two different kinds of content:
+The Disk Image Manager is the browser-based file-management service for disk images on the ESP32-S3 Retro Computer. 
+
+<div align="center">
+<img src="../images/diskManager_Main.png" width="75%">
+</div>
+
+It runs in the firmware's File Transfer mode and provides access to two different kinds of content:
 
 - **Whole images** are ordinary files on the physical FAT32 microSD card.
 - **Guest files** are files stored inside a disk image and interpreted according to that image's guest filesystem.
+
+<div align="center">
+<img src="../images/diskManager_Comp-SD-Drop.png" width="75%">
+</div>
 
 These are separate operations. Copying a whole image preserves its bytes and does not inspect its guest files. Guest-file operations read or modify the filesystem inside an image without replacing the image as a whole.
 
@@ -22,6 +34,14 @@ It provides a single interface for:
 - Browsing, uploading, downloading, copying, renaming, and deleting guest files where a supported filesystem adapter permits the operation.
 - Moving files between a guest image, another guest image, the SD image directory, and the user's computer, subject to the available workflows.
 - Managing the `drives.cfg` files, which are stored in LittleFS next to the system disks.
+
+
+<div align="center">
+<img src="../images/diskManager_Copy-SingleFile.png" width="75%">
+</div>
+<div align="center">
+<img src="../images/diskManager_Copy_Sel-Files.png" width="75%">
+</div>
 
 The manager does not create a host filesystem path or bypass browser permissions. Host files are accessed only through user-selected browser file pickers, authorized folder selection where supported, drag-and-drop, and browser download mechanisms.
 
@@ -182,3 +202,6 @@ The design is organized into five phases. Each phase has an observable outcome a
 - Add optional access control or a pairing/confirmation mechanism before exposing the unauthenticated HTTP service to broader networks.
 - Add device-level and cross-browser acceptance coverage for long transfers, cancellation, recovery, native file pickers, drag-and-drop, and download behavior.
 - Add image inspection details such as detected format, geometry, guest volume label, and compatibility confidence without using filename extensions as proof of format.
+
+---
+[← Back to the main README](../../README.md)

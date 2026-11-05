@@ -1,5 +1,5 @@
-# UCSD Pascal assets
+# UCSD assets
 
-This folder collects material for exploring Apple Pascal in the project’s UCSD Pascal environment. It brings together example applications, system inspection, performance checks, virtual disks and reference documents.
+This folder brings together utilities and supporting material for working in the UCSD environment. It helps readers find tools for editing, reading, help and system inspection, alongside focused performance and diagnostic checks.
 
-Use the subfolders to find a particular example or disk collection. For an introduction to the environment, see the [UCSD Pascal guide](../readMes/README_UCSD.md).
+Each subfolder groups one utility with its related material. For an introduction to the environment.

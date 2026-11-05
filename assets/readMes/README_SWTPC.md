@@ -24,4 +24,8 @@ The host tool `tools/diskManager.py` builds the system and work disks of the oth
 
 *Screenshot pending: this is a labelled placeholder, not an emulator capture.*
 
+## Design documentation
+
+The design document for this system, [designSWTPC.md](../../designSWTPC.md) in the project root, is a clearly marked placeholder: the complete machine design has not been established yet, so it records only that this machine is planned and deliberately left unimplemented.
+
 [← Back to the main README](../../README.md)

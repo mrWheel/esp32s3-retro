@@ -17,8 +17,7 @@ typedef struct
   bool skipLf;
 } menuLine;
 
-bool pathIsSafe(const char *path);
-bool pathDecode(const char *encoded, char *decoded, size_t capacity);
-bool pathResolve(const char *encoded, char *absolute, size_t capacity);
-bool layoutIsValid(const char *data, size_t length);
-bool menuFeed(menuLine *line, int character, bool *valid);
+bool pathIsSafe(const char* path);
+bool pathDecode(const char* encoded, char* decoded, size_t capacity);
+bool layoutIsValid(const char* data, size_t length);
+bool menuFeed(menuLine* line, int character, bool* valid);

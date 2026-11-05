@@ -48,5 +48,10 @@ python3 tools/diskManager.py --help
 <img src="../images/UCSD-diskManager.png" width="100%">
 </div>
 
+
+## Design documentation
+
+The engineering design behind this profile lives in the project root as [designUCSD.md](../../designUCSD.md). It describes how Apple Pascal 1.3 runs on the shared Apple II emulator, how the disk and volume profile is configured, and which results have been verified so far. It is meant for anyone who wants to understand or extend the firmware; you do not need it to explore Pascal.
+
 ---
 [← Back to the main README](../../README.md)

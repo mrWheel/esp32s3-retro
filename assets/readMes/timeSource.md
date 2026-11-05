@@ -1,5 +1,7 @@
 # Monotonic Millisecond Time Source
 
+[← Back to the main README](../../README.md)
+
 ## Purpose and scope
 
 This document defines a reusable host-side time source for emulator code and
@@ -118,6 +120,35 @@ preserve flags. Save a start value and subtract it from a later result using
 handles one counter wrap for measurements shorter than 2^32 ms, unless the
 underlying time source was reset.
 
+### 8086 example program
+
+The following snippet shows the complete guest usage: check the capability,
+save a start value, run the workload and report the modular difference.
+
+```asm
+measure_elapsed:
+    in   al, 0F0h
+    cmp  al, 0B1h
+    jne  no_timer              ; timer unavailable on this firmware
+    call read_milliseconds     ; DX:AX = t0
+    mov  [start_low], ax
+    mov  [start_high], dx
+    call workload              ; code being measured
+    call read_milliseconds     ; DX:AX = t1
+    sub  ax, [start_low]
+    sbb  dx, [start_high]      ; DX:AX = elapsed ms (mod 2^32)
+    ret
+no_timer:
+    jp report_no_timer         ; report the missing source to the user
+```
+
+`start_low` and `start_high` are two `dw` storage locations; `workload` and
+`report_no_timer` stand for the guest's own code. CP/M-86 BDOS calls do not
+preserve `DS`/`ES`: reload them from `CS` before touching saved values after
+any BDOS call. The guest-tested CP/M-86 programs
+`assets/cpm86/TIMER86/TIMER86.ASM` and `assets/cpm86/BENCH86/` follow this
+pattern including the capability check and 32-bit decimal output.
+
 ## CP/M-80 guest protocol: RETRO80_TIMER_B1
 
 The CP/M-80 binding uses byte-wide Z80 `IN A,(n)` operations on ports
@@ -137,6 +168,64 @@ sample the callback. Cold boot clears the snapshot; CP/M warm boot preserves
 it. With no callback, the capability and time bytes are zero. Writes to these
 ports retain CP/M-80's existing no-op behavior. The API is an emulator
 extension, not a CP/M or BDOS feature.
+
+### Z80 example program
+
+The following snippet shows the complete guest usage in Z80 assembly, using
+the same port order as `assets/cpm80/BENCH80/BENCH80.ASM`.
+
+```asm
+; Measure one workload in milliseconds with RETRO80_TIMER_B1.
+measure_elapsed:
+        in      a,(0F0h)
+        cp      0B1h
+        jr      nz,no_timer        ; timer unavailable on this firmware
+        ld      hl,t0
+        call    read_timer         ; t0 = fresh snapshot
+        call    workload           ; code being measured
+        ld      hl,t1
+        call    read_timer         ; t1 = fresh snapshot
+
+; elapsed = t1 - t0, unsigned 32-bit modular subtraction, little-endian.
+        ld      hl,t1
+        ld      de,elapsed
+        ld      bc,4
+        ldir                       ; copy t1 to elapsed
+        or      a                  ; clear carry before the first byte
+        ld      b,4
+        ld      hl,t0
+        ld      de,elapsed
+sub_loop:
+        ld      a,(de)
+        sbc     a,(hl)
+        ld      (de),a
+        inc     hl
+        inc     de
+        djnz    sub_loop           ; DJNZ preserves carry
+        ret
+
+no_timer:
+        jp      report_no_timer    ; report the missing source to the user
+
+; HL = four-byte destination; F1h is read first and takes the snapshot.
+read_timer:
+        in      a,(0F1h)
+        ld      (hl),a
+        inc     hl
+        in      a,(0F2h)
+        ld      (hl),a
+        inc     hl
+        in      a,(0F3h)
+        ld      (hl),a
+        inc     hl
+        in      a,(0F4h)
+        ld      (hl),a
+        ret
+```
+
+`t0`, `t1` and `elapsed` are four-byte storage locations; `workload` and
+`report_no_timer` stand for the guest's own code. The low byte must always be
+read first because F1h takes the snapshot that F2h–F4h then report.
 
 ## Apple II and UCSD guest protocol: APPLE2_TIMER_C1
 
@@ -159,6 +248,79 @@ timer addresses are ignored. Enabling the timer reserves slot 2 from other
 slot-I/O devices; it is a project virtual-device extension, not standard Apple
 II hardware. Only check capability on firmware that implements
 `APPLE2_TIMER_C1`; older firmware returns the slot's open-bus value.
+
+### Apple II example program (Applesoft BASIC)
+
+The decimal addresses are $C0A0–$C0A4 = 49312–49316. This is the guest-tested
+pattern from `assets/apple2/BENCH2/BENCH2.SRC`:
+
+```basic
+10 IF PEEK(49312)<>193 THEN PRINT "TIMER UNAVAILABLE. UPDATE FIRMWARE.":END
+20 GOSUB 1000
+30 S=T
+40 FOR I=1 TO 10000:NEXT I
+50 GOSUB 1000
+60 E=T-S:IF E<0 THEN E=E+4294967296
+70 PRINT "ELAPSED: ";E;" MS"
+80 END
+1000 T=PEEK(49313)+PEEK(49314)*256+PEEK(49315)*65536+PEEK(49316)*16777216
+1010 RETURN
+```
+
+The low byte `PEEK(49313)` must be evaluated first because it takes the
+snapshot; Applesoft evaluates the sum left to right. In 6502 machine code the
+same sequence is `LDA $C0A0` (capability, compare to #$C1), `LDA $C0A1`
+(snapshot and bits 0–7), then `LDA $C0A2`, `LDA $C0A3`, `LDA $C0A4`.
+
+### UCSD Pascal example program
+
+UCSD accesses the same slot-2 device through a pointer to $C0A0, expressed as
+the signed 16-bit value -16224, as in `assets/ucsd/BENCHUCSD/BENCHUCSD.TEXT`:
+
+```pascal
+PROGRAM ELAPSEDEMO;
+CONST
+  CAPADDR = -16224;              { $C0A0 as a signed 16-bit address }
+TYPE
+  BYTEARR = PACKED ARRAY[0..255] OF CHAR;
+  PTRREC = RECORD
+    CASE BOOLEAN OF
+      TRUE: (A: INTEGER);
+      FALSE: (P: ^BYTEARR)
+  END;
+VAR
+  PT: PTRREC;
+  T0, T1, ELAPSED: REAL;
+
+FUNCTION NOW: REAL;
+VAR T: REAL;
+BEGIN
+  T := ORD(PT.P^[1]);            { $C0A1 takes the snapshot first }
+  T := T + ORD(PT.P^[2]) * 256.0;
+  T := T + ORD(PT.P^[3]) * 65536.0;
+  NOW := T + ORD(PT.P^[4]) * 16777216.0
+END;
+
+BEGIN
+  PT.A := CAPADDR;
+  IF ORD(PT.P^[0]) <> 193 THEN
+    WRITELN('Timer unavailable. Update firmware.')
+  ELSE
+  BEGIN
+    T0 := NOW;
+    { workload being measured }
+    T1 := NOW;
+    ELAPSED := T1 - T0;
+    IF ELAPSED < 0.0 THEN
+      ELAPSED := ELAPSED + 4294967296.0;   { one counter wrap }
+    WRITELN('Elapsed: ', TRUNC(ELAPSED), ' ms')
+  END
+END.
+```
+
+`TRUNC` yields an `INTEGER`, so the printed value is limited to 32767 ms
+(about 33 s); larger values need the `PRINTNUM` HI/LO split used by
+`BENCHUCSD.TEXT`.
 
 ## Integration guidance for other emulators
 
@@ -230,3 +392,6 @@ and physical hardware verification remains open.
   These failures are separate from the focused timer tests.
 - **Firmware:** no new target firmware build or hardware test was performed
   after these changes; no firmware was flashed.
+
+---
+[← Back to the main README](../../README.md)

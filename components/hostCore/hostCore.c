@@ -8,7 +8,7 @@ static bool isLetterOrDigit(unsigned char character)
          (character >= '0' && character <= '9');
 }
 
-bool pathIsSafe(const char *path)
+bool pathIsSafe(const char* path)
 {
   size_t length = strlen(path);
   if (length >= relativePathCapacity)
@@ -36,7 +36,8 @@ bool pathIsSafe(const char *path)
     {
       return false;
     }
-    if (!isLetterOrDigit(character) && character != '_' && character != '-' && character != '.' && character != ' ')
+    if (!isLetterOrDigit(character) && character != '_' && character != '-' && character != '.' &&
+        character != ' ')
     {
       return false;
     }
@@ -65,7 +66,7 @@ static int hexValue(unsigned char character)
   return -1;
 }
 
-bool pathDecode(const char *encoded, char *decoded, size_t capacity)
+bool pathDecode(const char* encoded, char* decoded, size_t capacity)
 {
   size_t used = 0;
   for (size_t index = 0; encoded[index] != '\0'; ++index)
@@ -100,18 +101,7 @@ bool pathDecode(const char *encoded, char *decoded, size_t capacity)
   return pathIsSafe(decoded);
 }
 
-bool pathResolve(const char *encoded, char *absolute, size_t capacity)
-{
-  char relative[relativePathCapacity];
-  if (!pathDecode(encoded, relative, sizeof(relative)))
-  {
-    return false;
-  }
-  int length = snprintf(absolute, capacity, "/microSD/retro/exchange%s%s", relative[0] ? "/" : "", relative);
-  return length >= 0 && (size_t)length < capacity;
-}
-
-bool layoutIsValid(const char *data, size_t length)
+bool layoutIsValid(const char* data, size_t length)
 {
   static const char expected[] = "ESP32-S3-RETRO\nlayout=1\n";
   char normalized[sizeof(expected)];
@@ -140,7 +130,7 @@ bool layoutIsValid(const char *data, size_t length)
   return used == sizeof(expected) - 1 && memcmp(normalized, expected, used) == 0;
 }
 
-bool menuFeed(menuLine *line, int character, bool *valid)
+bool menuFeed(menuLine* line, int character, bool* valid)
 {
   *valid = false;
   if (character == '\n' && line->skipLf)

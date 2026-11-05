@@ -44,5 +44,10 @@ python3 tools/diskManager.py --help
 <img src="../images/CPM86-diskManager.png" width="100%">
 </div>
 
+
+## Design documentation
+
+The complete technical design of this system lives in the project root as [designCPM86.md](../../designCPM86.md). It describes the project-owned 8086 CPU core, the guest-visible hardware, the boot system and load addresses, the guest BIOS, the virtual I/O port contract, the disk formats and drive configuration, and the tests that prove the implementation. It is meant for anyone who wants to understand or extend the firmware; you do not need it to use CP/M-86.
+
 ---
 [← Back to the main README](../../README.md)

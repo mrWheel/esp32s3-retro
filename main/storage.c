@@ -12,14 +12,14 @@
 #include <string.h>
 #include <sys/stat.h>
 
-static sdmmc_card_t *sdCard;
+static sdmmc_card_t* sdCard;
 static bool busReady;
 static bool layoutReady;
 static char statusDetail[160];
-static const char *statusText = "SD not checked";
-static const char *machineIds[] = {"cpm80", "cpm86", "ucsd", "apple2", "swtpc"};
+static const char* statusText = "SD not checked";
+static const char* machineIds[] = {"cpm80", "cpm86", "ucsd", "apple2", "swtpc"};
 
-bool storageDirectoryExists(const char *path)
+bool storageDirectoryExists(const char* path)
 {
   struct stat info;
   return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
@@ -27,12 +27,15 @@ bool storageDirectoryExists(const char *path)
 
 bool storageBootMount(void)
 {
-  esp_vfs_littlefs_conf_t config = {
-      .base_path = "/littlefs", .partition_label = "bootfs", .format_if_mount_failed = false, .dont_mount = false};
+  esp_vfs_littlefs_conf_t config = {.base_path = "/littlefs",
+                                    .partition_label = "bootfs",
+                                    .format_if_mount_failed = false,
+                                    .dont_mount = false};
   esp_err_t result = esp_vfs_littlefs_register(&config);
   if (result != ESP_OK)
   {
-    printf("LittleFS unavailable: %s. Flash the bootfs image; no auto-format.\n", esp_err_to_name(result));
+    printf("LittleFS unavailable: %s. Flash the bootfs image; no auto-format.\n",
+           esp_err_to_name(result));
     return false;
   }
   return true;
@@ -92,14 +95,15 @@ bool storageRefresh(void)
   }
   char drive[16];
   snprintf(drive, sizeof(drive), "%u:", (unsigned)ff_diskio_get_pdrv_card(sdCard));
-  FATFS *fileSystem = NULL;
+  FATFS* fileSystem = NULL;
   DWORD freeClusters = 0;
-  if (f_getfree(drive, &freeClusters, &fileSystem) != FR_OK || fileSystem == NULL || fileSystem->fs_type != FS_FAT32)
+  if (f_getfree(drive, &freeClusters, &fileSystem) != FR_OK || fileSystem == NULL ||
+      fileSystem->fs_type != FS_FAT32)
   {
     statusText = "SD must use FAT32 (FAT12/FAT16/exFAT are not accepted)";
     return false;
   }
-  FILE *file = fopen("/microSD/retro/layout.txt", "rb");
+  FILE* file = fopen("/microSD/retro/layout.txt", "rb");
   if (file == NULL)
   {
     statusText = "Missing /retro/layout.txt; copy the supplied SD layout";
@@ -114,7 +118,7 @@ bool storageRefresh(void)
     statusText = "Invalid /retro/layout.txt; expected ESP32-S3-RETRO then layout=1";
     return false;
   }
-  const char *groups[] = {"images", "exchange"};
+  const char* groups[] = {"images", "backups"};
   for (size_t group = 0; group < 2; ++group)
   {
     for (size_t machine = 0; machine < 5; ++machine)
@@ -129,11 +133,6 @@ bool storageRefresh(void)
       }
     }
   }
-  if (!storageDirectoryExists("/microSD/retro/exchange/common") || !storageDirectoryExists("/microSD/retro/backup"))
-  {
-    statusText = "SD layout incomplete: exchange/common or backup is missing";
-    return false;
-  }
   statusText = "FAT32 SD present; retro layout v1 valid";
   layoutReady = true;
   return true;
@@ -144,7 +143,7 @@ bool storageReady(void)
   return layoutReady;
 }
 
-const char *storageStatus(void)
+const char* storageStatus(void)
 {
   return statusText;
 }

@@ -1,5 +1,7 @@
 # designApple2.md
 
+[← Back to the Apple II guide](assets/readMes/README_APPLE2.md)
+
 Revision: 2026-10-12. Status: motherboard, ProDOS block storage, and selected slot-3 80×24 text-card profile integrated. SmartPort block configuration supports slots 4–7 and up to four units per slot; Pascal's legacy ProDOS block interface exposes only two units per slot. Pascal 1.3 128K boot has host evidence; current three-volume file/media regression is failing. ROM provenance, redistribution rights and hardware behavior remain unverified.
 
 # Purpose and provenance
@@ -493,3 +495,7 @@ Earlier 2026-10-04 Apple IIe/ProDOS source-review notes in the prior revision ar
 ## Next implementation session
 
 Before accepting additional Apple II milestones, confirm HOST-M1/CP/M acceptance status and actual repository layout. Resolve ROM provenance and redistribution rights, verify the pinned CPU core against a reproducible original Apple II desktop reference, then complete one milestone at a time. Keep failed experiments and regression evidence; never relabel source review or a host-only test as a passing hardware test.
+
+---
+
+[← Back to the Apple II guide](assets/readMes/README_APPLE2.md)

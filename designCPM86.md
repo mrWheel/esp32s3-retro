@@ -1,5 +1,7 @@
 # CP/M-86 Machine Design
 
+[← Back to the CP/M-86 guide](assets/readMes/README_CPM86.md)
+
 ## 1. Purpose and scope
 
 This document is the complete technical design of the RETRO86_V1 CP/M-86 guest machine
@@ -784,3 +786,7 @@ scripted driver is `tools/cpm86/cpm86HardwareTest.py`.
    BIOS §10, ports §11, disks §12, configuration §14, lifecycle §15.
 5. Provenance, licenses and rights records for the kernel binaries, BIOS tools and all
    bundled applications are present in-tree.
+
+---
+
+[← Back to the CP/M-86 guide](assets/readMes/README_CPM86.md)

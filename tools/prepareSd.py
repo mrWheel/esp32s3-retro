@@ -34,8 +34,8 @@ def prepareSd(argv=None):
   retro = root / "retro"
   marker = retro / "layout.txt"
   expected = "ESP32-S3-RETRO\nlayout=1\n"
-  required = [retro / "backup", retro / "exchange" / "common"]
-  for group in ["images", "exchange"]:
+  required = []
+  for group in ["images", "backups"]:
     for machine in machines:
       required.append(retro / group / machine)
   for path in [marker, *required]:

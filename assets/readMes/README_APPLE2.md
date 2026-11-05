@@ -50,5 +50,10 @@ python3 tools/diskManager.py --help
 <img src="../images/APPLE2-diskManager.png" width="100%">
 </div>
 
+
+## Design documentation
+
+The complete technical design of this machine lives in the project root as [designApple2.md](../../designApple2.md). It describes the emulated 6502 motherboard, memory, keyboard and Disk II storage, the Language Card, the 80-column text card and the tests that prove the implementation. It is meant for anyone who wants to understand or extend the firmware; you do not need it to use the Apple II.
+
 ---
 [← Back to the main README](../../README.md)

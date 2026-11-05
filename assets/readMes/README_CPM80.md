@@ -44,4 +44,9 @@ tools/diskManager.py --help
 </div>
 
 
+## Design documentation
+
+The complete technical design of this system lives in the project root as [designCPM80.md](../../designCPM80.md). It describes the emulated Z80, the guest memory map, the boot process, the BDOS/BIOS interface, the supported disk formats and the tests that prove the implementation. It is meant for anyone who wants to understand or extend the firmware; you do not need it to use CP/M-80.
+
+
 [← Back to the main README](../../README.md)

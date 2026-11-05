@@ -127,7 +127,7 @@ void systemMenuRun(void)
       {
         snprintf(previousAddress, sizeof(previousAddress), "%s", address);
         printf("\nWiFi connected: %s\nOpen: http://%s/\n", address, address);
-        puts("Anyone on this WiFi network can access SD-card exchange files and disk images while "
+        puts("Anyone on this WiFi network can access SD-card disk images while "
              "File Transfer is active.");
         puts("Press ENTER to stop File Transfer and return to the main menu.");
       }

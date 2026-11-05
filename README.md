@@ -40,9 +40,25 @@ A disk image is a file containing an entire retro disk, including its directory 
 
 Choose **File Transfer** to open the browser-based disk manager using the address shown in the terminal. It lets you upload and download whole disk images, browse them, copy them on the SD card, and rename or delete them. Supported CP/M, ProDOS, UCSD Pascal and DOS 3.3 images also allow you to manage the files inside a disk. Support for reading a format in the manager does not mean every emulator can boot it.
 
-The browser offers help for each function. Press Enter in the USB console to stop File Transfer and return to the menu. Use this service on a trusted local network: it has no login and uses ordinary HTTP. Some browser and Apple-image workflows still need broader testing on the device.
+<div align="center">
+<img src="./assets/images/startFileTransfer.png" width="75%">
+</div>
+
+The web service behind this page is the **Disk Image Manager**, and it runs entirely on the ESP32-S3: when you select File Transfer, the device joins your Wi-Fi network, shows its address in the terminal, and serves the page itself — nothing needs to be installed on your computer. Your computer only contributes files through normal browser actions (file pickers, drag-and-drop and downloads); all disk work is done by the firmware, which streams data in small chunks so whole images and other large files are safe. Use it whenever you want to move programs in and out of a disk without any helper tooling: upload your own source files into a CP/M disk, pull a listing off a Pascal volume, copy an image to another folder on the SD card, or exchange the `drives.cfg` text file that decides which images the emulator drives use. How the web server and GUI are built — the HTTP service, the supported guest filesystems, conflict handling and recovery journals — is described in the [Disk Image Manager design](./assets/readMes/designDiskImageManager.md).
+
+The browser offers help for each function. Press Enter in the USB console to stop File Transfer and return to the menu. Use this service on a trusted local network: it has no login and uses ordinary HTTP. 
+
+<div align="center">
+<img src="./assets/images/diskManager_Copy_Comp-SD.png" width="75%">
+</div>
 
 Keep backups of valuable disks. Read-only disks protect their contents inside the emulator; the disk manager can still replace or delete mapped images after warning you. Save and finish disk activity before resetting or removing power.
+
+## Time Source
+
+Guest programs can ask the emulator how much real time has passed, measured in milliseconds. Each supported system exposes this monotonic millisecond counter in a way that suits its CPU: CP/M-80 and CP/M-86 read it through I/O ports, while Apple II and UCSD Pascal read it from a virtual timer card in slot 2. The included benchmark programs use it to report how long a piece of work took, and you can use it yourself to time your own programs. It is a stopwatch rather than a clock: it measures elapsed time only, with no date or time of day, and it keeps counting from the moment the device starts.
+
+How the time source works is documented in [timeSource.md](./assets/readMes/timeSource.md): the host-side clock, the guest-visible protocol for each system, and a short example program per system showing how to read the counter, take differences and detect a missing timer.
 
 ## Included Python tools
 

@@ -1071,14 +1071,15 @@ static void testPaths(void)
   char path[absolutePathCapacity];
   for (size_t index = 0; index < sizeof(rejected) / sizeof(rejected[0]); ++index)
   {
-    assert(!pathResolve(rejected[index], path, sizeof(path)));
+    assert(!pathDecode(rejected[index], path, sizeof(path)));
   }
-  assert(pathResolve("", path, sizeof(path)));
-  assert(strcmp(path, "/microSD/retro/exchange") == 0);
-  assert(pathResolve("common/Hello%20World.bin", path, sizeof(path)));
-  assert(strcmp(path, "/microSD/retro/exchange/common/Hello World.bin") == 0);
-  assert(pathResolve("cpm80%2Fa.bin", path, sizeof(path)));
-  assert(!pathResolve("common/a.bin", path, 8));
+  assert(pathDecode("", path, sizeof(path)));
+  assert(strcmp(path, "") == 0);
+  assert(pathDecode("cpm80/Hello%20World.bin", path, sizeof(path)));
+  assert(strcmp(path, "cpm80/Hello World.bin") == 0);
+  assert(pathDecode("cpm80%2Fa.bin", path, sizeof(path)));
+  assert(strcmp(path, "cpm80/a.bin") == 0);
+  assert(!pathDecode("cpm80/a.bin", path, 8));
   assert(!pathDecode("x", path, 0));
   char longName[300];
   memset(longName, 'a', sizeof(longName));
@@ -1098,9 +1099,8 @@ static void testPaths(void)
       input[index] = (char)(1 + ((seed >> 16) % 255));
     }
     input[length] = '\0';
-    if (pathResolve(input, path, sizeof(path)))
+    if (pathDecode(input, path, sizeof(path)))
     {
-      assert(strncmp(path, "/microSD/retro/exchange", 23) == 0);
       assert(strstr(path, "/../") == NULL);
       assert(strlen(path) < sizeof(path));
     }
