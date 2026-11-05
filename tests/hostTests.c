@@ -4283,6 +4283,289 @@ static bool moreSendKeys(cpm80Guest* guest, cpm80GuestFixture* fixture, const ch
   return strstr(fixture->output, expected) != NULL;
 }
 
+//-- Sends keys to the running CP/M-86 MORE and waits until the expected text appears; the
+// output buffer is cleared first, so every assertion inspects only this step's output.
+//-- Runs the guest until every key of the console script has been consumed. A prompt printed
+// while the CCP still has typed keys pending would otherwise satisfy the next step's wait too
+// early and the leftover keys would land in the wrong command.
+static bool more86Drain(cpm86Core* core, cpm86BootFixture* fixture)
+{
+  const size_t silentLimit = 300000;
+  size_t instructions = 0;
+  size_t lastOutput = fixture->outputLength;
+  size_t silent = 0;
+  while (instructions < 100000000)
+  {
+    if (fixture->inputPosition >= fixture->inputLength && silent >= silentLimit)
+    {
+      break;
+    }
+    size_t executed = 0;
+    cpm86CoreResult result = cpm86CoreRun(core, 4096, &executed);
+    if (result != cpm86CoreOk)
+    {
+      return false;
+    }
+    instructions += executed;
+    if (fixture->outputLength != lastOutput)
+    {
+      lastOutput = fixture->outputLength;
+      silent = 0;
+    }
+    else
+    {
+      silent += executed;
+    }
+  }
+  return fixture->inputPosition == fixture->inputLength;
+}
+
+//-- Sends keys to the running CP/M-86 MORE and waits until the expected text appears; the
+// output buffer is cleared first, so every assertion inspects only this step's output. Input
+// is fully drained before and after, so no key ever crosses a step boundary.
+static bool more86Step(cpm86Core* core, cpm86BootFixture* fixture, const char* keys,
+                       const char* expected)
+{
+  assert(more86Drain(core, fixture));
+  fixture->outputLength = 0;
+  fixture->output[0] = '\0';
+  feedCpm86Input(fixture, keys);
+  bool ok = runCpm86UntilAfter(core, fixture, expected, 0);
+  ok = ok && more86Drain(core, fixture);
+  return ok;
+}
+
+//-- Assembles bootDisks/cpm86/systemDsk/MORE.A86 with the stock ASM86 and GENCMD inside the
+// emulated CP/M-86 guest and runs the pager over TEST.TXT and WRAP.TXT: paging, scrolling back,
+// jumps, search, cursor keys, long-line wrapping, tabs and control characters. Mirrors
+// testCpm80More. Set CPM86_MORE_CMD_OUTPUT to a file path to receive a copy of the built disk
+// image, from which the freshly assembled MORE.CMD can be extracted with tools/extractFiles.py.
+static void testCpm86More(void)
+{
+  char temporaryDirectory[] = "/tmp/cpm86-more-test-XXXXXX";
+  assert(mkdtemp(temporaryDirectory) != NULL);
+  char systemDiskPath[300];
+  char testTextPath[300];
+  char wrapTextPath[300];
+  char command[2000];
+  assert(snprintf(systemDiskPath, sizeof(systemDiskPath), "%s/system.dsk", temporaryDirectory) <
+         (int)sizeof(systemDiskPath));
+  assert(snprintf(testTextPath, sizeof(testTextPath), "%s/TEST.TXT", temporaryDirectory) <
+         (int)sizeof(testTextPath));
+  assert(snprintf(wrapTextPath, sizeof(wrapTextPath), "%s/WRAP.TXT", temporaryDirectory) <
+         (int)sizeof(wrapTextPath));
+  writeMoreTestFile(testTextPath, 300);
+  FILE* wrapFile = fopen(wrapTextPath, "wb");
+  assert(wrapFile != NULL);
+  char lineA80[81];
+  char lineB80[81];
+  char lineB100[101];
+  memset(lineA80, 'A', 80);
+  lineA80[80] = '\0';
+  memset(lineB100, 'B', 100);
+  lineB100[100] = '\0';
+  memcpy(lineB80, lineB100, 80);
+  lineB80[80] = '\0';
+  fprintf(wrapFile, "%s\r\n%s\r\n", lineA80, lineB100);
+  fprintf(wrapFile, "\tT\r\nc\x01"
+                    "d\r\n\x1A");
+  assert(fclose(wrapFile) == 0);
+
+  //-- Build A: from bootDisks/cpm86/systemDsk (MORE.A86 travels on the disk) and add the test
+  // files, all through the checked-in disk tooling.
+  assert(snprintf(command, sizeof(command),
+                  "python3 \"%s/tools/diskManager.py\" --type SYSTEMDSK --os cpm86 --profile "
+                  "CPM86_8196K --output \"%s\" --yes >/dev/null && "
+                  "python3 \"%s/tools/extractFiles.py\" --os cpm86 \"%s\" --add \"%s\" "
+                  "--name TEST.TXT >/dev/null && "
+                  "python3 \"%s/tools/extractFiles.py\" --os cpm86 \"%s\" --add \"%s\" "
+                  "--name WRAP.TXT >/dev/null",
+                  PROJECT_ROOT_PATH, systemDiskPath, PROJECT_ROOT_PATH, systemDiskPath,
+                  testTextPath, PROJECT_ROOT_PATH, systemDiskPath,
+                  wrapTextPath) < (int)sizeof(command));
+  assert(system(command) == 0);
+
+  imageFile disk = {0};
+  assert(imageOpen(&disk, systemDiskPath, false));
+  FILE* systemFile = fopen(CPM86_SYSTEM_FILE_PATH, "rb");
+  assert(systemFile != NULL);
+  uint8_t systemImage[10240];
+  assert(fread(systemImage, 1, sizeof(systemImage), systemFile) == sizeof(systemImage));
+  assert(fclose(systemFile) == 0);
+
+  cpm86BootFixture fixture = {.disks = {[0] = &disk}, .bigDisks = {[0] = true}};
+  const cpm86CoreConfig config = {
+      .ramSize = 640 * 1024,
+      .portRead = cpm86BootPortRead,
+      .portWrite = cpm86BootPortWrite,
+      .portContext = &fixture,
+      .readMilliseconds = NULL,
+      .clockContext = NULL,
+  };
+  cpm86Core* core = NULL;
+  assert(cpm86CoreCreate(&core, &config) == cpm86CoreOk);
+  assert(cpm86CoreLoad(core, 0x00510, systemImage + 128, sizeof(systemImage) - 128) == cpm86CoreOk);
+  const uint8_t bdosVector[] = {0x06, 0x0B, 0x51, 0x00};
+  assert(cpm86CoreWrite(core, 0x00380, bdosVector, sizeof(bdosVector)) == cpm86CoreOk);
+  assert(cpm86BiosLoadOverlay(core, CPM86_BIOS_OVERLAY_PATH));
+  assert(cpm86CoreSetEntry(core, 0x0051, 0x2500) == cpm86CoreOk);
+
+  assert(runCpm86UntilPrompt(core, &fixture, "A>", 1));
+
+  //-- Build MORE from the checked-in source on the guest so the behaviour below tests that
+  // source rather than any binary stored on the disk image. The assembler needs a much larger
+  // instruction budget than the command prompts.
+  size_t mark = fixture.outputLength;
+  feedCpm86Input(&fixture, "ASM86 MORE\r");
+  assert(runCpm86UntilAfter(core, &fixture, "NUMBER OF ERRORS:", mark));
+  //-- The run above stops as soon as the label appears; the digits of the count are
+  // printed a few instructions later, so let the guest settle before parsing them.
+  assert(more86Drain(core, &fixture));
+  //-- ASM86 prints the error count padded ("NUMBER OF ERRORS:   0."); accept only a zero.
+  const char* errorCount = strstr(fixture.output + mark, "NUMBER OF ERRORS:");
+  assert(errorCount != NULL);
+  errorCount += strlen("NUMBER OF ERRORS:");
+  while (*errorCount == ' ')
+  {
+    errorCount++;
+  }
+  if (*errorCount != '0')
+  {
+    fprintf(stderr, "CP/M-86 MORE assembly errors:\n%s\n", fixture.output + mark);
+  }
+  assert(*errorCount == '0');
+  //-- Drain first so ASM86's own trailing prompt cannot satisfy the GENCMD wait.
+  assert(more86Drain(core, &fixture));
+  mark = fixture.outputLength;
+  feedCpm86Input(&fixture, "GENCMD MORE\r");
+  assert(runCpm86UntilAfter(core, &fixture, "A>", mark));
+  assert(more86Drain(core, &fixture));
+  const char* cmdOutput = getenv("CPM86_MORE_CMD_OUTPUT");
+  if (cmdOutput != NULL)
+  {
+    FILE* source = fopen(systemDiskPath, "rb");
+    assert(source != NULL);
+    FILE* destination = fopen(cmdOutput, "wb");
+    assert(destination != NULL);
+    uint8_t buffer[512];
+    size_t bytesRead;
+    while ((bytesRead = fread(buffer, 1, sizeof(buffer), source)) > 0)
+    {
+      assert(fwrite(buffer, 1, bytesRead, destination) == bytesRead);
+    }
+    assert(!ferror(source));
+    assert(!ferror(destination));
+    assert(fclose(source) == 0);
+    assert(fclose(destination) == 0);
+  }
+  //-- A short file with long, tab and control rows is printed completely and MORE exits without
+  // a status prompt.
+  assert(more86Step(core, &fixture, "MORE WRAP.TXT\r", "A>"));
+  char expectedWrap[512];
+  assert(snprintf(expectedWrap, sizeof(expectedWrap), "%s\r\n%s\r\n%s\r\n%s\r\n%s\r\n", lineA80,
+                  lineB80, lineB100 + 80, "        T", "c^Ad") < (int)sizeof(expectedWrap));
+  assert(strstr(fixture.output, expectedWrap) != NULL);
+  assert(strstr(fixture.output, "--More--") == NULL);
+
+  assert(more86Step(core, &fixture, "MORE NOFILE.TXT\r", "A>"));
+  assert(strstr(fixture.output, "File not found.") != NULL);
+  assert(more86Step(core, &fixture, "MORE\r", "A>"));
+  assert(strstr(fixture.output, "Usage: MORE") != NULL);
+
+  //-- First page: 23 rows and the status prompt.
+  assert(more86Step(core, &fixture, "MORE TEST.TXT\r", "--More--("));
+  assert(strstr(fixture.output, "line 001 the quick brown fox") != NULL);
+  assert(strstr(fixture.output, "line 023 the quick brown fox") != NULL);
+  assert(strstr(fixture.output, "line 024") == NULL);
+  assert(strstr(fixture.output, "%) h=help") != NULL);
+
+  //-- SPACE: next page continues without clearing the screen.
+  assert(more86Step(core, &fixture, " ", "--More--("));
+  assert(strstr(fixture.output, "line 024 the quick") != NULL &&
+         strstr(fixture.output, "line 046 the quick") != NULL);
+  assert(strstr(fixture.output, "line 047") == NULL);
+  assert(strstr(fixture.output, "\x1b[H") == NULL);
+
+  //-- ENTER and the Down key scroll one row.
+  assert(more86Step(core, &fixture, "\r", "--More--("));
+  assert(strstr(fixture.output, "line 047 the quick") != NULL &&
+         strstr(fixture.output, "line 048") == NULL);
+  assert(more86Step(core, &fixture, "\x1b[B", "--More--("));
+  assert(strstr(fixture.output, "line 048 the quick") != NULL &&
+         strstr(fixture.output, "line 049") == NULL);
+
+  //-- b: previous page redraws the screen; the screen showed lines 26 - 48, so lines 3 - 25
+  // follow.
+  assert(more86Step(core, &fixture, "b", "--More--("));
+  assert(strstr(fixture.output, "\x1b[H") != NULL);
+  assert(strstr(fixture.output, "line 003 the quick") != NULL &&
+         strstr(fixture.output, "line 002") == NULL);
+  assert(strstr(fixture.output, "line 025 the quick") != NULL &&
+         strstr(fixture.output, "line 026") == NULL);
+
+  //-- The Up key scrolls one row back.
+  assert(more86Step(core, &fixture, "\x1b[A", "--More--("));
+  assert(strstr(fixture.output, "line 002 the quick") != NULL &&
+         strstr(fixture.output, "line 024 the quick") != NULL);
+  assert(strstr(fixture.output, "line 025") == NULL);
+
+  //-- g: top of the file, G: bottom of the file.
+  assert(more86Step(core, &fixture, "g", "--More--("));
+  assert(strstr(fixture.output, "line 001 the quick") != NULL &&
+         strstr(fixture.output, "line 023") != NULL);
+  assert(more86Step(core, &fixture, "G", "(END)"));
+  assert(strstr(fixture.output, "line 278 the quick") != NULL &&
+         strstr(fixture.output, "line 300 the quick") != NULL);
+  assert(strstr(fixture.output, "line 277") == NULL);
+
+  //-- b from the end, then back to the top with Home.
+  assert(more86Step(core, &fixture, "b", "--More--("));
+  assert(strstr(fixture.output, "line 255 the quick") != NULL &&
+         strstr(fixture.output, "line 277 the quick") != NULL);
+  assert(more86Step(core, &fixture, "\x1b[H", "--More--("));
+  assert(strstr(fixture.output, "line 001 the quick") != NULL);
+
+  //-- Search: the match becomes the top row; a repeated search finds the next match.
+  assert(more86Step(core, &fixture, "/LINE 150\r", "--More--("));
+  assert(strstr(fixture.output, "line 150 the quick") != NULL &&
+         strstr(fixture.output, "line 172 the quick") != NULL);
+  assert(strstr(fixture.output, "line 149") == NULL);
+  assert(more86Step(core, &fixture, "/line 1\r", "--More--("));
+  assert(strstr(fixture.output, "line 151 the quick") != NULL &&
+         strstr(fixture.output, "line 173 the quick") != NULL);
+  assert(more86Step(core, &fixture, "n", "--More--("));
+  assert(strstr(fixture.output, "line 152 the quick") != NULL);
+  assert(more86Step(core, &fixture, "/nonexistent\r", "Pattern not found"));
+  assert(more86Step(core, &fixture, "n", "Pattern not found"));
+
+  //-- Going back after a search uses the ring of row positions.
+  assert(more86Step(core, &fixture, "b", "--More--("));
+  assert(strstr(fixture.output, "line 129 the quick") != NULL);
+
+  //-- A lone ESC is ignored, d / u move half a page, h shows the help and q leaves the pager.
+  assert(more86Step(core, &fixture,
+                    "\x1b\x1b"
+                    "d",
+                    "--More--("));
+  assert(strstr(fixture.output, "line 152 the quick") != NULL);
+  assert(more86Step(core, &fixture, "u", "--More--("));
+  assert(more86Step(core, &fixture, "h", "Press any key"));
+  assert(strstr(fixture.output, "MORE - file pager") != NULL);
+  assert(more86Step(core, &fixture, " ", "--More--("));
+  assert(more86Step(core, &fixture, "q", "A>"));
+
+  //-- Forward keys at the end of the file quit; the percentage reaches the end.
+  assert(more86Step(core, &fixture, "MORE TEST.TXT\r", "--More--("));
+  assert(more86Step(core, &fixture, "G", "(END)"));
+  assert(more86Step(core, &fixture, " ", "A>"));
+
+  cpm86CoreDestroy(core);
+  assert(imageClose(&disk));
+  assert(snprintf(command, sizeof(command), "rm -rf \"%s\"", temporaryDirectory) <
+         (int)sizeof(command));
+  assert(system(command) == 0);
+}
+
 //-- Runs bootDisks/cpm80/utilities/MORE.COM in the emulated CP/M-80: paging, scrolling back, jumps,
 // search,
 //-- cursor keys, long-line wrapping, tabs and control characters.
@@ -4908,6 +5191,12 @@ int main(int argc, char** argv)
     puts("PASS: CP/M-86 HELP build and keyboard handling");
     return 0;
   }
+  if (argc == 2 && strcmp(argv[1], "--cpm86-more") == 0)
+  {
+    testCpm86More();
+    puts("PASS: CP/M-86 MORE build and pager behaviour");
+    return 0;
+  }
   if (argc == 2 && strcmp(argv[1], "--cpm86-bios-assembly") == 0)
   {
     testCpm86BiosAssembly();
@@ -4941,6 +5230,7 @@ int main(int argc, char** argv)
   testCpm86BigSystemBoot();
   testCpm86HugeSystemBoot();
   testCpm86Help();
+  testCpm86More();
   testCpm86BiosAssembly();
   puts("PASS: CPU fixtures, CP/M boot and disk tests");
   return 0;

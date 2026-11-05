@@ -1,0 +1,1292 @@
+; MORE.CMD - file pager for CP/M-86, comparable to Unix more and less
+;
+; By Willem Aandewiel
+;
+; 8086 source for the Digital Research CP/M-86 ASM86 and GENCMD.
+; Build it inside CP/M-86 (the source must keep its CR+LF line endings):
+;   A>ASM86 MORE
+;   A>GENCMD MORE
+; ASM86 writes MORE.HEX and MORE.LST, GENCMD turns MORE.HEX into MORE.CMD.
+; Native CP/M-86 small model: code at CS:0; data lives in segment 1000h
+; (relocated in MSTART, because the PSP segment the CCP hands over is owned
+; by the BIOS in its low area - see the MSTART comment).
+;
+; Usage: MORE [d:]filename.ext     (type H inside the program for the keys)
+;
+; The terminal must understand VT100/ANSI sequences, 80 columns by 24 rows.
+; Row 24 is used for the status prompt, rows 1-23 show the file.
+; Change SCRNCOLS and PAGEROWS below for another screen size.
+;
+; Files are read with BDOS random reads, so the whole file is never kept in
+; memory. A ring of the start positions of the last 256 screen rows allows
+; fast scrolling backwards; further back the file is rescanned from the top.
+; Limits: 65534 screen rows per file; search never matches across a row end.
+; Text rules: LF ends a row, CR is ignored, CTRL-Z ends the file, bit 7 is
+; ignored, tabs use 8-column stops, other control characters show as ^X and
+; rows longer than 80 columns wrap onto the next screen row.
+;
+; Console I/O goes straight to BDOS function 6 (direct console I/O) so the
+; queued BDOS calls never swallow keys typed while a page is being printed.
+; BDOS 11 (console status) is never polled: its one-byte type-ahead buffer
+; steals keys from the BDOS 6 read path.
+; Register correspondence used by the pager: AL=character, BX=pointer or row
+; number, CX=count, DX=BDOS parameter. Only 8086 instructions; conditional
+; jumps stay short and long branches use unconditional JMP bridges.
+; CP/M-86 preserves DS/SS across INT 224; MSYS protects the working registers.
+CR EQU 13
+LF EQU 10
+SCRNCOLS EQU 80
+PAGEROWS EQU 23
+HALFROWS EQU 11
+PATMAX EQU 40
+KEYWAIT EQU 2000
+        CSEG
+        ORG 0
+MSTART:
+; The CCP starts the command with DS set to the PSP segment (001Dh with this
+; kernel) and the CMD loader placed the initialised data segment at that same
+; physical address. The low area of the segment belongs to the BIOS: the
+; console handler writes into it (that corrupted MFILEBUF with a stray 01h),
+; so MORE copies the data image and the 256-byte PSP into segment 1000h,
+; which is free RAM, and only then switches DS, ES and SS. Every later
+; access to the FCB or command line goes through MPSP.
+        MOV SI,0700H
+        MOV DI,0700H
+        MOV CX,1000H
+        CLD
+        MOV AX,01000H
+        MOV ES,AX
+        REP MOVSB
+        MOV SI,0
+        MOV DI,OFFSET MPSP
+        MOV CX,256
+        REP MOVSB
+        MOV DS,AX
+        MOV SS,AX
+        MOV SP,0FF00H
+        MOV BX,OFFSET MPSP
+        ADD BX,5DH
+        MOV AL,BYTE PTR [BX]
+        CMP AL,' '
+        JZ MUSEB
+        OR AL,AL
+        JZ MUSEB
+        MOV CX,11
+MCHKW:
+        MOV AL,BYTE PTR [BX]
+        CMP AL,'?'
+        JZ MUSEB
+        INC BX
+        LOOP MCHKW
+        JMP MGOON
+MUSEB:
+        JMP MUSAGE
+MNOTB:
+        JMP MNOTFD
+MGOON:
+; Copy the default FCB out of the PSP copy (36 bytes, the state the CCP
+; parsed) and clear the random-record fields so the first sequential read
+; starts at record 0. Only AL=0FFh reports a failure; success returns other
+; values.
+        MOV SI,OFFSET MPSP
+        ADD SI,5CH
+        MOV DI,OFFSET MFCB
+        MOV CX,36
+MCPFCB:
+        MOV AL,BYTE PTR [SI]
+        MOV BYTE PTR [DI],AL
+        INC SI
+        INC DI
+        LOOP MCPFCB
+; Drive 0 means "default drive" to the CCP but the kernel only opens an
+; explicit drive, so rewrite a bare default to A:.
+        MOV AL,BYTE PTR MFCB
+        OR AL,AL
+        JNZ MDRVK
+        MOV BYTE PTR MFCB,1
+MDRVK:
+        MOV SI,OFFSET MFCB
+        ADD SI,33
+        MOV BYTE PTR [SI],0
+        INC SI
+        MOV BYTE PTR [SI],0
+        INC SI
+        MOV BYTE PTR [SI],0
+        MOV DX,OFFSET MFCB
+        MOV CL,15
+        CALL MSYS
+        CMP AL,0FFH
+        JZ MNOTB
+        CALL MLOAD
+        MOV AX,WORD PTR MLOADED
+        MOV WORD PTR MTOTREC,AX
+        XOR BX,BX
+        MOV WORD PTR MCURREC,BX
+        MOV WORD PTR MNXTROW,BX
+        MOV WORD PTR MMAXKN,BX
+        MOV BYTE PTR MCUROFF,BL
+        MOV BYTE PTR MATEOF,BL
+        MOV BYTE PTR MPATLEN,BL
+        MOV BX,0FFFFH
+        MOV WORD PTR MBUFREC,BX
+        MOV DX,OFFSET MDUMMY
+        MOV CL,26
+        CALL MSYS
+        MOV AL,PAGEROWS
+        CALL MPRNT
+        CALL MCHEOF
+        MOV AL,BYTE PTR MATEOF
+        OR AL,AL
+        JZ MMAIN
+        JMP MQUIT
+
+;
+; Key dispatch. Only short conditional jumps; unknown keys are ignored.
+;
+MMAIN:
+        CALL MSPROM
+MKEYLP:
+        CALL MGETKEY
+        CMP AL,' '
+        JNE K01
+        JMP MPGFWD
+K01:
+        CMP AL,'f'
+        JNE K02
+        JMP MPGFWD
+K02:
+        CMP AL,'z'
+        JNE K03
+        JMP MPGFWD
+K03:
+        CMP AL,6
+        JNE K04
+        JMP MPGFWD
+K04:
+        CMP AL,13
+        JNE K05
+        JMP MRLFWD
+K05:
+        CMP AL,'j'
+        JNE K06
+        JMP MRLFWD
+K06:
+        CMP AL,'e'
+        JNE K07
+        JMP MRLFWD
+K07:
+        CMP AL,14
+        JNE K08
+        JMP MRLFWD
+K08:
+        CMP AL,'d'
+        JNE K09
+        JMP MHLFWD
+K09:
+        CMP AL,4
+        JNE K10
+        JMP MHLFWD
+K10:
+        CMP AL,'b'
+        JNE K11
+        JMP MPGBCK
+K11:
+        CMP AL,2
+        JNE K12
+        JMP MPGBCK
+K12:
+        CMP AL,'k'
+        JNE K13
+        JMP MRLBCK
+K13:
+        CMP AL,'y'
+        JNE K14
+        JMP MRLBCK
+K14:
+        CMP AL,'u'
+        JNE K15
+        JMP MHLBCK
+K15:
+        CMP AL,21
+        JNE K16
+        JMP MHLBCK
+K16:
+        CMP AL,'g'
+        JNE K17
+        JMP MGTOP
+K17:
+        CMP AL,'<'
+        JNE K18
+        JMP MGTOP
+K18:
+        CMP AL,'G'
+        JNE K19
+        JMP MBOT
+K19:
+        CMP AL,'>'
+        JNE K20
+        JMP MBOT
+K20:
+        CMP AL,'/'
+        JNE K21
+        JMP MSRCH
+K21:
+        CMP AL,'n'
+        JNE K22
+        JMP MDSRCH
+K22:
+        CMP AL,'r'
+        JNE K23
+        JMP MREDR
+K23:
+        CMP AL,12
+        JNE K24
+        JMP MREDR
+K24:
+        CMP AL,'h'
+        JNE K25
+        JMP MHELP
+K25:
+        CMP AL,'H'
+        JNE K26
+        JMP MHELP
+K26:
+        CMP AL,'?'
+        JNE K27
+        JMP MHELP
+K27:
+        CMP AL,'q'
+        JNE K28
+        JMP MQUIT
+K28:
+        CMP AL,'Q'
+        JNE K29
+        JMP MQUIT
+K29:
+        CMP AL,3
+        JNE K30
+        JMP MQUIT
+K30:
+        JMP MKEYLP
+
+MPGFWD:
+        MOV AL,PAGEROWS
+        JMP MFWD
+MRLFWD:
+        MOV AL,1
+        JMP MFWD
+MHLFWD:
+        MOV AL,HALFROWS
+MFWD:
+; The row count is parked on the stack, not in BL: MDEL prints through
+; MOUTS, which walks its string with BX and would destroy a BL copy.
+        PUSH AX
+        MOV AL,BYTE PTR MATEOF
+        OR AL,AL
+        JZ MFWD2
+        JMP MQUIT
+MFWD2:
+        CALL MDEL
+        POP AX
+        CALL MPRNT
+        CALL MCHEOF
+        JMP MMAIN
+
+MPGBCK:
+        MOV AL,PAGEROWS
+        JMP MDBK
+MRLBCK:
+        MOV AL,1
+        JMP MDBK
+MHLBCK:
+        MOV AL,HALFROWS
+MDBK:
+        MOV BX,WORD PTR MNXTROW
+        CMP BX,PAGEROWS+1
+        JAE MDBKOK
+        JMP MKEYLP
+MDBKOK:
+        MOV CH,0
+        MOV CL,AL
+        SUB BX,CX
+        JC MDBKCL
+        CMP BX,PAGEROWS
+        JB MDBKCL
+MDBKGO:
+        CALL MREDRAW
+        JMP MMAIN
+MDBKCL:
+        MOV BX,PAGEROWS
+        JMP MDBKGO
+
+MGTOP:
+        MOV BX,PAGEROWS
+        CALL MREDRAW
+        JMP MMAIN
+
+; Bottom: read every remaining row, then show the last full page.
+MBOT:
+        CALL MGETROW
+        JNC MBOT
+        MOV BX,WORD PTR MNXTROW
+        CALL MREDRAW
+        JMP MMAIN
+
+MREDR:
+        MOV BX,WORD PTR MNXTROW
+        CALL MREDRAW
+        JMP MMAIN
+
+MHELP:
+        MOV BX,OFFSET MCLR
+        CALL MOUTS
+        MOV BX,OFFSET MHELPM
+        CALL MOUTS
+        CALL MWAITK
+        MOV BX,WORD PTR MNXTROW
+        CALL MREDRAW
+        JMP MMAIN
+
+;
+; Search: the pattern from the status row becomes the top row of the screen;
+; n repeats the last pattern. A miss restores the old file position.
+;
+MSRCH:
+        CALL MDEL
+        MOV AL,'/'
+        CALL MOUTC
+        CALL MRDLNE
+        JNC MSRCH2
+        JMP MMAIN
+MSRCH2:
+        MOV AL,BYTE PTR MLNLEN
+        OR AL,AL
+        JZ MDSRCH
+        MOV BYTE PTR MPATLEN,AL
+        MOV CL,AL
+        MOV CH,0
+        MOV SI,OFFSET MLNBUF
+        MOV DI,OFFSET MPATBUF
+MCPPAT:
+        MOV AL,BYTE PTR [SI]
+        MOV BYTE PTR [DI],AL
+        INC SI
+        INC DI
+        LOOP MCPPAT
+MDSRCH:
+        MOV AL,BYTE PTR MPATLEN
+        OR AL,AL
+        JNZ MSSTA
+        CALL MDEL
+        MOV BX,OFFSET MNOPAT
+        CALL MOUTS
+        JMP MKEYLP
+MSSTA:
+        MOV AX,WORD PTR MCURREC
+        MOV WORD PTR MKEREC,AX
+        MOV AL,BYTE PTR MCUROFF
+        MOV BYTE PTR MKEOFF,AL
+        MOV BX,WORD PTR MNXTROW
+        MOV WORD PTR MKEROW,BX
+        SUB BX,PAGEROWS-1
+        CALL MSEEKR
+MSEALOP:
+        CALL MGETROW
+        JC MSMISS
+        CALL MMATCH
+        JC MSEAFOUND
+        JMP MSEALOP
+MSEAFOUND:
+        MOV BX,WORD PTR MNXTROW
+        ADD BX,PAGEROWS-1
+        CALL MREDRAW
+        JMP MMAIN
+MSMISS:
+        MOV AX,WORD PTR MKEREC
+        MOV WORD PTR MCURREC,AX
+        MOV AL,BYTE PTR MKEOFF
+        MOV BYTE PTR MCUROFF,AL
+        MOV BX,WORD PTR MKEROW
+        MOV WORD PTR MNXTROW,BX
+        CALL MDEL
+        MOV BX,OFFSET MPATND
+        CALL MOUTS
+        JMP MKEYLP
+
+;
+; MMATCH: carry set when MPATBUF occurs in MROWBUF (not case sensitive).
+;
+MMATCH:
+        MOV AL,BYTE PTR MPATLEN
+        OR AL,AL
+        JZ MMNO
+        MOV CL,AL
+        MOV AL,BYTE PTR MROWLEN
+        SUB AL,CL
+        JC MMNO
+        INC AL
+        MOV BYTE PTR MMLCNT,AL
+        MOV SI,OFFSET MROWBUF
+MMST:
+        PUSH SI
+        MOV DI,OFFSET MPATBUF
+        MOV AL,BYTE PTR MPATLEN
+        MOV CL,AL
+MMCMP:
+        MOV AL,BYTE PTR [SI]
+        CALL MTUPP
+        MOV BL,BYTE PTR [DI]
+        CMP AL,BL
+        JNE MMNXT
+        INC SI
+        INC DI
+        DEC CL
+        JNZ MMCMP
+        POP SI
+        STC
+        RET
+MMNXT:
+        POP SI
+        INC SI
+        DEC BYTE PTR MMLCNT
+        JNZ MMST
+MMNO:
+        CLC
+        RET
+
+;
+; MTUPP: AL = character, returns it in upper case. Changes only AL and flags.
+;
+MTUPP:
+        CMP AL,'a'
+        JB MTUR
+        CMP AL,'z'+1
+        JNB MTUR
+        SUB AL,32
+MTUR:
+        RET
+
+;
+; MRDLNE: edit a line at the cursor into MLNBUF (upper case), MLNLEN holds
+; its length. Carry set when cancelled with ESC or CTRL-C.
+;
+MRDLNE:
+        MOV BYTE PTR MLNLEN,0
+MDLLOP:
+        CALL MWAITK
+        CMP AL,13
+        JZ MDONE
+        CMP AL,10
+        JZ MDONE
+        CMP AL,27
+        JZ MCANC
+        CMP AL,3
+        JZ MCANC
+        CMP AL,8
+        JZ MBACK
+        CMP AL,127
+        JZ MBACK
+        CMP AL,32
+        JB MDLLOP
+        MOV BL,AL
+        MOV AL,BYTE PTR MLNLEN
+        CMP AL,PATMAX
+        JB MDLOK
+        JMP MDLLOP
+MDLOK:
+; AL holds the length, BL the character. The index for the buffer store is
+; the length alone, so it is built in BX from scratch (BH zeroed) with the
+; character parked in CH across the output call. Loading the length through
+; BH on top of the character in BL would make the index length*256+char and
+; every pattern byte would land outside MLNBUF.
+        MOV CH,BL
+        MOV BL,AL
+        MOV BH,0
+        MOV AL,CH
+        CALL MOUTC
+        MOV AL,CH
+        CALL MTUPP
+        MOV SI,OFFSET MLNBUF
+        ADD SI,BX
+        MOV BYTE PTR [SI],AL
+        INC BYTE PTR MLNLEN
+        JMP MDLLOP
+MBACK:
+        MOV AL,BYTE PTR MLNLEN
+        OR AL,AL
+        JZ MDLLOP
+        DEC BYTE PTR MLNLEN
+        MOV AL,8
+        CALL MOUTC
+        MOV AL,' '
+        CALL MOUTC
+        MOV AL,8
+        CALL MOUTC
+        JMP MDLLOP
+MDONE:
+        CLC
+        RET
+MCANC:
+        STC
+        RET
+
+;
+; Keyboard input. MRAWK returns 0 when no key is waiting, MWAITK waits for a
+; key, MGETKEY also decodes the VT100/ANSI cursor keys into command letters
+; and ignores a lone ESC. MTIMED waits a short while for the rest of an
+; escape sequence and returns 0 on timeout.
+;
+MRAWK:
+        PUSH BX
+        PUSH CX
+        PUSH DX
+        PUSH SI
+        PUSH DI
+        PUSH BP
+        MOV DL,255
+        MOV CL,6
+        INT 224
+        AND AL,127
+        POP BP
+        POP DI
+        POP SI
+        POP DX
+        POP CX
+        POP BX
+        RET
+
+MWAITK:
+        CALL MRAWK
+        OR AL,AL
+        JZ MWAITK
+        RET
+
+MTIMED:
+        MOV CX,KEYWAIT
+MTL:
+        CALL MRAWK
+        OR AL,AL
+        JNZ MTDN
+        LOOP MTL
+MTDN:
+        RET
+
+MGETKEY:
+        CALL MWAITK
+        CMP AL,27
+        JNE MGETKR
+        CALL MTIMED
+        CMP AL,'['
+        JZ MGETKS
+        CMP AL,'O'
+        JZ MGETKS
+        JMP MGETKEY
+MGETKR:
+        RET
+MGETKS:
+        CALL MTIMED
+        CMP AL,'A'
+        JNE SC1
+        JMP MGH
+SC1:
+        CMP AL,'B'
+        JNE SC2
+        JMP MGL
+SC2:
+        CMP AL,'H'
+        JNE SC3
+        JMP MGHO
+SC3:
+        CMP AL,'F'
+        JNE SC4
+        JMP MGEO
+SC4:
+        CMP AL,'1'
+        JNE SC5
+        JMP MGHOU
+SC5:
+        CMP AL,'7'
+        JNE SC6
+        JMP MGHOU
+SC6:
+        CMP AL,'4'
+        JNE SC7
+        JMP MGEQU
+SC7:
+        CMP AL,'8'
+        JNE SC8
+        JMP MGEQU
+SC8:
+        CMP AL,'5'
+        JNE SC9
+        JMP MGPU
+SC9:
+        CMP AL,'6'
+        JNE SC10
+        JMP MGPUD
+SC10:
+        JMP MGETKEY
+MGH:
+        MOV AL,'k'
+        RET
+MGL:
+        MOV AL,'j'
+        RET
+MGHO:
+        MOV AL,'g'
+        RET
+MGEO:
+        MOV AL,'G'
+        RET
+MGHOU:
+        MOV BL,'g'
+        JMP MGTIL
+MGEQU:
+        MOV BL,'G'
+        JMP MGTIL
+MGPU:
+        MOV BL,'b'
+        JMP MGTIL
+MGPUD:
+        MOV BL,'f'
+MGTIL:
+        CALL MTIMED
+        MOV AL,BL
+        RET
+
+;
+; Console output goes straight to BDOS function 6 (direct console I/O) so
+; the queued console calls never swallow keys typed while a page is printed.
+; MOUTC: AL = character. Changes only AL and flags.
+;
+MOUTC:
+        PUSH BX
+        PUSH CX
+        PUSH DX
+        PUSH SI
+        PUSH DI
+        PUSH BP
+        MOV DL,AL
+        MOV CL,6
+        INT 224
+        POP BP
+        POP DI
+        POP SI
+        POP DX
+        POP CX
+        POP BX
+        RET
+
+;
+; MOUTS: BX = zero terminated string. Changes only AL, BX and flags.
+;
+MOUTS:
+        MOV AL,BYTE PTR [BX]
+        OR AL,AL
+        JZ MOUTSE
+        CALL MOUTC
+        INC BX
+        JMP MOUTS
+MOUTSE:
+        RET
+
+MDEL:
+        MOV AL,13
+        CALL MOUTC
+        MOV BX,OFFSET MEEOL
+        JMP MOUTS
+
+;
+; MSPROM: reverse video status text on the last screen row.
+;
+MSPROM:
+        CALL MDEL
+        MOV BX,OFFSET MREV
+        CALL MOUTS
+        MOV AL,BYTE PTR MATEOF
+        OR AL,AL
+        JZ MSPRM
+        MOV BX,OFFSET MENDTX
+        CALL MOUTS
+        JMP MSPRD
+MSPRM:
+        MOV BX,OFFSET MMORHD
+        CALL MOUTS
+        CALL MPERC
+        MOV BX,OFFSET MMORTL
+        CALL MOUTS
+MSPRD:
+        MOV BX,OFFSET MNORM
+        JMP MOUTS
+
+;
+; MPERC: prints the file position (0-100) of the next unread row. The
+; product cur*100 is kept in DX:AX and scaled down with the divisor until
+; the division cannot overflow.
+;
+MPERC:
+        PUSH BX
+        PUSH CX
+        PUSH DX
+        MOV BX,WORD PTR MTOTREC
+        OR BX,BX
+        JZ MPEHUND
+        MOV AX,WORD PTR MCURREC
+        XOR DX,DX
+        MOV CX,100
+        MUL CX
+MPEHALF:
+        CMP DX,BX
+        JB MPEOK
+        SHR DX,1
+        RCR AX,1
+        JMP MPEHALF
+MPEOK:
+        DIV BX
+        CMP AX,100
+        JBE MPEPRT
+MPEHUND:
+        MOV AX,100
+MPEPRT:
+        XOR DX,DX
+        MOV BX,100
+        DIV BX
+        MOV CH,AL
+        XCHG AX,DX
+        XOR DX,DX
+        MOV BX,10
+        DIV BX
+        MOV CL,AL
+        CMP CH,0
+        JZ MPENH
+        MOV AL,'1'
+        CALL MOUTC
+        MOV DH,1
+MPENH:
+        CMP CL,0
+        JNZ MPETP
+        CMP DH,0
+        JZ MPEONE
+MPETP:
+        MOV AL,CL
+        ADD AL,'0'
+        CALL MOUTC
+MPEONE:
+        MOV AL,DL
+        ADD AL,'0'
+        CALL MOUTC
+        POP DX
+        POP CX
+        POP BX
+        RET
+
+;
+; MPRNT: AL = number of rows to print. Prints rows from the current file
+; position, each followed by CR+LF. Stops early at the end of the file;
+; MROWSL is then not zero.
+;
+MPRNT:
+        MOV BYTE PTR MROWSL,AL
+MPRNL:
+        CALL MGETROW
+        JC MPRNE
+        CALL MPRN1
+        DEC BYTE PTR MROWSL
+        JNZ MPRNL
+MPRNE:
+        RET
+
+MPRN1:
+        MOV CL,BYTE PTR MROWLEN
+        MOV CH,0
+        OR CX,CX
+        JZ MPRN1E
+        MOV SI,OFFSET MROWBUF
+MPRN1P:
+        MOV AL,BYTE PTR [SI]
+        CALL MOUTC
+        INC SI
+        LOOP MPRN1P
+MPRN1E:
+        MOV AL,13
+        CALL MOUTC
+        MOV AL,10
+        JMP MOUTC
+
+;
+; MCHEOF: sets MATEOF when no row follows the current position. The file
+; position is left unchanged.
+;
+MCHEOF:
+        MOV AX,WORD PTR MCURREC
+        MOV WORD PTR MKEREC,AX
+        MOV AL,BYTE PTR MCUROFF
+        MOV BYTE PTR MKEOFF,AL
+        MOV BX,WORD PTR MNXTROW
+        MOV WORD PTR MKEROW,BX
+        CALL MGETROW
+        JNC MCHNO
+        MOV BYTE PTR MATEOF,255
+        JMP MCHRS
+MCHNO:
+        MOV BYTE PTR MATEOF,0
+MCHRS:
+        MOV AX,WORD PTR MKEREC
+        MOV WORD PTR MCURREC,AX
+        MOV AL,BYTE PTR MKEOFF
+        MOV BYTE PTR MCUROFF,AL
+        MOV BX,WORD PTR MKEROW
+        MOV WORD PTR MNXTROW,BX
+        RET
+
+;
+; MREDRAW: BX = row number that follows the last row on the screen. Clears
+; the screen and prints the PAGEROWS rows above it. When the end of the file
+; comes earlier, the last full page is shown instead.
+;
+MREDRAW:
+        MOV WORD PTR MTGTBOT,BX
+MREDAG:
+        MOV BX,WORD PTR MTGTBOT
+        SUB BX,PAGEROWS
+        JNC MROK
+        XOR BX,BX
+MROK:
+        MOV WORD PTR MREDTOP,BX
+        CALL MSEEKR
+        MOV BX,OFFSET MCLR
+        CALL MOUTS
+        MOV AL,PAGEROWS
+        CALL MPRNT
+        MOV AL,BYTE PTR MROWSL
+        OR AL,AL
+        JZ MRDONE
+        MOV BX,WORD PTR MREDTOP
+        OR BX,BX
+        JZ MRDONE
+        MOV BX,WORD PTR MNXTROW
+        MOV WORD PTR MTGTBOT,BX
+        JMP MREDAG
+MRDONE:
+        JMP MCHEOF
+
+;
+; MSEEKR: BX = row number. Sets the file position to the start of that row.
+; Rows up to 255 before the highest row seen come from the ring, all others
+; are found by rescanning the file from the start.
+;
+MSEEKR:
+        MOV WORD PTR MSEETGT,BX
+        MOV DX,WORD PTR MMAXKN
+        SUB DX,BX
+        JC MSERES
+        CMP DX,256
+        JAE MSERES
+        MOV BX,WORD PTR MSEETGT
+        AND BX,255
+        MOV CX,BX
+        ADD BX,BX
+        ADD BX,CX
+        ADD BX,OFFSET MRING
+        ADD BX,2
+        MOV AL,BYTE PTR [BX]
+        MOV BYTE PTR MCUROFF,AL
+; BH is the high half of the pointer register: loading the record number
+; through BX would destroy the address being read. The slot is fetched
+; through SI instead, and only then is BX assembled from the halves.
+        MOV SI,BX
+        DEC SI
+        MOV BH,BYTE PTR [SI]
+        DEC SI
+        MOV BL,BYTE PTR [SI]
+        MOV WORD PTR MCURREC,BX
+        MOV BX,WORD PTR MSEETGT
+        MOV WORD PTR MNXTROW,BX
+        RET
+MSERES:
+        XOR BX,BX
+        MOV WORD PTR MCURREC,BX
+        MOV WORD PTR MNXTROW,BX
+        MOV WORD PTR MMAXKN,BX
+        MOV BYTE PTR MCUROFF,BL
+MSERCL:
+        MOV BX,WORD PTR MNXTROW
+        MOV AX,WORD PTR MSEETGT
+        CMP BX,AX
+        JZ MSERET
+        CALL MGETROW
+        JC MSERET
+        JMP MSERCL
+MSERET:
+        RET
+
+;
+; MGETROW: reads the row at the current file position into MROWBUF/MROWLEN
+; and advances MNXTROW. Carry set (nothing read) at the end of the file.
+;
+MGETROW:
+        MOV BX,WORD PTR MNXTROW
+        CMP BX,0FFFFH
+        JNZ MGRST
+        STC
+        RET
+MGRST:
+        MOV DX,WORD PTR MMAXKN
+        CMP DX,BX
+        JB MGRUPD
+        JMP MGRSLOT
+MGRUPD:
+        MOV WORD PTR MMAXKN,BX
+MGRSLOT:
+        MOV BX,WORD PTR MNXTROW
+        AND BX,255
+        MOV CX,BX
+        ADD BX,BX
+        ADD BX,CX
+        ADD BX,OFFSET MRING
+        MOV AX,WORD PTR MCURREC
+        MOV BYTE PTR [BX],AL
+        INC BX
+        MOV BYTE PTR [BX],AH
+        INC BX
+        MOV AL,BYTE PTR MCUROFF
+        MOV BYTE PTR [BX],AL
+        MOV BYTE PTR MROWLEN,0
+        MOV BYTE PTR MGOTANY,0
+MGRLOP:
+        CALL MSPSAV
+        CALL MGETB
+        JNC MGRLOP2
+        JMP MGREOF
+MGRLOP2:
+        AND AL,127
+        CMP AL,10
+        JZ MGRDON
+        CMP AL,13
+        JZ MGRLOP
+        MOV BL,AL
+        MOV AL,1
+        MOV BYTE PTR MGOTANY,AL
+        MOV AL,BL
+        CMP AL,9
+        JZ MGRTAB
+        CMP AL,32
+        JB MGRCRTL
+        CMP AL,127
+        JZ MGRCRTL
+        CALL MAPPND
+        JMP MGROK
+MGRCRTL:
+        MOV AL,BYTE PTR MROWLEN
+        CMP AL,SCRNCOLS-1
+        JB MGRCFIT
+        CALL MSPRES
+        JMP MGRDON
+MGRCFIT:
+        MOV AL,'^'
+        CALL MAPPND
+        MOV AL,BL
+        XOR AL,64
+        CALL MAPPND
+        JMP MGROK
+MGRTAB:
+        MOV AL,' '
+        CALL MAPPND
+        MOV AL,BYTE PTR MROWLEN
+        AND AL,7
+        JNZ MGRTAB
+MGROK:
+        MOV AL,BYTE PTR MROWLEN
+        CMP AL,SCRNCOLS
+        JNZ MGRLOP
+MGRFUL:
+        CALL MSPSAV
+        CALL MGETB
+        JC MGRDON
+        AND AL,127
+        CMP AL,13
+        JZ MGRFUL
+        CMP AL,10
+        JZ MGRDON
+        CALL MSPRES
+MGRDON:
+        MOV BX,WORD PTR MNXTROW
+        INC BX
+        MOV WORD PTR MNXTROW,BX
+        CLC
+        RET
+MGREOF:
+        MOV AL,BYTE PTR MGOTANY
+        OR AL,AL
+        JNZ MGRDON
+        STC
+        RET
+
+;
+; MAPPND: AL = character to add to MROWBUF. Keeps BX and AL.
+;
+MAPPND:
+        PUSH BX
+        PUSH SI
+        MOV SI,OFFSET MROWBUF
+        MOV BL,BYTE PTR MROWLEN
+        MOV BH,0
+        ADD SI,BX
+        MOV BYTE PTR [SI],AL
+        INC BYTE PTR MROWLEN
+        POP SI
+        POP BX
+        RET
+
+MSPSAV:
+        MOV AX,WORD PTR MCURREC
+        MOV WORD PTR MSAVREC,AX
+        MOV AL,BYTE PTR MCUROFF
+        MOV BYTE PTR MSAVOFF,AL
+        RET
+
+MSPRES:
+        MOV AX,WORD PTR MSAVREC
+        MOV WORD PTR MCURREC,AX
+        MOV AL,BYTE PTR MSAVOFF
+        MOV BYTE PTR MCUROFF,AL
+        RET
+
+;
+; MGETB: next byte of the file in AL, carry set at the end of the file
+; (also at CTRL-Z, which is not consumed). Fetches a record from the load
+; buffer only when the position left the record that is in MFILEBUF.
+;
+MGETB:
+        MOV AX,WORD PTR MCURREC
+        MOV BX,WORD PTR MBUFREC
+        CMP AX,BX
+        JNE MBLOAD
+MBHAVE:
+        MOV CL,BYTE PTR MCUROFF
+        MOV CH,0
+        MOV BX,OFFSET MFILEBUF
+        ADD BX,CX
+        MOV AL,BYTE PTR [BX]
+        CMP AL,26
+        JZ MBEOF
+; The byte is parked in CH: the record advance below loads BX and would
+; destroy a copy kept in BL (BL is the low half of BX).
+        MOV CH,AL
+        MOV AL,BYTE PTR MCUROFF
+        INC AL
+        AND AL,127
+        MOV BYTE PTR MCUROFF,AL
+        JNZ MBDON
+        MOV BX,WORD PTR MCURREC
+        INC BX
+        MOV WORD PTR MCURREC,BX
+MBDON:
+        MOV AL,CH
+        CLC
+        RET
+MBLOAD:
+        MOV AX,WORD PTR MCURREC
+        CMP AX,WORD PTR MTOTREC
+        JAE MBEOF
+        PUSH SI
+        PUSH DI
+        PUSH DS
+        PUSH ES
+; The load buffer is one linear block at 05000h:0000h, so the source of a
+; record is the paragraph (record*128)/16 = record*8: multiply by 8 and add
+; the base paragraph. The byte offset is always 0 because 128 is a multiple
+; of 16. The previous form (high word of record*128 divided by 16 plus the
+; low word divided by 4096) misaddressed every record from 32 up.
+        XOR DX,DX
+        MOV CX,8
+        MUL CX
+        ADD AX,05000H
+        PUSH DS
+        POP ES
+        MOV DS,AX
+        XOR SI,SI
+        MOV DI,OFFSET MFILEBUF
+        MOV CX,128
+        CLD
+        REP MOVSB
+        POP ES
+        POP DS
+        POP DI
+        POP SI
+        MOV BX,WORD PTR MCURREC
+        MOV WORD PTR MBUFREC,BX
+        JMP MBHAVE
+MBEOF:
+        STC
+        RET
+
+;
+; MLOAD: streams the whole file into a RAM buffer that starts at
+; 05000h:0000h. That hole sits above the kernel and below the command the
+; CCP loads near the top of RAM; 2400 records (300 KiB) stay clear of both.
+; This kernel only offers sequential reads, so all paging later works on
+; the stored copy; MLOADED counts the 128-byte records that were stored.
+; READ$SEQ returns 0 with a record and 1 to stop the stream.
+;
+MLOAD:
+        MOV AX,05000H
+        MOV WORD PTR MLOADSEG,AX
+        XOR AX,AX
+        MOV WORD PTR MLOADOFF,AX
+        MOV WORD PTR MLOADED,AX
+        MOV DX,OFFSET MDUMMY
+        MOV CL,26
+        CALL MSYS
+MLOADLP:
+        MOV DX,OFFSET MFCB
+        MOV CL,20
+        CALL MSYS
+        OR AL,AL
+        JNZ MLOADX
+; This kernel keeps the transfer address in the BIOS variables at 0000:2BBEh
+; (offset) and 0000:2BC0h (segment). SETDMA stores the offset from DX, but
+; the segment field gets the segment the CMD loader used for the data
+; segment - never the live DS - so the record must be picked up from that
+; seg:off pair rather than from MDUMMY in the relocated segment.
+        PUSH DS
+        XOR AX,AX
+        MOV DS,AX
+        MOV BX,2BBEH
+        MOV SI,[BX]
+        ADD BX,2
+        MOV AX,[BX]
+        POP DS
+        PUSH DS
+        MOV BX,WORD PTR MLOADSEG
+        MOV DI,WORD PTR MLOADOFF
+        MOV DS,AX
+        MOV ES,BX
+        MOV CX,128
+        CLD
+        REP MOVSB
+        POP DS
+        MOV AX,WORD PTR MLOADOFF
+        ADD AX,128
+        MOV WORD PTR MLOADOFF,AX
+        JNZ MLOADCNT
+        MOV AX,WORD PTR MLOADSEG
+        ADD AX,1000H
+        MOV WORD PTR MLOADSEG,AX
+MLOADCNT:
+        INC WORD PTR MLOADED
+        CMP WORD PTR MLOADED,2400
+        JB MLOADLP
+MLOADX:
+        RET
+
+;
+; MSYS: BDOS call with the function number in CL and the parameter in DX.
+; The registers the pager keeps across calls are preserved.
+;
+MSYS:
+        PUSH BX
+        PUSH CX
+        PUSH DX
+        PUSH SI
+        PUSH DI
+        PUSH BP
+        PUSH DS
+        PUSH ES
+        INT 224
+        POP ES
+        POP DS
+        POP BP
+        POP DI
+        POP SI
+        POP DX
+        POP CX
+        POP BX
+        RET
+
+MUSAGE:
+        MOV BX,OFFSET MUSGSTR
+        CALL MOUTS
+        JMP MEXIT
+MNOTFD:
+        MOV BX,OFFSET MNFSTR
+        CALL MOUTS
+        JMP MEXIT
+MQUIT:
+        CALL MDEL
+        JMP MEXIT
+MEXIT:
+        XOR CX,CX
+        XOR DX,DX
+        INT 224
+
+        DSEG
+        ORG 0700H
+MFCB RB 36
+MTOTREC DW 0
+MCURREC DW 0
+MCUROFF DB 0
+MBUFREC DW 0
+MNXTROW DW 0
+MMAXKN DW 0
+MATEOF DB 0
+MROWLEN DB 0
+MGOTANY DB 0
+MROWSL DB 0
+MSAVREC DW 0
+MSAVOFF DB 0
+MKEREC DW 0
+MKEOFF DB 0
+MKEROW DW 0
+MSEETGT DW 0
+MTGTBOT DW 0
+MREDTOP DW 0
+MLOADSEG DW 0
+MLOADOFF DW 0
+MLOADED DW 0
+MMLCNT DB 0
+MPATLEN DB 0
+MPATBUF RB 41
+MLNLEN DB 0
+MLNBUF RB 41
+MROWBUF RB 80
+MFILEBUF RB 128
+MRING RB 768
+MCLR DB 27,'[H',27,'[J',0
+MEEOL DB 27,'[K',0
+MREV DB 27,'[7m',0
+MNORM DB 27,'[m',0
+MMORHD DB '--More--(',0
+MMORTL DB '%) h=help q=quit',0
+MENDTX DB '(END) b=back q=quit',0
+MPATND DB 27,'[7mPattern not found',27,'[m',0
+MNOPAT DB 27,'[7mNo previous search pattern',27,'[m',0
+MUSGSTR DB 'Usage: MORE [d:]filename.ext',13,10,0
+MNFSTR DB 'File not found.',13,10,0
+MHELPM DB 'MORE - file pager for CP/M-86 (like Unix more and less)',13,10
+        DB 13,10
+        DB '  SPACE, f, z    next page            b          previous page',13,10
+        DB '  ENTER, j, e    next line            k, y       previous line',13,10
+        DB '  d              half page forward    u          half page back',13,10
+        DB '  g, <           top of the file      '
+        DB 'G, >       bottom of the file',13,10
+        DB '  /text          search forward (upper/lower case is ignored)',13,10
+        DB '  n              repeat the last search',13,10
+        DB '  r, CTRL-L      redraw the screen    h, ?       this help',13,10
+        DB '  q, Q, CTRL-C   quit',13,10
+        DB 13,10
+        DB 'Arrow keys, PgUp, PgDn, Home and End work on a '
+        DB 'VT100/ANSI terminal.',13,10
+        DB 'At the end of the file any forward key quits.',13,10
+        DB 13,10
+        DB 'Press any key to continue',0
+; Copy of the 256-byte PSP taken in MSTART. The command's own PSP segment
+; must not be used for data: its low area belongs to the BIOS.
+MPSP RB 256
+MGUARD RB 256
+MDUMMYH DB 0
+MDUMMY RB 128
+        RB 1024
+; Final initialized byte makes GENCMD include all reserved storage.
+MSTKTOP DB 0
+        END
