@@ -1,0 +1,10 @@
+{
+  "name": "esp32s3-retro",
+  "long_name_nl": "ESP32-S3 Retrocomputer met meerdere systemen",
+  "long_name_en": "ESP32-S3 Multi-System Retro Computer",
+  "description_en": "A multi-system retro-computer emulator on the ESP32-S3 that boots CP/M-80, CP/M-86, UCSD Pascal and Apple II from a shared USB menu, with SD-card disk images and a browser-based disk manager.",
+  "description_nl": "Een retrocomputer-emulator voor meerdere systemen op de ESP32-S3 die CP/M-80, CP/M-86, UCSD Pascal en Apple II start vanuit een gemeenschappelijk USB-menu, met disk images op een SD-kaart en een browsergebaseerde schijfbeheerder.",
+  "github_url": "https://github.com/mrWheel/esp32s3-retro",
+  "post_url": "https://willem.aandewiel.nl/",
+  "image": "esp32s3-Retro.jpg"
+}
