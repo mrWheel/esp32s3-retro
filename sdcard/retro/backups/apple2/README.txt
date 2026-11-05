@@ -1,0 +1,41 @@
+apple2.rom is the 12 KiB Apple system ROM. The firmware mounts it and the
+host-side Apple II core tests read the same file under littlefs/apple2/.
+SHA-256: 378ba00c86a64cca49cedaca7de8d5d351983ebc295d9d11e0752febfc346249
+It boots the Apple ][ monitor and Integer BASIC in the host-side Apple II core
+test. The ROM image's redistribution license has not been verified.
+
+apple2e.rom is the upper 16 KiB ($C000-$FFFF) of the unenhanced Apple IIe ROM (taken from
+offset 0x4000 of the 32 KiB apple2eu.rom image). It is
+used when drives.cfg contains MACHINE=IIE (needed for Pascal 1.3 128K). Redistribution
+license not verified.
+
+system.dsk is the bootable ProDOS 8 volume /SYSTEM (640K), generated from the base
+bootDisks/apple2/prodosEmpty.po plus every file in bootDisks/apple2/systemDsk by the
+firmware build (CMake configure time), or manually with:
+  python3 tools/diskManager.py --type SYSTEMDSK --os apple2 --profile PRODOS
+HELLO.BAS becomes STARTUP (run by BASIC.SYSTEM at boot; the 80-column card is selected
+automatically when the machine starts) and TEST-NONGR.BAS becomes TEST.NONGR (tokenized
+Applesoft; LOAD TEST.NONGR, then RUN). SD6.1 may mount this image read-only or read/write.
+RW changes persist in LittleFS, but the next firmware build regenerates the image.
+
+Menu option 4 reads /littlefs/apple2/drives.cfg. There is no default drive: that drives.cfg
+must explicitly list SD6.1. The shipped
+profile boots the ProDOS system volume. Native Apple Pascal media can be selected through menu option 3, which reads
+/littlefs/ucsd/drives.cfg. Its SD6.1 system boot disk may be read-only or
+read/write; a separate writable SD work volume can be configured under
+/retro/images/ucsd/.
+When SD6.1 is not configured or its image cannot be opened, the emulator returns an error
+instead of substituting another disk.
+
+The separate project-authored diagnostic test fixture is at
+tests/fixtures/apple2-diagnostic.rom and can be regenerated with:
+  python3 tools/apple2/buildApple2TestRom.py
+
+More disks: /littlefs/apple2/drives.cfg (littlefs/apple2/drives.cfg in the project)
+maps images to slots 4..7, drives 1..2, for example the 800K read/write ProDOS data volumes
+made with tools/diskManager.py --type WORKDSK --os apple2 --profile 800K DATA1.po:
+  SD6.1=/littlefs/apple2/system.dsk,RO,APPLE2_640K
+  SD6.2=/retro/images/apple2/data1.po,RW,APPLE2_800K
+  SD5.1=/retro/images/apple2/data2.po,RW,APPLE2_800K
+Upload the data images to /retro/images/apple2/ with "File Transfer". An Apple (UCSD)
+Pascal 640K volume (created by the Pascal volume utility in tools/include/) must have a slot of its own (Disk II).

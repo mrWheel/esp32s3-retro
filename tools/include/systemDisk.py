@@ -62,6 +62,15 @@ IMAGE_MODULES = {
 }
 
 
+def display_path(path):
+    """Path as shown to the user: starting at the project folder name (absolute when outside it)."""
+    resolved = Path(path).resolve()
+    try:
+        return resolved.relative_to(PROJECT_ROOT.parent)
+    except ValueError:
+        return resolved
+
+
 def source_directory(os_name, override):
     if override is not None:
         return Path(override)
@@ -360,7 +369,7 @@ def print_firmware_notice(os_name, profile, output_path):
         print("Run: idf.py build, then flash the firmware.")
     systemName = "system.po" if os_name == "ucsd" else "system.dsk"
     if output_path.resolve() != (PROJECT_ROOT / "littlefs" / os_name / systemName).resolve():
-        print(f"Note: {output_path} is not littlefs/{os_name}/{systemName}, so the firmware does not use it as it is.")
+        print(f"Note: {display_path(output_path)} is not littlefs/{os_name}/{systemName}, so the firmware does not use it as it is.")
 
 
 def system_disk_output_path(os_name, output=None):

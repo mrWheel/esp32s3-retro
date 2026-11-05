@@ -1,11 +1,12 @@
-apple2.rom is the 12 KiB Apple system ROM copied from assets/apple.rom. The
-matching source copy and mirror URL are recorded in assets/apple2_roms/.
+apple2.rom is the 12 KiB Apple system ROM. The firmware mounts it and the
+host-side Apple II core tests read this same file
+(APPLE2_SYSTEM_ROM_PATH in tests/CMakeLists.txt).
 SHA-256: 378ba00c86a64cca49cedaca7de8d5d351983ebc295d9d11e0752febfc346249
 It boots the Apple ][ monitor and Integer BASIC in the host-side Apple II core
 test. The ROM image's redistribution license has not been verified.
 
-apple2e.rom is the upper 16 KiB ($C000-$FFFF) of the unenhanced Apple IIe ROM (32 KiB
-apple2eu.rom from assets/apple2_roms/apple_2e_unenhanced_rom.zip, from offset 0x4000). It is
+apple2e.rom is the upper 16 KiB ($C000-$FFFF) of the unenhanced Apple IIe ROM (taken from offset 0x4000
+of the 32 KiB apple2eu.rom image; the source archive was removed from assets/apple2_roms/). It is
 used when drives.cfg contains MACHINE=IIE (needed for Pascal 1.3 128K). Redistribution
 license not verified.
 

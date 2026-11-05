@@ -164,8 +164,8 @@ def prompt_image_name():
 
 
 def prompt_path(label, default_path):
-    """Ask for a path; ENTER keeps the default."""
-    answer = _ask_line(f"{label} [{default_path}]")
+    """Ask for a path; ENTER keeps the default (the default is shown relative to the project folder)."""
+    answer = _ask_line(f"{label} [{systemDisk.display_path(default_path)}]")
     return Path(answer) if answer else default_path
 
 
@@ -187,7 +187,7 @@ def prompt_missing_options(type_name, info, arguments):
             arguments.image = Path(prompt_image_name())
         if not arguments.force:
             image_path = osProfiles.resolve_image_path(arguments.sd_root, info.key, arguments.image)
-            if image_path.exists() and prompt_yes_no(f"{image_path} already exists, replace it"):
+            if image_path.exists() and prompt_yes_no(f"{systemDisk.display_path(image_path)} already exists, replace it"):
                 arguments.force = True
         return
     if arguments.output is None:
@@ -296,7 +296,7 @@ def run_work_disk(parser, info, arguments):
     image_path = osProfiles.resolve_image_path(arguments.sd_root, info.key, arguments.image)
     size = engine.PROFILES[profile]["image_size"]
     plan = plan_header(info, "WORKDSK")
-    plan.append(f"  image   : {image_path}")
+    plan.append(f"  image   : {systemDisk.display_path(image_path)}")
     plan.append(f"  profile : {profile} ({size} bytes)")
     if image_path.exists() and not arguments.force:
         plan.append("  effect  : refused: the image already exists (use --force to replace it)")
@@ -310,7 +310,7 @@ def run_work_disk(parser, info, arguments):
     except (OSError, DiskImageError) as error:
         parser.error(str(error))
     extra = f", {detail}" if detail else ""
-    print(f"Created empty {info.label} {profile} work disk: {image_path} ({size} bytes{extra})")
+    print(f"Created empty {info.label} {profile} work disk: {systemDisk.display_path(image_path)} ({size} bytes{extra})")
 
 
 def run_system_disk(parser, info, arguments):
@@ -330,8 +330,8 @@ def run_system_disk(parser, info, arguments):
     source_dir = systemDisk.source_directory(info.key, arguments.source_dir)
     plan = plan_header(info, "SYSTEMDSK")
     plan.append(f"  profile : {profile}")
-    plan.append(f"  sources : {source_dir}")
-    plan.append(f"  output  : {output_path}")
+    plan.append(f"  sources : {systemDisk.display_path(source_dir)}")
+    plan.append(f"  output  : {systemDisk.display_path(output_path)}")
     plan.append("  effect  : build a bootable system disk (an existing output file is replaced)")
     confirm_plan(plan, arguments.yes)
     try:
@@ -347,9 +347,9 @@ def run_system_disk(parser, info, arguments):
     except (DiskImageError, OSError) as error:
         parser.error(str(error))
 
-    print(f"Created {output_path} ({output_path.stat().st_size} bytes)")
+    print(f"Created {systemDisk.display_path(output_path)} ({output_path.stat().st_size} bytes)")
     if info.key == "apple2" and profile == "PRODOS":
-        print(f"Added ProDOS files from {source_dir}:")
+        print(f"Added ProDOS files from {systemDisk.display_path(source_dir)}:")
         for source_name, name, _, _, _ in systemDisk.read_prodos_source_files(
             source_dir, arguments.binary_load_address
         ):
@@ -359,10 +359,13 @@ def run_system_disk(parser, info, arguments):
         )
         print(f"Volume /{volume} boots ProDOS 8 with BASIC.SYSTEM.")
     elif info.key == "cpm86":
-        print(f"CP/M-86 kernel kept outside A: at {systemDisk.PROJECT_ROOT / 'littlefs' / 'cpm86' / 'cpm.sys'}.")
+        print(
+            "CP/M-86 kernel kept outside A: at "
+            f"{systemDisk.display_path(systemDisk.PROJECT_ROOT / 'littlefs' / 'cpm86' / 'cpm.sys')}."
+        )
         print(
             "CP/M-86 BIOS overlay kept outside A: at "
-            f"{systemDisk.PROJECT_ROOT / 'littlefs' / 'cpm86' / 'retro86bios.h86'}."
+            f"{systemDisk.display_path(systemDisk.PROJECT_ROOT / 'littlefs' / 'cpm86' / 'retro86bios.h86')}."
         )
     systemDisk.print_firmware_notice(info.key, profile, output_path)
     if skipped_files:

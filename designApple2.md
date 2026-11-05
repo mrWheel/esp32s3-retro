@@ -130,7 +130,7 @@ The Apple II/II+ has no auxiliary slot, so 128K cards live in slot 0 (the Langua
 
 Needed by Apple Pascal 1.3 `128K.APPLE`/`128K.PASCAL` (see [designUCSD.md](designUCSD.md) UCSD-DEC-017). Default is `MACHINE=II`. `RAMCARD` is ignored on the IIe.
 
-- ROM: upper 16 KiB of the unenhanced NMOS IIe ROM (`assets/apple2_roms/apple_2e_unenhanced_rom.zip` → `apple2eu.rom`, 32 KiB, md5 e14eae59…, from offset 0x4000), installed as `littlefs/apple2/apple2e.rom` (reset vector `$FA62`). The enhanced ROM needs a 65C02, which `m6502.h` lacks. Redistribution rights unverified.
+- ROM: upper 16 KiB of the unenhanced NMOS IIe ROM (from the 32 KiB `apple2eu.rom` image, md5 e14eae59…, offset 0x4000), checked in and installed as `littlefs/apple2/apple2e.rom` (reset vector `$FA62`). The source archive was removed from `assets/apple2_roms/` as unused by any build. The enhanced ROM needs a 65C02, which `m6502.h` lacks. Redistribution rights unverified.
 - Memory: main 48 KiB + 16 KiB LC, auxiliary 48 KiB + 16 KiB LC (128 KiB total; buffers in PSRAM on the ESP). ALTZP switches zero page/stack/LC to auxiliary. RAMRD/RAMWRT select aux for `$0200–$BFFF`; 80STORE+PAGE2 (and HIRES) redirect the text/hires page.
 - ROM mapping: `$C100–$CFFF` internal when INTCXROM; `$C300` internal unless SLOTC3ROM, and an access there sets INTC8ROM; `$CFFF` clears INTC8ROM. The SmartPort trap is skipped when INTCXROM is set.
 - Softswitches: writes `$C000–$C00F` (80STORE, RAMRD, RAMWRT, INTCXROM, ALTZP, SLOTC3ROM, 80COL, ALTCHARSET); status reads `$C011–$C01F` (BSRBANK2, BSRREADRAM, RAMRD, RAMWRT, INTCXROM, ALTZP, SLOTC3ROM, 80STORE, VBL approximated from cycles, TEXT, MIXED, PAGE2, HIRES, ALTCHARSET, 80COL). `$C061–$C063` return 0.

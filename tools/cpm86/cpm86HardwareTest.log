@@ -1,4 +1,4 @@
-CP/M-86 hardware test - 2026-11-03 00:03:03
+CP/M-86 hardware test - 2026-11-05 08:49:06
 
 <<<RESET>>>
       PASS  board reset reaches host menu
@@ -8,9 +8,9 @@ Command: 2
 
 ---- basic ----
 Command: DIR
-  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : CHKMEM   CMD : COPY     CMD | A: CRC      CMD : DUMMP    CMD : ED       CMD : EDIT86   CMD | A: ERAQ     CMD : FIND     CMD : GENCMD   CMD : GREP     CMD | A: HELP     CMD : MUCHTEXT CMD : NSWEEP   CMD :  ...
+  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : CHKMEM   CMD : COPY     CMD | A: CRC      CMD : DUMMP    CMD : ED       CMD : EDIT86   CMD | A: ERAQ     CMD : FIND     CMD : GENCMD   CMD : GREP     CMD | A: HELP     CMD : MORE     CMD : MUCHTEXT CMD :  ...
 Command: STAT
-  A: RW, Free Space:         0k | A>
+  A: RW, Free Space:       480k | A>
 Command: DIR A:STAT.CMD
   A: STAT     CMD | A>
 Command: USER 3
@@ -32,7 +32,7 @@ Command: DIR A:STAT.CMD
 
 ---- read volumes ----
 Command: DIR
-  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : CHKMEM   CMD : COPY     CMD | A: CRC      CMD : DUMMP    CMD : ED       CMD : EDIT86   CMD | A: ERAQ     CMD : FIND     CMD : GENCMD   CMD : GREP     CMD | A: HELP     CMD : MUCHTEXT CMD : NSWEEP   CMD :  ...
+  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : CHKMEM   CMD : COPY     CMD | A: CRC      CMD : DUMMP    CMD : ED       CMD : EDIT86   CMD | A: ERAQ     CMD : FIND     CMD : GENCMD   CMD : GREP     CMD | A: HELP     CMD : MORE     CMD : MUCHTEXT CMD :  ...
       PASS  read: list volume A:
 Command: B:
   B>
@@ -51,7 +51,7 @@ Command: A:
 Command: D:
   D>
 Command: DIR
-  D: DEMO     TXT | D>
+  D: MORE     LST : DEMO     TXT : MORED    A86 : MORE     H86 | D: MORE     SYM : MORE     CMD : MORED    LST : MORED    H86 | D: MORED    SYM : MORE     A86 | D>
 Command: A:
   A>
       PASS  read: list volume D:
@@ -227,7 +227,7 @@ Command: ERA C:HWTEST.CMD
 Command: DIR A:HWRO*.*
   NO FILE | A>
 Command: STAT A:
-  A: RW, Free Space:         0k | A>
+  A: RW, Free Space:       480k | A>
 Command: PIP A:HWRO.CMD=A:PIP.CMD
       PASS  read-only: write to A: is refused
 Command: ^C (Ctrl-C)
@@ -235,13 +235,13 @@ Command: ^C (Ctrl-C)
 Command: DIR A:HWRO*.*
   NO FILE | A>
 Command: STAT A:
-  A: RO, Free Space:         0k | A>
+  A: RO, Free Space:       480k | A>
       PASS  read-only: no file created on A:
-      PASS  read-only: free space on A: unchanged  -- before 0, after 0
+      PASS  read-only: free space on A: unchanged  -- before 480, after 480
 
 ---- timing ----
 Command: DIR
-  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : CHKMEM   CMD : COPY     CMD | A: CRC      CMD : DUMMP    CMD : ED       CMD : EDIT86   CMD | A: ERAQ     CMD : FIND     CMD : GENCMD   CMD : GREP     CMD | A: HELP     CMD : MUCHTEXT CMD : NSWEEP   CMD :  ...
+  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : CHKMEM   CMD : COPY     CMD | A: CRC      CMD : DUMMP    CMD : ED       CMD : EDIT86   CMD | A: ERAQ     CMD : FIND     CMD : GENCMD   CMD : GREP     CMD | A: HELP     CMD : MORE     CMD : MUCHTEXT CMD :  ...
       PASS  timing: volume listing completes in < 10 s  -- 0.5 s
 
 ---- unconfigured drive ----
@@ -249,11 +249,11 @@ Command: E:
   E:? | A>
       PASS  unconfigured: drive E: is rejected cleanly
 Command: TIMER86
-  measured delta 1103 ms
-      FAIL  timer: guest delta of a 1 s host wait is 900-1100 ms  -- 1103 ms
+  measured delta 1088 ms
+      PASS  timer: guest delta of a 1 s host wait is 900-1100 ms  -- 1088 ms
 bench86: starting BENCH86, waiting up to 180 s for it to finish
 Command: A:BENCH86
-  BENCH86 v2 SCALE=1 | @BEGIN INTEGER | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 4130 ms | 8086 MODEL ONLY (not measured): 5MHz=6292 ms, 8MHz=3933 ms, 10MHz=3146 ms | Index vs 5MHz MODEL: 152 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 1565 ms |  ...
+  BENCH86 v2 SCALE=1 | @BEGIN INTEGER | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 4130 ms | 8086 MODEL ONLY (not measured): 5MHz=6292 ms, 8MHz=3933 ms, 10MHz=3146 ms | Index vs 5MHz MODEL: 152 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 1561 ms |  ...
 bench86: BENCH86 v2 SCALE=1
 bench86: @BEGIN INTEGER
 bench86: @END INTEGER PASS AX=4ED8 BX=D678
@@ -261,11 +261,11 @@ bench86: Elapsed: 4130 ms
 bench86: Index vs 5MHz MODEL: 152 (100=model, higher=faster; theoretical)
 bench86: @BEGIN SIEVE
 bench86: @END SIEVE PASS PRIMES=1028
-bench86: Elapsed: 1565 ms
+bench86: Elapsed: 1561 ms
 bench86: Index vs 5MHz MODEL: 287 (100=model, higher=faster; theoretical)
 bench86: @DONE PASS
       PASS  bench86: BENCH86 runs from A: and completes
-      PASS  bench86: all benchmark sections report PASS  -- 2 sections, elapsed 4130,1565 ms
+      PASS  bench86: all benchmark sections report PASS  -- 2 sections, elapsed 4130,1561 ms
       PASS  bench86: measured index values recorded  -- index vs 5MHz MODEL: 152,287
 Command: DIR A:STAT
   NO FILE | A>
@@ -336,7 +336,7 @@ Command: ERA C:HELLO.CMD
 Command: ERA B:HELLO.CMD
   A>
 Command: DIR
-  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : CHKMEM   CMD : COPY     CMD | A: CRC      CMD : DUMMP    CMD : ED       CMD : EDIT86   CMD | A: ERAQ     CMD : FIND     CMD : GENCMD   CMD : GREP     CMD | A: HELP     CMD : MUCHTEXT CMD : NSWEEP   CMD :  ...
+  A: ASM86    CMD : BAD86    CMD : BENCH86  CMD : BIDUMP   CMD | A: BINCOM   CMD : BS       CMD : CHKMEM   CMD : COPY     CMD | A: CRC      CMD : DUMMP    CMD : ED       CMD : EDIT86   CMD | A: ERAQ     CMD : FIND     CMD : GENCMD   CMD : GREP     CMD | A: HELP     CMD : MORE     CMD : MUCHTEXT CMD :  ...
       PASS  terminal: console output uses CR/LF pairs
 Command: DIRZ + Ctrl-H + CR
       PASS  terminal: Ctrl-H erases the last character on the CCP line
@@ -376,7 +376,7 @@ Command: PIP D:BENCH86.CMD=A:BENCH86.CMD
 Command: D:
   D>
 Command: BENCH86
-  BENCH86 v2 SCALE=1 | @BEGIN INTEGER | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 4129 ms | 8086 MODEL ONLY (not measured): 5MHz=6292 ms, 8MHz=3933 ms, 10MHz=3146 ms | Index vs 5MHz MODEL: 152 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 1564 ms |  ...
+  BENCH86 v2 SCALE=1 | @BEGIN INTEGER | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 4138 ms | 8086 MODEL ONLY (not measured): 5MHz=6292 ms, 8MHz=3933 ms, 10MHz=3146 ms | Index vs 5MHz MODEL: 152 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 1554 ms |  ...
 Command: A:
   A>
 Command: ERA D:BENCH86.CMD
@@ -400,7 +400,7 @@ Command: PIP D:BENCH86.CMD=A:BENCH86.CMD
 Command: D:
   D>
 Command: BENCH86
-  BENCH86 v2 SCALE=1 | @BEGIN INTEGER | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 4137 ms | 8086 MODEL ONLY (not measured): 5MHz=6292 ms, 8MHz=3933 ms, 10MHz=3146 ms | Index vs 5MHz MODEL: 152 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 1553 ms |  ...
+  BENCH86 v2 SCALE=1 | @BEGIN INTEGER | @END INTEGER PASS AX=4ED8 BX=D678 | Elapsed: 4128 ms | 8086 MODEL ONLY (not measured): 5MHz=6292 ms, 8MHz=3933 ms, 10MHz=3146 ms | Index vs 5MHz MODEL: 152 (100=model, higher=faster; theoretical) | @BEGIN SIEVE | @END SIEVE PASS PRIMES=1028 | Elapsed: 1564 ms |  ...
 Command: A:
   A>
 Command: ERA D:BENCH86.CMD
@@ -425,5 +425,4 @@ Command: 2
       SKIP  terminal escape sequences (full-screen editors)  -- manual
 
 ==== SUMMARY ====
-passed 58, failed 1, skipped(manual) 1
-  FAILED: timer: guest delta of a 1 s host wait is 900-1100 ms -- 1103 ms
+passed 59, failed 0, skipped(manual) 1
