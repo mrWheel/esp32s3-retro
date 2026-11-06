@@ -751,7 +751,7 @@ never evidence of hardware behaviour. The scripted driver is
    card switches §8, IIe §8.3, keyboard §10, display §11–§12, Disk II §13, block devices
    §14, images/profiles §15, configuration §16, add-ons §17, lifecycle §18.
 5. Provenance, licences and rights records for the 6502 core, ROMs and all bundled guest
-   software are present in-tree (`docs/thirdParty.md` and the asset directories).
+   software are present in-tree (the asset directories).
 
 ---
 

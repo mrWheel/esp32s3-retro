@@ -76,4 +76,4 @@ Other Python helpers generate emulator resources, support BASIC conversion and d
 
 ## Further reading
 
-This README and the system guides focus on using and exploring the computer. Build instructions, wiring and implementation details belong in the existing [tools guide](tools/README.md), [verification records](docs/verification.md) and system design notes: [CP/M-80](designCPM80.md), [CP/M-86](designCPM86.md), [UCSD Pascal](designUCSD.md), [Apple II](designApple2.md) and [SWTPC](designSWTPC.md).
+This README and the system guides focus on using and exploring the computer. Build instructions, wiring and implementation details belong in the existing [tools guide](tools/README.md) and system design notes: [CP/M-80](designCPM80.md), [CP/M-86](designCPM86.md), [UCSD Pascal](designUCSD.md), [Apple II](designApple2.md) and [SWTPC](designSWTPC.md).

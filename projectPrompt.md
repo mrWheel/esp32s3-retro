@@ -35,7 +35,7 @@ Keep the host services and machine-specific emulation separate so additional sys
 
 ### Current implementation snapshot
 
-This snapshot describes repository status, not a change to the machine-specific acceptance gates. Consult each design document and `docs/verification.md` for detailed evidence and outstanding work.
+This snapshot describes repository status, not a change to the machine-specific acceptance gates. Consult each design document for detailed evidence and outstanding work.
 
 | System | Current status |
 | --- | --- |
@@ -90,9 +90,7 @@ ctest test names differ from the source and executable file names.
 names before filtering with `-R`; filtering by source file name finds nothing.
 
 Some Apple II/UCSD ctest targets and some Python tests have pre-existing
-failures (missing ROM/image fixtures or outdated expected strings). Check
-`docs/verification.md` before treating any failure as related to the current
-change.
+failures (missing ROM/image fixtures or outdated expected strings).
 
 ## 3. Coding rules
 

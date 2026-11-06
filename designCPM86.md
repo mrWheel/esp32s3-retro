@@ -90,10 +90,10 @@ only through the `cpm86CoreConfig` callbacks.
 | `littlefs/cpm86/cpm.sys` | CMD-format CP/M-86 1.1 system file (10,240 bytes). CCP/BDOS from `tsupplis/cpm86-kernel` at commit `00927e17f43ea4241cc0809531cf68ce835e9c16`; its bundled IBM PC BIOS is NOT linked in. Rights per that repository's `LICENSE.md` and the user's non-commercial-use confirmation. | Genuine guest operating system. |
 | `littlefs/cpm86/retro86bios.h86` | Project-authored; assembled with ASM-86 1.1N from `components/cpm86Core/bios/retro86bios.a86`. | RETRO86_V1 BIOS overlay. |
 | `littlefs/cpm86/system.dsk` | Built by `tools/diskManager.py --type SYSTEMDSK --os cpm86` from `bootDisks/cpm86/systemDsk` (native `.CMD` utilities: `ASM86`, `ED`, `GENCMD`, `PIP`, `STAT`, `HELP`, `BENCH86`, `TIMER86`, `WBOOT86`, `BAD86`, …). | A: system disk. |
-| Reference manuals | CP/M-86 System Guide June 1981 (BIOS entry table Table 5-1 p.57, DPB Tables 6-2/6-4/6-5 pp.67-71, memory region table and segment-aware DMA Table 5-4 pp.64-65, BDOS argument rule p.23), Programmer's Guide June 1981, CP/M-86 1.1 release notes 1982. | ABI authority; page audit recorded in `docs/cpm86/abiAudit.md`. |
+| Reference manuals | CP/M-86 System Guide June 1981 (BIOS entry table Table 5-1 p.57, DPB Tables 6-2/6-4/6-5 pp.67-71, memory region table and segment-aware DMA Table 5-4 pp.64-65, BDOS argument rule p.23), Programmer's Guide June 1981, CP/M-86 1.1 release notes 1982. | ABI authority. |
 
-`GENCMD` and `ASM86` binary provenance is recorded as UNKNOWN in `docs/cpm86/abiAudit.md`;
-review rights before redistribution. Preserve upstream provenance statements in-tree.
+`GENCMD` and `ASM86` binary provenance is UNKNOWN; review rights before redistribution.
+Preserve upstream provenance statements in-tree.
 
 ## 6. CPU core (`tiny8086`)
 
@@ -449,11 +449,13 @@ tool layout); a two-extent encoding breaks BDOS record access for files > 16 KiB
 
 ## 11. Virtual I/O port contract
 
-The port numbers are project-defined virtual devices, not physical hardware. All accesses
-are 8-bit `IN`/`OUT` (word I/O faults, §6 rule 4). Disk operations complete
-synchronously; there is no asynchronous completion. The full normative text lives in
-[docs/cpm86/virtualIo.md](./docs/cpm86/virtualIo.md); the table below is the machine
-adapter's implementation (`main/cpm86Machine.c`).
+The port numbers are project-defined virtual devices, not physical hardware. This section
+is the full normative byte-port contract used by
+`components/cpm86Core/bios/retro86bios.a86` and `main/cpm86Machine.c`; port numbers are
+16-bit 8086 I/O addresses. All accesses are 8-bit `IN`/`OUT` (word I/O faults, §6 rule 4).
+Disk operations complete synchronously; there is no interrupt-driven or asynchronous
+device completion. There are no reserved F8h/F9h exchange ports in this profile (an
+earlier revision of this contract claimed them; no such ports exist in the code).
 
 ### 11.1 Console
 
@@ -462,6 +464,10 @@ adapter's implementation (`main/cpm86Machine.c`).
 | E0h | IN | `$FF` when a console byte is available, else `$00`. Does not consume. |
 | E1h | IN | Consumes one byte. Negative host result → guest I/O fault. A `$1D` (Ctrl+]) byte sets the host stop flag and returns fault — it never reaches the guest. |
 | E2h | OUT | Writes the low byte to the shared host console. |
+
+The guest BIOS polls E0h while waiting for input and reads E1h only after E0h reports
+input; reading E1h without a prior E0h availability answer stops the guest with an I/O
+error. The host scheduler regains control after each bounded CPU instruction batch.
 
 Guest bytes are forwarded verbatim; the machine performs no CR/LF or 7-bit conversion
 (the CP/M-86 CCP/CCP-side line editor owns line discipline, including Ctrl-H/0x7F
@@ -483,7 +489,7 @@ machine initialization.
 | EDh | IN | Transfer status: `$00` success, `$01` failure. |
 | EEh | IN | Next byte of an active read transfer; outside an active read → guest I/O fault. |
 | EEh | OUT | Next byte of an armed write transfer; the 128th byte commits the record (then mode → idle). Outside an active write → guest I/O fault. |
-| EFh | IN | Geometry code of the selected drive: `$00` when unselected/out of range/not configured, else the drive's code `$FF` (CPM86_160K DPB0), `$01` (CPM86_516K DPB1) or `$02` (CPM86_8196K DPB2). |
+| EFh | IN | Geometry code of the selected drive: `$00` when unselected/out of range/not configured, else the drive's code `$FF` (CPM86_160K DPB0), `$01` (CPM86_516K DPB1), `$02` (CPM86_8196K DPB2) or `$03` (CPM86_1440K DPB3). |
 
 Transfer rules:
 
@@ -496,6 +502,8 @@ Transfer rules:
   `imageWriteAt` followed by `imageFlush` (a write is durable only after a successful
   flush), and sets status `$01` on any failure.
 - The record byte offset is `((track · 32) + record) · 128` (identity order, no skew).
+- There is no virtual-device reset command and no promise of crash-atomic multi-record
+  filesystem updates; physical reset or power loss can interrupt a guest metadata update.
 
 ### 11.3 Unknown and misused ports
 
@@ -506,6 +514,65 @@ Transfer rules:
   returns the idle value `$FF`, a write is ignored; each port prints the one-time console
   notice `Device 0xNNNN not available.` at most once per machine run (tracked list,
   capacity 16).
+
+### 11.4 Millisecond timer (F0h–F4h)
+
+The F0h–F4h timer ports are introduced by firmware revision `RETRO86_TIMER_B1`. F0h
+reports capability B1h for this exact API protocol; only perform that capability read on
+this revision or newer, because older firmware may treat an unknown port as an I/O error.
+This is an emulator extension, not a standard CP/M feature.
+
+The timer reads ESP Timer's monotonic microsecond count and converts it to an unsigned
+32-bit millisecond counter. It has 1 ms resolution and wraps after 2^32 milliseconds
+(about 49.7 days). It does not require wall-clock time, network access or a configured
+date. The counter continues while the guest is not executing. Resetting or reinitializing
+ESP Timer invalidates an in-progress measurement.
+
+All accesses must be 8-bit `IN` instructions. Reading F1h takes one snapshot; F2h–F4h
+return its remaining bytes and never call the time source again. F0h does not change the
+snapshot. The initial and reset snapshot is zero. An emulator without an injected time
+source reports zero at F0h–F4h. Emulator reset clears only the snapshot; it does not reset
+ESP Timer. Writes to F0h–F4h and 16-bit I/O are unsupported and produce the existing
+guest I/O error. The ports are handled inside the CPU adapter before the §11.3 rules
+apply. The time callback is injected through the emulator configuration; CPU emulation
+has no ESP-IDF dependency, and other CPU emulators do not expose this guest API unless
+explicitly connected to it.
+
+| Port | Direction | Contract |
+| --- | --- | --- |
+| F0h | IN | Returns B1h when this API has a time source; otherwise 00h. |
+| F1h | IN | Captures the current millisecond counter and returns bits 0–7. |
+| F2h | IN | Returns bits 8–15 from the F1h snapshot. |
+| F3h | IN | Returns bits 16–23 from the F1h snapshot. |
+| F4h | IN | Returns bits 24–31 from the F1h snapshot. |
+
+An 8086 program may read the four bytes with:
+
+```asm
+read_milliseconds:
+    push bx
+    in   al, 0F1h
+    mov  bl, al
+    in   al, 0F2h
+    mov  bh, al
+    in   al, 0F3h
+    mov  dl, al
+    in   al, 0F4h
+    mov  dh, al
+    mov  ax, bx
+    pop  bx
+    ret
+```
+
+The result is `DX:AX`. Save that value as a start time and subtract it from a later
+result with `SUB AX, [start_low]` followed by `SBB DX, [start_high]`. Unsigned
+subtraction handles one counter wrap for measurements shorter than 2^32 milliseconds,
+provided ESP Timer is not reset during the measurement.
+
+Hardware check after flashing: use host-driven 8-bit port reads to capture the counter,
+wait approximately 1,000 ms in the host layer (not in a guest instruction loop), and read
+it again. The unsigned difference must be between 900 and 1,100 ms. This hardware check
+is not satisfied by desktop tests or a firmware build alone.
 
 ## 12. Disk subsystem
 
@@ -520,13 +587,14 @@ adding another offset would skip the directory.
 | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
 | `CPM86_160K` | 163,840 | 40 | 1 KiB | 64 | DPB0 | $FF | A: (built-in) or B:–F: |
 | `CPM86_516K` | 528,384 | 129 | 2 KiB | 128 | DPB1 | $01 | A: (built-in) or B:–F: |
+| `CPM86_1440K` | 1,474,560 | 360 | 8 KiB | 128 | DPB3 | $03 | A: (built-in) or B:–F: |
 | `CPM86_8196K` | 8,392,704 | 2049 | 16 KiB | 512 | DPB2 | $02 | A: (built-in) or B:–F: |
 
 The identifier carries the image size only; the drive letter decides the internal
 variant: the firmware models each size twice (`cpm86DiskProfileSystem*` for the
 built-in A: image, `cpm86DiskProfileData*` for SD images) and both share a geometry.
 
-SELDSK selects DPB0/1/2 purely from the EFh answer; the firmware stores the geometry code
+SELDSK selects DPB0/1/2/3 purely from the EFh answer; the firmware stores the geometry code
 per mounted drive at initialize time. A: is mounted as the `System*` variant matching the
 exact size of its image file; a declared identifier that contradicts the file size keeps
 A: unmounted (§14).
@@ -544,7 +612,7 @@ bool cpm86DriveRecordValid(uint32_t tracks, uint32_t track, uint32_t sector)
 ```
 
 Track 0 is never readable or writable; the valid record range is records 0–31 of tracks
-1…tracks−1 (1–39 / 1–128 / 1–2048). Bounds against the real image size remain a separate
+1…tracks−1 (1–39 / 1–128 / 1–359 / 1–2048). Bounds against the real image size remain a separate
 check in the caller (§11.2).
 
 ### 12.3 Drive roles
@@ -584,7 +652,7 @@ Parser requirements (see `main/cpm86DriveConfig.c`):
 - Exactly one `=` (not at the start); the drive name is one character `A`–`F`
   (case-sensitive uppercase); duplicates are rejected. The value is three
   comma-separated fields: path, mode (`RO`/`RW` exactly), size identifier (one of
-  `CPM86_160K`, `CPM86_516K`, `CPM86_8196K` exactly); a comma inside the identifier is
+  `CPM86_160K`, `CPM86_516K`, `CPM86_1440K`, `CPM86_8196K` exactly); a comma inside the identifier is
   rejected; empty path or identifier is rejected.
 - A: MUST name the exact path `/littlefs/cpm86/system.dsk`; its RO/RW mode is honored
   (RW shows `[Writable!]` in the menu and persists guest writes in LittleFS until the
@@ -604,8 +672,8 @@ Parser requirements (see `main/cpm86DriveConfig.c`):
   file (profileFromSize); B:–F: unconfigured.
 - A: profile resolution (`cpm86DriveConfigSystemProfileFromSize` /
   `cpm86DriveConfigResolveSystemProfile`): 163,840 → System, 528,384 → SystemLarge,
-  8,392,704 → SystemBig, any other size is an error and A: is not mounted (the error
-  string reports the size and the three accepted sizes). An explicit size identifier
+  1,474,560 → SystemHuge, 8,392,704 → SystemBig, any other size is an error and A: is not
+  mounted (the error string reports the size and the four accepted sizes). An explicit size identifier
   from drives.cfg must equal the actual file size; only the built-in default
   (profileFromSize) follows the file size.
 - Optional B:–F: mount only when configured, present, exactly the size named by the

@@ -92,7 +92,7 @@ B1h identifies this exact protocol; it is an emulator extension, not a CP/M or
 BDOS feature. The capability check is safe only on firmware that implements
 `RETRO86_TIMER_B1`: older firmware may reject unknown ports as an I/O error.
 Firmware introducing the protocol documents this revision in
-`docs/cpm86/virtualIo.md`.
+`designCPM86.md` §11.4.
 
 ### 8086 read routine
 

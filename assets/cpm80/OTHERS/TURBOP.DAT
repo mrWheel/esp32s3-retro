@@ -1,0 +1,97 @@
+
+///1TURBO
+Turbo Pascal: editing, compiling, and running programs under CP/M-80.
+This section describes the program workflow, not the Pascal language.
+Menu labels and compiler options differ among Turbo Pascal releases.
+
+///2DRIVES
+The configured drives for this system are:
+
+  A: CP/M system disk; read-only
+  B: language.dsk; compiler and language files
+  C: Utility.dsk; utility files
+  D: not configured
+  E: work1.dsk; writable source and output disk
+  F: work2.dsk; writable second work disk
+
+Use E: for source and compiled programs. Start Turbo Pascal from B:
+with a drive-qualified command name. Drive prefixes select disks;
+CP/M does not use folders. Filenames use the 8.3 form, for example
+HELLO.PAS and HELLO.COM.
+
+///2CHECKING
+List the compiler and work disks:
+
+  A>DIR B:
+  A>DIR E:
+
+Check the compiler name on B: and confirm the source is on E:.
+TURBO.COM is a common launcher name, but packages can differ.
+Do not save files on A:, because it is read-only.
+
+///2STARTING
+Select E: before starting the compiler. This makes E: the work disk.
+The compiler program is loaded from drive B:.
+
+  A>E:
+  E>B:TURBO
+
+If the installed program has another name, use that name instead.
+Consult its manual if the command does not start the compiler.
+
+///2LOADING
+In Turbo Pascal, choose the Files or Load command. Enter the source
+file on E:, including its drive and extension:
+
+  E:HELLO.PAS
+
+Edit the source in the environment. Save it as E:HELLO.PAS so it
+remains on the work disk, not the compiler disk. Use the exact menu
+commands and filename prompts shown by your release.
+
+///2COMPILING
+Choose the Compile command. If the environment asks for a destination,
+choose disk output to create a program that can be run after leaving
+Turbo Pascal. A compile-to-memory result may run only in the compiler
+environment and may not create a .COM file.
+
+Read all compiler messages. Correct errors, save HELLO.PAS on E:, and
+compile again. After a successful disk compile, leave the compiler
+and check the files:
+
+  E>DIR HELLO.*
+
+The usual standalone output is HELLO.COM. The output name or drive
+can vary by release and compiler settings; use the reported result.
+
+///2RUNNING
+At the CP/M prompt, select E: and run the command file without typing
+its .COM extension:
+
+  A>E:
+  E>HELLO
+
+The program runs as a normal CP/M transient command. Keep any data
+files on E: unless the program's documentation specifies another
+drive. Use matching runtime or support files if the program asks for
+them.
+
+///2PROBLEMS
+Bad command or compiler not found:
+Check DIR B: and use the exact launcher name on that disk.
+
+Source file not found:
+Check DIR E:. Enter the full E:HELLO.PAS name in the Load command.
+
+Compile succeeded but no .COM exists:
+Choose disk output rather than memory output, then compile again.
+Check the output name and destination with DIR E:.
+
+Disk is read-only or a write failed:
+Do not write to A:. Save source and output on writable E:.
+
+Program is not found after compiling:
+Check DIR E: for the actual output name, select E:, and run the name
+without the .COM suffix.
+
+

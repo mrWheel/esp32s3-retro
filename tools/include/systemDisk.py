@@ -93,7 +93,8 @@ def _read_source_files(source_dir):
         raise DiskImageError(f"System disk source directory does not exist: {source_dir}")
 
     for path in sorted(source_dir.iterdir(), key=lambda item: item.name.upper()):
-        if path.name == ".DS_Store":
+        #-- README.md documents the folder on the host; it must not land on the disk (like the Apple II/UCSD builders)
+        if path.name in (".DS_Store", "README.md"):
             continue
         if path.is_symlink():
             raise DiskImageError(f"Refusing symbolic link in system disk source: {path}")

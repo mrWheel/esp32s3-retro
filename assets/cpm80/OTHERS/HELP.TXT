@@ -1,0 +1,332 @@
+CP/M-80 LANGUAGE TOOLS
+=====================
+Turbo Pascal and Microsoft COBOL-80
+
+This is a plain-text, CP/M-readable guide to preparing, compiling, and running
+programs. It is not a guide to either programming language.
+
+IMPORTANT: The HELP.HLP installed on the system A: disk is a compiled help
+database supplied with the CP/M utilities. This file is a separate plain-text
+document and does not replace that database. When copying this guide to CP/M,
+name the copy LANGHELP.HLP so HELP.COM will not mistake plain text for its
+compiled database. To read it, use TYPE, for example:
+
+    A>TYPE E:LANGHELP.HLP
+
+The exact compiler commands and output files depend on the compiler release
+installed on B:. Check that release's manual whenever its prompts or filenames
+differ from the examples below. This project does not include or license
+Turbo Pascal or Microsoft COBOL-80.
+
+
+1. THE DRIVE SETUP USED HERE
+============================
+
+CP/M shows a prompt such as A>. The letter is the currently selected drive.
+Enter a drive letter followed by a colon to select another drive:
+
+    A>B:
+    B>
+
+Do not type the prompt itself. In this guide, text after A>, B>, or E> is the
+command to type. Press ENTER after each command.
+
+The supplied CP/M-80 configuration maps these drives:
+
+    A:  CP/M system disk; read-only
+    B:  language.dsk; language/compiler disk
+    C:  Utility.dsk; utility disk
+    D:  not configured
+    E:  work1.dsk; writable source and output disk
+    F:  work2.dsk; writable second work disk
+
+B:, C:, E:, and F: are optional SD-card disks in the current configuration.
+The compiler examples assume that the licensed compiler files have already
+been installed on B:. The current disk image may not contain those files.
+Confirm the actual contents with DIR before starting.
+
+Keep source files and build results on E:. Run a compiler from the drive on
+which it is installed, but give source files an E: drive prefix. This avoids
+confusing the compiler's location with the location of your work.
+
+CP/M filenames use the 8.3 form:
+
+    NAME.EXT
+
+The name has at most eight characters and the extension at most three. Examples
+are HELLO.PAS, HELLO.CBL, HELLO.REL, and HELLO.COM. CP/M does not use folders
+or slash-separated paths. The drive prefix, such as E:, selects a disk.
+Commands and filenames are normally case-insensitive.
+
+
+2. CHECK THE DISKS BEFORE WORKING
+=================================
+
+At the CP/M prompt, list the source disk:
+
+    A>DIR E:
+
+Select E: and check that it is writable by saving a small test file with your
+editor, or use a disposable work disk for the first test. Never use A: for
+source files or compiler output: A: is read-only.
+
+Check that the compiler files are on B:
+
+    A>DIR B:
+
+Look for the actual program name supplied with your compiler. Common launcher
+names are TURBO.COM for Turbo Pascal and COBOL.COM for Microsoft COBOL-80, but
+names vary between packages. Do not assume that a compiler is installed just
+because B: is called language.dsk.
+
+If the files are missing, stop here and install a copy you are entitled to use.
+On the host computer, the project's disk-image tool can add individual CP/M
+files to a disk image. Add only files allowed by their individual license, use
+the correct disk image, and keep the original download and its license
+information. Do not add host operating-system files or rename an archival disk
+image to .dsk unless its geometry and format have been verified.
+
+To copy this guide through the project's file-transfer utility, first make a
+host-side copy named LANGHELP.HLP, then upload it to the CP/M-80 exchange
+directory. At CP/M, select E: and retrieve it (the transfer utility requires
+USER 0):
+
+    A>USER 0
+    A>E:
+    E>A:HOST GET LANGHELP.HLP
+    E>TYPE LANGHELP.HLP
+
+Keep the name LANGHELP.HLP. Do not install this plain-text guide as
+E:HELP.HLP; HELP.COM expects its compiled help database format.
+
+
+3. THE BASIC WORK CYCLE
+=======================
+
+For either compiler:
+
+1. Keep the original source on E:.
+2. Select E: before editing or compiling:
+
+       A>E:
+       E>
+
+3. Use DIR to confirm the expected source file is present:
+
+       E>DIR
+
+   Or list a particular file:
+
+       E>DIR HELLO.*
+
+4. Start the compiler using its drive-qualified name, for example B:TURBO.
+   The program is loaded from B:, while source and output files should be
+   explicitly selected on E:.
+5. Read compiler messages. Correct errors in the source and compile again.
+6. Use DIR E: to confirm that the expected output really exists.
+7. Run an executable by selecting E: and entering its filename without the
+   .COM extension:
+
+       E>HELLO
+
+Do not try to run a .PAS, .CBL, .REL, or .LST file. A .REL file is an
+intermediate object file; a .LST file is usually a listing. They are not
+standalone CP/M programs.
+
+
+4. TURBO PASCAL: EDIT, COMPILE, AND RUN
+=======================================
+
+These steps describe the usual Turbo Pascal CP/M integrated environment. Menu
+labels and output options differ between releases.
+
+1. Select E: first so that E: is the normal work drive:
+
+       A>E:
+
+2. Start the Turbo Pascal program on B:. A common command is:
+
+       E>B:TURBO
+
+   If DIR B: shows a different launcher name, use the name documented by that
+   package instead.
+
+3. In the Turbo Pascal environment, choose the Files/Load command (or the
+   equivalent menu item in your release) and enter the source filename:
+
+       E:HELLO.PAS
+
+   If the file is not found, cancel the operation, return to the CP/M prompt,
+   select E:, and start Turbo Pascal again. Confirm the spelling with DIR E:.
+
+4. Edit the program in the environment. Save it as E:HELLO.PAS. When asked for
+   a filename, include E: so the source is not saved on the compiler disk.
+
+5. Choose the Compile command. Select disk output if the compiler asks whether
+   to compile to memory or disk. A compile-to-memory result can be run inside
+   Turbo Pascal but does not necessarily create a program that can be launched
+   later from the CP/M prompt.
+
+6. Read all compiler messages. Fix errors, save the source on E:, and compile
+   again. After a successful disk compile, leave the environment and check:
+
+       E>DIR HELLO.*
+
+   The usual standalone output is HELLO.COM. Some releases or compiler
+   settings use a different output name or destination; use the name and drive
+   reported by that release.
+
+7. At the E: prompt, run the generated command file:
+
+       E>HELLO
+
+The program runs as a normal CP/M transient program. If it returns to the CP/M
+prompt, it has finished. If it reports a missing file or module, check that
+required runtime/support files are on an accessible drive and consult the
+compiler release notes.
+
+
+5. MICROSOFT COBOL-80: COMPILE, LINK, AND RUN
+=============================================
+
+COBOL builds commonly have two stages: the compiler translates source into a
+relocatable object file (often .REL), and a linker combines that object with
+required runtime modules to make a CP/M command file (usually .COM). Exact
+names, qualifiers, prompts, and linker requirements vary with the Microsoft
+COBOL-80 release. Use the manuals supplied with the installed package.
+
+1. Keep the source on E: and select E::
+
+       A>E:
+
+2. Confirm the source is present. The package may expect .CBL, .COB, or another
+   extension:
+
+       E>DIR HELLO.*
+
+3. Start the compiler from B:. If the installed compiler is named COBOL.COM,
+   a common command-line form is:
+
+       E>B:COBOL E:HELLO.CBL
+
+   Treat this as an example, not a universal command syntax. Some releases
+   require another extension, options, a prompt-driven filename, or a
+   different compiler command. Follow the installed manual exactly and give
+   the source as E:HELLO.CBL (or its actual name).
+
+4. Read the complete compiler output. Correct errors in HELLO.CBL, save the
+   source on E:, and compile again. On success, inspect E::
+
+       E>DIR HELLO.*
+
+   If the compiler produced HELLO.REL, that is an object file, not a runnable
+   program. If the compiler reports a different object suffix, use that exact
+   filename in the next step.
+
+5. Link the object with the linker required by that COBOL release. The system
+   A: disk includes a CP/M LINK utility; some compiler packages require their
+   own linker or additional runtime/library modules. A typical DRI LINK-style
+   invocation is:
+
+       E>A:LINK E:HELLO
+
+   The linker may instead prompt for input names or require explicit library
+   names and options. Use its manual. Ensure the linker can find the object
+   and required COBOL runtime libraries, and direct the final output to E:.
+
+6. Confirm that the linker created the expected executable:
+
+       E>DIR HELLO.*
+
+   Usually it is HELLO.COM. Do not proceed if the linker reported unresolved
+   modules or failed to create the command file.
+
+7. Run the executable from E::
+
+       E>HELLO
+
+If the compiler creates an executable directly and no .REL file, follow that
+compiler's manual and skip the linker only when the manual says linking is not
+needed. A successful compile message alone does not prove the program is ready
+to run.
+
+
+6. KEEP INPUTS, OUTPUTS, AND DATA STRAIGHT
+==========================================
+
+Use E: for the source, object, listing, and final executable whenever the tool
+supports drive-qualified input and output names. Keep the original source file;
+it is what you edit when correcting a program.
+
+Use explicit drive prefixes when asking CP/M to inspect files:
+
+    A>DIR B:
+    A>DIR E:
+    A>TYPE E:HELLO.CBL
+
+For a compiler prompt, enter the complete E: filename when requested. For
+menus, choose the release's Load/Save/Compile options and check the destination
+before accepting it. A compiler started from B: does not mean that your source
+or output belongs on B:.
+
+If a compiled program opens a data file using only a filename, it will usually
+look on the current drive. Select E: before running it, and keep the data file
+on E: unless the program or compiler manual documents another drive-selection
+method.
+
+Keep a second copy of important source on F: or on the host computer. E: and F:
+are writable disks; deleting files or writing an incorrect disk image can
+destroy their contents. Use disposable images while learning.
+
+
+7. COMMON PROBLEMS
+==================
+
+"Bad command" or "command file not found"
+    The named .COM file is not on the drive specified. Check DIR B: and use the
+    exact launcher name. A compiler package may use a different name.
+
+"File not found" while loading source
+    Confirm the source with DIR E:. Use its exact 8.3 name, including E: and
+    the extension where the prompt asks for a filename.
+
+Compile succeeds, but there is no .COM
+    Turbo Pascal may have compiled to memory instead of disk. COBOL may have
+    produced only a .REL object and still need a linker. Check compiler output,
+    menu options, and DIR E:.
+
+"Disk is read-only" or a write error
+    Do not write to A:. Select E: and verify that its configured image is
+    writable. Use a disposable work image for experiments.
+
+Executable is not found after compiling
+    Check DIR E: for the actual output name and destination. Select E: before
+    running it. Start a CP/M command file by its name without typing .COM.
+
+Missing module, library, or runtime message
+    Use the linker and runtime files that belong to the installed compiler
+    release. Do not mix compiler releases or assume that a library on another
+    drive will be found automatically.
+
+The expected drive is unavailable
+    Check the configured drives.cfg and the SD-card disk image. D: is not
+    configured in the supplied setup; use the mapped B:, C:, E:, or F: drive.
+
+
+8. QUICK REFERENCE
+==================
+
+List files on the compiler disk:       DIR B:
+List files on the work disk:           DIR E:
+Select the work disk:                  E:
+Start Turbo Pascal on B:               B:TURBO
+Load a Pascal source:                  E:HELLO.PAS
+Start COBOL-80 on B:                   B:COBOL ...
+Compile source stored on E:            E:HELLO.CBL
+Link a COBOL object (if required):     A:LINK E:HELLO
+Run the resulting command file on E:   HELLO
+Display a text source file:             TYPE E:HELLO.CBL
+
+The compiler command and linker examples are version-dependent. The compiler
+manual installed with the actual software takes precedence over this guide.
+
