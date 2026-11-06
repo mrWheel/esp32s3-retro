@@ -1,500 +1,757 @@
-# designApple2.md
+# Apple II Machine Design
 
 [← Back to the Apple II guide](assets/readMes/README_APPLE2.md)
 
-Revision: 2026-10-12. Status: motherboard, ProDOS block storage, and selected slot-3 80×24 text-card profile integrated. SmartPort block configuration supports slots 4–7 and up to four units per slot; Pascal's legacy ProDOS block interface exposes only two units per slot. Pascal 1.3 128K boot has host evidence; current three-volume file/media regression is failing. ROM provenance, redistribution rights and hardware behavior remain unverified.
+## 1. Purpose and scope
 
-# Purpose and provenance
+This document is the complete technical design of the Apple II guest machine hosted by the
+ESP32-S3 Retro Computer. It defines the architecture, the guest-visible hardware, the memory
+map, the ROM/boot contract, the Language Card and optional memory models, the keyboard and
+text display, the slot-3 80-column card, the Disk II and block-device controllers, the drive
+configuration, the virtual add-on devices, the machine lifecycle and the testing required to
+prove a correct implementation.
 
-This document follows the engineering-memory structure of designCPM80.md and designCPM86.md and the latest recovered projectPrompt decisions. 
 
-Apple II is menu option 4. Menu option 3 (UCSD Pascal) selects its own disk configuration but uses this same Apple II machine implementation, as detailed in `designUCSD.md`. Option 4 retains the shipped ProDOS profile; explicit Apple Pascal media are a narrowly scoped extension and do not change that baseline. The target is an expanded original Apple II workstation for Integer BASIC, disk-loaded Applesoft, editors and assemblers using an 80×24 ANSI/VT100 USB terminal.
+Menu option 4 (Apple II) and menu option 3 (UCSD Pascal) run the same machine implementation
+with different `drives.cfg` profiles; the Pascal profile is defined by `designUCSD.md`. This document plus [projectPrompt.md](./projectPrompt.md) (common
+host services: menu, console, LittleFS, SD, image I/O, disk-activity LED) describes the implementation of the Apple2e emulator.
 
-The default machine is an original Apple II (an optional Apple IIe model exists, see APPLE-DEC-037) with NMOS 6502, 48 KiB motherboard RAM, a 16 KiB Language Card, Integer BASIC ROM, an Autostart Monitor upgrade, a lowercase character-ROM modification, a separate 80×24 expansion card, and disk controllers. This is a target reconstruction based on owner recollections, not a verified historical bill of materials. No physical Shift wire is connected to the game port in this project setup. The Apple II profile stays the default. A second machine model, a real **Apple IIe** (unenhanced, NMOS-compatible ROM, 64 KiB main + 64 KiB auxiliary RAM, built-in Language Card and 80-column softswitches), is selected with `MACHINE=IIE` in `drives.cfg` (APPLE-DEC-037); the II-specific rules below apply to the II model only.
+### Requirement levels
 
-# Project-wide contract
+- **MUST** — mandatory; an implementation that violates it is non-conforming.
+- **SHOULD** — mandatory unless a documented, explicit deviation is accepted.
+- **MAY** — optional.
 
-projectPrompt.md is the authority for host architecture and coding rules. Use the canonical name in the project. These documents specialize that contract, not replace it. Companion documents are 
-- designCPM80.md, 
-- designCPM86.md, 
-- designUCSD.md,
-- designSWTPC.md,
-- timeSource.md.
+## 2. Design goals
 
-## The fixed main menu is:
+1. Execute authentic Apple II firmware instructions on an NMOS 6502 core inside a 48 KiB
+   motherboard RAM plus 16 KiB bank-switched Language Card address space (128 KiB in the
+   optional IIe and Saturn 128K models); the host never substitutes its own BASIC, DOS or
+   Pascal at command level.
+2. Provide the Disk II controller, the block-device (SmartPort/ProDOS) interface and the
+   slot-3 80-column card as guest-visible devices driven by softswitches and slot ROM, with
+   project-authored firmware where no redistributable ROM exists.
+3. Support Disk II drives in slots 4–7 (two drives per controller) and up to four 512-byte
+   block devices per slot, with independent image file, profile, sector order and access
+   mode; the boot drive SD6.1 is required.
+4. Keep the CPU core, device models and disk controller free of ESP-IDF dependencies so they
+   compile and run natively for host-side testing; all filesystem, console and indicator
+   ownership stays in the machine adapter.
+5. Cooperate with FreeRTOS: bounded cycle batches with periodic yields so the task scheduler
+   and watchdog are serviced during guest execution.
+6. Render the 40-column motherboard text and the 80-column card text to the USB terminal as
+   ANSI/VT100 without intercepting ROM print calls; terminal output reflects guest video
+   memory.
 
-ESP32-S3 Retro Computer
+Non-goals: graphics/high-resolution rendering, sound, paddle/Shift game-port input,
+cycle-accurate raster timing, physical floppy hardware, and terminal emulation inside the
+host console.
 
+## 3. Responsibility boundary
+
+| Layer | Owner | Provides |
+| --- | --- | --- |
+| Menu, machine registry, probe states | common host | Selection, lifecycle scheduling |
+| USB Serial/JTAG byte-stream console | common host | `hostConsoleCharAvailable/PeekChar/GetChar/PutChar` |
+| LittleFS mount, SD/FatFS mount, path resolver | common host | VFS paths, `storageResolveRetroPath` |
+| Virtual image random access | common host | `imageOpen/imageReadAt/imageWriteAt/imageFlush/imageClose/imageSize` |
+| Disk-activity RGB indicator (GPIO 38) | common host | `diskActivityRead()` green, `diskActivityWrite()` red |
+| NMOS 6502 core | `components/apple2Core/third_party/chips/m6502.h` | Upstream cycle interpreter |
+| Bus, devices, controllers, adapters | Apple II machine | Everything below this line |
+
+The Apple II machine MUST NOT start Wi-Fi or any HTTP server, MUST NOT open the console or
+mount filesystems itself, and MUST NOT be active at the same time as the browser File
+Transfer service (enforced by the common host menu).
+
+## 4. Architecture and module boundaries
+
+```text
+machine registry (main/machineRegistry.c)
+  -> apple2MachineProbeWithConfig / apple2MachineInitializeWithConfig / apple2MachineRun
+                                                                     main/apple2Machine.c
+       -> apple2DriveConfigLoad / MACHINE / RAMCARD settings         main/apple2DriveConfig.c
+       -> apple2DiskImage sector/block random access + probe         main/apple2DiskImage.c
+       -> apple2Keyboard terminal translation                        main/apple2Keyboard.c
+       -> apple2Info RETROAPPLE-SYSINFO/1 stream                     main/apple2SystemInfo.c
+       -> imageFile, diskActivity, hostConsole                       (common host)
+       -> apple2Core                                                 components/apple2Core/apple2Core.c
+            -> m6502 cycle core + generated fast core                third_party/chips/m6502.h,
+                                                                      apple2Fast6502.inc
+            -> apple2Disk Disk II model                              components/apple2Core/apple2Disk.c
+            -> generated slot ROMs and card firmware                 apple2DiskBootRom.h,
+                                                                      apple2PascalCardRom.h, videxFirmware
 ```
-1. CP/M-80
-2. CP/M-86
-3. UCSD Pascal
-4. Apple II
-5. SWTPC 6800
 
-6. File Transfer
+| Module | Responsibility |
+| --- | --- |
+| `main/apple2Machine.c` | Registry callbacks; ROM load; open/attach/close images; input queue; ANSI renderer; run loop; disk-activity signalling. |
+| `main/apple2DriveConfig.c/.h` | Parse and validate `drives.cfg`; `MACHINE=`/`RAMCARD=` settings; path confinement. |
+| `main/apple2DiskImage.c/.h` | Profile sizing, sector/block mapping, `.po`/`.do` order selection, content probe, flush on write. |
+| `main/apple2Keyboard.c/.h` | Terminal byte stream → Apple II key codes (cursor keys, CR/LF/DEL, ESC pairs). |
+| `main/apple2SystemInfo.c/.h` | Slot-1 SYSINFO stream (`RETROAPPLE-SYSINFO/1`). |
+| `components/apple2Core/apple2Core.c` | Bus decode, memory map, Language Card, IIe model, keyboard latch, Videx card, block-device execution, cycle/fast 6502 loop. |
+| `components/apple2Core/apple2Disk.c` | Disk II controller: stepper, nibble rotation, GCR encode/decode, write capture. |
 
-Select system [1-6]:
+The core and device models MUST NOT include ESP-IDF headers except through the conditional
+allocation block described in §6, and MUST NOT call filesystem or console APIs directly — the
+core only sees the caller's sector/block callbacks.
+
+## 5. Guest resources and provenance
+
+| Resource | Provenance | Use |
+| --- | --- | --- |
+| `m6502.h` | `floooh/chips`, pinned commit `ee88c35ad6427341aa6999c3b07233e1f8bd2396`, zlib/libpng, vendored under `components/apple2Core/third_party/chips/`. | NMOS 6502 cycle interpreter. |
+| `littlefs/apple2/apple2.rom` | 12 KiB Apple II Autostart Monitor + Integer BASIC image (`assets/apple2_roms/apple.rom`); Apple firmware released by Steve Wozniak for non-commercial use. | Default system ROM (window `$D000–$FFFF`). |
+| `littlefs/apple2/apple2e.rom` | Upper 16 KiB of the unenhanced NMOS Apple IIe ROM (`assets/apple2_roms/`). | ROM for the optional `MACHINE=IIE` model (window `$C000–$FFFF`). |
+| `littlefs/apple2/system.dsk` | Built by `tools/diskManager.py --type SYSTEMDSK --os apple2` (ProDOS `/SYSTEM` volume). | Boot drive SD6.1 image. |
+| `apple2DiskBootRom.h` | Project-authored, generated by `tools/apple2/buildApple2DiskBootRom.py`. Do not edit by hand. | Disk II boot ROMs for slots 4–7. |
+| `apple2PascalCardRom.h` | Project-authored, generated by `tools/ucsd/buildApple2PascalCardRom.py`. Do not edit by hand. | Slot-3 card slot ROM and Apple Pascal firmware-protocol layer. |
+| `videxFirmware[]` (in `apple2Core.c`) | Project-authored. | Slot-3 80-column `PR#3` COUT driver and CRTC init. |
+| `apple2Fast6502.inc` | Generated by `tools/genM6502Fast.py` from `m6502.h`. Do not edit by hand. | Instruction-stepped fast 6502 path. |
+
+Emulated `$Cxxx` I/O on unmodelled addresses uses the last data-bus value; an accurate
+floating-bus model is not implemented and not required.
+
+## 6. CPU core (`apple2Core`)
+
+Exact interface (see `include/apple2Core.h`):
+
+```c
+enum
+{
+  apple2RamSize = 48 * 1024,
+  apple2RomSize = 12 * 1024,
+  apple2IIeRomSize = 16 * 1024,
+  apple2TextRows = 24,
+  apple2TextColumns = 40,
+  apple2VidexTextRows = 24,
+  apple2VidexTextColumns = 80,
+  apple2DiskFirstSlot = 4,
+  apple2DiskLastSlot = 7,
+  apple2DiskDrivesPerSlot = 2,
+  apple2DiskMaxTracks = 200,
+  apple2SmartPortSlot = 5,
+  apple2SmartPortDevices = 4,
+  apple2SmartPortBlockSize = 512,
+  apple2TimerSlot = 2,
+  apple2TimerCapabilityAddress = 0xC0A0,
+  apple2TimerLowAddress = 0xC0A1,
+  apple2TimerHighAddress = 0xC0A4,
+  apple2TimerCapability = 0xC1
+};
+
+typedef enum
+{
+  apple2CoreOk, apple2CoreInvalidArgument, apple2CoreNoMemory,
+  apple2CoreInvalidRom, apple2CoreKeyBusy
+} apple2CoreResult;
+
+apple2CoreResult apple2CoreCreate(apple2Core** core);
+void apple2CoreDestroy(apple2Core* core);
+apple2CoreResult apple2CoreSetTimeSource(apple2Core* core, hostReadMilliseconds readMilliseconds,
+                                         void* context);
+apple2CoreResult apple2CoreSetRamCard(apple2Core* core, apple2RamCard ramCard);
+apple2CoreResult apple2CoreEnableIIe(apple2Core* core);
+bool apple2CoreIsIIe(const apple2Core* core);
+apple2CoreResult apple2CoreLoadRom(apple2Core* core, const uint8_t* rom, size_t size);
+apple2CoreResult apple2CoreReset(apple2Core* core);
+apple2CoreResult apple2CoreRunCycles(apple2Core* core, size_t cycles);
+apple2CoreResult apple2CoreReadMemory(apple2Core* core, uint16_t address, uint8_t* value);
+apple2CoreResult apple2CoreWriteMemory(apple2Core* core, uint16_t address, uint8_t value);
+apple2CoreResult apple2CoreSetCharacterOptions(apple2Core* core, bool lowercaseCharacterRom,
+                                               bool lowercaseKeyboard);
+apple2CoreResult apple2CoreSetBootIn80Columns(apple2Core* core, bool enabled);
+char apple2CoreDecodeTextCharacter(const apple2Core* core, uint8_t value);
+apple2CoreResult apple2CorePressKey(apple2Core* core, uint8_t character);
+bool apple2CoreKeyPending(const apple2Core* core);
 ```
 
-Every selection requires [Enter]; a digit alone does nothing. Normalize CR/LF/CRLF so one submitted line is processed once. Invalid or disabled choices explain the reason and stay in the menu. During HOST-M1, emulator choices report Not implemented yet; no CPU emulator is implemented in that milestone. Runtime availability later requires a compiled implementation, valid resources and any mandatory media. Distinguish an unimplemented machine from missing or invalid resources.
+Requirements:
 
-HOST-M1 owns the machine registry, USB console, menu, LittleFS, SD detection and versioned /retro/layout.txt validation, image block storage, browser staging directories and File Transfer. A 32 GB FAT32 SD card is recommended. The manifest schema/version must come from the implemented host contract, not be independently invented by an emulator. Never silently format an unknown card or replace user images. Missing SD or wrong layout must be visible; optional missing media need not prevent an otherwise supported LittleFS-only recovery boot.
+1. `apple2CoreCreate` allocates the 48 KiB main RAM and the Language Card RAM. On ESP-IDF
+   targets allocate PSRAM first (`MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT`), falling back to
+   internal RAM; on the native host use `calloc`. The bus value starts at `$FF`.
+2. `apple2CoreSetRamCard` replaces the card RAM (16 KiB `apple2RamCardLanguage16` default,
+   128 KiB `apple2RamCardSaturn128`) and clears it; call before `apple2CoreLoadRom`.
+3. `apple2CoreEnableIIe` allocates 48 KiB auxiliary RAM, a 32 KiB Language Card (main +
+   auxiliary copy) and the 16 KiB IIe ROM image; it clears the Saturn selection and the
+   boot-in-80-columns flag. Call before `apple2CoreLoadRom`.
+4. `apple2CoreLoadRom` requires the exact size (12,288 bytes for the Apple II, 16,384 for
+   the IIe). The reset vector must be inside the ROM window: at file offset `$2FFC` (12 KiB)
+   it must read ≥ `$D000`; at file offset `$3FFC` (16 KiB) it must read ≥ `$C100`. A bad
+   vector returns `apple2CoreInvalidRom`. Load performs a reset.
+5. `apple2CoreReset` initialises: video state (`textMode = true`, all else false), Videx
+   registers/workspace/output-selection cleared, keyboard data/strobe cleared, timer
+   snapshot cleared, Language Card bank 2 selected with reads from ROM and writes disabled,
+   all IIe flags cleared, bus value `$FF`, every Disk II controller's switches reset. With
+   `bootIn80Columns` and the Apple II model the card is activated as in §12.4. The 6502 is
+   re-initialised via `m6502_init` with decimal mode enabled.
+6. `apple2CoreRunCycles` runs the CPU for exactly `cycles` bus cycles. Two paths must behave
+   identically: the cycle-stepped reference loop (`m6502_tick` plus `readAddress`/
+   `writeAddress`) and the instruction-stepped fast core generated from `m6502.h`. The fast
+   core MUST bail to the reference path whenever the address falls in `$C000–$CFFF`, the
+   Videx zero-page workspace is active, or a lowercase echo correction is pending. The
+   test switch `apple2CoreDisableFast6502` forces the reference path everywhere.
+7. `apple2CorePressKey` rejects characters > `$7F` and returns `apple2CoreKeyBusy` while the
+   data-ready strobe is still set. With `lowercaseKeyboard` false, letters are forced to
+   uppercase before latching.
+8. The machine adapter owns the time source; `apple2CoreSetTimeSource` enables the timer
+   card of §17 and reserves slot 2 from generic slot-I/O devices.
 
-Paths beginning /retro/ are paths on the SD volume, independent of its ESP-IDF VFS mount prefix. /littlefs/ below is a proposed VFS mount name; reconcile it with HOST-M1 before implementation. Each resource manifest records format, size, checksum, origin, license, machine profile and read-only policy. Keep minimal boot resources in LittleFS; larger and writable images belong on SD. Do not store an entire disk image in RAM. Use bounded block buffers, checked offset arithmetic, explicit end-of-image checks and bounded resource ownership. Host capacity is not guest filesystem capacity.
+## 7. Guest memory map (Apple II / II+ model)
 
-File Transfer is a project-wide facility, not a server implemented inside each emulator. Only menu option 6 starts WiFi, using exclusively `michmich/esp-idf-wifi-provisioner` with the `^0.4.0` requirement; resolve and lock the actual tested version in the host dependency lock. 
+| Address range | Contents | Notes |
+| --- | --- | --- |
+| `$0000–$BFFF` | 48 KiB motherboard RAM. | Zero page and stack page in RAM. |
+| `$0006–$000D` | Zero page. | Shadowed to the card workspace while the slot-3 firmware executes (§12.5). |
+| `$0024/$0025` | CH / CV (text cursor column/row). | Followed by the 80-column card; §12. |
+| `$0028/$0029` | BASL/BASH (text output base address). | |
+| `$0036/$0037` | CSW output vector. | `$FDF0` motherboard COUT1, `$C8B3` card COUT. |
+| `$0400–$07FF` / `$0800–$0BFF` | Text page 1 / page 2. | Non-linear row map, §11.1. |
+| `$C000` | Keyboard data (bit 7 = data ready). | §10. |
+| `$C010` | Keyboard strobe clear (read or write). | |
+| `$C050–$C057` | Video softswitches. | §11.2. |
+| `$C080–$C08F` | Slot-0 Language Card / Saturn switches. | §8. |
+| `$C090–$C09F` | Slot-1 I/O (SYSINFO device). | §17.2. |
+| `$C0A0–$C0AF` | Slot-2 I/O (timer card at `$C0A0–$C0A4`). | §17.1. |
+| `$C0B0–$C0BF` | Slot-3 80-column card CRTC/bank I/O. | §12.1. |
+| `$C0C0–$C0FF` | Disk II I/O, slot n at `$C080 + n·$10`. | §13.2. |
+| `$C100–$C3FF` | Slot ROM space; slot-3 card ROM at `$C300–$C3FF`. | §12.2. |
+| `$C400–$C7FF` | Slot ROM space for disk/block slots 4–7 at `$Cn00–$CnFF`. | §13.6, §14. |
+| `$C800–$C970` | Slot-3 card firmware (369 bytes, project-authored). | §12.3. |
+| `$CA00–$CABE` | Slot-3 Pascal firmware layer (475 bytes, generated). | §12.7. |
+| `$CC00–$CDFF` | Card video RAM window (512 bytes of the banked 2 KiB). | §12.1. |
+| `$D000–$DFFF` | Language Card bank 2 (default) or bank 1 (`$C088–$C08F`); ROM when reads disabled. | §8. |
+| `$E000–$FFFF` | Language Card shared 8 KiB; system ROM when reads disabled. | §8. |
 
-The dedicated upload/download/delete webserver starts after networking is available and exposes only `/retro/exchange/` and `/retro/images/` on the physical SD card. The GUI selects machine and transfer type: loose files go under `/retro/exchange/apple2/`, while Apple II disk images go under `/retro/images/apple2/`. 
+The 12 KiB system ROM occupies `$D000–$FFFF`. Memory is a flat byte array plus the card RAM;
+there is no write protection other than the Language Card switches. Unmodelled `$Cxxx` reads
+return the last data-bus value.
 
-Other machine selections use their matching directory names. 
+## 8. Language Card and 128 KiB options
 
-The GUI displays each file’s full VFS path. Disk-image files are transferred whole, with a basic progress indicator. Traversal, absolute-path escape, malformed names and unintended overwrite must be rejected. Uploads use bounded streaming and temporary files; incomplete uploads must not appear as completed files. 
+### 8.1 `$C080–$C08F` switch semantics (Apple II model)
 
-Binary data must remain byte-identical. 
+`accessLanguageCardSwitch` decodes the offset bits:
 
-The transfer limit is 4 GiB minus 2 bytes: ESP-IDF’s HTTP parser reserves the maximum 32-bit Content-Length value as a sentinel. [Enter] exits File Transfer to the main menu; WiFi may then stop. 
+- Bank select: bank 2 (default) when bit 3 clear, bank 1 when bit 3 set.
+- Read mapping: Language Card RAM when `(address & $03)` is `$00` or `$03`; ROM otherwise
+  (`(address & $03)` `$01` or `$02`).
+- Even offsets (bit 0 clear): disable writes and clear the prewrite latch.
+- Odd offset write: clear the prewrite latch (writes do not arm).
+- Odd offset read: if prewrite was set, enable writes; set prewrite. (Two successive odd
+  reads enable writes; writes stay enabled even while ROM is selected for reads.)
 
-Emulator execution and browser File Transfer are mutually exclusive in the initial design.
+Card layout: two 4 KiB banks at `$D000–$DFFF` (bank 1 low half, bank 2 high half) followed
+by one shared 8 KiB area at `$E000–$FFFF`. Reset selects bank 2, maps ROM and disables
+writes without erasing card RAM.
 
-The browser GUI manages files in supported guest disk images through filesystem adapters. The emulator has no guest-side transfer bridge; whole-image operations remain separate from guest-file operations.
+### 8.2 Saturn 128K slot-0 card (`RAMCARD=SATURN128`, Apple II model only)
 
-Physical ESP32 reset returns to the host menu and never automatically resumes a guest. Guest warm boot/reset is a separate action. A host-controlled clean exit must flush/close media, reset terminal attributes and release ownership before returning. Do not consume ordinary guest Enter as a host exit command. Sudden power loss or physical reset cannot guarantee guest filesystem consistency; record the durability boundary and test recovery using disposable images.
+Eight 16 KiB banks, each with the Language Card layout. Offsets with bit 2 set only select
+a bank (`$C084–$C087` → banks 0–3, `$C08C–$C08F` → banks 4–7); a bank select clears the
+prewrite latch and does not change the read/write state. All other offsets behave as §8.1.
+Reset selects bank 0, ROM active, writes off. The card RAM lives in one heap allocation
+(PSRAM on the ESP).
 
-## Implementation discipline
+### 8.3 Apple IIe model (`MACHINE=IIE`)
 
-Use native ESP-IDF, CMake and the VSCode ESP-IDF workflow; no Arduino dependency. Target ESP32-S3 / LOLIN S3 Pro, with board pins, flash/PSRAM settings and USB routing verified against the actual board configuration. 
+Selected by `MACHINE=IIE` in `drives.cfg`; `RAMCARD` is ignored. 64 KiB main + 64 KiB
+auxiliary RAM (48 KiB + 16 KiB Language Card each), built-in Language Card and 80-column
+softswitches. The Videx, Pascal-card and lowercase-echo behaviours are off; the ROM is the
+16 KiB unenhanced IIe image.
 
-All project-owned code, identifiers, documentation and messages are English. 
+- Writes `$C000–$C00F` (low bit = on, pair by `(address & $0E)`): `$C000/$C001` 80STORE,
+  `$C002/$C003` RAMRD, `$C004/$C005` RAMWRT, `$C006/$C007` INTCXROM, `$C008/$C009` ALTZP
+  (also moves the Language Card to its auxiliary copy), `$C00A/$C00B` SLOTC3ROM,
+  `$C00C/$C00D` 80COL, `$C00E/$C00F` ALTCHARSET.
+- Reads `$C011–$C01F` return the flag in bit 7 plus `keyboardData & $7F`: `$C011` BSRBANK2,
+  `$C012` BSRREADRAM, `$C013` RAMRD, `$C014` RAMWRT, `$C015` INTCXROM, `$C016` ALTZP,
+  `$C017` SLOTC3ROM, `$C018` 80STORE, `$C019` VBL (`cycles % 17030 ≥ 4550`), `$C01A` TEXT,
+  `$C01B` MIXED, `$C01C` PAGE2, `$C01D` HIRES, `$C01E` ALTCHARSET, `$C01F` 80COL.
+- `$0000–$01FF` follows ALTZP; under 80STORE, `$0400–$07FF` (and `$2000–$3FFF` when HIRES)
+  select auxiliary when PAGE2 is set, main otherwise; `$0200–$BFFF` follows RAMRD (reads) /
+  RAMWRT (writes).
+- `$C100–$CFFF`: with INTCXROM the built-in ROM. Otherwise `$C800+` returns ROM while
+  INTC8ROM is latched (an access at `$C300–$C3FF` sets it, a read of `$CFFF` clears it);
+  `$C100–$C7FF` returns the disk boot ROMs or block-device ROMs of attached slots 4–7,
+  then the bus value.
+- `$C061–$C063` read 0. Text: with 80COL, even columns come from auxiliary memory, odd
+  columns from main memory.
 
-Use 
-- Allman braces, 
-- two-space indentation
-- lowerCamelCase. 
-- Comments use //— comment on their own line above the relevant code. Preserve upstream style and licenses in vendored cores; isolate project adapters and keep local patches small and documented.
+## 9. Machine models at a glance
 
-Pin upstream revisions. Do not write a CPU emulator, replace a guest OS with host-side syscall emulation, or patch binaries randomly until a prompt appears. Keep CPU, machine bus, guest BIOS/device adapter, image backend and terminal transport separable. 
-
-ESP-IDF task scheduling and watchdog servicing must not alter guest instruction semantics. Allocate/check memory before launch, bound queues, and keep diagnostics out of the guest screen. Measure speed and memory on hardware; neither CPU frequency nor PSRAM size alone proves adequate performance.
-
-## Engineering-memory rules
-
-This document is a living design and development record. Read its decisions and unresolved issues before changing the emulator. Never erase a failed experiment or silently rewrite a previous conclusion. Supersede decisions with a new numbered record. A repeated experiment requires new evidence or a changed variable. Keep design approval, source inspection, desktop testing and ESP32 hardware verification distinct.
-
-For every verification record capture date, firmware commit, upstream core revision, ESP-IDF version, board, terminal, exact command/input, expected result, actual result and evidence path. Only observed execution may be marked PASS. For every issue use this chain:
-
-**Reference behaviour → Hypothesis → Experiment → Result → Conclusion → Root cause → Fix → Regression verification → Do not repeat**.
-
-Unknown causes stay unknown. A workaround is not a root cause. Store reproducible traces and small fixtures; include the first divergent CPU/bus/disk event when available. Guest test software and ROM redistribution require their own provenance; an open-source emulator license does not cover those assets.
-
-## Machine profile and scope
-
-|Element               |Required baseline                                                                                                                                          |
-|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-|CPU                   |NMOS MOS 6502, Apple II timing approximately 1.023 MHz; pin/test a proven external core (candidate: `floooh/chips` `m6502.h`)                              |
-|Machine               |Default: original Apple II with optional later upgrades; optional `MACHINE=IIE` Apple IIe (see APPLE-DEC-037); 48 KiB motherboard RAM plus 16 KiB bank-switched Language Card                          |
-|ROM                   |Integer BASIC ROM plus **Autostart Monitor** ROM upgrade; matching reset vectors and ROM images required                                                   |
-|Floating-point BASIC  |Applesoft loaded **from system disk** into Language Card RAM when appropriate DOS disk software is present; do not assume it is permanently resident in ROM|
-|Operating environments|DOS 3.x (DOS 3.3 primary), disk-booted UCSD Pascal; no ProDOS requirement                                                                                  |
-|Screen                |Original 40×24 text plus independent expansion-card 80×24 text, rendered to USB ANSI/VT100 terminal                                                        |
-|Characters/input      |Lowercase-modified character ROM; case-preserving terminal input; no Shift wire connected to game-port PB2                                               |
-|Floppies              |Disk II 5¼-inch 13/16-sector profiles and optional custom 8-inch / large virtual disk controller profiles                                                  |
-|Graphics/audio        |Not initial acceptance; preserve required bus/softswitch semantics, document limitations                                                                   |
-
-Owner recollections: original Apple II with Integer BASIC, automatic disk boot, disk-loaded Applesoft, 16 KiB extra RAM for UCSD Pascal, uppercase/lowercase character-ROM and Shift-wire modification, a TU Delft student-developed 80-column card of unknown interface, and later dual-drive 8-inch double-density double-sided floppy equipment. The 8-inch controller, format, sector size, and actual capacity have not been identified. No Z80 card. Physical drives will never be connected to the ESP32-S3.
-
-Do not claim that a particular 80-column card (e.g. Videx VideoTerm), 8-inch controller, or 640 KiB geometry was historically installed without evidence. Choose a documented, separately identified compatible virtual card for the first implementation; preserve the ability to add another model.
-## ROM, BIOS, Software
-
-***Steve Wozniak*** has given all his and Apple's Apple2 firmware free for Non-Commercial Use
-
-## CPU, ROM and reset
-
-Use a proven NMOS 6502 core with correct decimal-mode, interrupt, stack, read/write and bus side effects. Run authentic firmware instructions; do not hardcode BASIC, DOS or Pascal prompts. The original Old Monitor could enter the Monitor (*) before Integer BASIC; the owner’s machine instead automatically booted disks, consistent with a later Autostart Monitor ROM upgrade. Keep Old Monitor optional for historical tests, but set Autostart as the default. A diskless reset path must be established by executing the selected ROM and comparing with a reference, not by assuming a prompt.
-
-ROM layout and exact byte images must be matched and checksum-pinned. Integer BASIC and Monitor ROM occupy the upper address region, with 48 KiB motherboard RAM at $0000–$BFFF and I/O/slot firmware at $C000–$CFFF. The 16 KiB Language Card can overlay $D000–$FFFF: two selectable 4 KiB banks at $D000–$DFFF and shared 8 KiB at $E000–$FFFF. Do not confuse an original Apple II with a Plus or IIe ROM set.
-
-## 128 KiB RAM options (2026-10-12)
-
-Two independent ways to exceed 64 KiB exist; both are optional and selected in `drives.cfg`.
-
-### Saturn 128K slot-0 card (`RAMCARD=SATURN128`, Apple II model only)
-
-The Apple II/II+ has no auxiliary slot, so 128K cards live in slot 0 (the Language Card slot) and bank-switch the `$D000–$FFFF` window. Reference: Saturn Systems/Titan Technologies *Saturn 128K RAM Board* (the de-facto standard); compatible: Vergecourt RAMEX 128, JD Micro RAMX128K, Garrett's Workshop RAM128. Not covered: Microsoft RAMcard, Multi-RAM, RamWorks. Sources: MAME `ramcard128k.cpp` (BSD-3) and the Saturn manual (applelogic.org `SATURN128MAN.pdf`, not machine-readable here).
-
-- 8 banks of 16 KiB; each bank has the Language Card layout (2 × 4 KiB at `$Dxxx` + 8 KiB at `$E000–$FFFF`). The Apple ROM disappears when RAM reading is enabled, as with the normal Language Card.
-- I/O `$C080–$C08F` (slot 0): offsets 0–3 and 8–B are the normal LC switches; offsets with bit 2 set select the bank: `$4`=0, `$5`=1, `$6`=2, `$7`=3, `$C`=4, `$D`=5, `$E`=6, `$F`=7. Bank selects do not change the LC read/write state; the prewrite flag is reset. Reset: bank 0, ROM active, write off, `$Dxxx` bank 2.
-- Implementation: `languageCardRam` is heap-allocated (16 KiB default, 128 KiB for Saturn; PSRAM via `heap_caps` on the ESP), `languageCardMainBank` adds to `languageCardOffset()`. Config `RAMCARD=LC16|SATURN128`, API `apple2CoreSetRamCard`. Extra memory: 112 KiB.
-- Apple Pascal 1.x does not use extra banks automatically; only software that knows the Saturn protocol benefits.
-- To verify: exact bit-2 wiring against the Saturn manual, reset behaviour on a real card, a real Saturn diagnostics disk. Tests: LC16 regression, per-bank isolation, prewrite behaviour, reset (`testApple2Saturn128`).
-
-### Apple IIe model (`MACHINE=IIE`)
-
-Needed by Apple Pascal 1.3 `128K.APPLE`/`128K.PASCAL` (see [designUCSD.md](designUCSD.md) UCSD-DEC-017). Default is `MACHINE=II`. `RAMCARD` is ignored on the IIe.
-
-- ROM: upper 16 KiB of the unenhanced NMOS IIe ROM (from the 32 KiB `apple2eu.rom` image, md5 e14eae59…, offset 0x4000), checked in and installed as `littlefs/apple2/apple2e.rom` (reset vector `$FA62`). The source archive was removed from `assets/apple2_roms/` as unused by any build. The enhanced ROM needs a 65C02, which `m6502.h` lacks. Redistribution rights unverified.
-- Memory: main 48 KiB + 16 KiB LC, auxiliary 48 KiB + 16 KiB LC (128 KiB total; buffers in PSRAM on the ESP). ALTZP switches zero page/stack/LC to auxiliary. RAMRD/RAMWRT select aux for `$0200–$BFFF`; 80STORE+PAGE2 (and HIRES) redirect the text/hires page.
-- ROM mapping: `$C100–$CFFF` internal when INTCXROM; `$C300` internal unless SLOTC3ROM, and an access there sets INTC8ROM; `$CFFF` clears INTC8ROM. The SmartPort trap is skipped when INTCXROM is set.
-- Softswitches: writes `$C000–$C00F` (80STORE, RAMRD, RAMWRT, INTCXROM, ALTZP, SLOTC3ROM, 80COL, ALTCHARSET); status reads `$C011–$C01F` (BSRBANK2, BSRREADRAM, RAMRD, RAMWRT, INTCXROM, ALTZP, SLOTC3ROM, 80STORE, VBL approximated from cycles, TEXT, MIXED, PAGE2, HIRES, ALTCHARSET, 80COL). `$C061–$C063` return 0.
-- Video: with 80COL, even columns come from aux, odd from main (`apple2CoreReadTextCell`); ALTCHARSET decodes without flashing and with lowercase. The Videx, Pascal-card, lowercase-echo and Saturn hacks are off.
-- Not implemented: graphics rendering, double hi-res, open/solid-Apple keys, SmartPort buffers in aux memory (block code uses main RAM only), ESP32-S3 run.
-- Deployment: put `apple2e.rom` in `/littlefs/apple2/`, set `MACHINE=IIE` in the SD `drives.cfg`, boot UCSD option 3.
-
-## Language Card: 48 KiB + 16 KiB
-
-Emulate a slot-0-compatible 16 KiB Language Card. Its physical RAM is two 4 KiB banks followed by one shared 8 KiB area; the complete machine has 64 KiB physical RAM, not 64 KiB simultaneously linearly visible to the 6502.
-
-The implemented `$C080–$C08F` decode follows the slot-0 switch pattern audited against [AppleWin's `LanguageCard.cpp` at revision `d9b2bf6787bc853be15652098dbf8666acedc6e6`](https://github.com/AppleWin/AppleWin/blob/d9b2bf6787bc853be15652098dbf8666acedc6e6/source/LanguageCard.cpp); this is reference-emulator evidence, not a primary hardware reference or physical-board qualification:
-
-| Switch offsets | Bank | Read mapping at `$D000–$FFFF` | Write-enable behavior |
+| Model | RAM | ROM | Selected by |
 | --- | --- | --- | --- |
-| `$C080`, `$C084` | 2 | Language Card RAM | Even access disables writes and clears prewrite |
-| `$C081`, `$C085` | 2 | ROM | Odd reads participate in the two-read enable sequence |
-| `$C082`, `$C086` | 2 | ROM | Even access disables writes and clears prewrite |
-| `$C083`, `$C087` | 2 | Language Card RAM | Odd reads participate in the two-read enable sequence |
-| `$C088`, `$C08C` | 1 | Language Card RAM | Even access disables writes and clears prewrite |
-| `$C089`, `$C08D` | 1 | ROM | Odd reads participate in the two-read enable sequence |
-| `$C08A`, `$C08E` | 1 | ROM | Even access disables writes and clears prewrite |
-| `$C08B`, `$C08F` | 1 | Language Card RAM | Odd reads participate in the two-read enable sequence |
-
-The A3 bit selects the bank (clear selects bank 2); A1 equal to A0 selects Language Card RAM for reads. Reads from an odd switch arm the prewrite latch, and a second odd-switch read enables writes. An odd-switch write does not arm or enable writes. Writes remain enabled until an even-switch access; they target Language Card RAM even while ROM is selected for reads. Reset selects bank 2, maps ROM for reads and disables writes without erasing card RAM. The tests cover each behavior through both the memory API and executed 6502 bus cycles.
-
-Acceptance still requires confirming the switch table against a primary hardware reference, running a bootable UCSD Pascal image without host-side patching, and testing the machine on its target hardware.
-
-## Keyboard, lowercase text and ROM behavior
-
-Model `$C000` keyboard data/data-ready and `$C010` strobe-clearing behavior. USB Serial/JTAG delivers terminal character bytes, not physical key-down or modifier events. Preserve the received character's case in keyboard data; keep the data-ready strobe as separate state. There is no physical Shift connection and `$C063` is not synthesized from character case. The optional lowercase text mapping decodes screen bytes `$E1–$FA` as lowercase a–z while preserving digit and punctuation codes `$B0–$BF`; uppercase text remains `$C1–$DA`. The stock system ROM normalizes lowercase keyboard input while echoing it. To preserve terminal key-echo case, the core applies a one-character screen-write correction after a lowercase key is acknowledged; it only converts the matching uppercase echo within a bounded CPU-cycle window. This fixes immediate key echo but does not yet preserve lowercase in Applesoft string output or stored/listed source. Acceptance requires exact lowercase and uppercase key echo, `PRINT "abcdefghijkm"` rendering the lowercase string, `10 PRINT "Pietje Puk"` retaining case in `LIST`, and all paths checked in motherboard and Videx modes. Inspect actual screen bytes and Applesoft output, not just the `$C000` latch.
-
-Provide independent settings for original versus modified character-ROM decoding and original versus case-preserving lowercase input mapping; the current machine profile enables both modified settings. `$C063` reflects no connected Shift/game-port input and is not derived from ASCII case. Validate lowercase screen bytes and digits, inverse and flashing glyph mapping. Test stock-ROM lowercase input/echo separately because the stock ROM normalizes the keyboard input to uppercase. Character glyph mapping on original Apple II differs from IIe alternate-character ROM semantics.
-
-## 40-column and 80-column display
-
-Original 40×24 Apple II text uses non-linear screen-row address mapping and text pages at $0400–$07FF and $0800–$0BFF. Reproduce normal/inverse/flashing display attributes and relevant text/mixed/page softswitches. Do not implement 80 columns by interleaving Apple IIe main/auxiliary RAM, and do not use IIe $C00C/$C00D 80COL softswitches as the baseline.
-
-80×24 is provided by a separate expansion card, provisionally in slot 3, with its own firmware and video RAM/character behavior according to the selected card specification. The current selected software profile is Videx-compatible; this is not a historical claim about the unidentified TU Delft card. Its slot-3 ROM implements a project-authored minimal `PR#3` output driver, while its CRTC registers, banked video RAM, and `$C800–$CDFF` memory map follow the Videx Videoterm profile. `PR#0` returns to motherboard text when the Monitor restores its normal output vector. Terminal output reflects the selected card's video RAM, not intercepted ROM print calls. The project driver supports 80 columns, carriage return, backspace and scrolling at row 24. The host terminal renders text/inverse state and positions a cursor at the next output cell; it does not emulate the card's raster/font ROM.
-
-An 80×24 USB terminal is the host display; it does not magically grant the Apple II 80-column hardware. Preserve guest/host terminal separation, escape-sequence sanitation and reasonable paste pacing.
-
-***Make all console output and input VT100/ANSI terminal compatible.*** 
-
-## Disk controllers and images
-
-Use the shared HOST-M1 image backend and `drives.cfg` conventions, preserving path, RO/RW, and image-profile semantics. For example, the existing CP/M configuration uses 
-
-- A=/littlefs/cpm86/system.dsk,RO,CPM86_516K and 
-- C=/retro/images/cpm86/Utility.dsk,RW,CPM86_8196K.
-
-Apple-specific profile names and letter-to-slot mappings below are proposals, not claims about the current parser:
-
-## Apple II virtual drives
-
-### PR&lt;slot&gt;.&lt;drive&gt;=&lt;image&gt;,&lt;mode&gt;,&lt;profile&gt;
-
-- SD6.1=/littlefs/apple2/system.dsk,RO,APPLE2_140K
-- SD6.2=/retro/images/apple2/work.dsk,RW,APPLE2_640K
-- SD5.1=/retro/images/apple2/data1.dsk,RW,APPLE2_140K
-- SD5.2=/retro/images/apple2/data2.dsk,RW,APPLE2_140K
-- SD5.3=/retro/images/apple2/data3.dsk,RW,APPLE2_640K
-- SD5.4>=/retro/images/apple2/work.dsk,RW,APPLE2_640K
-
-The host’s SD6.1, SD6.2, SD5.1 etc. labels are configuration handles only: original Apple DOS uses slot/drive notation (e.g. S6,D1), not CP/M-style guest drive letters. Explicitly map each host image to a guest controller slot, unit, profile, geometry and read-only policy. Avoid collisions with slot 0 Language Card and slot 3 video. Disk II is conventionally slot 6, drives 1 and 2.
-
-For standard Disk II support, distinguish 35-track 13-sector media (35×13×256 = 116,480 bytes) from 16-sector DOS 3.3 media (35×16×256 = 143,360 bytes). Preserve DOS versus physical sector ordering and qualify .do, .po, .dsk, nibble and other formats separately; suffix alone does not prove ordering. Authentic Disk II boot software uses controller softswitches and timing: an image-sector API alone is not a compatible Disk II controller. Physical drive motors need not exist, but their guest-visible emulated controller state may still be required.
-
-For the remembered double-sided double-density 8-inch drives, do not assume 640 KiB: capacities vary by tracks, heads, sectors and bytes/sector, as well as controller and filesystem. Keep geometry and a guest-visible controller interface configurable. The owner will address custom DOS/Pascal software support separately. Large virtual images do not become accessible to unmodified DOS 3.3 or UCSD Pascal simply by increasing host image size. No physical floppy controller pins, motors or real drives are required.
-
-Do not introduce ProDOS, SmartPort, Apple IIe auxiliary RAM (on the default Apple II model; the optional IIe model has it), or a ProDOS-specific harddisk as a required dependency. The user-approved optional ProDOS 8/SmartPort path in APPLE-DEC-028 does not change the DOS 3.3 default. Test image bounds, RO enforcement, error propagation, flush/reopen, interrupted writes and disk-full behavior. Never silently enlarge images on invalid guest requests.
-
-### Current block-device implementation (2026-10-12)
-
-The implementation provides both the ProDOS block entry and a SmartPort
-command interface through block-device slots. `drives.cfg` accepts `SP<slot>.<unit>`
-for slots 4–7 and units 1–4; a slot cannot mix Disk II and SmartPort devices.
-This is emulator capacity, not a promise that every guest probes all four
-units. Apple Pascal 1.3's tested ProDOS block path addresses units 1 and 2 per
-slot, so additional Pascal volumes must be assigned to another free slot.
-Earlier host evidence showed three volumes and opened `WORK1:SPIRODEMO.TEXT`
-with a three-volume fixture; the current Pascal test fails its expected
-`DATA3:` assertion against the current worktree images. See
-[`designUCSD.md`](designUCSD.md) for the exact active mapping and evidence
-limitations. Neither guest file writes nor ESP32-S3 behavior is verified.
-
-### Monotonic timer virtual card
-
-The shared Apple II/UCSD core exposes `APPLE2_TIMER_C1` at slot 2 addresses
-`$C0A0–$C0A4`. `$C0A0` returns C1h when the host clock callback is configured;
-reading `$C0A1` captures an unsigned 32-bit millisecond value, and `$C0A2`–
-`$C0A4` return the rest of that snapshot in little-endian order. Reset clears
-the snapshot, reads of upper bytes do not sample the clock, and writes are
-ignored. Without a callback, the capability and counter bytes are zero.
-
-This virtual device reserves slot 2 from other slot-I/O devices. Both menu
-profiles use the same CPU and timer; the guest OS does not select a different
-timer implementation. `assets/apple2/BENCH2/` provides a tokenized Applesoft
-BASIC benchmark, while `assets/ucsd/BENCHUCSD/` provides Pascal source to
-compile with the guest's UCSD Pascal compiler. Host timer tests cover both the
-original Apple II and IIe memory paths; guest compilation and hardware use
-remain unverified.
-
-## Boot and guest software
-
-Autostart Monitor plus slot-6 Disk II boot firmware should start a valid inserted system disk automatically. DOS 3.3 and UCSD Pascal must boot through their genuine on-disk loaders. Integer BASIC is in ROM and typically presents > when entered. Applesoft presents ] when running; on the selected historical profile it is loaded from disk into Language Card RAM by a suitable DOS 3.3 system/master disk. Whether this happens automatically depends on the specific disk’s boot files and startup sequence; do not implement a universal rule that every DOS disk automatically loads Applesoft. FP/INT work only with the correct DOS/BASIC environment and loaded language image.
-
-Do not emulate Pascal or Applesoft at host-command level. The 6502 executes authentic guest binaries, ROMs and disk bootstrap. Keep boot-media provenance, version, controller compatibility and license checks in resource manifests.
-
-## Browser guest-file operations
-
-The browser GUI manages files in supported guest disk images through filesystem adapters. Whole-image operations remain separate from guest-file operations.
-
-## Reference and debugging strategy
-
-Use an original Apple II with Autostart Monitor and Language Card as the behavioral desktop reference for the default II model; the optional IIe model is checked against the unenhanced IIe ROM and the Pascal 1.3 128K boot. Reference emulator candidates include MAME’s original Apple II model and another emulator with independently verified Language Card/Disk II behavior. Inspect upstream implementation and primary manuals for exact memory/softswitch semantics; record revision and ROM checksums. A reference IIe test cannot prove original Apple II character or 80-column card behavior.
-
-Capture CPU PC/registers, cycle count, ROM selection, Language Card bank/write-enable state, keyboard strobe, PB2 state, video-card registers, slot I/O, image unit and disk operation at the first divergence. Pin and license-review external CPU/device cores. Never mark source inspection as execution verification.
-
-## Milestones and acceptance gates
-
-All items remain PLANNED until observed desktop and ESP32-S3 evidence exists.
-
-|ID       |Deliverable and acceptance evidence                                                                                                                 |
-|---------|----------------------------------------------------------------------------------------------------------------------------------------------------|
-|APPLE-M1 |Confirm original Apple II target, ROM provenance/checksums, Autostart/Integer BASIC and reference desktop machine; host prerequisite gates satisfied|
-|APPLE-M2 |NMOS 6502 integrated; reset vectors, cycle/bus behavior and ROM Monitor/Integer BASIC verified                                                      |
-|APPLE-M3 |PARTIAL HOST 2026-10-10: 48 KiB RAM + 16 KiB Language Card; both 4 KiB banks, shared 8 KiB, softswitch/write-enable regression; primary-reference, UCSD and hardware evidence still required|
-|APPLE-M4 |Keyboard latch/strobe, uppercase/lowercase ROM, control keys and any physically connected Shift input tested                                             |
-|APPLE-M5 |Original 40×24 text, non-linear row addressing, inverse/flashing, ANSI rendering and terminal input qualified                                       |
-|APPLE-M6 |Selected 80×24 slot card ROM/VRAM model, `PR#3`/`PR#0` behavior where supported, editor and mode-switch tests                                       |
-|APPLE-M7 |PARTIAL 2026-10-09 (APPLE-DEC-020): slot-6 Disk II, 16-sector DOS 3.3 image; host-emulated boot and `LOAD` observed. Still open: 13-sector profiles and hardware evidence. 2026-10-10 (APPLE-DEC-024..027): slots 4..7 with two drives each, 140K and 640K (160-track) profiles, ProDOS/Pascal and DOS sector order, RO/RW `drives.cfg`, sector writes with persistence; host-tested only|
-|APPLE-M8 |DOS 3.3 System Master boots; disk-loaded Applesoft verified; `FP`/`INT` only where supported by media                                               |
-|APPLE-M9 |UCSD Pascal system disk boots, exercises Language Card and editor/file operations                                                                   |
-|APPLE-M10|Configurable virtual 8-inch/large-image backend and guest-visible controller contract, geometry/boundary/error tests PARTIAL 2026-10-10 (APPLE-DEC-025): 640K profile as 160 tracks of 16 sectors behind the Disk II interface (host-tested); guest software that uses it is not yet identified|
-|APPLE-M11|Common File Transfer whole-image round trip; DOS/Pascal guest file utility only after its adapter is implemented                                    |
-|APPLE-M12|Recovery, resets, repeated boot, performance, ESP32-S3 resource measurements, compatibility matrix and documentation                                |
-
-Definition of Done: menu option 4 boots original Apple II firmware and qualifying disk software; 40×24 and actual 80×24 card emulation work; Shift/lowercase, Language Card, disk-loaded Applesoft, DOS 3.3 and UCSD Pascal have observed acceptance evidence. Large images must have a documented guest-visible interface, not merely a host file. Do not imply every historic expansion board or disk format is supported.
-
-## Phase 1 implementation record — 2026-10-09
-
-Implemented the motherboard-only subset requested for phase 1. The firmware now integrates the pinned `floooh/chips` NMOS 6502 core, 48 KiB RAM, a 12 KiB ROM window at `$D000–$FFFF`, the keyboard latch/strobe at `$C000/$C010`, motherboard text/video softswitches `$C050–$C057`, and a 40×24 text-memory renderer. The core is clock-paced near 1.023 MHz. Host tests use a synthetic test ROM and do not establish authentic ROM behavior.
-
-Terminal refresh follow-up — 2026-10-09: the Apple II terminal renderer compares each 40-character row with its last successful output and writes only changed rows, instead of continuously redrawing all 24 lines. USB writes handle short writes and retry boundedly when the transmit queue temporarily has no space; a real stalled write is logged once per failed call, and the affected row remains eligible for redraw.
-
-This phase intentionally excludes the Language Card, expansion 80-column video card, disk controllers/drives and graphics rendering. It also does not implement the remembered lowercase character ROM or Shift/PB2 modification. Unmodeled `$Cxxx` I/O uses the last data-bus value; accurate floating-bus timing is not implemented.
-
-The machine requires `/littlefs/apple2/apple2.rom`, exactly 12 KiB with a reset vector in `$D000–$FFFF`. The selected system ROM is `assets/apple2_roms/apple.rom`; host-side execution reaches the `APPLE ][` prompt, accepts `PRINT 2+2`, and displays `4`. Its 12 KiB size and reset vector match the implemented ROM window. Redistribution rights have not been verified. A separate project-authored diagnostic fixture at `tests/fixtures/apple2-diagnostic.rom` can be regenerated with `python3 tools/apple2/buildApple2TestRom.py`. Phase 1 still does not establish DOS, Applesoft, Pascal, physical firmware behavior or ESP32-S3 performance.
-
-The core source and its unmodified zlib license are pinned in `docs/thirdParty.md`. The implementation does not mark APPLE-M1 or the later execution/compatibility milestones as accepted.
-
-This scoped coding work was explicitly requested before the design's HOST-M1, CP/M-80 and CP/M-86 acceptance prerequisites were closed. It does not waive those gates or establish that the integrated host has completed acceptance.
-
-## Language Card implementation follow-up — 2026-10-10
-
-Added 16 KiB Language Card RAM to the core, with two separately selected `$D000–$DFFF` banks and shared `$E000–$FFFF` RAM. The `$C080–$C08F` switch decode controls bank selection and ROM/RAM read mapping; odd switch reads implement the two-access write enable, odd switch writes do not unlock it, and even switch accesses disable writes. Reset restores the ROM/read-only mapping while retaining card contents. `tests/hostTests.c --apple2-language-card` checks both banks, shared-memory boundaries, ROM visibility, write protection, the two-read sequence, reset behavior, and an executing 6502 program. Host test evidence does not establish primary-manual accuracy, UCSD/ProDOS compatibility, or ESP32-S3 hardware behavior.
-
-## Videx-compatible 80-column card — 2026-10-09
-
-Added a slot-3 Videx-compatible device profile to the Apple II core. It models the `$C0B0–$C0BF` CRTC/bank-select I/O, 2 KiB of card VRAM in four 512-byte banks, the `$C300` slot ROM entry and `$C800` expansion-ROM window. The project-authored slot ROM supports `PR#3`, installs an output vector, configures an 80×24 CRTC text mode, and writes printable characters, carriage returns and backspaces into card VRAM. The host terminal switches to 80 columns only while that card output vector is selected; the 40-column motherboard renderer remains available.
-
-PR#3 input follow-up — 2026-10-09: standard BASIC sets the output vector to the slot entry at `$C300`; it does not call the previous `$C303` initialization entry. The slot entry now initializes the card on its first output and then chains to the installed character routine while preserving that first character. The system-ROM host test types `PR#3` and then `PRINT 2+2`, verifying keyboard input, command echo and result on card VRAM.
-
-Screen follow-up — 2026-10-09: when the project COUT driver advances beyond row 23, the card screen scrolls its 24×80 character buffer up one row and clears the new bottom row. Rendering clears the host terminal on machine entry and whenever BASIC changes the active output between `PR#0` and `PR#3`, redraws the selected guest screen, and positions the terminal cursor at the next COUT cell. The Videx host test drives output through a scroll and verifies retained lines, the new bottom row and cursor position; the system-ROM host test switches `PR#3` → `PR#0` → `PR#3` and checks output selection.
-
-Applesoft output follow-up — 2026-10-09: the project COUT routine now preserves the incoming accumulator, including its high bit, around its screen write; Applesoft uses the returned value while expanding tokens for `LIST`, so masking it permanently truncated keywords to their first letter. Screen clearing now detects changes to either byte of the output vector, since `PR#0` changes the low byte before the high byte. The system-ROM regression confirms full `PRINT` output in both 40- and 80-column modes, clean screen contents after each transition, a visible prompt and an in-bounds cursor.
-
-Scheduler follow-up — 2026-10-09: when a CPU batch exceeded its 1 ms pacing interval, `vTaskDelayUntil` could remain behind schedule and return immediately on subsequent iterations. That catch-up loop could starve CPU 0's idle task and trigger the task watchdog during long-running BASIC programs. The machine loop now yields for one RTOS tick when late and resets its pacing baseline instead of trying to catch up unboundedly. Hardware timing/performance still needs verification.
-
-Host regression evidence: the synthetic 6502 test ROM executes the card's `PR#3` entry, writes 80 distinct characters, verifies carriage return output, exercises VRAM banks 2 and 3, scrolls multiple lines and checks the cursor, and switches the host-visible output state away from the card. The system-ROM test exercises full Applesoft `LIST` output in both display modes and clean mode transitions. These are not Videx-ROM or raster-accurate tests. The minimal driver uses private emulated state for Apple II zero-page bytes `$06–$0A` and does not implement character-generator fonts, CRTC cursor effects, or graphics. This is not evidence for behavior on the physical ESP32-S3 or the historical TU Delft card.
-
-## Decision log
-
-> Tooling note (2026-11-03): the tool names in the dated records below reflect the tooling
-> of their date. `tools/createSystemDsk.py`, `tools/buildDiskImage.py` and `tools/diskImage.py`
-> have since been merged into `tools/diskManager.py` (`--type SYSTEMDSK` / `--type WORKDSK`);
-> file add/list/extract now live in `tools/extractFiles.py`. Dated commands are kept as
-> recorded; run the `diskManager.py` equivalents today.
-
-
-|ID           |Status                   |Decision / reason                                                                                                 |
-|-------------|-------------------------|------------------------------------------------------------------------------------------------------------------|
-|APPLE-DEC-001|Retained                 |Menu 3, native ESP-IDF, shared HOST-M1, KIM-1 removed                                                             |
-|APPLE-DEC-002|**SUPERSEDED 2026-10-08**|Previous unenhanced IIe/auxiliary-RAM baseline replaced by expanded **original Apple II**                         |
-|APPLE-DEC-003|Candidate                |External proven NMOS 6502 core, `floooh/chips` candidate; validate and pin                                        |
-|APPLE-DEC-004|Revised                  |Language Card bank switching, **not IIe auxiliary video RAM**, supplies extra 16 KiB on the default II model (IIe auxiliary RAM exists only in the optional IIe model, APPLE-DEC-037)|
-|APPLE-DEC-005|Retained                 |Terminal renderer reflects guest video memory/card state; not ROM print interception alone                        |
-|APPLE-DEC-006|Retained                 |LittleFS minimal immutable resources, SD larger/writable images                                                   |
-|APPLE-DEC-007|**SUPERSEDED 2026-10-08**|ProDOS-specific large-disk requirement removed; custom virtual controllers are independent of ProDOS              |
-|APPLE-DEC-009|Revised                  |Versioned Apple DOS/Pascal metadata policy, exact encoding TBD                                                    |
-|APPLE-DEC-010|Required                 |Autostart Monitor with Integer BASIC ROM; Applesoft may auto-load **from suitable system disk** into Language Card|
-|APPLE-DEC-011|Required                 |80×24 via independent slot card; historical TU Delft card unidentified; Videx only a candidate                    |
-|APPLE-DEC-012|Required                 |Lowercase character-ROM plus separate keyboard Shift/PB2 modification                                             |
-|APPLE-DEC-013|Required                 |Virtual 5¼-inch and configurable larger/8-inch image profiles; no physical drives                                 |
-|APPLE-DEC-014|Required                 |No Z80 and no ProDOS requirement                                                                                  |
-|APPLE-DEC-015|Implemented subset       |Phase 1 is motherboard-only: 6502, 48 KiB RAM, ROM window, keyboard and 40-column text; no Language Card, expansion video or disk controller |
-|APPLE-DEC-016|Selected 2026-10-09      |Videx-compatible slot-3 profile with project-authored minimal `PR#3` firmware; not a claim about the TU Delft card |
-|APPLE-DEC-017|Implemented 2026-10-09   |Preserve the Applesoft COUT accumulator contract and clear screens on either output-vector byte changing         |
-|APPLE-DEC-018|Implemented 2026-10-09   |Apple DOS 3.3 image builder copies a supplied DOS-order base image and inserts supported files; generated media is not claimed bootable |
-|APPLE-DEC-020|Implemented 2026-10-09   |Project-authored read-only Disk II (slot 6, drive 1, 16-sector DOS 3.3) with bounded sector reads from `/littlefs/apple2/system.dsk`; host-emulated only |
-|APPLE-DEC-021|Implemented 2026-10-09   |Superseded the DEC-019 disk content: `littlefs/apple2/system.dsk` is built from the emptied base `bootDisks/apple2/dos33Empty.dsk` (DOS 3.3P boot tracks, empty catalog) plus everything in `bootDisks/apple2/systemDsk` (`HELLO.BAS`, `TEST-NONGR.BAS`). The `--remove-all-existing` option and `allow_locked` were removed as too complicated. `HELLO` runs `PR#3`, so the 80-column card is active at boot and `FILE NOT FOUND` is gone. Evidence: APPLE-VERIFY-021, APPLE-VERIFY-022 |
-|APPLE-DEC-022|Implemented 2026-10-09   |Videx 80-column card under Apple DOS 3.3: DOS swaps the output vector (CSW `$36/$37`) for its hook `$9EBD` on every key read and keeps the real vector at `$AA53/$AA54`. Output selection is now tracked in `videxOutputSelected`, tolerant of this hook swap and of half-written vectors, so the card no longer shows a blank screen under DOS. The card follows `HTAB`/`VTAB`/`POS` through CH/CV (`$24/$25`) and the monitor `HOME` (`$FC58`) clears the 80-column screen; going back to 40 columns resets CH/CV/BASL/BASH. Evidence: APPLE-VERIFY-022 |
-|APPLE-DEC-023|Implemented 2026-10-09   |The 80-column card is selected automatically at machine start, like the Disk II boots, instead of by `PR#3` in `HELLO`. `apple2CoreSetBootIn80Columns(core, true)` (called by `apple2Machine.c` before `apple2CoreLoadRom`) makes every reset program the card's CRTC registers, set CSW `$36/$37` to `$C8B3`, select the card and clear its screen, and makes the monitor SETVID routine (`$FE93`–`$FEAF`, entered by reset and by the DOS boot code, not by `PR#n`) store the card vector instead of `$FDF0`. `HELLO.BAS` no longer runs `PR#3`. Alternatives rejected: a host-injected `PR#3` keystroke sequence and a hook at the slot scan (`$FAA9`), which is skipped on a warm reset and does not survive the later DOS SETVID calls. Evidence: APPLE-VERIFY-023 |
-|APPLE-DEC-024|Implemented 2026-10-10   |Several Disk II controllers: slots 4..7 (boot ROM `$Cn00`, I/O `$C080+n*16`), two drives per controller, each with its own head position, medium, sector order and track count. A controller answers only when at least one of its drives has a medium. `apple2DiskBootRom.h` holds one project-authored boot ROM per slot, generated by `tools/apple2/buildApple2DiskBootRom.py` from the same verified code with only the slot number changed. Evidence: APPLE-VERIFY-024 (host only) |
-|APPLE-DEC-025|Implemented 2026-10-10   |640K medium = 655,360 bytes = 160 tracks x 16 sectors x 256 bytes = 1280 Apple Pascal blocks of 512 bytes, presented as a virtual Disk II with 160 tracks (half-tracks 0..319, flattened 80 cylinders x 2 sides). The track count is chosen by the image profile `APPLE2_140K`/`APPLE2_640K`; the image size must match it exactly. Evidence: APPLE-VERIFY-024 (host only) |
-|APPLE-DEC-026|Implemented 2026-10-10   |Sector order is explicit per drive. DOS order (`.do`/`.dsk`) and ProDOS/Pascal order (`.po`) are both supported; this uses the ProDOS block layout only as a sector layout and adds no ProDOS software (DEC-014 stands). Order comes from `.po`/`.do`, else from a content probe (DOS 3.3 VTOC plus two catalog sectors, or an Apple Pascal volume header in directory block 2), else DOS. A disagreement between the chosen order and the probe is logged as a warning, not an error. `drives.cfg` accepts RO/RW profiles for slots 4..7 and drives 1..2 below `/littlefs/apple2/` or `/retro/images/apple2/`; the built-in `/littlefs/apple2/system.dsk` must remain RO. `SD6.1` defaults to the system image; any error restores the defaults. RW was initially refused and is superseded by DEC-027. Evidence: APPLE-VERIFY-024/025 (host only) |
-|APPLE-DEC-027|Implemented 2026-10-10   |Non-system Apple II images can be RW. Disk II write-mode bytes are decoded from a 6-and-2 data field, mapped back through the drive's DOS or ProDOS/Pascal sector order, written in place without changing image size, and flushed before success. The built-in `system.dsk` was initially RO; this restriction is superseded by APPLE-DEC-039. Failed/protected writes are counted and logged. Host tests verify persistence after reopen, sector-order mapping, RO enforcement and malformed-write refusal. Guest-software and hardware writes remain unverified. Evidence: APPLE-VERIFY-025|
-|APPLE-DEC-028|Optional host + firmware implementation 2026-10-10|After the user reported that DOS 3.3 returned `DISK FULL` on a 640K unit and selected ProDOS 8/SmartPort, add an optional slot-5 SmartPort block interface while retaining the DOS 3.3 system disk/default. `SP5.1`/`SP5.2` map 512-byte callbacks to configured bounded images, including ProDOS-order block mapping, RO/RW and unit-status responses; slot 5 cannot host both Disk II and SmartPort. A host ProDOS 8 blank-volume builder is provided. Alternatives were to keep large media limited to custom DOS/Pascal software or require no extra guest OS; both leave the reported 640K ProDOS use case inaccessible. This is not a requirement or a ProDOS filesystem emulation. No prior decision is superseded; DEC-014 remains the default-policy constraint. Host API, image and build evidence is in APPLE-VERIFY-026; ProDOS boot, catalog/save and hardware verification are deferred by APPLE-DEC-029.|
-|APPLE-DEC-029|Selected 2026-10-10      |Do not resume end-to-end ProDOS 8/SmartPort boot or filesystem testing until the Apple II's 16 KiB Language Card is implemented. The current emulated machine has 48 KiB motherboard RAM and no Language Card; the user clarified that ProDOS requires the additional 16 KiB. Alternatives were to continue diagnosing the boot image/controller now (deferred because the required memory hardware is absent) or to treat host SmartPort tests as proof of guest usability (rejected). Evidence: APPLE-VERIFY-026/027 and user clarification 2026-10-10. Consequence: host-side SmartPort and image-I/O tests remain valid, but boot/catalog/save claims are blocked until Language Card implementation and subsequent guest verification. This does not make ProDOS a default or required system.|
-|APPLE-DEC-030|Implemented 2026-10-10|Add the slot-0 Language Card memory map and `$C080–$C08F` access semantics. The switch decode follows AppleWin's `LanguageCard.cpp` slot-0 model at revision `d9b2bf6787bc853be15652098dbf8666acedc6e6`: A3 selects bank 2/1, A1=A0 selects Language Card RAM for reads, two odd-switch reads enable writes, and an even access disables writes. Host tests verify this mapping and an executing NMOS 6502 sequence. This source audit is not a primary hardware reference; APPLE-ISSUE-002 remains partial pending primary-reference and hardware confirmation. This unblocks further ProDOS/SmartPort boot diagnosis but does not establish guest compatibility. APPLE-DEC-029 is superseded only as a blocker to resuming that experiment.|
-|APPLE-DEC-031|Implemented 2026-10-10|Boot ProDOS 8 from the SmartPort slot and use 800K as the large-volume size. (a) Slot 5 gets project-authored boot code at `$C56B` (reached from the `$Cn08` boot entry) that reads block 0 of unit `$50` to `$0800`, sets X=`$50` and jumps to `$0801`; the Applesoft autostart only boots slots with `$Cn07=$3C`, so the guest starts it with `PR#5`. (b) The SmartPort trap now fires only on an opcode fetch (SYNC) at `$C50A`/`$C50D`, answers unit 0 / code 0 with an 8-byte controller status, and block transfers go through the Language Card mapping for buffers at `$D000-$FFFF` (writes honour the write-enable switch; `$C000-$CFFF` is rejected). (c) The Disk II boot ROMs now load X=slot*16 (`LDX $2B`) before jumping to the boot sector, as ProDOS expects. (d) The user asked to base large volumes on 800K rather than 640K: the new profile `APPLE2_800K` (819,200 bytes = 200 tracks x 16 sectors x 256 = 1600 512-byte blocks) is added, `apple2DiskMaxTracks` is raised from 160 to 200, and the ProDOS volume builder defaults to 800K. The 640K profile is retained for existing images (APPLE-DEC-025). Alternatives rejected: emulating the original P5A ROM (copyright/provenance, APPLE-ISSUE-002 style risk) and keeping 640K as the ProDOS default. DOS 3.3 and Pascal cannot use more than 140K/their own limits (APPLE-ISSUE-016); 800K is not guaranteed to work with them.|
-|APPLE-DEC-032|Implemented 2026-10-10|ProDOS images become block devices in any controller slot and ProDOS can boot from `SD6.1`. After the user reported an unusable DOS-only system (DOS `DISK FULL` on the 800K unit, ProDOS only through `PR#5`), a slot whose images include ProDOS content (probe: ProDOS volume header, `.po` or DOS-order `.dsk`) is attached as a ProDOS block device instead of a Disk II controller (`SP5.x` stays the explicit SmartPort form). The block-device slot ROM keeps the signature bytes, ProDOS entry `$Cn0A`, SmartPort entry `$Cn0D` and the project boot code; with `$Cn07=$3C` the Autostart ROM boots it at reset and ProDOS then treats it as a generic block device. Both drives of a ProDOS slot are block devices, so DOS 3.3 and ProDOS images must not share a slot. The firmware `system.dsk` can be a ProDOS volume: `createSystemDsk.py --os apple2 --profile PRODOS` (base `bootDisks/apple2/prodosEmpty.po`, files mapped to ProDOS names, `HELLO.BAS` becomes `STARTUP`) and the CMake cache variable `APPLE2_SYSTEM_DISK_PROFILE` (default `DOS33`, so the existing default is unchanged). `buildDiskImage.py --os apple2` builds ProDOS 140K/640K/800K volumes (`--bootable`, `--source-dir`) and both tools print an English reminder to rebuild and flash (system.dsk) or to upload via "File Transfer" (SD images). Alternatives rejected: emulating the original P5A Disk II boot ROM (provenance, see APPLE-ISSUE-002 risk) and keeping `PR#5` as the only ProDOS boot path. Supersedes APPLE-DEC-031 (a) only where it says the guest must start ProDOS with `PR#5`. Evidence APPLE-VERIFY-031.|
-|APPLE-DEC-033|Implemented 2026-10-10|The Apple II uses ProDOS disks only and has no default drive. All DOS 3.3 code was removed (`tools/diskImageApple2Dos33.py`, `bootDisks/apple2/dos33Empty.dsk`, the DOS VTOC/catalog probe, the `DOS33` profile, `--remove-existing`, the DOS tests and the CMake cache variable `APPLE2_SYSTEM_DISK_PROFILE`); `diskManager.py --type SYSTEMDSK --os apple2` (then `createSystemDsk.py`) always writes the ProDOS `/SYSTEM` volume. `assets/Apple DOS 3.3P.dsk` stays in the repository but is unused. `apple2DriveConfig` leaves every drive empty when drives.cfg has no line for it, so SD6.1 must be listed explicitly (`SD6.1=/littlefs/apple2/system.dsk,RO,APPLE2_140K`). If SD6.1 is not configured (also when drives.cfg is missing or invalid) or its image cannot be opened, `apple2MachineInitialize` prints an error and returns `ESP_ERR_NOT_FOUND`, so the system menu is shown again. The shipped drives.cfg lists `/SYSTEM` (SD6.1, RO), two 800K read/write data volumes `/DATA1` (SD6.2) and `/DATA2` (SD5.1) and a Pascal 640K image in slot 4. Supersedes the `DOS33` default of APPLE-DEC-032 and every earlier statement that SD6.1 defaults to `system.dsk`.|
-|APPLE-DEC-034|Implemented 2026-10-10|The `drives.cfg` controller prefix `PR` is renamed to `SD`: `SD6.1`, `SD5.2` etc. Reason: the guest `CATALOG` command refers to `Sn`/`Dn`, so the host handle `SD<slot>.<drive>` matches `S<slot>,D<drive>`. `PR<slot>.<drive>` is no longer accepted (error: `controller must be SD4.1..SD7.2 or SP5.1..SP5.2`); `SP5.<unit>` is unchanged and the guest command `PR#n` is unrelated and unchanged. Existing `drives.cfg` files on the SD card must be edited. Alternatives rejected: accepting both spellings. Supersedes the `PR` spelling in every earlier entry (which are rewritten to `SD`). |
-|APPLE-DEC-035|Implemented 2026-10-10|The 80-column card now works under ProDOS BASIC.SYSTEM. Causes: (1) BASIC.SYSTEM resets CSW from `$BE10` to COUT1 (`$FDF0`) at start-up, which deselected the card; in boot-80 mode a CSW write of `$FDF0` by code outside the monitor ROM is now stored as `$C8B3`, while PR#0 (monitor OUTPORT) is still honoured; (2) BASIC.SYSTEM swaps its own hook (here `$B85B`) into CSW on every key read and keeps the real vector at `$BE30/$BE31`, so output selection treats a hook in `$9000..$BEFF` as the card when `$BE30/$BE31` is `$C8B3`; this stops the card screen and workspace (cursor) being cleared on every input line; (3) the HOME trap at `$FC58` fired on ProDOS code running in the Language Card RAM and wiped the card screen during CATALOG; it now only applies while the monitor ROM is visible. Evidence: `apple2ProdosAutostart80Columns` (host only, not on hardware). |
-|APPLE-DEC-038|Implemented 2026-10-12|Optional Saturn 128K slot-0 RAM card (`RAMCARD=SATURN128`, `apple2CoreSetRamCard`, default `LC16`), Apple II model only. Reason: research on 128K cards for the Apple II/II+. Not sufficient for Pascal 1.3 128K (APPLE-DEC-037). Verified on host by `testApple2Saturn128`; real Saturn diagnostics not run.|
-|APPLE-DEC-039|Implemented 2026-10-23|Allow configured system boot images to be read/write, including Apple II `/littlefs/apple2/system.dsk` and the UCSD SD6.1 boot image. A writable boot image appears as `[Writable!]` in the host menu. RO remains the shipped default; LittleFS writes persist until the next firmware build regenerates the image. Host parser tests cover RW acceptance; guest writes and ESP32-S3 persistence remain unverified. Supersedes the system-image RO restriction in APPLE-DEC-026/027.|
-|APPLE-DEC-040|Implemented 2026-10-23|Applesoft `LIST` uses the full 80-column width while the slot-3 card is the selected output. The stock ROM wraps long program lines at `CH >= 33` (`LDA $24 / CMP #$21` at `$D705`) and indents the continuation by 5, which is correct only for 40 columns. `readAddress` now returns 73 (80 minus the ROM's 7-column margin) for the operand byte at `$D708` when the original Apple II ROM is visible (Language Card not read-enabled), the ROM byte is `$21`, the Videx output is selected in 80-column text mode and Apple Pascal's card mode is not active; `PR#0` (40 columns) keeps the original wrap. The ROM image is not modified; no other Applesoft column logic (PRINT comma zones, `$DB03`) is changed. Alternatives rejected: patching the ROM image (would break the 40-column behaviour and the checksum), and changing the card's `CH` reporting. The IIe model is not changed. Evidence: `testApple2ListWrap` in `tests/hostTests.c` (host only; fails without the change). Hardware unverified.|
-|APPLE-DEC-041|Implemented 2026-10-24|Add the shared `APPLE2_TIMER_C1` virtual timer at `$C0A0–$C0A4` in slot 2 for Apple II and UCSD. The host callback stays outside the 6502 core and uses the common monotonic millisecond type. The timer reserves guest slot 2 I/O; host-side `/retro/exchange/apple2/` file-exchange staging is unchanged and is not a guest CPU adapter. Alternatives rejected: placing registers in keyboard/softswitch or attached disk-controller ranges. `hostCore` tests cover both original Apple II and IIe guest CPU reads, snapshot consistency, unavailable callback, reset, wraparound and writes. No guest program has been run on the ESP32-S3; `BENCHUCSD.TEXT` requires compilation by the guest's Pascal compiler.|
-|APPLE-DEC-037|Implemented 2026-10-12|Optional Apple IIe model (`MACHINE=IIE`, `apple2CoreEnableIIe`). The "not IIe" restriction applies to the default II model only. Reason: Apple Pascal 1.3 `128K.APPLE`/`128K.PASCAL` require IIe auxiliary memory (softswitches $C000–$C00F, status $C011–$C01F). IIe ROM: upper 16 KiB ($C000–$FFFF) of the unenhanced IIe ROM (`apple_2e_unenhanced_rom.zip`, 32 KiB image, md5 e14eae59…) stored as `littlefs/apple2/apple2e.rom`; the enhanced ROM needs a 65C02 and is not used. Implemented: aux RAM with RAMRD/RAMWRT/ALTZP/80STORE(+PAGE2,+HIRES), built-in Language Card with an auxiliary copy under ALTZP, INTCXROM/SLOTC3ROM/INTC8ROM, 80COL (aux = even columns), ALTCHARSET, VBL status. Videx/Pascal-card/lowercase-echo hacks and the Saturn card are off in this model; slots 4–7 and host-side file-exchange staging are unchanged. Not implemented: graphics rendering, double hi-res, open/solid-Apple keys, SmartPort buffers in auxiliary memory. Verified on host only: `testApple2IIe` and `apple2DiskTests --pascal-iie-boot` (boots `ApplePascal1-140K.dsk` to "Pascal system size is 128K"). ROM redistribution rights are unverified.|
-|APPLE-DEC-036|Implemented 2026-10-11|Terminal cursor keys reach the guest. `main/apple2Keyboard.c` decodes `ESC [ A–D` and `ESC O A–D` (normal and application cursor mode; parameters such as `ESC [ 1;5C` ignored) to Left `$08`, Right `$15`, Up `$0B`, Down `$0A`; Left/Right match the original Apple II keys, Up/Down follow the IIe convention because the original keyboard has none. Other `ESC [`/`ESC O` sequences (Delete, Home, ...) are dropped. `ESC` followed by any other byte is delivered as two keys so Apple ESC editing (`ESC I/J/K/M`) still works; a lone `ESC` is delivered after 50 ms. All other control characters `$01–$1F` pass unchanged; CR/LF pair gives one CR, DEL becomes `$08`. UCSD Pascal editor key assignments are not yet checked.|
-
-New decisions must include date, alternatives, evidence, consequences and superseded IDs. Historical owner recollection is evidence for requirements, not proof of a particular controller/ROM implementation.
-
-APPLE-DEC-015 details: dated 2026-10-09; the alternatives were to keep Apple II as a placeholder until all acceptance prerequisites were closed, or implement the requested motherboard subset while retaining those acceptance gates. This implementation follows the explicit phase-1 request. Evidence is the host-side synthetic-ROM test and ESP-IDF build; neither authentic ROM execution nor hardware behavior has been observed. The generated phase-1 test ROM is a separate original diagnostic, not the historical ROM image. It supersedes no historical machine-profile decision.
-
-APPLE-DEC-016 details: dated 2026-10-09; alternatives were to require a user-provided Videx ROM dump or implement a project-authored minimal slot driver. The selected profile follows the explicit user choice. The ROM source is project-authored; no Videx firmware dump is bundled. It supports the standard Videx memory/register layout and `PR#3` terminal output. Host tests validate the CPU-executed slot ROM, scrolling and 80-column VRAM, not original card firmware, raster output, the historical TU Delft card, or ESP32-S3 hardware. This supersedes the "Videx only a candidate" portion of APPLE-DEC-011 for software-profile selection; the historical card identity remains unknown.
-
-APPLE-DEC-017 details: dated 2026-10-09; investigation reproduced two independent `PR#3` failures with the authentic system ROM: Applesoft `LIST` rendered tokenized BASIC words as their first letters, and switching output modes left stale screen contents. The first cause was that the project COUT routine stripped the high bit from the incoming accumulator and returned the altered value; Applesoft relies on that value while expanding tokens. The second cause was that transition detection watched only the high byte of the output vector, while `PR#0` changes its low byte first. The chosen fix preserves and restores the complete accumulator around the Videx write, isolates the card routine's `$06–$0A` workspace from motherboard RAM, and detects selection changes on writes to either output-vector byte. Alternatives were to special-case or post-process `LIST` output, or clear only the host terminal; these would not preserve the guest ROM's output contract or prevent stale guest memory from being redrawn. Host system-ROM regression evidence now confirms full `PRINT` text on both screens, clean contents after `PR#0`/`PR#3` switches, a visible prompt, and in-bounds cursors. This does not establish compatibility with unrelated third-party slot firmware or hardware.
-
-APPLE-DEC-018 details: dated 2026-10-09; alternatives were to synthesize DOS 3.3 boot/system software, download an unverified disk image, or require a supplied 16-sector DOS 3.3-order base and add guest files to it. The third option was selected to avoid claiming a synthetic or unverified image is bootable or fetching additional Apple DOS software. `assets/apple2_roms/APPLE_IIe_ROM_KRK.zip` contains a 143,360-byte `romkrk.dsk`; the DOS 3.3 VTOC/catalog check recognizes it and lists three ROM-patch files, but the archive notes identify it as Apple IIe ROM-hacking media and do not establish bootability. The user authorized reusing this candidate for the generated image; that authorization is not evidence of bootability. `tools/createSystemDsk.py --os apple2 --profile DOS33 --base-image <image>` accepts a supplied base and inserts `.TXT`, tokenized `.BAS`/`.INT`, and `.BIN` files; `.TXT` line endings are normalized to DOS carriage returns, and raw binaries require a load address. The generated `littlefs/apple2/system.dsk` adds `TEST.TXT` to the candidate and retains its ROM-patch files. Tests and catalog inspection establish image structure and file insertion, not startup. Runtime Disk II reads and a verified boot remain unimplemented/unverified; APPLE-M7 stays open.
-
-|APPLE-DEC-019|Selected 2026-10-09|Keep the full DOS 3.3P base except for the user-approved unlocked `LOCKSMITH 4.1`; catalog the test Applesoft program as `TEST-NONGR`|
-
-APPLE-DEC-019 details: dated 2026-10-09; `assets/Apple DOS 3.3P.dsk` has a valid DOS 3.3 catalog but zero free sectors. The user approved removing only unlocked `LOCKSMITH 4.1` from the generated copy and requested `TEST-NONGR` as the guest filename. Alternatives were to omit the test program or use another disk; the selected approach retains all other base files. The builder now removes only explicitly named, unlocked files, frees and validates their VTOC sectors, and preserves the supplied base image. The `.BAS` host suffix remains a source type marker but is omitted from the DOS catalog; its file type remains Applesoft, for `LOAD TEST-NONGR` followed by `RUN`. The generated disk has 21 catalog entries including `TEST-NONGR`, 20 free sectors, and no `LOCKSMITH 4.1`. This proves image/catalog structure and tokenized program insertion only; the base's bootability and runtime Disk II support remain unverified.
-
-System disk handoff — 2026-10-09: APPLE-VERIFY-019 is the current generated-image state and supersedes the earlier `TEST.TXT`/`romkrk.dsk` output description in APPLE-DEC-018; retain DEC-018 as historical context. `littlefs/apple2/system.dsk` is generated from `assets/Apple DOS 3.3P.dsk`, excluding only the user-approved unlocked `LOCKSMITH 4.1`, and adds `TEST-NONGR` from `bootDisks/apple2/systemDsk/TEST-NONGR.BAS`. Regenerate using the command in `littlefs/apple2/README.txt`. The Applesoft program is intended to be invoked on a functioning guest disk setup as `LOAD TEST-NONGR` then `RUN`. Do not add `drives.cfg` to the disk: this design's first milestone is one fixed read-only drive. [SUPERSEDED 2026-10-09 by APPLE-DEC-020: the host-emulated read-only Disk II and image mount now exist; the statement that follows is retained as history.] The current firmware has no Disk II controller or image mount, so do not claim disk boot/read is working. Continue with APPLE-ISSUE-005: implement and test the project-authored read-only 16-sector controller from published hardware behavior, then integrate bounded LittleFS sector reads and test sectors before boot.
-
-APPLE-DEC-020 details: dated 2026-10-09; scope was one fixed read-only drive (drive 1), slot 6, 35 tracks x 16 sectors x 256 bytes, image `/littlefs/apple2/system.dsk`. Alternatives were a sector-API shortcut in the ROM/monitor (rejected: guest software must use the real softswitches), or a copied controller ROM (rejected: the boot ROM is project-authored, see below). Implementation: `components/apple2Core/apple2Disk.[ch]` (controller, no file I/O; it asks the host through the `apple2DiskReadSectorFunction` callback for one 256-byte sector at a time and GCR-encodes it into a 416-nibble buffer, so the image is never loaded into RAM); `main/apple2DiskImage.[ch]` (size check, bounds check, `imageFile` read-only access); `main/apple2Machine.c` (`attachDisk`/`releaseDisk`: the image is attached at the end of machine initialisation and released before the core is destroyed and when the run loop stops; a missing or invalid image logs ESP_LOGW "no Disk II media: <path>: <reason>" and the machine continues without a drive); `apple2Core.c` (softswitches `$C0E0–$C0EF`, slot-6 ROM at `$C600–$C6FF` gated on an attached medium). The slot-6 boot ROM is generated by `tools/apple2/buildApple2DiskBootRom.py` into `components/apple2Core/apple2DiskBootRom.h` (251 of 256 bytes), is project-authored (autostart signature bytes, head recalibration, track-0 sector reader, jump to `$0801`) and is not derived from any existing controller ROM. Never edit the generated header by hand.
-
-Sources consulted this session (the archives were read, not the original paper books): the Big Mess o' Wires article "The Amazing Disk II Controller Card" (softswitch map, Q6/Q7 modes, 32-cycle nibble, write-protect sense); Apple's `Software_control_of_IWM.pdf` on bitsavers (only for the IWM motor-off delay of about 1 s); the Wikipedia article "Disk II"; web search results quoting Beneath Apple DOS and Sather "Understanding the Apple II" for the address/data field layout and the DOS 3.3 sector skew table; a GitHub issue discussing Disk II soft switches. The controller behaviour was then checked against the real guest software: `assets/Apple DOS 3.3P.dsk` boots through the emulated interface and its own RWTS reads 229 sectors without error. That is behavioural evidence for the subset DOS uses, not a proof of hardware equivalence.
-
-Timing approach: the core cycle counter drives the disk. One nibble takes 32 CPU cycles, a track has 6656 nibbles (416 per sector x 16), and the angular position is `(cycles / 32) % 6656`, never reset. A read in a new 32-cycle window loads the latch with the next nibble (bit 7 set); repeated reads in the same window return `latch & 0x7F`. Sectors rotate in ascending physical order; the on-disk order is converted with the DOS-order skew table `{0,7,14,6,13,5,12,4,11,3,10,2,9,1,8,15}`. CPU timing and instruction semantics are unchanged (the only core change is a `cycles++` per tick). Motor coast-down: after the motor-off switch the medium keeps delivering nibbles for 1,000,000 cycles (about 1 s). Reason: DOS 3.3 RWTS decides whether the motor is already running by comparing successive `$C08C,X` reads; without the coast-down every call saw a constant value and waited about 1 s, which made the boot take over 30 M cycles and left a keypress pending. With the coast-down the boot takes about 4.7 M cycles. The 1,000,000-cycle value is inferred from that observed RWTS behaviour; only the IWM 1 s delay was confirmed by a source, and the RWTS latch check was recalled from memory, not verified in a primary source.
-
-Behaviour: phase on-events move the head one half-track toward the net pull of the energised magnets (half-track 0..69, clamped; odd half-tracks and tracks >= 35 read as `$FF` nibbles). Motor `$E8/$E9`, drive select `$EA/$EB`, Q6 `$EC/$ED`, Q7 `$EE/$EF`. Data read (Q6 low, Q7 low, offset `$C`) returns the latch; motor stopped (after coast-down) or drive 2 selected returns `$00`; Q7 high returns `$00`; Q6 high reports `$80` for RO media and `$00` for RW media. With Q7 high/Q6 low, writes to offset `$C` are scanned for the 6-and-2 data prologue, decoded and checksum-validated, then mapped from the rotating physical sector to the configured image order and flushed through the host callback. `writeAttempts` and `writeFailures` track complete data-field attempts and rejected/failed writes.
-
-Still uncertain (not verified against a primary source or hardware): the Q6/Q7 write-protect-sense semantics and the latch validity window; the simplified stepper model including the head clamp during recalibration; whether real RWTS write timing tolerances match this fixed 32-cycle model; the motor coast-down value. Host tests verify the sector-write path and persistence, but DOS/ProDOS/Pascal guest writes and hardware behavior have not been tested. Unsupported: 13-sector media, half-track and quarter-track data, spiral/protected disks, Language Card interactions with writes.
-
-System-disk finding (APPLE-ISSUE-014): `LOAD TEST-NONGR` completes (program end `$1032`, 2097 bytes), but `RUN` does not work on the shipped `system.dsk` because the generated file lacks the 2-byte length prefix that Applesoft DOS files carry and because the token table skips `&` ($AF). This is a builder defect, not a Disk II defect. A scratch image built with in-memory patches for both defects ran the program in DOS through the emulated Disk II and printed the TEST 1 result "OK"; TEST 2 then printed an error that is not explained (a direct `PRINT SIN(3.14159265/2);" ";COS(0);" ";TAN(0)` gives `.999999999 1 0`, so the interpreter maths is fine; possibly another tokenizer issue). [RESOLVED 2026-10-09, see APPLE-ISSUE-014 and APPLE-VERIFY-021: builder fixed, system.dsk regenerated, RUN completes with `ALL SYSTEM TESTS OK` in the host emulator.]
-
-Resource follow-up — 2026-10-09: the missing menu resource was `/littlefs/apple2/apple2.rom` (12 KiB). Added that path as a generated project-authored phase-1 diagnostic image so the implemented CPU, text screen and keyboard path can be exercised without copyrighted firmware. Its deterministic generator is `tools/apple2/buildApple2TestRom.py`. A host integration regression boots this exact image, checks its screen text and verifies a keyboard echo. This removes the missing-resource gate for phase-1 testing; it does not satisfy APPLE-M1 ROM provenance or later guest-software milestones.
-
-System ROM follow-up — 2026-10-09: replaced the bundled runtime diagnostic image with the 12 KiB `assets/apple2_roms/apple.rom` image (SHA-256 `378ba00c86a64cca49cedaca7de8d5d351983ebc295d9d11e0752febfc346249`), which matches the machine ROM window and boots the `APPLE ][` prompt in the NMOS 6502 core. The host regression types `PRINT 2+2`, verifies the echoed command, result `4`, and return to the BASIC prompt. The former diagnostic image remains under `tests/fixtures/`, and its generator now defaults there so it cannot overwrite the system ROM. This is host-core evidence only; no ESP32-S3 flash or hardware test was run, and redistribution rights for the source ROM remain unresolved.
-
-APPLE-DEC-024..026 details: dated 2026-10-10; request: read more disks, start with 640K, respect the Apple (UCSD) Pascal volume layout. Alternatives for the slot number: one boot ROM that reads its own slot (rejected: would change the code verified in slot 6) or a ROM per slot from one generator (selected). Alternatives for 640K: an 800K-style 3.5-inch or SmartPort/ProDOS block device (rejected: DEC-014, and unmodified guests would not use it) or 160 virtual tracks behind the existing Disk II softswitches (selected: needs no new guest-visible interface, but see APPLE-ISSUE-016). The core asks the host for (track, image-order sector); only the core's physical-to-image table depends on the order, so `apple2DiskImage.c` reads and writes file offset `(track*16+sector)*256` for either order. A ProDOS/Pascal block n is the two sectors `2*(n%8)` and `2*(n%8)+1` (ProDOS logical order) of track `n/8`. Apple Pascal volume header: directory block 2, little-endian words first block 0, next block 6, kind 0, name length 1..7 plus name at +6, block count at `$0E`, file count at `$10`. `tools/diskImageApple2Pascal.py` builds a blank volume of either size. Consequences: the machine log reports per attached drive the slot, drive, image, order, detected content, Pascal name and block count, and a suspect-order warning. DOS 3.3 order probing needs a second catalog sector because sector 15 maps to the same file sector in both orders; a disk whose catalog has only two sectors, or an image with neither layout, reports the order as unknown and falls back to DOS order. `drives.cnf` in `sdcard/retro/images/apple2/` is an empty tracked file that looks like a typo; it was left untouched and `drives.cfg` was added next to it. Configured non-system images now support RW; `system.dsk` remains RO (DEC-027).
-
-## Issue log
-
-|ID             |State|Issue / next experiment                                                                              |
-|---------------|-----|-----------------------------------------------------------------------------------------------------|
-|APPLE-ISSUE-001|OPEN |Obtain exact original Apple II Autostart/Integer BASIC ROM images and checksums/licensing            |
-|APPLE-ISSUE-002|PARTIAL 2026-10-10|Language Card switch model and standalone host regression implemented; confirm `$C080–$C08F` truth table against a primary hardware reference and physical behavior|
-|APPLE-ISSUE-003|PARTIAL|Project lowercase text/input mapping selected and host-tested; identify the historical character ROM. PB2 Shift sensing is not connected in this project setup|
-|APPLE-ISSUE-004|PARTIAL|Videx-compatible slot-3 profile selected; qualify full editor/scroll/mode behavior and actual TU Delft card remains unknown|
-|APPLE-ISSUE-005|PARTIAL|16-sector Disk II read/write path implemented and host-tested (APPLE-DEC-020/027, APPLE-VERIFY-025). Still open: qualify guest writes against software/hardware or a reference emulator, the uncertainties listed in DEC-020, and 13-sector media|
-|APPLE-ISSUE-006|OPEN |Identify DOS 3.3 System Master image that disk-loads Applesoft into Language Card; trace startup     |
-|APPLE-ISSUE-007|OPEN |Obtain bootable UCSD Pascal image and verify Language Card use                                       |
-|APPLE-ISSUE-008|OPEN |Define 8-inch/custom large virtual controller contract and image geometries without assuming 640 KiB |
-|APPLE-ISSUE-009|OPEN |Align proposed `drives.cfg` profiles/mappings with actual host parser and layout manifest            |
-|APPLE-ISSUE-011|OPEN |Measure ESP32-S3 terminal throughput, keyboard latency and storage performance                       |
-|APPLE-ISSUE-012|PARTIAL 2026-10-11|Ctrl-C reaches the guest and breaks Applesoft (host test). In minicom the command key is Ctrl-A (or Option/Meta with `-m`, which sends `ESC`+key): the minicom 2.11.1 man page lists no Ctrl-C command, so the earlier local interception is unexplained (not reproduced here; check the terminal app and `stty`). With `-m`, `Option+<key>` (= `ESC <key>`) is consumed by minicom, so Apple `ESC I/J/K/M` must be typed as Esc, pause, key. Hardware check outstanding|
-|APPLE-ISSUE-013|OPEN |Obtain a legally sourced bootable DOS 3.3 16-sector-order image; qualify file insertion and boot once Disk II support exists |
-|APPLE-ISSUE-014|FIXED 2026-10-09|`tools/diskImageApple2Dos33.py` / `tools/apple2Basic.py` produce an unrunnable `TEST-NONGR`: no 2-byte length prefix on tokenized Applesoft files, and the token table omits `&` ($AF) so every token $AF or above is one too low. Fixed: the builder now prepends the length, the token table follows the ROM token order ($80 END to $EA MID$, including `&`, DEL, ROT=, FLASH, STORE) and the REM check uses the shifted REM token; `tests/test_createSystemDsk.py` pins the corrected payload and checks every token value. Two further defects were then found in the test program itself (not in the builder or Disk II): `ABS`-less `Y<>1` fails because the ROM's `COS(0)` is `.99999999977` (exponent $80, mantissa `7F FF FF FF`), and the error handler at line 500 sat in the program flow between TEST 5 and TEST 6, so execution ended there. Both were fixed in `TEST-NONGR.BAS` (handler moved to line 9000, `ABS(Y-1) > 0.00001`)|
-|APPLE-ISSUE-015|CLOSED (hardware)|User reports the RGB LED (GPIO 38) blinks red while the Apple II reads the read-only `system.dsk`, while CP/M shows green. The code path to the LED is identical (`diskActivityRead()` queues green, GRB byte order), so the root cause is NOT identified. Mitigations made 2026-10-09 (not verified on hardware): `diskActivity.c` now transmits only on a colour change (the Apple Disk II loads a sector every ~12.5 ms, so the LED used to be re-sent ~80x/s) and uses a 300 us reset gap instead of 80 us; `apple2Machine.c` calls `diskActivityWrite()` only when `apple2CoreGetDiskState().writeAttempts` increases, so only a refused write attempt can turn it red. Check on hardware: does it still turn red on pure reads? If yes, suspect WS2812 timing glitches while the emulator runs and report back. Added 2026-10-09: temporary logging under `DISK_ACTIVITY_DEBUG_LOG` in `diskActivity.h` (set to 0 to silence): `LED request <colour>` when a colour is requested, `LED transmit <colour>: bytes G R B` when the RMT frame is sent, and `Disk II write attempt` in `apple2Machine.c`. In the host emulator boot, `CATALOG`, `LOAD` and `RUN` give 0 write attempts, so a red LED on pure reads would not come from emulated writes: if the log shows `request GREEN`/`transmit GREEN` while the LED is red, suspect the hardware/RMT/GRB path; if it shows `request RED`, a write attempt was logged. Finding 2026-10-10 (user observation on hardware): the start-up self-test sent red, green, blue as GRB bytes and the LED showed green, red, blue, i.e. this LED takes RGB byte order, not GRB; the log showed only `GREEN (read)` requests with `G=32` and no write attempts. `diskActivity.c` now sends RGB order (fix applied, awaiting hardware confirmation for both Apple II and CP/M). Hardware confirmation 2026-10-10: Apple II and CP/M both show green on read and red on write after the RGB-order change; `DISK_ACTIVITY_DEBUG_LOG` set to 0 (self-test and logging off) |
-|APPLE-ISSUE-016|OPEN |Stock DOS 3.3 and Apple Pascal are not known to address 160 tracks or a 640K Disk II; verify with a suitable guest driver or reference emulator, or define the guest-side driver. Until then the 640K drive is only proven at the nibble/sector level in the host test|
-|APPLE-ISSUE-017|OPEN |Pascal block-device access (ATTACH-style driver for the character/block firmware protocol) is future guest-side work and cannot be verified without that software|
-|APPLE-ISSUE-018|FIXED 2026-10-10|Non-system multi-drive Disk II image writes, persistence and RO/RW configuration are implemented and host-tested (APPLE-DEC-027, APPLE-VERIFY-025). Guest-software writes, hardware behavior and 13-sector media remain unverified (APPLE-ISSUE-005)|
-|APPLE-ISSUE-019|OPEN |Boot ROMs for slots 4, 5 and 7 are generated and checked as bytes only in the host test (slot 6 is the only one executed by a guest); no guest software has booted from them. Hardware behaviour unverified|
-|APPLE-ISSUE-020|PARTIAL 2026-10-10|ProDOS 8 boot, catalog and BASIC `SAVE` through SmartPort now pass in the host harness (APPLE-DEC-031, APPLE-VERIFY-030). Root causes of the earlier failure: (1) the project-authored Disk II boot ROM left X=`$54`, so ProDOS booted from slot 5; (2) ProDOS block 0 re-enters the original P5A Disk II ROM (`$Cn5C`, bytes `$Cn63..$CnEA`), which this project-authored ROM cannot provide, so ProDOS cannot boot from a Disk II image (not supported; use `PR#5` from SP5.1); (3) the SmartPort trap fired on operand fetches at `$C50A` and had no unit-0 controller STATUS; (4) block buffers in Language Card space (`$D000-$FFFF`) were rejected. Still open: hardware verification; the STATUS code 3 device-information-block layout was not audited against a primary reference; other ProDOS versions and DOS 3.3-compatible use are untested. Update: ProDOS now also boots from `SD6.1` through the autostart block-device slot (APPLE-DEC-032, APPLE-VERIFY-031); the Disk II boot path itself remains unable to start ProDOS.|
-
-Use: Reference behaviour → Hypothesis → Experiment → Result → Conclusion → Root cause → Fix → Regression verification → Do not repeat.
-
-## Verification log
-
-|ID              |Status                |Evidence / remaining action                                                                                                                                     |
-|----------------|----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-|APPLE-VERIFY-001|HISTORICAL REQUIREMENT|2026-10-08 owner clarified original Apple II, Integer BASIC, auto-boot, 16 KiB Language Card, disk-loaded Applesoft, Shift/lowercase and TU Delft 80-column card|
-|APPLE-VERIFY-002|HISTORICAL REQUIREMENT|2026-10-08 owner clarified double-sided/double-density 8-inch dual-drive setup; controller/geometry unknown; no physical drives planned                         |
-|APPLE-VERIFY-003|DESIGN REVIEW         |2026-10-08 prior IIe/ProDOS design conflicts identified and superseded; no emulator tests performed                                                             |
-|APPLE-VERIFY-004|HOST PASS (subset)   |`cmake --build build-host --target hostTests && ./build-host/hostTests --apple2-system-rom`: ROM reset reaches `APPLE ][`; keyboard input runs `PRINT 2+2` and displays `4`. Hardware/Autostart acceptance remains open.|
-|APPLE-VERIFY-005|PARTIAL HOST PASS     |The Language Card standalone regression now passes; hardware acceptance, primary-reference comparison and UCSD/ProDOS use remain outstanding. Host tests also cover lowercase glyph decoding, digit preservation and case-preserving keyboard input.|
-|APPLE-VERIFY-006|HOST PASS (subset)   |System-ROM host test verifies complete Applesoft `LIST` output, screen clearing across `PR#0`/`PR#3`, prompt visibility and in-bounds cursors; detailed reproducibility and environment are recorded under APPLE-VERIFY-010; hardware acceptance remains open.|
-|APPLE-VERIFY-007|PARTIAL HOST (DOS boot only)|DOS 3.3P boot and `LOAD` observed in the host emulator, see APPLE-VERIFY-020; disk-loaded Applesoft into a Language Card and UCSD Pascal NOT RUN|
-|APPLE-VERIFY-008|NOT RUN               |Virtual disks, exchange, durability, ESP32 hardware and recovery                                                                                                |
-|APPLE-VERIFY-009|HOST PASS (subset)   |2026-10-09: `cmake --build build-host --target hostTests && ./build-host/hostTests --apple2-videx-card`; synthetic 6502 ROM executes project `PR#3` firmware, verifies 80 distinct VRAM cells, CR, banked VRAM, scrolling, cursor and output-vector mode. Hardware, authentic Videx firmware/raster behavior and historical TU Delft card remain unverified.|
-|APPLE-VERIFY-010|HOST + BUILD PASS    |2026-10-09: full host suite passed 4/4 and ESP-IDF build succeeded after the Applesoft/output-vector fixes; reproducibility and scope below. No flash or physical-board test was performed.|
-|APPLE-VERIFY-012|SUPERSEDED           |Earlier keyboard behavior claims were incomplete; see APPLE-VERIFY-015.|
-|APPLE-VERIFY-013|HOST + BUILD PASS    |2026-10-09: lowercase screen decoding, digits `1234567890`, and system-ROM `PR#3` path passed before adding virtual Shift sensing. No physical-board test.|
-|APPLE-VERIFY-014|SUPERSEDED           |The tests showed lowercase commands execute, not that the stock ROM preserves lowercase screen output. The case-derived `$C063` behavior described here was removed; see APPLE-VERIFY-015.|
-|APPLE-VERIFY-015|SUPERSEDED           |Keyboard data/strobe separation passed, but stock-ROM lowercase echo remained uppercase; the limitation is resolved in APPLE-VERIFY-016.|
-|APPLE-VERIFY-016|PARTIAL HOST + BUILD|2026-10-09: immediate lowercase/uppercase key echo is verified in motherboard and Videx modes, and lowercase Applesoft command input still works. This does not prove lowercase Applesoft string output or LIST preservation; the remaining case loss is recorded in APPLE-VERIFY-017. Full host suite and ESP-IDF build passed. No board execution.|
-|APPLE-VERIFY-017|PARKED / USER REPORTED|2026-10-09: user reports `print "abcdefghijkm"` renders `ABCDEFGHIJKM` and `10 print "Pietje Puk"` is stored/listed as `10  PRINT "PIETJE PUK"`. Immediate lowercase key echo works, but quoted string contents still lose case. No implementation or validation performed for this issue; resume with exact PRINT/LIST assertions in both display modes.|
-|APPLE-VERIFY-018|HOST PASS (image builder)|2026-10-09: 14 focused builder tests pass. A generated 143,360-byte candidate from the user-authorized `romkrk.dsk` contains `TEST.TXT` plus three existing ROM-patch files; text line endings are DOS carriage returns. Catalog and VTOC inspection pass. This does not verify disk boot or runtime Disk II reads.|
-|APPLE-VERIFY-019|HOST PASS (image builder)|2026-10-09: 21 focused builder tests pass. Generated `littlefs/apple2/system.dsk` from `assets/Apple DOS 3.3P.dsk`, removed only unlocked `LOCKSMITH 4.1` from the copy, and inserted tokenized Applesoft type-A `TEST-NONGR` with 20 free sectors remaining. VTOC/catalog inspection passes; boot and runtime Disk II reads are not verified. [Update 2026-10-09: host-emulated boot and reads are now covered by APPLE-VERIFY-020.]|
-|APPLE-VERIFY-020|HOST + BUILD PASS    |2026-10-09: read-only Disk II. 7/7 host tests pass (`apple2Disk`, `apple2DiskDosStream`, `apple2DiskDosBoot` are new) and `idf.py build` succeeds. DOS 3.3P boot and `LOAD TEST-NONGR` observed in the host emulator; `RUN TEST-NONGR` does NOT work (APPLE-ISSUE-014). No flash, no hardware.|
-|APPLE-VERIFY-021|HOST PASS (emulator)  |2026-10-09: regenerated empty-catalog `system.dsk` (only `TEST-NONGR`); `LOAD TEST-NONGR` and `RUN` print all eight tests OK and `*** ALL SYSTEM TESTS OK! ***` in the host emulator through the Disk II (asserted by `apple2DiskDosBoot`). Builder tests 23/23 in `test_createSystemDsk.py`. RGB LED colour on hardware: NOT checked. Hardware tested: NO.|
-|APPLE-VERIFY-022|HOST PASS (emulator)  |2026-10-09: 80-column card active at boot via `HELLO`, `LOAD`/`RUN` of `TEST-NONGR` shows `ALL SYSTEM TESTS OK` on the 80-column screen, `PR#0` returns to 40 columns, `PR#3`, `HOME`, `VTAB`/`HTAB` positioning checked in `tests/apple2DiskTests.c` (`apple2DiskDosBoot`); 7/7 ctest, Python builder tests pass. Not proven: hardware, the terminal rendering, the LED fix (APPLE-ISSUE-015), firmware build (`idf.py` not available in this session) |
-|APPLE-VERIFY-023|HOST + BUILD PASS    |2026-10-09: `cmake --build build-host --parallel`; `ctest --test-dir build-host --output-on-failure` (7/7); `idf.py build` completed; nothing flashed. `apple2SystemRom` (`testApple2BootIn80Columns`) boots without a disk with the option: card active, `]` prompt on the 80-column screen, `PRINT 2+2`, `PR#0`, `PR#3`, then an explicit `apple2CoreReset` returns to the active card. `apple2DiskDosBoot` boots `system.dsk` with the option and `HELLO` printing without `PR#3`. Not proven: hardware, the terminal rendering, and the LED colour (APPLE-ISSUE-015) |
-|APPLE-VERIFY-024|HOST + BUILD PASS    |2026-10-10: multi-drive/640K/Pascal. 8/8 host tests (new `apple2MultiDisk`), `idf.py build` completed, 6/6 Python tests for the Pascal volume builder. Host evidence only; hardware tested: NO|
-|APPLE-VERIFY-025|HOST + BUILD PASS    |2026-10-10: writable Apple II image support; all 8 host tests pass and the ESP-IDF build succeeds. Write-field decoding, ProDOS-order mapping, flush/reopen persistence, write-protect behavior, malformed-write refusal and RO/RW config are tested. No flash, guest-software write or hardware test.|
-|APPLE-VERIFY-026|HOST + BUILD PASS    |2026-10-10: optional ProDOS 8/SmartPort block-device path. All 8 host tests and all 6 ProDOS formatter tests pass; ESP-IDF build succeeds. Host 6502 calls verify SmartPort signature, ReadBlock/WriteBlock, write-protect and out-of-range errors; image tests cover ProDOS volume probing, DOS/ProDOS block ordering, RO/RW bounds and persistence. Guest boot, filesystem writes, flash and hardware were not verified in this run.|
-|APPLE-VERIFY-027|HOST DIAGNOSTIC / BLOCKED|2026-10-10: optional `apple2DiskTests --prodos-smartport-boot 'assets/apple2Downloads/appleDisks/ProDOS 2.4.2.dsk' <generated-640K-volume>` experiment. The screen remained at the `*` monitor after the 60-cycle batches; slot-6 state reported track 0, 16 sector reads and zero read failures. The user clarified that ProDOS requires the 16 KiB Language Card, which is not implemented in the current 48 KiB machine; therefore this result is not evidence of a SmartPort or boot-media defect. Defer diagnosis and guest boot/catalog/save tests until after Language Card implementation (APPLE-DEC-029). No flash or hardware test.|
-|APPLE-VERIFY-028|HOST + BUILD PASS (Language Card)|2026-10-10: `cmake --build build-host --parallel && ctest --test-dir build-host --output-on-failure` passes 9/9; ESP-IDF build succeeds. Synthetic-ROM checks cover reset mapping, both 4 KiB banks, shared RAM through `$FFFF`, ROM/read selection, write protection, two odd-switch reads, read-versus-write unlock behavior, reset retention and a real NMOS 6502 switch/write/read sequence. Primary manual, UCSD/ProDOS guest boot and hardware behavior remain unverified; nothing was flashed.|
-|APPLE-VERIFY-029|HOST DIAGNOSTIC / OPEN|2026-10-10: repeated `apple2DiskTests --prodos-smartport-boot` after adding the Language Card, with a generated 640K data volume and the boot image tested once as `.dsk` and once as `.po`. Both runs returned to the `*` monitor after 16 track-0 reads and zero read failures; the emulated CPU did not access `$C080–$C08F`. This does not validate or disprove the Language Card and does not establish a SmartPort defect. Boot investigation remains open (APPLE-ISSUE-020); no flash or hardware test.|
-|APPLE-VERIFY-030|HOST + BUILD PASS|2026-10-10: `apple2DiskTests --prodos-smartport-boot <ProDOS 2.4.2.dsk> <generated 800K volume>`: boot via `PR#5` from SmartPort unit 1 (read-only), Bitsy Bye selector, `BASIC.SYSTEM`, `CATALOG /DATA800` (1600 blocks total), `PREFIX`, `SAVE TEST`; the file `TEST` is found in the volume directory of the image. `ctest` 9/9 passes (including 800K profile, config and track-limit tests); ESP-IDF build succeeds; nothing was flashed. Python ProDOS tests pass; two unrelated CP/M Python tests fail (`test_createSystemDsk` import error, `test_build_cpm80_matches_checked_in_image`) and were not touched. Not verified: hardware, SD durability, other ProDOS versions.|
-|APPLE-VERIFY-031|HOST + BUILD PASS|2026-10-10: `apple2DiskTests --prodos-autostart-boot <ProDOS system.dsk> <800K volume>` boots ProDOS from slot 6 drive 1 with the Autostart ROM (no `PR#`): a generated PRODOS `system.dsk`, `bootDisks/apple2/prodosEmpty.po` and ProDOS 2.4.2 each boot; `CATALOG,S6,D2` lists the 800K volume and `SAVE` stores a file that is found in the volume directory. The SmartPort test still passes. ctest registers both tests with freshly generated images (13/13 pass; the data volume is copied to a scratch file first). Python tests for the ProDOS reader/writer, sector-order conversion, name mapping, `createSystemDsk.py --profile PRODOS`, `buildDiskImage.py --os apple2` and the upload/rebuild messages pass; the only Python failure is the unrelated `test_build_cpm80_matches_checked_in_image`. `idf.py build` succeeds with the default and with `-DAPPLE2_SYSTEM_DISK_PROFILE=PRODOS` (the build was set back to DOS33); nothing was flashed. Not verified: hardware, SD durability, ProDOS versions other than 2.4.2, a DOS image sharing a ProDOS slot.|
-|APPLE-VERIFY-032|HOST + BUILD PASS|2026-10-10: after the DOS removal `ctest` passes 12/12 (`apple2DiskStream` replaces the two DOS tests; drive-config tests expect no default drive; the ProDOS boot tests still pass) and the Python tests pass except the unrelated `test_build_cpm80_matches_checked_in_image`. `idf.py build` succeeds and regenerates the ProDOS `littlefs/apple2/system.dsk`; nothing was flashed. `data1.po` (/DATA1) and `data2.po` (/DATA2) were created with `buildDiskImage.py --os apple2` (800K). Not verified on hardware: the start-up error and fall-back to the system menu when SD6.1 is missing, and the shipped drives.cfg on the SD card.|
-|APPLE-VERIFY-034|HOST PASS|2026-10-12: `hostTests` (`testApple2IIe`, `testApple2Saturn128`), `apple2DiskTests` and `apple2DiskTests --pascal-iie-boot littlefs/ucsd/ApplePascal1-140K.dsk littlefs/apple2/apple2e.rom` ("Pascal system size is 128K") pass. `apple2MultiDiskTests` still fails at line 939; it failed before these changes. ESP32-S3 not run.|
-|APPLE-VERIFY-033|HOST + BUILD PASS|2026-10-11: `hostTests --apple2-core` (translator: all eight cursor sequences, modified arrow, dropped Delete/Home, lone/doubled ESC, all control codes, CR/LF/DEL) and `hostTests --apple2-system-rom` (Applesoft `GET A$: PRINT ASC(A$)` receives `$01 $07 $08 $0A $0B $0D $15 $1A $1B $1F $7F` plus `a`/`Z`; Ctrl-C (`$03`) stops a running `10 GOTO 10` with `BREAK`) pass; `idf.py build` succeeds; nothing flashed. Not verified on hardware or through minicom; `apple2DiskStream` fails opening `littlefs/apple2/system.dsk`, unrelated to this change; the host-test asset paths now point to `assets/apple2_roms/apple.rom` and `assets/apple2Downloads/appleDisks/`.|
-
-APPLE-VERIFY-010 evidence — date: 2026-10-09. Firmware commit: none; this verification ran against the uncommitted worktree. Upstream CPU core: `floooh/chips` `ee88c35ad6427341aa6999c3b07233e1f8bd2396`. ESP-IDF: v6.0.2. Target configuration: project-configured ESP32-S3 / LOLIN S3 Pro; the firmware was built, not run on that board. Terminal: host-side test harness reading emulated 40×24 and 80×24 screen memory; no physical terminal or board was attached. Commands: `cmake --build build-host --parallel`; `ctest --test-dir build-host --output-on-failure`; ESP-IDF VS Code build command (`idf.py build`). Guest input in the ROM regression: `10 PRINT 1`, `LIST`, `PR#3`, `LIST`, `PR#0`, `PR#3`, `PRINT 2+2`. Expected: complete `PRINT` in both screen modes; a cleared destination screen and visible BASIC prompt on each mode change; cursor within the active screen; arithmetic result `4`; all host tests pass and firmware links. Actual: all expectations passed; CTest reported 4/4 passing and the ESP-IDF build completed. Evidence locations: `tests/hostTests.c` (`testApple2SystemRom`, `testApple2VidexCard`, `testApple2VidexScrolling`) and the host CTest target definitions in `tests/CMakeLists.txt`. This is host/build evidence only; hardware behavior remains unverified.
-
-APPLE-VERIFY-018 evidence — date: 2026-10-09. Firmware commit: none; tests ran against the uncommitted worktree. Upstream core: not exercised. ESP-IDF: not used. Board and terminal: not applicable. Python environment: project `.venv-1`, Python 3.12.14. Test command: `PYTHONPATH=tools /Users/willema/Documents/espidfProjects.nosync/esp32s3-retro/.venv-1/bin/python -m unittest discover -s tests -p 'test_createSystemDsk.py'`; actual: 14 tests passed, covering the CP/M regression, synthetic DOS VTOC/catalog insertion, and text line-ending normalization. Image command: extract `romkrk.dsk` from `assets/apple2_roms/APPLE_IIe_ROM_KRK.zip` to a temporary base, then run `PYTHONPATH=tools <project-python> tools/createSystemDsk.py --os apple2 --profile DOS33 --base-image <temporary-base>`. Actual: `littlefs/apple2/system.dsk` is 143,360 bytes; its catalog lists `TEST.TXT`, `ROMPATCH2E_P2_KRK`, `ROMPATCH2E_P1_KRK`, and `ROMPATCH2E_P3_KRK`. The `TEST.TXT` entry is DOS text type and the stored content uses carriage-return lines. The candidate's bootability and all runtime Disk II reads remain unverified because the emulator has no Disk II controller.
-
-APPLE-VERIFY-019 evidence — date: 2026-10-09. Firmware commit: none; focused tests and image generation ran against the uncommitted worktree. Upstream core and ESP-IDF: not exercised. Board and terminal: not applicable. Python environment: project `.venv-1`, Python 3.12.14. Test command: `PYTHONPATH=tools .venv-1/bin/python -m unittest discover -s tests -p 'test_createSystemDsk.py'`; actual: 21 tests passed, including unlocked-file sector reclamation, locked-file refusal, input-image preservation, and extensionless Applesoft catalog naming. Image command: `PYTHONPATH=tools .venv-1/bin/python tools/createSystemDsk.py --os apple2 --profile DOS33 --base-image "assets/Apple DOS 3.3P.dsk" --remove-existing "LOCKSMITH 4.1"`. Actual: `littlefs/apple2/system.dsk` is 143,360 bytes, has 21 catalog entries, contains `TEST-NONGR` with DOS Applesoft type 2 and its full 2,097-byte tokenized payload, omits `LOCKSMITH 4.1`, and has 20 free sectors; the base image remained unchanged. `diskImageApple2Dos33.inspect_image` validates its VTOC and catalog. Neither bootability nor emulator-side disk access was tested.
-
-APPLE-VERIFY-020 evidence — date: 2026-10-09. Firmware commit: none; tests and build ran against the uncommitted worktree; host/build evidence only; hardware behavior remains unverified. Host compiler: clang (macOS arm64) with `-Wall -Wextra -Werror -UNDEBUG -funsigned-char` and ASan/UBSan. ESP-IDF: v6.0.2. No flash or upload was performed. Commands: `cmake -S tests -B build-host`; `cmake --build build-host`; `ctest --test-dir build-host --output-on-failure`; `idf.py build`. Actual: ctest 7/7 passed (`hostCore`, `apple2Core`, `apple2VidexCard`, `apple2SystemRom`, `apple2Disk`, `apple2DiskDosStream`, `apple2DiskDosBoot`); the firmware build completed (app partition 67% free). Coverage by test (all in `tests/apple2DiskTests.c`): image open, size and bounds errors, read-only behaviour (file unchanged after the run); sector selection and the GCR stream equal to every sector of both `littlefs/apple2/system.dsk` and `assets/Apple DOS 3.3P.dsk` (controller/sector tests); softswitch, drive, motor, phase, Q6/Q7 behaviour through the core at the slot-6 addresses, motor coast-down and its cancellation and reset; a synthetic boot sector read and executed by the guest through the slot-6 ROM and the real interface; `--dos-boot`: system.dsk boots to the DOS banner, 229 sector reads, 0 read failures, 0 write attempts, head at half-track 18, image file unchanged; `LOAD TEST-NONGR` finishes without `ERROR` or `NOT FOUND`, program end `$1032` (2097 bytes). Not passed: `RUN` of `TEST-NONGR` on the shipped image (APPLE-ISSUE-014); `RUN` output is printed by the test for information only and is not asserted. Not proven: hardware behaviour, ESP32-S3 timing/performance of sector reads from LittleFS, compatibility with other DOS software, and the uncertainties listed in APPLE-DEC-020. Classification: sector/controller tests PASSED; DOS boot and LOAD PASSED in the host emulator; hardware tested: NO.
-
-APPLE-VERIFY-021 evidence — date: 2026-10-09. Firmware commit: none; uncommitted worktree; host evidence only, no flash or upload. Commands: `python3 tools/createSystemDsk.py --os apple2 --profile DOS33` (historical: this evidence used the removed `--remove-all-existing` option on the original base; superseded by APPLE-DEC-021/VERIFY-022); `cmake --build build-host`; `ctest --test-dir build-host --output-on-failure` (7/7); `PYTHONPATH=tools python3 -m unittest test_createSystemDsk` from `tests/` (23/23). `tests/test_diskImage.py::test_build_cpm80_matches_checked_in_image` fails with and without these changes (CP/M-80, unrelated). Observed: catalog is `['TEST-NONGR']`; boot shows `FILE NOT FOUND` once (no HELLO file) and the `]` prompt, 183 sector reads, 0 failures, 0 write attempts; `LOAD` ends at `$103D` (2108 bytes); `RUN` prints TEST 1 to TEST 8 `OK`. The 1,000,000-cycle coast-down value and the other APPLE-DEC-020 uncertainties are unchanged. Not proven: hardware behaviour and the RGB LED colours (APPLE-ISSUE-015).
-
-Lowercase follow-up — 2026-10-09: the core independently selects lowercase text decoding and lowercase keyboard input. The custom display decoder maps `$C1–$DA` to uppercase A–Z and `$E1–$FA` to lowercase a–z. Host unit tests verify character decoding and that keyboard data retains both cases. This project mapping is not a verified dump of a historical lowercase character ROM.
-
-Keyboard correction — 2026-10-09: USB Serial/JTAG carries characters, not physical key/modifier events; no Shift signal is wired to the Apple II game port. The core does not synthesize Shift on `$C063`. It stores keyboard data separately from the `$C000` ready strobe, which `$C010` clears. The stock ROM normalizes lowercase input to uppercase in its echo path. APPLE-VERIFY-016 adds a bounded, case-preserving correction only to the matching screen write after the keyboard strobe is acknowledged; it leaves the incoming keyboard data and ROM unchanged. This correction covers the key echo only, not Applesoft string printing or the case stored in BASIC program text.
-
-Text-code correction — 2026-10-09: lowercase mapping now recognizes lowercase screen bytes `$E1–$FA` before stripping Apple II text attributes. The earlier low-six-bit conversion mistakenly treated digit codes `$B0–$B9` as lowercase letters, rendering `1234567890` incorrectly. Digits and punctuation remain decoded through the standard character mapping. Regressions cover all ten digits and all 26 lowercase letters. Existing system-ROM host tests type `PR#3` and exercise the Videx output path; the digit rendering bug made terminal echo unreliable to read.
-
-APPLE-VERIFY-011 evidence — date: 2026-10-09. Firmware commit: none; tests ran against the uncommitted worktree. Upstream CPU core: `floooh/chips` `ee88c35ad6427341aa6999c3b07233e1f8bd2396`. ESP-IDF: v6.0.2. Target configuration: project-configured ESP32-S3 / LOLIN S3 Pro; host tests only, no board execution. Terminal: host-side test harness; no physical terminal attached. Commands: `cmake --build build-host --target hostTests && ./build-host/hostTests --apple2-core`; `ctest --test-dir build-host --output-on-failure`; ESP-IDF extension `build` command. Expected: preserve uppercase behavior, read lowercase and uppercase through the keyboard latch, decode lowercase text bytes only when the lowercase character mapping is enabled, pass all host regressions and link firmware. Actual: targeted Apple II core test passed; full host suite passed 4/4; ESP-IDF build succeeded. Evidence location: `tests/hostTests.c` (`testApple2Core`); hardware behavior remains unverified.
-
-APPLE-VERIFY-012 evidence — date: 2026-10-09. Earlier tests did not exercise keyboard firmware with case-derived virtual Shift sensing; see correction in APPLE-VERIFY-015.
-
-APPLE-VERIFY-013 evidence — date: 2026-10-09. Lowercase screen codes `$E1–$FA`, digits `$B0–$B9`, and uppercase system-ROM `PR#3` input passed before the virtual Shift-sense shim. It does not demonstrate lowercase guest keyboard handling.
-
-APPLE-VERIFY-014 evidence — date: 2026-10-09. This record was superseded: successful execution of lowercase BASIC commands did not prove lowercase echo/display, and its expected case-derived `$C063` state was erroneous. See APPLE-VERIFY-015.
-
-APPLE-VERIFY-015 evidence — date: 2026-10-09. This intermediate result was superseded: it verified case-preserving keyboard data and strobe clearing but did not implement lowercase echo; see APPLE-VERIFY-016.
-
-APPLE-VERIFY-016 evidence — date: 2026-10-09. Firmware commit: none; tests/build ran against the uncommitted worktree. Target configuration: project-configured ESP32-S3 / LOLIN S3 Pro; host tests and firmware build only, no board execution. Commands: `cmake --build build-host --target hostTests && ./build-host/hostTests --apple2-core && ./build-host/hostTests --apple2-system-rom`; `ctest --test-dir build-host --output-on-failure`; ESP-IDF extension `build` command. The system-ROM test reads back exact text-cell bytes after terminal `a` and `A` input (`$E1` and `$C1`) in motherboard mode and verifies lowercase Videx echo. It also verifies lowercase Applesoft command input, `PR#3`, digits, strobe clearing, and that the host keyboard bytes are preserved. Full CTest and ESP-IDF build pass. This confirms host-emulated behavior only; no physical-board execution was performed.
-
-APPLE-VERIFY-017 evidence — date: 2026-10-09. User-reported device/terminal behavior; not independently reproduced in the host harness. Input `print "abcdefghijkm"` displayed `ABCDEFGHIJKM`. Entering `10 print "Pietje Puk"` and then `list` displayed `10  PRINT "PIETJE PUK"`. The already-verified case-preserving character echo therefore does not preserve lowercase through Applesoft `PRINT` string output or program storage/listing. Work is explicitly parked at the user's request. On resumption, add regression coverage for literal string output and stored/listed string case before changing the ROM/core interception; test motherboard and Videx output and retain existing uppercase, digits, lowercase command parsing and `PR#3` regressions.
-
-APPLE-VERIFY-024 evidence — date: 2026-10-10. Firmware commit: none; uncommitted worktree; host/build evidence only, no flash or upload. Commands: `cmake --build build-host`; `ctest --test-dir build-host --output-on-failure` (8/8: the seven earlier tests plus `apple2MultiDisk`); `source "$HOME/.espressif/tools/activate_idf_v6.0.2.sh" && idf.py build` (completed, no warnings found in its output); `PYTHONPATH=../tools python3 -m unittest test_diskImageApple2Pascal` from `tests/`. `tests/apple2MultiDiskTests.c` observed: DOS and ProDOS sector order in the decoded nibble stream (tracks 0 and 17); 160-track stepping to half-track 319 and the clamp there, track 100 and 159 decoded; two drives with independent heads, an empty second drive reading `$00`, write-protect sense `$80` per drive; slot 5 through the core (ROM bytes `$C501/$C503/$C505/$C507` = `20 00 03 3C`, `LDA #$50`, motor and write-attempt counting on slot 5 only, slot 6 absent, invalid slot/drive/track arguments refused); image profile sizes in both directions; Apple Pascal probe for 640K `.po`, 140K DOS-order and forced wrong order (suspect flag), damaged headers; DOS 3.3 probe in both orders; a 640K Pascal volume read through the controller (block 1000 and block 1279 decoded from the nibble stream, image file unchanged); `drives.cfg` valid lines, 17 invalid cases, defaults, `/retro` path resolution and over-long lines. Not proven: any guest software booting or reading from slots 4, 5 or 7 or from a 640K drive (APPLE-ISSUE-016/019), Pascal on this controller, hardware behaviour.
-
-APPLE-VERIFY-025 evidence — date: 2026-10-10. Firmware commit: none; tests/build ran against the uncommitted worktree; no flash or upload. Commands: `cmake --build build-host --parallel`; `ctest --test-dir build-host --output-on-failure` (8/8); ESP-IDF extension `build` command (completed). `tests/apple2DiskTests.c` feeds 6-and-2 encoded Disk II data fields through Q7/Q6 write mode into a 640K ProDOS-order image at track 159; it verifies physical-to-file sector mapping, exact data after close/reopen, no image extension, malformed checksum refusal and RO write failure. `tests/apple2MultiDiskTests.c` verifies RO/RW config parsing, default system image write protection and controller write-protect sense. This does not verify DOS/ProDOS/Pascal guest software issuing writes or hardware behavior.
-
-APPLE-VERIFY-026 evidence — date: 2026-10-10. Firmware commit: none; this ran against the uncommitted worktree. Upstream core: `floooh/chips` `ee88c35ad6427341aa6999c3b07233e1f8bd2396`. ESP-IDF: v6.0.2; configured ESP32-S3 target; built but not flashed. Terminal: host test harness; no physical board or terminal. Commands: `cmake --build build-host --parallel`; `ctest --test-dir build-host --output-on-failure` (8/8); `/Users/willema/Documents/espidfProjects.nosync/esp32s3-retro/.venv-1/bin/python -m unittest discover -s tests -p 'test_diskImageApple2Prodos.py' -v` (6/6); ESP-IDF extension `build` command. Expected/observed: the synthetic 6502 caller reads and writes a 512-byte SmartPort unit; RO writes return the write-protected status, out-of-range requests return bad-block status, and Cn signature/capability bytes match the configured unit. Image tests detect a ProDOS volume in both sector orders, write/read bounded blocks and reject out-of-range and RO writes. The ProDOS formatter tests validate 140K/640K volume headers, directory chain, bitmap, name/profile validation and CLI output. The firmware build produced `retroHost.bin`; no flash/upload was performed. Not proven: booting the locally supplied ProDOS 2.4.2 disk, ProDOS guest catalog/save operations through SmartPort, SD durability under interruption, or hardware behavior.
-
-Earlier 2026-10-04 Apple IIe/ProDOS source-review notes in the prior revision are not acceptance evidence for this new original-Apple-II baseline. Preserve the original document in version control for provenance.
-
-## Next implementation session
-
-Before accepting additional Apple II milestones, confirm HOST-M1/CP/M acceptance status and actual repository layout. Resolve ROM provenance and redistribution rights, verify the pinned CPU core against a reproducible original Apple II desktop reference, then complete one milestone at a time. Keep failed experiments and regression evidence; never relabel source review or a host-only test as a passing hardware test.
+| Apple II / II+ (default) | 48 KiB + 16 KiB Language Card | 12 KiB at `$D000–$FFFF` | `MACHINE=II` or missing |
+| Apple II + Saturn 128K | 48 KiB + 128 KiB card | same | `RAMCARD=SATURN128` |
+| Apple IIe (unenhanced) | 64 KiB main + 64 KiB aux | 16 KiB at `$C000–$FFFF` | `MACHINE=IIE` |
+
+## 10. Keyboard and lowercase
+
+The host delivers characters, not key/modifier events.
+
+- `$C000` read returns `keyboardData` OR'd with `$80` while the strobe is set; `$C010`
+  (read or write) clears the strobe. On the IIe `$C010` reads return the data with the
+  pre-clear strobe bit.
+- `apple2CorePressKey` accepts only 7-bit characters and refuses while a key is pending.
+- The input translator (`main/apple2Keyboard.c`) converts the terminal byte stream: CR and a
+  lone LF both deliver CR (CR+LF delivers one CR); `$08` and `$7F` deliver `$08`; bytes >
+  `$7F` are dropped; `ESC [` / `ESC O` + `A–D` deliver Up `$0B`, Down `$0A`, Right `$15`,
+  Left `$08`; other parameters (`0–9 ; <space>–?`) are consumed (max 8), a malformed
+  sequence is dropped; `ESC` followed by an ordinary byte delivers both bytes so Apple ESC
+  editing still works; a lone `ESC` is delivered after a 50 ms timeout by the machine
+  adapter.
+- Text decoding (`apple2CoreDecodeTextCharacter`): value & `$3F`; `$01–$1F` → `@`-based
+  uppercase, `$20` → space, `$21–$3F` → ASCII. With the lowercase character ROM enabled,
+  `$E1–$FA` decode to `a–z`. On the IIe with ALTCHARSET, `value & $7F` is direct ASCII
+  (`$7F` → space). The machine profile enables both lowercase options.
+- The stock ROM uppercases its key echo; to preserve terminal echo case, after a lowercase
+  key is acknowledged the core converts the single matching uppercase echo write into the
+  lowercase screen code (`$E1–` for motherboard text, the plain lowercase byte on the card)
+  within a bounded window of 4096 cycles. This corrects the echo only; Applesoft string
+  output and stored/listed program text are not modified.
+- There is no Shift/PB2 sensing; `$C063` reads `$00` and is never derived from character
+  case.
+
+## 11. 40-column text display
+
+### 11.1 Screen addressing
+
+```text
+address = (page2 ? $0800 : $0400) + ((row & 7) << 7) + ((row >> 3) * 40) + column
+```
+
+for rows 0–23, columns 0–39 (`apple2CoreTextAddress`).
+
+### 11.2 Video softswitches
+
+`$C050` TEXT off, `$C051` TEXT on, `$C052` MIXED off, `$C053` MIXED on, `$C054` PAGE 1,
+`$C055` PAGE 2, `$C056` HIRES off, `$C057` HIRES on. Reads and writes both toggle (reads
+have the same side effect as writes). The renderer shows text rows when TEXT is set, or
+rows 20–23 when MIXED is set; a non-text screen renders `GRAPHICS DISPLAY NOT IMPLEMENTED`
+on row 0.
+
+### 11.3 Renderer contract
+
+The machine adapter redraws at 10 Hz. Each 40/80-character row is compared with the last
+successful output and only changed rows are written, positioned with `\x1b[<row>;1H`.
+Inverse (`value & $C0 == $00`) uses `\x1b[7m`/`\x1b[27m`, flashing (`value & $C0 == $40`)
+uses `\x1b[5m`/`\x1b[25m` and alternates glyph/space on a 500 ms phase; on the IIe
+ALTCHARSET inverse is bit 7 clear and there is no flashing set. The cursor is positioned at
+CH/CV (bounded to the screen) with `\x1b[?25h`. Entering the machine and switching between
+40 and 80 columns clears the terminal (`\x1b[2J\x1b[H`).
+
+## 12. Slot-3 80-column card (Videx-compatible profile)
+
+The card is a Videx Videoterm-compatible model with project-authored firmware; this is a
+software profile, not a historical claim. It is used only on the Apple II model.
+
+### 12.1 I/O and video RAM
+
+`$C0B0–$C0BF`: bank select is `((offset >> 2) & 3) * 512`; offset 0 (write) selects the
+CRTC register (`value & $1F`), offset 1 writes the selected register or (read) returns it;
+other offsets return the bus value. The card has 32 CRTC registers, 2 KiB of VRAM in four
+512-byte banks (window `$CC00–$CDFF`) and an 8-byte private zero-page workspace.
+`videxTextMode` holds when register 1 == 80 and register 6 == 24. `apple2CoreReadVidexTextCell`
+reads VRAM at the start address formed from registers 12/13.
+
+### 12.2 Slot ROM
+
+`$C300–$C3FF` returns the generated Pascal card slot ROM: `$C300` `JMP $CA00` (card entry /
+output chain), `$C303` `JMP $C800` (card init), `$C320` `JMP $CA08` (Pascal init entry),
+driver entry table at `$C330–$C345`.
+
+### 12.3 Card firmware (project-authored)
+
+At `$C800` (369 bytes): the init routine programs the CRTC registers
+`{62,50,50,28,19,00,18,18,00,0F,20,0F,00,00,00,00}`, sets CSW (`$36/$37`) to `$C8B3` and
+clears the screen; the COUT routine preserves the incoming accumulator (including its high
+bit — Applesoft relies on it while expanding `LIST` tokens), handles CR (column 0, next row,
+scroll at row 24), backspace (column − 1), and writes printable bytes into the banked VRAM
+using the row/bank lookup tables at `$C941`/`$C959`. `PR#3` sets CSW to `$C300`; the entry
+initialises the card on first output and then chains to `$C8B3` while preserving the first
+character.
+
+### 12.4 Boot in 80 columns
+
+`apple2CoreSetBootIn80Columns(true)` (called by the machine adapter on the Apple II model)
+makes every reset program the CRTC registers, set CSW to `$C8B3`, select and clear the card,
+and makes the monitor SETVID routine (`$FE93–$FEAF`, entered by reset and by DOS boot code)
+store the card vector instead of `$FDF0`. While SETVID is active, writes to `$0036/$0037`
+are redirected to `$C8B3/$C8`. In this mode a non-monitor write of `$FDF0` (e.g. ProDOS
+BASIC.SYSTEM's reset) is rewritten to `$C8B3`, but the monitor (PR#0 through OUTPORT
+`$FE95`) still selects the 40-column screen.
+
+### 12.5 Output selection and workspace
+
+Output selection follows CSW: the card is selected when the vector is `$C8B3`, or `$9EBD`
+(Apple DOS hook) with the real vector `$C8B3` preserved at `$AA53/$AA54`, or a ProDOS
+BASIC.SYSTEM hook in `$9000–$BEFF` with the real vector at `$BE30/$BE31` equal to `$C8B3`.
+Half-written vectors (one byte matching a known vector) are ignored. A change of selection
+clears the newly selected screen (and resets CH/CV/BASL/BASH when returning to 40 columns).
+The monitor HOME routine (`$FC58`) also clears the card screen, but only while the monitor
+ROM is visible (not when `$FC58` is Language Card RAM).
+
+While the 6502 program counter is inside the card firmware, accesses to `$0006–$000D` use
+the card's private workspace, seeded from `$0024/$0025` (CH/CV) so `HTAB`/`VTAB`/`POS` and
+`HOME` move the card cursor too.
+
+### 12.6 Applesoft LIST wrap
+
+Applesoft wraps program listing at CH ≥ 33 (`CMP #$21` at `$D707`/`$D708`) which is correct
+only for 40 columns. When the monitor ROM is visible, the byte at `$D708` is `$21`, the card
+is the selected output in 80-column text mode and the Pascal card is not active, `readAddress`
+returns 73 (80 minus the ROM's 7-column margin) for that operand. The ROM image is not
+modified; `PR#0` keeps the original wrap.
+
+### 12.7 Pascal card path
+
+An opcode fetch at `$C320` (`apple2PascalInitEntry`) activates the Pascal card mode: the
+card becomes the console (`videxOutputSelected` stays true), the core stops touching
+Pascal's zero page and screen memory (no CH/CV following, no HOME trap, no CSW rewrites, no
+lowercase echo correction), and the firmware at `$CA00` serves Apple Pascal 1.1's
+character-output protocol.
+
+## 13. Disk II controller
+
+### 13.1 Model constants
+
+```c
+enum
+{
+  apple2DiskSectorsPerTrack = 16,
+  apple2DiskSectorSize = 256,
+  apple2DiskTrackCount = 35,
+  apple2DiskNibblesPerSector = 416,
+  apple2DiskNibblesPerTrack = 16 * 416,
+  apple2DiskWriteDataSize = 343,
+  apple2DiskCyclesPerNibble = 32,
+  apple2DiskMaxHalfTrack = 69,
+  apple2DiskMotorCoastCycles = 1000000,
+  apple2DiskVolumeNumber = 254
+};
+```
+
+Controllers exist for slots 4–7, two drives per controller, each drive with its own head
+position (half-track 0–69), sector order and track count. A controller answers I/O and
+exposes its boot ROM only when at least one drive has a medium.
+
+### 13.2 Softswitch decode (`$C080 + slot·$10`, offset 0–$F)
+
+`offset >> 1` selects the line; the low bit is on/off:
+
+- Offsets 0–7: phase magnets 0–3. A phase-on event steps the selected drive's head one
+  half-track toward the net pull of the energised phases (clamped to the medium's last
+  half-track).
+- `$C0E8/$C0E9` (offset 8/9): motor off/on. On motor-off the medium keeps spinning for
+  1,000,000 cycles (coast-down); on motor-on the coast-down is cancelled.
+- `$C0EA/$C0EB`: drive 2 select (a change aborts any active write capture and invalidates
+  the nibble latch).
+- `$C0EC/$C0ED`: Q6. `$C0EE/$C0EF`: Q7 (Q7-off aborts write capture).
+
+### 13.3 Read path
+
+With Q7 low, Q6 low and offset `$C` (read), the data latch is returned: the rotational
+position is `(cycles / 32) % 6656`, never reset. A read in a new 32-cycle window loads the
+next nibble (bit 7 set); repeated reads in the same window return `latch & $7F`. Odd
+half-tracks and tracks ≥ the drive's track count read `$FF`. Motor stopped (after coast) or
+no medium reads `$00`. Q7 high reads `$00`; Q6 high reads `$80` for read-only media and
+`$00` for writable media.
+
+### 13.4 Nibble format (16-sector 6-and-2)
+
+`encodeSector` lays out 416 nibbles: self-sync `$FF`s, address prologue `D5 AA 96`, the
+volume/track/sector/checksum as 4-and-4 pairs (`x | $AA`), address epilogue `DE AA EB`,
+data prologue `D5 AA AD`, 342 GCR data nibbles + checksum nibble (the 64-entry
+`gcrWriteTable` in `apple2Disk.c` is the authority), data epilogue `DE AA EB`. The 256 data
+bytes become 86 low-bit-2 groups (bit-swapped) plus 256 high-2-bit values, XOR-encoded
+against the previous value.
+
+Sector skew (physical on-track sector → image sector), from `imageSectorOfPhysical`:
+
+- DOS order (`.do`/`.dsk`): `0,7,14,6,13,5,12,4,11,3,10,2,9,1,8,15`
+- ProDOS/Pascal order (`.po`): `0,8,1,9,2,10,3,11,4,12,5,13,6,14,7,15`
+
+### 13.5 Write path
+
+With Q7 high and Q6 low, writes to offset `$C` feed the bus value into the nibble state
+machine: it scans for the data prologue `D5 AA AD`, records the head's track and the
+rotating physical sector (`(cycles / 32) % 6656 / 416`), then collects 343 nibbles
+(342 data + checksum). On completion the 6-and-2 decode and checksum are verified; on
+success the sector is mapped through the drive's order table and written via the host
+callback (which must flush); failures increment `writeFailures`. Every completed attempt
+increments `writeAttempts`.
+
+### 13.6 Boot ROMs
+
+Each disk slot answers `$Cn00–$CnFF` with a generated project-authored boot ROM
+(`apple2DiskBootRoms[slot − 4]`, 255 of 256 bytes): autostart signature
+`24 20 24 00 24 03 24 3C` (so the Autostart ROM boots the highest slot with media),
+`LDX #$<slot·16>`, head recalibration, a nibble reader that decodes track 0 sector 0 into
+`$0200`, then `JMP $0801`. Regenerate with `tools/apple2/buildApple2DiskBootRom.py`; never
+edit the header by hand.
+
+## 14. Block devices (SmartPort / ProDOS)
+
+A slot hosts either Disk II drives or block devices, never both. Up to four 512-byte units
+per slot (units 1–4). Block n maps to image sectors `2·(n % 8)` and `2·(n % 8) + 1` of
+track `n / 8` in ProDOS order.
+
+### 14.1 Slot ROM
+
+The generated `smartPortSlotRom` provides the signature bytes, `$Cn07` = `$3C` (autostart
+block device — the Autostart ROM boots unit 1 at reset) or `00` (plain SmartPort interface),
+`$Cn0A` ProDOS block entry, `$Cn0D` SmartPort call entry, capabilities byte at `$CnFE`
+(`$C3 | (units−1)<<4`, `| $04` when writable), driver entry `$CnFF = $0A`, and boot code at
+`$Cn6B` that reads block 0 of unit 1 into `$0800` through the ProDOS entry and jumps to
+`$0801` with `X = slot<<4`.
+
+### 14.2 Execution contract
+
+The SmartPort trap fires only on an opcode fetch (SYNC) at `$Cn0A` or `$Cn0D` of an attached
+block slot (suppressed when the IIe INTCXROM is set).
+
+- `$Cn0D` (SmartPort): the stacked return address points at a command byte (`$40` bit =
+  extended 9-byte parameter block); the parameter block's byte 0 must be `$3`. Command 0 =
+  STATUS (unit 0 code 0 returns the 8-byte controller status whose first byte is the number
+  of units, X=8; code 0 of a unit returns 4 bytes: characteristics `$F0`/`$B4` when
+  writable/read-only + 24-bit block count; code 3 returns the 24-byte device info block,
+  vendor `ESP32-S3 SMART`), 1 = READ BLOCK, 2 = WRITE BLOCK. Errors: `$01` bad command,
+  `$04` bad count, `$11` bad unit, `$27` I/O error, `$2B` write protected, `$2D` bad block.
+  After a successful READ the core sets X=0, Y=2.
+- `$Cn0A` (ProDOS block driver): zero-page parameter block `$42` command (0 block count →
+  X/Y, 1 read, 2 write), `$43` unit number (`slot<<4`, bit 7 selects unit 2, low nibble
+  must be 0), `$44/$45` buffer pointer, `$46/$47` block number.
+
+Block buffers must lie in main RAM (`$0000–$BFFF`) or the Language Card area
+(`$D000–$FFFF`, honouring the write-enable switch); `$C000–$CFFF` is rejected.
+
+## 15. Disk images and profiles
+
+Raw images of 16 × 256-byte sectors per track; the size must match the profile exactly:
+
+| Profile | Tracks | Image size | Blocks (512 B) |
+| --- | ---: | ---: | ---: |
+| `APPLE2_140K` | 35 | 143,360 | 280 |
+| `APPLE2_640K` | 160 | 655,360 | 1,280 |
+| `APPLE2_800K` | 200 | 819,200 | 1,600 |
+
+Sector order is chosen from the file extension (`.po` → ProDOS/Pascal, `.do` → DOS), else
+from the content probe, else DOS. The probe tests both orders for an Apple Pascal volume
+header (directory block 2: first block 0, next block 6, kind 0, 1–7-character volume name,
+block and file counts) or a ProDOS volume-directory entry in block 2, and reports the
+detected name/block count; a disagreement between the chosen order and the probe is logged
+as a warning (`orderSuspect`). A write is durable only after the image layer's flush
+succeeds. The firmware never creates or enlarges images.
+
+## 16. Drive configuration (`drives.cfg`)
+
+The Apple II profile uses `/littlefs/apple2/drives.cfg`; the UCSD profile uses
+`/littlefs/ucsd/drives.cfg`. `apple2MachineInitializeWithConfig` accepts only these two
+paths. Grammar, per non-comment line (`#` or blank lines are ignored; spaces/tabs trimmed;
+CR/LF trimmed):
+
+```text
+SD<slot>.<drive>=/path/to/image,RO|RW,APPLE2_140K|APPLE2_640K|APPLE2_800K
+SP<slot>.<unit>=/path/to/image,RO|RW,<same profiles>
+MACHINE=II|IIE
+RAMCARD=LC16|SATURN128
+```
+
+Parser requirements (see `main/apple2DriveConfig.c`):
+
+- Slots 4–7; `SD` units 1–2, `SP` units 1–4. Duplicate device lines and mixing `SD` and
+  `SP` in one slot are rejected. Lines filling the 256-byte line buffer without a newline
+  are rejected as too long.
+- Exactly one `=` (not at the start); the value is three comma-separated fields: path, mode
+  (`RO`/`RW` exactly), profile (exact, no embedded comma).
+- Allowed image prefixes: `/littlefs/apple2/`, `/littlefs/ucsd/`, `/retro/images/apple2/`,
+  `/retro/images/ucsd/` (SD paths are resolved through `storageResolveRetroPath` to the
+  `/microSD` VFS mount). Path safety: longer than the prefix, no trailing `/`, no `//`,
+  `/./`, `/../`, final `/.` or `/..`, no backslash, comma, or control character (< `$20` or
+  `$7F`); stored paths limited to 191 characters.
+- LittleFS images may be RW, except UCSD LittleFS images which may only be writable as the
+  SD6.1 boot image.
+- There is no default drive: every drive without a line stays empty. Outcomes: file missing
+  → `apple2DriveConfigMissing`; any malformed line, over-long line or read error →
+  `apple2DriveConfigInvalid`, the whole file is discarded (partial entries are not kept) and
+  the caller-visible error names the failing line.
+- The boot drive SD6.1 MUST be configured and its image openable; otherwise
+  `apple2MachineInitialize` prints the reason and returns `ESP_ERR_NOT_FOUND` so the menu is
+  shown again.
+
+Per-slot mode selection (`attachDisks`): any `SP` entry makes the slot SmartPort; otherwise
+any opened image whose probe finds ProDOS content makes the slot a block device with
+autostart; otherwise an 800K Pascal boot image on SD6.1 also uses the block-device slot ROM;
+otherwise the slot is Disk II.
+
+## 17. Virtual add-on devices
+
+### 17.1 Monotonic timer (`APPLE2_TIMER_C1`, slot 2, `$C0A0–$C0A4`)
+
+| Address | Behaviour |
+| --- | --- |
+| `$C0A0` | Capability: `$C1` when a `readMilliseconds` callback is configured, else `$00`. Reading it MUST NOT sample the callback. |
+| `$C0A1` | Latch a fresh unsigned 32-bit millisecond snapshot and return bits 0–7. |
+| `$C0A2–$C0A4` | Return bits 8–15 / 16–23 / 24–31 of the last latch, WITHOUT calling the callback. |
+
+Writes are ignored; reset clears only the snapshot. Configuring the timer reserves slot 2
+from generic slot-I/O devices.
+
+### 17.2 Emulator information interface (`RETROAPPLE-SYSINFO/1`, slot 1)
+
+`$C090` reads return the magic `$A6` when supported; a write of `$01` builds a fresh
+snapshot; reads of `$C091` drain the snapshot stream (zero after the last byte), which
+starts with the signature `RETROAPPLE-SYSINFO/1`. The snapshot reports firmware version,
+profile/model line, RAM description, PSRAM size, uptime, executed 6502 cycles and the
+mounted volumes (slot, unit, RO/RW, SmartPort flag, byte size, path, volume name). It is an
+add-on: a busy slot 1 never prevents the machine from starting.
+
+## 18. Machine lifecycle integration
+
+Registry entries (in `main/machineRegistry.c`): display name `Apple II`, id `apple2`, design
+document `designApple2.md`; display name `UCSD Pascal`, id `ucsd`, design document
+`designUCSD.md` (same run function). Both use the shared Apple II machine; SD is not
+required for availability.
+
+### 18.1 Probe (`apple2MachineProbeWithConfig`)
+
+Fast, non-booting, never leaves files open:
+
+1. Load `drives.cfg` (missing → `machineMissingResource`, invalid → `machineResourceInvalid`).
+2. Probe the ROM matching `MACHINE=`: `apple2.rom` (12 KiB, vector at `$2FFC` ≥ `$D000`) or
+   `apple2e.rom` (16 KiB, vector at `$3FFC` ≥ `$C100`); absent → `machineMissingResource`,
+   wrong size/vector → `machineResourceInvalid`.
+3. The SD6.1 image must exist with the size its profile names; otherwise
+   `machineMissingResource` / `machineResourceInvalid`.
+4. Close and reopen the boot image with its mode; return `machineWritable` when RW, else
+   `machineAvailable`.
+
+### 18.2 Initialize (`apple2MachineInitializeWithConfig`)
+
+1. Refuse a configuration path other than the two LittleFS profile paths.
+2. Read the selected ROM from LittleFS (exact size + EOF check); destroy any previous core.
+3. Create the core; set the millisecond time source; enable IIe or configure Saturn per the
+   settings; on the Apple II model enable boot-in-80-columns; set both lowercase options.
+4. Load the ROM (reset runs).
+5. Attach every configured drive per §16; SD6.1 must open or the machine is destroyed and
+   `ESP_ERR_NOT_FOUND` returned.
+6. Attach the SYSINFO interface to slot 1 (a failure only logs a warning).
+
+### 18.3 Run (`apple2MachineRun`)
+
+Clear the terminal, prime the keyboard translator (a leading LF suppresses its CR), then
+loop: feed queued/host console input into the key latch (one pending key at a time), run
+one batch of 6502 bus cycles (`cyclesPerPeriod` derived from 1.023 MHz), service the
+watchdog with `vTaskDelay(1)` at least every 100 ms (default: run as fast as the host
+allows; `APPLE2_REALTIME_PACING` paces at 1.023 MHz instead), signal the disk-activity LED
+(green on every sector/block read via the host callbacks, red whenever the total Disk II
+`writeAttempts` increases), and re-render the screen every 100 ms. The loop never exits
+under guest control; physical RESET returns to the main menu (common host rule).
+
+## 19. Development phases
+
+Each phase is complete only when its acceptance test passes deterministically with zero
+sanitizer reports, built with `-Wall -Wextra -Werror`. The test must fail before the phase
+is implemented and pass after; later phases must keep earlier tests passing.
+
+| Phase | Deliverables | Acceptance test |
+| --- | --- | --- |
+| 1 — CPU, ROM, keyboard, 40-column text | 6502 integration (cycle core + fast core with identical bus behaviour), 48 KiB RAM + 12 KiB ROM window with reset-vector validation, keyboard latch/strobe, video switches, text addressing/decoding, ANSI renderer, input translator. | `apple2SystemRom`: the genuine 12 KiB Autostart/Integer BASIC ROM boots to the `APPLE ][` prompt, the typed `PRINT 2+2` echoes and displays `4`, and the prompt returns (screen bytes and keyboard latch asserted). |
+| 2 — Memory expansion | Language Card bank switching and two-read write enable, Saturn 128K option, IIe model (aux RAM, softswitches, status reads, ROM mapping, 80-column text page). | `apple2LanguageCard`: every `$C080–$C08F` behaviour via the memory API and executed 6502 cycles, bank isolation, shared-RAM boundary, write-enable retention across reset, Saturn per-bank isolation, IIe aux/main selection, ALTZP, 80COL column split and the 128K Pascal boot check. |
+| 3 — Mass storage | Disk II controller (phases, motor coast, nibble rotation, GCR read/write), per-slot boot ROMs, image backend with profiles/order/probe and flush-on-write, `drives.cfg`, block devices (SmartPort/ProDOS) with trap and autostart. | `apple2ProdosAutostart`: ProDOS 8 boots from the SD6.1 block-device slot with the Autostart ROM (no `PR#`), `CATALOG,S6,D2` lists the 800K volume, a `SAVE` is found in the volume directory of the image file, and `apple2Disk`/`apple2MultiDisk` pass for the sector-level read/write, RO enforcement and persistence behaviour. |
+| 4 — 80-column card and add-on devices | Slot-3 card I/O/CRTC/VRAM, project COUT driver with CR/backspace/scroll, output-vector tracking (DOS/ProDOS hooks), boot-in-80 + SETVID/HOME handling, Applesoft LIST wrap, Pascal card path, timer card, SYSINFO. | `apple2VidexCard`: a 6502 program executes the card firmware — init, 80 distinct cells in banked VRAM, CR, banks 2/3, multi-line scrolling and cursor — and output selection moves away from the card; supported by `apple2ProdosAutostart80Columns`, `apple2Sysview` and the timer assertions in `hostCore`. |
+
+## 20. Host-side tools (media production requirements)
+
+The firmware never formats media. These development-computer tools (all `python3`, options
+via `--help`) MUST produce inputs that satisfy this document exactly:
+
+| Tool | Requirement |
+| --- | --- |
+| `tools/genM6502Fast.py` | Regenerates `apple2Fast6502.inc` from the pinned `m6502.h`. |
+| `tools/apple2/buildApple2DiskBootRom.py` | Regenerates the per-slot Disk II boot ROMs in `apple2DiskBootRom.h`. |
+| `tools/ucsd/buildApple2PascalCardRom.py` | Regenerates `apple2PascalCardRom.h` (slot ROM + Pascal firmware layer). |
+| `tools/apple2/buildApple2TestRom.py` | Regenerates the host-test diagnostic ROM fixture. |
+| `tools/diskManager.py --type SYSTEMDSK --os apple2 --profile PRODOS[_640K]` | Deterministic ProDOS `/SYSTEM` boot disk composer for `littlefs/apple2/system.dsk`. |
+| `tools/diskManager.py --type WORKDSK --os apple2 --profile 140K\|640K\|800K <image>` | Create empty volumes; refuses an existing target without `--force`. |
+| `tools/extractFiles.py --os apple2 <image> --add/--extract/--remove` | Inspect and edit files inside supported images. |
+| `tools/prepareSd.py --os apple2` | Create the `/retro/…` tree and a sample `drives.cfg` without overwriting an existing one or formatting the card. |
+| `tools/apple2/apple2HardwareTest.py` | Drive a running device over the console for the hardware procedures of §23. |
+
+## 21. Verification: host tests
+
+Run natively with ASan/UBSan and `-Wall -Wextra -Werror -funsigned-char`:
+
+```sh
+cmake -S tests -B /tmp/retro-host-tests
+cmake --build /tmp/retro-host-tests
+ctest --test-dir /tmp/retro-host-tests -N
+ctest --test-dir /tmp/retro-host-tests --output-on-failure -R '<name|name>'
+```
+
+ctest target names differ from file names. Required suites: `apple2SystemRom`, `apple2Core`,
+`apple2LanguageCard`, `apple2VidexCard`, `apple2Fast6502` (fast-vs-reference equivalence
+under `apple2CoreDisableFast6502`), `apple2Disk`, `apple2DiskStream`, `apple2MultiDisk`,
+`apple2ProdosSystemImage`, `apple2ProdosDataImage`, `apple2ProdosAutostart`,
+`apple2ProdosAutostart80Columns`, `apple2ProdosSmartPort`, `apple2Sysview`, and the
+UCSD-profile boot tests (`ucsdPascalBoot`, `ucsdPascalIIeTextOpen` when the media fixtures
+exist). A conforming implementation MUST ship host tests covering at least:
+
+1. **CPU/bus:** ROM size and reset-vector rejection, reset contract of §6.5, fast core and
+   reference core executing identical instruction/bus sequences.
+2. **Language Card:** every switch-row of §8.1 through both the memory API and executed
+   6502 cycles; Saturn bank isolation; IIe RAMRD/RAMWRT/ALTZP/80STORE/80COL behaviour and
+   status reads.
+3. **Keyboard:** latch/strobe separation, `apple2CoreKeyBusy`, uppercase forcing, echo
+   correction window, translator cases of §10 (cursor keys, ESC pairs, CR/LF/DEL).
+4. **Display:** text-address map for both pages, inverse/flash decode, lowercase codes and
+   digits, Videx bank/select/register behaviour, scrolling, cursor bounds.
+5. **Disk II:** nibble stream equality against a real image, skew tables both orders, motor
+   coast, phase stepping, Q6/Q7 read semantics including `$80` on read-only media, write
+   capture with valid and malformed checksums, persistence after reopen, RO refusal.
+6. **Block devices:** SmartPort STATUS codes 0/3, controller status, READ/WRITE with bounds,
+   write-protect and bad-block errors, buffer rules, ProDOS entry unit/command handling.
+7. **drives.cfg:** every §16 rejection rule, path resolution, no-default behaviour,
+   boot-drive-required failure, mode selection per slot.
+8. **Add-ons:** timer capability/latch/no-resample/write-ignore rules; SYSINFO signature and
+   drain.
+
+## 22. Verification: hardware acceptance
+
+Acceptance is complete when every case below is executed on the target board (ESP32-S3,
+LOLIN S3 Pro configuration, USB Serial/JTAG console, 80×24 terminal, valid Retro SD card)
+and each observation matches its pass criterion. A host-test pass or a successful build is
+never evidence of hardware behaviour. The scripted driver is
+`tools/apple2/apple2HardwareTest.py`.
+
+| # | Procedure | Pass criterion |
+| --- | --- | --- |
+| H1 | RESET, menu shows Apple II (and UCSD Pascal); select it. | Machine starts, boots the system disk and shows the prompt on the 80-column card; the terminal is cleared and sized correctly. |
+| H2 | ProDOS `CATALOG,S6,D1` and `CATALOG,S6,D2`; `BASIC.SYSTEM` runs STARTUP. | Volumes listed with their names; the 80-column rendering (inverse where used) is stable. |
+| H3 | Save a file (BASIC `SAVE` or Pascal edit+save) on an RW volume, RESET, re-enter, re-read it. | The file persists byte-identically; RO volumes refuse writes and stay unchanged. |
+| H4 | Boot a 140K Disk II image on a Disk II slot and `LOAD`/`RUN` a program. | Controller reads succeed; no watchdog reset; sector reads show green LED pulses. |
+| H5 | Enter lowercase text; check key echo; run the timer benchmark (`assets/apple2/BENCH2`). | Lowercase echo preserved; benchmark elapsed time tracks wall clock reasonably. |
+| H6 | PR#0 / PR#3 switching and HOME under DOS/Pascal/ProDOS. | Screen clears are correct, no stale content, cursor in bounds. |
+| H7 | SYSINFO drain from the guest (slot 1). | Stream starts with `RETROAPPLE-SYSINFO/1` and reports the mounted volumes correctly. |
+| H8 | Sustained run ≥ 30 minutes with disk activity. | No watchdog reset; LED shows green on reads and red only on write attempts (red held ≥ 300 ms). |
+| H9 | Repeated enter/exit cycles (≥ 20) and re-entry after RESET mid-session. | Stable; media flushed/closed; menu remains usable; heap stays flat. |
+
+## 23. Definition of done
+
+1. All §21 host tests pass (sanitizer-clean) and all §23 hardware cases are recorded as
+   passing; each phase's acceptance test of §19 is part of the passing suite.
+2. The guest executes authentic ROM and disk software; no BASIC, DOS or Pascal behaviour is
+   synthesised in host code (the project-authored slot ROMs and boot ROMs of §5 are the only
+   host-authored guest code, and each has a checked-in generator).
+3. The core (`apple2Core`, `apple2Disk`) builds and tests natively with no ESP-IDF or
+   filesystem/console dependencies beyond the injected callbacks.
+4. Every acceptance-gated behaviour in this document is traceable to code: memory map §7,
+   card switches §8, IIe §8.3, keyboard §10, display §11–§12, Disk II §13, block devices
+   §14, images/profiles §15, configuration §16, add-ons §17, lifecycle §18.
+5. Provenance, licences and rights records for the 6502 core, ROMs and all bundled guest
+   software are present in-tree (`docs/thirdParty.md` and the asset directories).
 
 ---
 

@@ -9,14 +9,8 @@ ESP32-S3 Retro Computer. It defines the architecture, guest-visible hardware, me
 boot system, BDOS/BIOS interface, I/O ports, disk formats, drive configuration, console
 contract, and the testing required to prove a correct implementation.
 
-The implementation in `components/cpm80Core/`, `main/cpm80Machine.c`,
-`main/cpm80DriveConfig.c`, `main/cpm80Machine.h`, `main/cpm80DriveConfig.h`, and
-`components/cpm80Core/os/` is the normative reference. Where this document and the code
-appear to differ, the code is leading and this document must be corrected.
-
-A senior programmer who reads this document plus [projectPrompt.md](./projectPrompt.md)
-(common host services: menu, console, LittleFS, SD, image I/O, disk-activity LED) must be
-able to implement an equivalent emulator without further interview.
+This document plus [projectPrompt.md](./projectPrompt.md)
+(common host services: menu, console, LittleFS, SD, image I/O, disk-activity LED) is the basis for implementing the emulator.
 
 ### Requirement levels
 

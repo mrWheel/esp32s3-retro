@@ -8,17 +8,10 @@ This document is the complete technical design of the RETRO86_V1 CP/M-86 guest m
 hosted by the ESP32-S3 Retro Computer. It defines the architecture, the project-owned
 8086 CPU core, the guest-visible hardware, the boot system and exact load addresses, the
 guest BIOS, the virtual I/O port contract, the disk formats and drive configuration, the
-console contract, and the testing required to prove a correct implementation.
+console contract, and the testing required to prove a correct i
 
-The implementation in `components/cpm86Core/` (including `tiny8086/` and
-`bios/retro86bios.a86`), `main/cpm86Machine.c`, `main/cpm86BiosOverlay.c`,
-`main/cpm86DriveConfig.c` and their headers is the normative reference. Where this
-document and the code appear to differ, the code is leading and this document must be
-corrected.
-
-A senior programmer who reads this document plus [projectPrompt.md](./projectPrompt.md)
-(common host services: menu, console, LittleFS, SD, image I/O, disk-activity LED) must be
-able to implement an equivalent emulator without further interview.
+This document plus [projectPrompt.md](./projectPrompt.md)
+(common host services: menu, console, LittleFS, SD, image I/O, disk-activity LED) is the basis for implementing the emulator.
 
 ### Requirement levels
 
