@@ -72,7 +72,7 @@ The supported SD image layout is flat: image files reside directly in `/retro/im
 
 ### Storage boundaries
 
-- Whole-image operations (upload, copy, rename, delete, replace) target the physical SD card only. Downloads can also read supported disk-image files listed directly in `/littlefs/<OS>/`. LittleFS images are never uploaded, replaced, copied over, renamed or deleted as complete images by the manager.
+- Whole-image operations (upload, copy, rename, delete, replace) target the physical SD card only. Downloads can also read supported disk-image files listed directly in `/littlefs/<OS>/`. LittleFS images are never uploaded, renamed or deleted as complete images by the manager. The backup workflow may additionally copy a system disk image between `/littlefs/<OS>/` and `/retro/backups/<OS>/` and back; such a restore may replace an existing LittleFS disk image, but a copy never creates a new file inside LittleFS.
 - Guest-file operations may also target the disk images in LittleFS (for example `/littlefs/<OS>/system.dsk`). They are limited to writing, replacing, renaming and deleting individual files or programs inside the image; the image container itself stays in place with unchanged size and geometry. This is allowed regardless of whether the emulator maps the image `RO` or `RW`: the emulator's `RO` setting applies to the emulator only, exactly as for SD images.
 - LittleFS has little free space: guest-file writes in LittleFS images must stay within the existing image size, use the same journal/undo protection as SD images (the journal for a LittleFS image is kept in LittleFS next to the image) and report a clear error when the image or LittleFS is full.
 - `drives.cfg` lives in LittleFS (`/littlefs/<OS>/drives.cfg`) and can be transferred by its dedicated workflow. Manager recovery/journal files are protected from ordinary file operations.
@@ -91,6 +91,8 @@ The supported SD image layout is flat: image files reside directly in `/retro/im
 ### Whole-image and SD image-file operations
 
 The manager supports selecting and transferring complete image files between the host and SD card, downloading supported images from LittleFS, copying images between SD image directories, and managing image files on the SD card. It can list files, download, upload, copy, rename, and delete SD images; replacement and deletion require explicit user action. Preserved replacement backups can be restored through the recovery workflow.
+
+The backup workflow copies complete images between `/retro/images/<OS>/`, `/retro/backups/<OS>/` and the LittleFS system disks of the same OS. Source and destination must use one OS directory; LittleFS may be a source (system disk to backups) or a destination only to replace an existing system disk image (backups to system disk). An existing destination is never replaced silently: the browser asks `Overwrite [image-file] (y/N):` and the user must answer `y`; the firmware independently rechecks the overwrite decision.
 
 Whole-image operations treat the image as opaque bytes. The manager reports whether an image is referenced by a configured drive, but does not silently alter `drives.cfg`. Supported image filename extensions are `.dsk`, `.img`, `.po`, `.woz`, and `.2mg`; an extension does not establish that the guest filesystem inside an image is supported.
 
@@ -112,7 +114,7 @@ Apple image sector ordering is interpreted using the same extension/content-prob
 
 ### Browser workflows
 
-The application exposes host-to-SD image upload, host-to-guest upload, SD-to-host image download, guest-to-host download, guest-to-guest copy, whole-image SD-to-SD copy, image management, SD-file/guest-file copy, and guest-file rename/delete workflows.
+The application exposes host-to-SD image upload, host-to-guest upload, SD-to-host image download, guest-to-host download, guest-to-guest copy, whole-image SD-to-SD copy, whole-image backup copies between the images directory, the backups directory and the LittleFS system disks, image management, SD-file/guest-file copy, and guest-file rename/delete workflows.
 
 Ordinary file copy between SD directories and ordinary-file transfer between the host and SD are not available. Unsupported workflows are identified as unavailable rather than presented as successful operations.
 
@@ -136,13 +138,13 @@ The current HTTP surface is:
 | --- | --- | --- |
 | `GET` | `/` | Serve the manager application. |
 | `GET` | `/api/help?id=...` | Serve a help fragment from LittleFS. |
-| `GET` | `/api/list` | List SD image-directory entries and mapping state, plus the selected OS's LittleFS image names and sizes. LittleFS entries are read-only download sources. |
-| `GET` | `/api/file` | Download an SD file or a listed LittleFS disk image for a known OS. |
-| `PUT` | `/api/file` | Upload an SD file, subject to path and file-type protections. |
-| `DELETE` | `/api/file` | Delete an eligible SD file. |
-| `POST` | `/api/images/copy` | Copy an image to another permitted image path. |
+| `GET` | `/api/list` | List SD entries of the selected area (`area=images` or `area=backups`) plus, for `images` only, mapping state and the selected OS's LittleFS image names and sizes. LittleFS entries are read-only download sources. |
+| `GET` | `/api/file` | Download an SD file from the images or backups area, or a listed LittleFS disk image for a known OS. |
+| `PUT` | `/api/file` | Upload an SD file to the images area only, subject to path and file-type protections. |
+| `DELETE` | `/api/file` | Delete an eligible SD file from the images or backups area. |
+| `POST` | `/api/images/copy` | Copy an image between permitted areas (`sourceArea`/`destinationArea` = `images`, `backups` or `littlefs`, defaulting to `images`; same OS directory on both sides; a `littlefs` destination may only replace an existing disk image). |
 | `POST` | `/api/images/rename` | Rename or move an image within the permitted flat layout. |
-| `POST` | `/api/images/recover` | Restore a preserved replacement backup. |
+| `POST` | `/api/images/recover` | Restore a preserved replacement backup (`destinationArea` = `images` (default) or `backups`). |
 | `GET` | `/api/guest/files` | Return guest filesystem information and file entries. |
 | `GET` | `/api/guest/file` | Stream a guest file to the browser. |
 | `POST` | `/api/guest/upload` | Write a host-supplied file into a guest image. |
@@ -159,7 +161,7 @@ Guest writes use an undo journal and recovery checks. New data is written before
 ## 7. Operation safety and data handling
 
 - Paths are restricted to the SD image area and the supported flat layout. Protected configuration and manager metadata cannot be deleted or treated as ordinary images.
-- Existing destinations are not silently overwritten. The browser presents conflict handling and the firmware independently enforces the requested policy.
+- Existing destinations are not silently overwritten. The browser presents conflict handling — the backup workflow asks `Overwrite [image-file] (y/N):` and proceeds only on `y` — and the firmware independently enforces the requested policy.
 - Image replacements use a temporary file and a preserved backup path so that a failed replacement can leave the prior image available for recovery.
 - Guest filesystem operations validate image geometry, names, directory structures, allocation references, and available space before committing metadata.
 - Guest reads and writes are streamed in bounded chunks. Multi-file operations report failures per operation rather than claiming success for incomplete work.
@@ -187,6 +189,8 @@ The design is organized into five phases. Each phase has an observable outcome a
 - The image browser is restricted to the flat `/retro/images/<OS>/` layout. General SD directory management is not provided.
 - Upload previews are not yet a common review step for every multi-item copy, rename, move, and delete operation. They are advisory and do not reserve SD or guest capacity.
 - Replacement backup and guest journal recovery provide explicit recovery mechanisms, but power-loss behavior and full crash durability across all SD/FAT32 failure modes are not guaranteed by the interface alone.
+- A LittleFS system-disk restore stages the new image beside the old one before the atomic rename, so it needs room for both images at once and keeps no preserved backup in LittleFS; a staging file left by an interrupted run is removed automatically on the next copy.
+- Backups are plain byte copies under `/retro/backups/<OS>/`; the manager does not track, deduplicate or expire them, and browser uploads still target only `/retro/images/<OS>/`.
 - Guest-file operations are handled by the browser GUI and guest filesystem adapters. `/retro/exchange/<OS>/` remains available for staging files from the browser; emulators no longer depend on it.
 - File Transfer uses unauthenticated HTTP on the configured Wi-Fi network. It is not intended for exposure to an untrusted network.
 - Browser file pickers and save behavior vary by browser and operating system. The application cannot choose arbitrary host paths or guarantee a save dialog for every download.

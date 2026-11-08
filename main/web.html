@@ -441,7 +441,8 @@ const functions =
   {id: "sd-files-copy", number: "8", menu: "SD → SD files", title: "Copy ordinary files between SD directories", available: false, reason: "ordinary SD-file copy is not implemented"},
   {id: "file-guest-copy", number: "9", menu: "SD files ⇄ Image", title: "Copy ordinary SD files to or from guest images", available: true},
   {id: "computer-sd-files", number: "10", menu: "Computer ⇄ SD files", title: "Copy ordinary files between Computer and SD", available: false, reason: "ordinary SD-file transfer is not implemented"},
-  {id: "guest-file-manage", number: "11", menu: "Rename / Delete", title: "Rename or delete guest files", available: true}
+  {id: "guest-file-manage", number: "11", menu: "Rename / Delete", title: "Rename or delete guest files", available: true},
+  {id: "image-backup-copy", number: "12", menu: "Images ⇄ Backups", title: "Copy complete disk images between images, backups and LittleFS system disks", available: true}
 ];
 const state =
 {
@@ -672,7 +673,7 @@ function helpContent()
       "<ul>" +
       "<li><b>Computer → SD</b>: bring things from your computer onto the SD card, either complete disk images or single files that are placed inside a disk image.</li>" +
       "<li><b>SD → Computer</b>: take things from the SD card to your computer, either complete disk images or single files from inside a disk image.</li>" +
-      "<li><b>SD → SD</b>: copy inside the SD card, either whole disk images or single files from one disk image to another.</li>" +
+      "<li><b>SD → SD</b>: copy inside the SD card, either whole disk images — including copies to and from /retro/backups/ and the LittleFS system disks — or single files from one disk image to another.</li>" +
       "<li><b>Manage</b>: browse the images on the SD card, copy, rename or delete them, and rename or delete single files inside a disk image.</li>" +
       "<li><b>Help</b>: this text. Every function has its own Help with more detail.</li>" +
       "</ul>" +
@@ -773,6 +774,19 @@ function helpContent()
       "<li>When overwriting, the previous destination is preserved until the commit succeeds.</li>" +
       "<li>A drive marked RO in drives.cfg can still be a source or destination; drives.cfg itself is not rewritten.</li>" +
       "<li>This creates a new image file. To copy single files into an existing image use SD → SD → Files between disk images.</li></ul>",
+    "image-backup-copy":
+      "<h3>Purpose</h3><p>Copy complete disk images between /retro/images/&lt;OS&gt;/, /retro/backups/&lt;OS&gt;/ and the LittleFS system disks of one OS. Use it to back up an image, to bring a backup back into use, or to take a system disk out of LittleFS and restore it later.</p>" +
+      "<h3>Steps</h3><ol>" +
+      "<li>Choose the <b>OS</b>; source and destination always stay inside that OS directory.</li>" +
+      "<li>Choose the <b>Copy From</b> location (SD images, SD backups or LittleFS system disks) and the <b>source image</b>.</li>" +
+      "<li>Choose the <b>Copy To</b> location. The destination defaults to the source image name; pick an existing destination from the list or type a <b>new image file name</b> to store the copy under another name (a missing extension is taken from the source).</li>" +
+      "<li>Press <b>Copy complete image</b>. When the destination already exists the manager asks <b>Overwrite [image-file] (y/N):</b>; type y to replace it, anything else cancels.</li></ol>" +
+      "<h3>Details</h3><ul>" +
+      "<li>The firmware copies in small chunks and verifies the bytes before the new file is committed. The source is never changed.</li>" +
+      "<li>Replacing an image in /retro/images/ or /retro/backups/ preserves the previous destination until the commit succeeds; <b>Restore preserved backup</b> brings that version back while the destination is free.</li>" +
+      "<li>Restoring into LittleFS may only replace an existing system disk image (normally the same name); a new file name in LittleFS is refused and LittleFS has little free space. No preserved backup is kept in LittleFS.</li>" +
+      "<li>Drive mappings in drives.cfg are never changed; a restored system disk is used by the emulator at its next start.</li>" +
+      "<li><b>Delete selected backup</b> removes the file chosen in the destination list from /retro/backups/&lt;OS&gt;/ after confirmation.</li></ul>",
     "manage-images":
       "<h3>Purpose</h3><p>Browse the image files of one OS on the SD card and manage them.</p>" +
       "<h3>Steps</h3><ol>" +
@@ -934,6 +948,127 @@ function renderImageCopy()
     <p class="muted">The image is copied inside the selected OS directory, /retro/images/&lt;OS&gt;/, under a new name. Copy To names a new image container. This is distinct from copying guest files into an existing image. Mapping flags do not block source or destination access.</p>`;
 }
 
+let backupSourceEntries = [];
+let backupDestinationEntries = [];
+
+function backupAreaLocationLabel(area, machine)
+{
+  if (area === "backups")
+  {
+    return `/retro/backups/${machine}/`;
+  }
+  if (area === "littlefs")
+  {
+    return `/littlefs/${machine}/`;
+  }
+  return `/retro/images/${machine}/`;
+}
+
+function backupAreaOptions(selectedValue)
+{
+  const locations =
+  [
+    ["images", "SD images /retro/images/<OS>/"],
+    ["backups", "SD backups /retro/backups/<OS>/"],
+    ["littlefs", "LittleFS system disks /littlefs/<OS>/"]
+  ];
+  return locations.map(([value, label]) =>
+    `<option value="${value}"${value === selectedValue ? " selected" : ""}>${escapeHtml(label)}</option>`).join("");
+}
+
+function renderBackupCopy()
+{
+  const title = functions.find((item) => item.id === "image-backup-copy").title;
+  return `<h2>${escapeHtml(title)}</h2>
+    <div class="row">
+      <label class="field">OS directory
+        <select id="backupMachine">${machineOptions()}</select>
+      </label>
+      <button type="button" id="backupRefresh">Refresh lists</button>
+    </div>
+    <div class="row">
+      <label class="field">Copy From — location
+        <select id="backupSourceArea">${backupAreaOptions("images")}</select>
+      </label>
+      <label class="field">Source image
+        <select id="backupSourceImage"><option value="">Select a source image</option></select>
+      </label>
+    </div>
+    <div class="row">
+      <label class="field">Copy To — location
+        <select id="backupDestinationArea">${backupAreaOptions("backups")}</select>
+      </label>
+      <label class="field">Destination image (optional)
+        <select id="backupDestinationImage"><option value="">Defaults to the source name</option></select>
+      </label>
+      <label class="field">New image file name (defaults to the source name; a missing extension is taken from the source)
+        <input id="backupDestinationName" placeholder="source-name.dsk">
+      </label>
+    </div>
+    <div class="actions">
+      <button type="button" id="backupCopyButton">Copy complete image</button>
+      <button type="button" id="backupRestoreButton">Restore preserved backup</button>
+      <button type="button" id="backupDeleteButton">Delete selected backup</button>
+    </div>
+    <p class="muted">Source and destination always stay inside the same OS directory. The destination defaults to the source image name; type a new image file name to store the copy under a different name (a missing extension is taken from the source). The firmware copies in small chunks, verifies the bytes and commits atomically; the source is never changed. When the destination already exists you are asked “Overwrite [image-file] (y/N):” and must type y. Copying into LittleFS may only replace an existing system disk image; drives.cfg is never touched.</p>`;
+}
+
+async function loadBackupDirectory(area, machine)
+{
+  if (area === "littlefs")
+  {
+    const response = await api(`/api/guest/images?os=${encodeURIComponent(machine)}`);
+    const entries = await response.json();
+    return entries.filter((item) => /\.(dsk|img|po|woz|2mg)$/i.test(item.name));
+  }
+  const entries = await listPath(area, machine);
+  return entries.filter((item) => !item.directory && !item.littlefs &&
+    /\.(dsk|img|po|woz|2mg)$/i.test(item.name));
+}
+
+function fillBackupSelect(select, entries, placeholder)
+{
+  select.replaceChildren(new Option(placeholder, ""));
+  for (const entry of entries)
+  {
+    select.add(new Option(`${entry.name} (${entry.size} bytes)`, entry.name));
+  }
+}
+
+let backupRefreshToken = 0;
+
+async function refreshBackupCopy()
+{
+  const token = ++backupRefreshToken;
+  const machine = element("backupMachine").value;
+  const sourceArea = element("backupSourceArea").value;
+  const destinationArea = element("backupDestinationArea").value;
+  if (!machine)
+  {
+    backupSourceEntries = [];
+    backupDestinationEntries = [];
+    fillBackupSelect(element("backupSourceImage"), [], "Select a source image");
+    fillBackupSelect(element("backupDestinationImage"), [], "Defaults to the source name");
+    element("backupDeleteButton").hidden = destinationArea !== "backups";
+    showStatus("Select an OS directory to list its images, backups and LittleFS system disks.");
+    return;
+  }
+  //-- Fetch first and only then replace the lists: overlapping refreshes (quick dropdown
+  //-- changes or the refresh after a copy) must never leave an empty or stale list behind.
+  const sourceEntries = await loadBackupDirectory(sourceArea, machine);
+  const destinationEntries = await loadBackupDirectory(destinationArea, machine);
+  if (token !== backupRefreshToken)
+  {
+    return;
+  }
+  backupSourceEntries = sourceEntries;
+  backupDestinationEntries = destinationEntries;
+  fillBackupSelect(element("backupSourceImage"), backupSourceEntries, "Select a source image");
+  fillBackupSelect(element("backupDestinationImage"), backupDestinationEntries,
+    "Defaults to the source name");
+  element("backupDeleteButton").hidden = destinationArea !== "backups";
+}
+
 function renderManager()
 {
   return `<h2>Browse and manage SD image files</h2>
@@ -956,7 +1091,7 @@ const menuGroups =
 [
   {label: "Computer → SD", items: [["computer-image-upload", "Disk images…"], ["computer-guest-upload", "Files into a disk image…"], null, ["computer-sd-files", "Ordinary files…"]]},
   {label: "SD → Computer", items: [["image-computer-download", "Disk images…"], ["guest-computer-download", "Files from a disk image…"]]},
-  {label: "SD → SD", items: [["image-image-copy", "Disk images…"], ["guest-image-copy", "Files between disk images…"], null, ["file-guest-copy", "Ordinary files ⇄ disk image…"], ["sd-files-copy", "Ordinary files…"]]},
+  {label: "SD → SD", items: [["image-image-copy", "Disk images…"], ["image-backup-copy", "Images ⇄ Backups…"], ["guest-image-copy", "Files between disk images…"], null, ["file-guest-copy", "Ordinary files ⇄ disk image…"], ["sd-files-copy", "Ordinary files…"]]},
   {label: "Manage", items: [["manage-images", "Browse and manage disk images…"], ["guest-file-manage", "Rename or delete files in a disk image…"]]}
 ];
 
@@ -1010,6 +1145,11 @@ function render()
   {
     app.innerHTML = renderImageCopy();
     loadImageOptions("copySource");
+  }
+  else if (state.functionId === "image-backup-copy")
+  {
+    app.innerHTML = renderBackupCopy();
+    run(refreshBackupCopy);
   }
   else if (state.functionId === "manage-images")
   {
@@ -2864,6 +3004,18 @@ element("app").addEventListener("change", (event) =>
   {
     run(() => loadImageOptions("copySource"));
   }
+  if (id === "backupMachine" || id === "backupSourceArea" || id === "backupDestinationArea")
+  {
+    run(refreshBackupCopy);
+  }
+  if (id === "backupSourceImage")
+  {
+    element("backupDestinationName").value = event.target.value;
+  }
+  if (id === "backupDestinationImage" && event.target.value)
+  {
+    element("backupDestinationName").value = event.target.value;
+  }
   if (id === "uploadMachine")
   {
     element("uploadMachineLabel").textContent = event.target.value || "—";
@@ -2989,6 +3141,151 @@ element("app").addEventListener("click", (event) =>
       const response = await api(`/api/images/copy${imageOperationQuery(source, destination)}`,
         {method: "POST", headers: overwrite ? {"X-Overwrite": "1"} : {}});
       showStatus(await response.text());
+    });
+  }
+  if (event.target.id === "backupRefresh")
+  {
+    run(refreshBackupCopy);
+  }
+  if (event.target.id === "backupCopyButton")
+  {
+    run(async () =>
+    {
+      const machine = element("backupMachine").value;
+      const sourceArea = element("backupSourceArea").value;
+      const destinationArea = element("backupDestinationArea").value;
+      const sourceName = element("backupSourceImage").value;
+      if (!machine)
+      {
+        throw new Error("Select an OS directory first.");
+      }
+      if (!sourceName)
+      {
+        throw new Error("Select a source disk image first.");
+      }
+      let destinationName = element("backupDestinationName").value.trim() ||
+        element("backupDestinationImage").value;
+      if (!destinationName)
+      {
+        destinationName = sourceName;
+      }
+      if (!/\.(dsk|img|po|woz|2mg)$/i.test(destinationName))
+      {
+        destinationName += sourceName.slice(sourceName.lastIndexOf("."));
+      }
+      if (!validImageName(destinationName))
+      {
+        return;
+      }
+      if (sourceArea === destinationArea &&
+          sourceName.toLowerCase() === destinationName.toLowerCase())
+      {
+        throw new Error("Source and destination must be different image files.");
+      }
+      const destinationExists = backupDestinationEntries.some((entry) =>
+        entry.name.toLowerCase() === destinationName.toLowerCase());
+      let overwrite = false;
+      if (destinationExists)
+      {
+        const answer = prompt(`Overwrite ${destinationName} (y/N): `);
+        if (answer === null || answer.trim().toLowerCase() !== "y")
+        {
+          showStatus(`Copy cancelled; ${destinationName} was not overwritten.`);
+          return;
+        }
+        overwrite = true;
+      }
+      else if (!confirm(`Copy complete image ${backupAreaLocationLabel(sourceArea, machine)}${sourceName} to ${backupAreaLocationLabel(destinationArea, machine)}${destinationName}? The source remains unchanged.`))
+      {
+        return;
+      }
+      showStatus("Copying whole disk image and verifying bytes...");
+      const query = `?sourceArea=${sourceArea}&source=${encodeURIComponent(imagePath(machine, sourceName))}` +
+        `&destinationArea=${destinationArea}&destination=${encodeURIComponent(imagePath(machine, destinationName))}`;
+      let message;
+      try
+      {
+        const response = await api(`/api/images/copy${query}`,
+          {method: "POST", headers: overwrite ? {"X-Overwrite": "1"} : {}});
+        message = await response.text();
+      }
+      catch (error)
+      {
+        message = error.message;
+      }
+      showStatus(message);
+      //-- Refresh also after a rejection so a stale list (for example an unexpected
+      //-- "Destination exists" conflict) corrects itself without extra clicking.
+      await refreshBackupCopy();
+    });
+  }
+  if (event.target.id === "backupDeleteButton")
+  {
+    run(async () =>
+    {
+      const machine = element("backupMachine").value;
+      const destinationArea = element("backupDestinationArea").value;
+      if (destinationArea !== "backups")
+      {
+        throw new Error("Only files in /retro/backups/<OS>/ can be deleted here; use Manage images for /retro/images/.");
+      }
+      const destinationName = element("backupDestinationImage").value;
+      if (!machine || !destinationName)
+      {
+        throw new Error("Select the backup file to delete.");
+      }
+      if (!confirm(`Delete ${destinationName} from ${backupAreaLocationLabel(destinationArea, machine)}? The backup is removed from the SD card permanently.`))
+      {
+        return;
+      }
+      let message;
+      try
+      {
+        const response = await api(`/api/file${apiPath("backups", imagePath(machine, destinationName))}`,
+          {method: "DELETE"});
+        message = await response.text();
+      }
+      catch (error)
+      {
+        message = error.message;
+      }
+      showStatus(message);
+      await refreshBackupCopy();
+    });
+  }
+  if (event.target.id === "backupRestoreButton")
+  {
+    run(async () =>
+    {
+      const machine = element("backupMachine").value;
+      const destinationArea = element("backupDestinationArea").value;
+      if (destinationArea === "littlefs")
+      {
+        throw new Error("LittleFS restores replace the system disk directly; no preserved backup is kept in LittleFS.");
+      }
+      const destinationName = element("backupDestinationName").value.trim() ||
+        element("backupDestinationImage").value || element("backupSourceImage").value;
+      if (!machine || !destinationName)
+      {
+        throw new Error("Choose the destination image whose preserved backup should be restored.");
+      }
+      if (!confirm(`Restore the preserved backup to ${backupAreaLocationLabel(destinationArea, machine)}${destinationName}? The destination must not exist. drives.cfg will not be changed.`))
+      {
+        return;
+      }
+      let message;
+      try
+      {
+        const response = await api(`/api/images/recover?destinationArea=${destinationArea}&destination=${encodeURIComponent(imagePath(machine, destinationName))}`,
+          {method: "POST"});
+        message = await response.text();
+      }
+      catch (error)
+      {
+        message = error.message;
+      }
+      showStatus(message);
+      await refreshBackupCopy();
     });
   }
   if (event.target.id === "restoreBackup")

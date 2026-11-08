@@ -34,11 +34,56 @@ Enter a number and press Enter to start. Unavailable systems show a status besid
 
 Use an ANSI/VT100-compatible USB terminal, preferably with an 80-column by 24-line window. This is a keyboard-and-text-screen experience; it does not provide a modern desktop interface.
 
+## Preparing the microSD card
+
+The microSD card must be prepared before the Retro Computer can use it. Format the card as FAT32 (microSDHC, 32 GB recommended) and create the Retro folder structure on it. The firmware validates this layout at every boot and refuses SD features when something is missing:
+
+For every supported operating system two folders are required, each one holding the disk images and the disk backups of that system:
+
+```text
+/retro/images/<OS>/
+/retro/Backups/<OS>/
+```
+
+with `<OS>` being one of `cpm80`, `cpm86`, `ucsd`, `apple2` or `swtpc`, together with the layout marker:
+
+```text
+/retro/
+  layout.txt
+  images/
+    cpm80/
+    cpm86/
+    ucsd/
+    apple2/
+    swtpc/
+  Backups/
+    cpm80/
+    cpm86/
+    ucsd/
+    apple2/
+    swtpc/
+```
+
+`/retro/layout.txt` is the layout marker and must contain exactly:
+
+```text
+ESP32-S3-RETRO
+layout=1
+```
+
+The easiest way to create all of this is [prepareSd.py](tools/prepareSd.py) run against the mounted card:
+
+```sh
+python3 tools/prepareSd.py /Volumes/<CARDNAME>
+```
+
+Without a mount point the tool only prepares the project's own `sdcard/` folder, not the physical card. The tool never formats the card, removes files or creates disk images; add your own disk images under `images/<system>/` afterwards using the browser-based disk manager.
+
 ## Your programs and disks
 
 A disk image is a file containing an entire retro disk, including its directory and programs. Each system uses its own disk formats and program types: copying a program to another system does not make it compatible.
 
-Choose **File Transfer** to open the browser-based disk manager using the address shown in the terminal. It lets you upload and download whole disk images, browse them, copy them on the SD card, and rename or delete them. Supported CP/M, ProDOS, UCSD Pascal and DOS 3.3 images also allow you to manage the files inside a disk. Support for reading a format in the manager does not mean every emulator can boot it.
+Choose **File Transfer** to open the browser-based disk manager using the address shown in the terminal. It lets you upload and download whole disk images, browse them, copy them on the SD card, copy complete images between the image directory, the backups directory and the LittleFS system disks (an existing destination is only replaced after an explicit “Overwrite [image-file] (y/N)” confirmation), and rename or delete them. Supported CP/M, ProDOS, UCSD Pascal and DOS 3.3 images also allow you to manage the files inside a disk. Support for reading a format in the manager does not mean every emulator can boot it.
 
 <div align="center">
 <img src="./assets/images/startFileTransfer.png" width="75%">

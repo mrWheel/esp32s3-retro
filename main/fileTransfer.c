@@ -34,13 +34,13 @@ static const char* imageMachineIds[] = {"cpm80", "cpm86", "ucsd", "apple2", "swt
 
 typedef enum
 {
-  imageArea
+  imageArea,
+  backupArea
 } fileArea;
 
 static const char* areaRoot(fileArea area)
 {
-  (void)area;
-  return "/microSD/retro/images";
+  return area == backupArea ? "/microSD/retro/backups" : "/microSD/retro/images";
 }
 
 static const char* areaTemporaryPath(fileArea area)
@@ -267,6 +267,113 @@ static bool resolveImageOperationPaths(httpd_req_t* request, char* source, size_
          (size_t)destinationLength < destinationCapacity;
 }
 
+//-- drives.cfg lives in LittleFS next to the system disk (/littlefs/<OS>/drives.cfg), but the
+// manager
+//-- still addresses it as <OS>/drives.cfg in the images area.
+static const char* littlefsRoot = "/littlefs";
+
+//-- Whole-image backup copies move images between /retro/images/, /retro/backups/ and the
+//-- LittleFS system disks of one OS. The guest section defines the shared OS id helpers.
+static bool guestQueryPresent(const char* query, const char* key);
+static bool guestOsIsKnown(const char* osId);
+
+typedef enum
+{
+  operationAreaImages,
+  operationAreaBackups,
+  operationAreaLittlefs
+} imageOperationArea;
+
+static bool imageOperationAreaFromText(const char* text, imageOperationArea* area)
+{
+  if (strcasecmp(text, "images") == 0)
+  {
+    *area = operationAreaImages;
+    return true;
+  }
+  if (strcasecmp(text, "backups") == 0)
+  {
+    *area = operationAreaBackups;
+    return true;
+  }
+  if (strcasecmp(text, "littlefs") == 0)
+  {
+    *area = operationAreaLittlefs;
+    return true;
+  }
+  return false;
+}
+
+static bool resolveImageBackupOperationSide(const char* query, const char* areaKey,
+                                            const char* pathKey, imageOperationArea* area,
+                                            char* relative, size_t relativeCapacity, char* absolute,
+                                            size_t absoluteCapacity)
+{
+  char encodedArea[16] = "";
+  char encodedPath[relativePathCapacity];
+  *area = operationAreaImages;
+  if (guestQueryPresent(query, areaKey) &&
+      (httpd_query_key_value(query, areaKey, encodedArea, sizeof(encodedArea)) != ESP_OK ||
+       !imageOperationAreaFromText(encodedArea, area)))
+  {
+    return false;
+  }
+  if (httpd_query_key_value(query, pathKey, encodedPath, sizeof(encodedPath)) != ESP_OK ||
+      !pathDecode(encodedPath, relative, relativeCapacity) || relative[0] == '\0' ||
+      !isFlatImagePath(relative) || !isDiskImagePath(relative))
+  {
+    return false;
+  }
+  char osId[16];
+  size_t osLength = (size_t)(strchr(relative, '/') - relative);
+  if (osLength == 0 || osLength >= sizeof(osId))
+  {
+    return false;
+  }
+  memcpy(osId, relative, osLength);
+  osId[osLength] = '\0';
+  if (!guestOsIsKnown(osId))
+  {
+    return false;
+  }
+  int length = *area == operationAreaLittlefs
+                   ? snprintf(absolute, absoluteCapacity, "%s/%s", littlefsRoot, relative)
+                   : snprintf(absolute, absoluteCapacity, "/microSD/retro/%s/%s",
+                              *area == operationAreaBackups ? "backups" : "images", relative);
+  return length >= 0 && (size_t)length < absoluteCapacity;
+}
+
+static bool resolveImageBackupOperationPaths(httpd_req_t* request, imageOperationArea* sourceArea,
+                                             char* source, size_t sourceCapacity,
+                                             char* sourceRelative, size_t sourceRelativeCapacity,
+                                             imageOperationArea* destinationArea, char* destination,
+                                             size_t destinationCapacity, char* destinationRelative,
+                                             size_t destinationRelativeCapacity)
+{
+  char query[800];
+  if (httpd_req_get_url_query_str(request, query, sizeof(query)) != ESP_OK ||
+      !resolveImageBackupOperationSide(query, "sourceArea", "source", sourceArea, sourceRelative,
+                                       sourceRelativeCapacity, source, sourceCapacity) ||
+      !resolveImageBackupOperationSide(query, "destinationArea", "destination", destinationArea,
+                                       destinationRelative, destinationRelativeCapacity,
+                                       destination, destinationCapacity))
+  {
+    return false;
+  }
+  size_t sourceOsLength = (size_t)(strchr(sourceRelative, '/') - sourceRelative);
+  size_t destinationOsLength = (size_t)(strchr(destinationRelative, '/') - destinationRelative);
+  if (sourceOsLength != destinationOsLength ||
+      strncmp(sourceRelative, destinationRelative, sourceOsLength) != 0)
+  {
+    return false;
+  }
+  if (*sourceArea == *destinationArea && strcasecmp(source, destination) == 0)
+  {
+    return false;
+  }
+  return *sourceArea != operationAreaLittlefs || *destinationArea != operationAreaLittlefs;
+}
+
 static esp_err_t respond(httpd_req_t* request, const char* status, const char* message)
 {
   httpd_resp_set_status(request, status);
@@ -284,11 +391,6 @@ static bool acceptingRequests(httpd_req_t* request)
   }
   return true;
 }
-
-//-- drives.cfg lives in LittleFS next to the system disk (/littlefs/<OS>/drives.cfg), but the
-// manager
-//-- still addresses it as <OS>/drives.cfg in the images area.
-static const char* littlefsRoot = "/littlefs";
 
 static bool driveConfigurationLittlefsPath(const char* relative, char* absolute, size_t capacity)
 {
@@ -362,6 +464,11 @@ static bool resolveRequest(httpd_req_t* request, char* absolute, size_t capacity
     *area = imageArea;
     encodedPath = query + sizeof("area=images&path=") - 1;
   }
+  else if (strncmp(query, "area=backups&path=", sizeof("area=backups&path=") - 1) == 0)
+  {
+    *area = backupArea;
+    encodedPath = query + sizeof("area=backups&path=") - 1;
+  }
   else
   {
     respond(request, "400 Bad Request", "Invalid SD-card area");
@@ -380,7 +487,8 @@ static bool resolveRequest(httpd_req_t* request, char* absolute, size_t capacity
   if (separators > 1)
   {
     respond(request, "400 Bad Request",
-            "Images live directly in /retro/images/<OS>/; sub-directories are not supported");
+            "Images and backups live directly in /retro/images/<OS>/ or /retro/backups/<OS>/; "
+            "sub-directories are not supported");
     return false;
   }
   int length =
@@ -391,7 +499,8 @@ static bool resolveRequest(httpd_req_t* request, char* absolute, size_t capacity
     return false;
   }
   char littlefsPath[absolutePathCapacity];
-  if (driveConfigurationLittlefsPath(relative, littlefsPath, sizeof(littlefsPath)))
+  if (*area == imageArea &&
+      driveConfigurationLittlefsPath(relative, littlefsPath, sizeof(littlefsPath)))
   {
     snprintf(absolute, capacity, "%s", littlefsPath);
   }
@@ -591,7 +700,7 @@ static esp_err_t listHandler(httpd_req_t* request)
   char littlefsConfigPath[absolutePathCapacity];
   char configRelative[relativePathCapacity];
   struct stat configInfo;
-  if (result == ESP_OK && listRelative[0] == '/' &&
+  if (result == ESP_OK && area == imageArea && listRelative[0] == '/' &&
       snprintf(configRelative, sizeof(configRelative), "%s/drives.cfg", listRelative + 1) > 0 &&
       driveConfigurationLittlefsPath(configRelative, littlefsConfigPath,
                                      sizeof(littlefsConfigPath)) &&
@@ -720,6 +829,12 @@ static esp_err_t uploadHandler(httpd_req_t* request)
   if (!acceptingRequests(request) || !resolveRequest(request, path, sizeof(path), &area))
   {
     return ESP_OK;
+  }
+  if (area == backupArea)
+  {
+    return respond(request, "400 Bad Request",
+                   "Browser uploads write to /retro/images/ only; use the backup copy workflow "
+                   "for /retro/backups/");
   }
   if (!uploadLengthIsSupported(request))
   {
@@ -967,38 +1082,44 @@ static esp_err_t deleteHandler(httpd_req_t* request)
       return respond(request, "409 Conflict", "Drive configuration files cannot be deleted");
     }
   }
-  if (area == imageArea && atomic_flag_test_and_set(&imageOperationActive))
+  if (area == backupArea && isProtectedImageMetadata(path))
+  {
+    return respond(request, "409 Conflict",
+                   "Drive configuration and manager operation files cannot be deleted");
+  }
+  if (atomic_flag_test_and_set(&imageOperationActive))
   {
     return respond(request, "409 Conflict", "Another whole-image operation is in progress");
   }
   if (unlink(path) != 0)
   {
-    if (area == imageArea)
-    {
-      atomic_flag_clear(&imageOperationActive);
-    }
+    atomic_flag_clear(&imageOperationActive);
     return respond(request, "500 Internal Server Error", "Delete failed");
   }
-  if (area == imageArea)
-  {
-    atomic_flag_clear(&imageOperationActive);
-  }
+  atomic_flag_clear(&imageOperationActive);
   return respond(request, "200 OK", "File deleted");
 }
 
 static esp_err_t imageCopyHandler(httpd_req_t* request)
 {
+  imageOperationArea sourceArea;
+  imageOperationArea destinationArea;
   char source[absolutePathCapacity];
   char destination[absolutePathCapacity];
+  char sourceRelative[relativePathCapacity];
+  char destinationRelative[relativePathCapacity];
   if (!acceptingRequests(request))
   {
     return ESP_OK;
   }
-  if (!resolveImageOperationPaths(request, source, sizeof(source), destination,
-                                  sizeof(destination)))
+  if (!resolveImageBackupOperationPaths(request, &sourceArea, source, sizeof(source),
+                                        sourceRelative, sizeof(sourceRelative), &destinationArea,
+                                        destination, sizeof(destination), destinationRelative,
+                                        sizeof(destinationRelative)))
   {
     return respond(request, "400 Bad Request",
-                   "Valid source and destination image paths are required");
+                   "Valid source and destination image paths in the same OS directory are "
+                   "required (areas: images, backups or littlefs)");
   }
   if (strcasecmp(source, destination) == 0 || isProtectedImageMetadata(destination))
   {
@@ -1054,6 +1175,12 @@ static esp_err_t imageCopyHandler(httpd_req_t* request)
     response = respond(request, "500 Internal Server Error", "Cannot inspect destination");
     goto done;
   }
+  if (destinationArea == operationAreaLittlefs && !destinationExists)
+  {
+    response = respond(request, "409 Conflict",
+                       "Copying into LittleFS may only replace an existing system disk image");
+    goto done;
+  }
   {
     char parent[absolutePathCapacity];
     snprintf(parent, sizeof(parent), "%s", destination);
@@ -1077,6 +1204,12 @@ static esp_err_t imageCopyHandler(httpd_req_t* request)
     response =
         respond(request, "400 Bad Request", "Cannot prepare image operation temporary paths");
     goto done;
+  }
+  if (destinationArea == operationAreaLittlefs && stat(copyTemporaryPath, &destinationInfo) == 0)
+  {
+    //-- A whole-image operation is serialized by the image lock, so staging left in LittleFS can
+    //-- only come from an interrupted run; LittleFS offers no browser path to remove it by hand.
+    unlink(copyTemporaryPath);
   }
   if (stat(copyTemporaryPath, &destinationInfo) == 0 || errno != ENOENT ||
       stat(backupPath, &destinationInfo) == 0 || errno != ENOENT)
@@ -1202,7 +1335,9 @@ static esp_err_t imageCopyHandler(httpd_req_t* request)
   }
   {
     bool backedUp = false;
-    if (destinationExists)
+    //-- A LittleFS rename replaces the old image atomically and LittleFS has little free space,
+    //-- so a LittleFS restore commits directly without a preserved sibling backup.
+    if (destinationExists && destinationArea != operationAreaLittlefs)
     {
       if (rename(destination, backupPath) != 0)
       {
@@ -1322,6 +1457,8 @@ static esp_err_t imageRecoverHandler(httpd_req_t* request)
   char relativeDestination[relativePathCapacity];
   char destination[absolutePathCapacity];
   char backupPath[absolutePathCapacity];
+  char encodedArea[16] = "";
+  imageOperationArea area = operationAreaImages;
   if (httpd_req_get_url_query_str(request, query, sizeof(query)) != ESP_OK ||
       httpd_query_key_value(query, "destination", encodedDestination, sizeof(encodedDestination)) !=
           ESP_OK ||
@@ -1332,8 +1469,18 @@ static esp_err_t imageRecoverHandler(httpd_req_t* request)
         respond(request, "400 Bad Request", "A valid destination disk-image path is required");
     goto done;
   }
+  if (guestQueryPresent(query, "destinationArea") &&
+      (httpd_query_key_value(query, "destinationArea", encodedArea, sizeof(encodedArea)) !=
+           ESP_OK ||
+       !imageOperationAreaFromText(encodedArea, &area) || area == operationAreaLittlefs))
+  {
+    response = respond(request, "400 Bad Request",
+                       "destinationArea must be images or backups for recovery");
+    goto done;
+  }
   int destinationLength =
-      snprintf(destination, sizeof(destination), "/microSD/retro/images/%s", relativeDestination);
+      snprintf(destination, sizeof(destination), "/microSD/retro/%s/%s",
+               area == operationAreaBackups ? "backups" : "images", relativeDestination);
   if (destinationLength < 0 || (size_t)destinationLength >= sizeof(destination))
   {
     response = respond(request, "400 Bad Request", "Destination image path is too long");
