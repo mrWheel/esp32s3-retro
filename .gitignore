@@ -8,3 +8,4 @@ __pycache__/
 *.DS_Store
 assets/apple2Downloads/*
 .claude/
+projects/*
