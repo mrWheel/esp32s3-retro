@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2026 Willem Aandewiel
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "hostConsole.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
@@ -6,7 +23,7 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char *tag = "hostConsole";
+static const char* tag = "hostConsole";
 static int pendingCharacter = -1;
 
 esp_err_t hostConsoleInit(void)
@@ -62,11 +79,11 @@ int hostConsolePeekChar(void)
 
 void hostConsolePutChar(char value)
 {
-  //— Write directly to the driver so echo does not depend on stdio buffering
+  // — Write directly to the driver so echo does not depend on stdio buffering
   usb_serial_jtag_write_bytes(&value, 1, pdMS_TO_TICKS(100));
 }
 
-bool hostConsoleWrite(const char *text)
+bool hostConsoleWrite(const char* text)
 {
   size_t totalSize = strlen(text);
   size_t remaining = totalSize;
@@ -78,8 +95,8 @@ bool hostConsoleWrite(const char *text)
     int written = usb_serial_jtag_write_bytes(text, chunkSize, pdMS_TO_TICKS(100));
     if (written < 0 || (size_t)written > chunkSize)
     {
-      ESP_LOGE(tag, "USB console write returned invalid count %d for %u requested bytes",
-               written, (unsigned)chunkSize);
+      ESP_LOGE(tag, "USB console write returned invalid count %d for %u requested bytes", written,
+               (unsigned)chunkSize);
       return false;
     }
     if (written == 0)

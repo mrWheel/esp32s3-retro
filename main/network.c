@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2026 Willem Aandewiel
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "network.h"
 #include "wifi_provisioner.h"
 #include "esp_event.h"
@@ -14,7 +31,7 @@ static atomic_int startResult;
 static bool startRequested;
 static bool eventsRegistered;
 
-static void networkEvent(void *argument, esp_event_base_t base, int32_t eventId, void *eventData)
+static void networkEvent(void* argument, esp_event_base_t base, int32_t eventId, void* eventData)
 {
   (void)argument;
   (void)eventData;
@@ -28,7 +45,7 @@ static void networkEvent(void *argument, esp_event_base_t base, int32_t eventId,
   }
 }
 
-static void startNetworkTask(void *argument)
+static void startNetworkTask(void* argument)
 {
   (void)argument;
   wifi_prov_config_t config = WIFI_PROV_DEFAULT_CONFIG();
@@ -59,7 +76,8 @@ esp_err_t networkStart(void)
     {
       return result;
     }
-    result = esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, networkEvent, NULL);
+    result =
+        esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, networkEvent, NULL);
     if (result != ESP_OK)
     {
       esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, networkEvent);
@@ -75,10 +93,10 @@ esp_err_t networkStart(void)
   return ESP_OK;
 }
 
-bool networkReady(char *address, size_t capacity)
+bool networkReady(char* address, size_t capacity)
 {
-  if (!atomic_load(&startFinished) || atomic_load(&startResult) != ESP_OK || !atomic_load(&hasAddress) ||
-      !wifi_prov_is_connected())
+  if (!atomic_load(&startFinished) || atomic_load(&startResult) != ESP_OK ||
+      !atomic_load(&hasAddress) || !wifi_prov_is_connected())
   {
     return false;
   }
@@ -91,7 +109,7 @@ bool networkReady(char *address, size_t capacity)
   return true;
 }
 
-const char *networkStatus(void)
+const char* networkStatus(void)
 {
   if (!atomic_load(&startFinished))
   {

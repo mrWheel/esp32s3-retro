@@ -1,11 +1,28 @@
+/*
+ * Copyright (C) 2026 Willem Aandewiel
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "storagePath.h"
 #include <stdio.h>
 #include <string.h>
 
-static const char *sdMountPath = "/microSD";
-static const char *retroPathPrefix = "/retro/";
+static const char* sdMountPath = "/microSD";
+static const char* retroPathPrefix = "/retro/";
 
-bool storageResolveRetroPath(const char *retroPath, char *resolvedPath, size_t pathCapacity)
+bool storageResolveRetroPath(const char* retroPath, char* resolvedPath, size_t pathCapacity)
 {
   if (retroPath == NULL || resolvedPath == NULL || pathCapacity == 0)
   {
@@ -25,7 +42,8 @@ bool storageResolveRetroPath(const char *retroPath, char *resolvedPath, size_t p
   {
     return false;
   }
-  for (const unsigned char *character = (const unsigned char *)retroPath; *character != '\0'; ++character)
+  for (const unsigned char* character = (const unsigned char*)retroPath; *character != '\0';
+       ++character)
   {
     if (*character < 0x20 || *character == 0x7f)
     {

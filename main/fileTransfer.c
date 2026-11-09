@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2026 Willem Aandewiel
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "fileTransfer.h"
 #include "hostCore.h"
 #include "storage.h"
@@ -1100,6 +1117,152 @@ static esp_err_t deleteHandler(httpd_req_t* request)
   return respond(request, "200 OK", "File deleted");
 }
 
+//-- Result of staging one file through a temporary sibling path.
+typedef enum
+{
+  stagedCopyOk,
+  stagedCopyOpenFailed,
+  stagedCopyFailed
+} stagedCopyResult;
+
+//-- Streams sourcePath to temporaryPath in small chunks, fsyncs the result and verifies it
+//-- byte for byte. The verified temporary file stays in place on success; any failure removes it.
+static stagedCopyResult stageFileVerified(const char* sourcePath, const char* temporaryPath)
+{
+  FILE* input = fopen(sourcePath, "rb");
+  int outputDescriptor = open(temporaryPath, O_WRONLY | O_CREAT | O_EXCL, 0600);
+  if (input == NULL || outputDescriptor < 0)
+  {
+    if (input != NULL)
+    {
+      fclose(input);
+    }
+    if (outputDescriptor >= 0)
+    {
+      close(outputDescriptor);
+      unlink(temporaryPath);
+    }
+    return stagedCopyOpenFailed;
+  }
+  char buffer[4096];
+  bool success = true;
+  size_t count;
+  while (!atomic_load(&stopping) && (count = fread(buffer, 1, sizeof(buffer), input)) > 0)
+  {
+    size_t written = 0;
+    while (written < count)
+    {
+      ssize_t result = write(outputDescriptor, buffer + written, count - written);
+      if (result <= 0)
+      {
+        success = false;
+        break;
+      }
+      written += (size_t)result;
+    }
+    if (!success)
+    {
+      break;
+    }
+    vTaskDelay(1);
+  }
+  success = success && !ferror(input) && !atomic_load(&stopping) && fsync(outputDescriptor) == 0;
+  if (fclose(input) != 0)
+  {
+    success = false;
+  }
+  if (close(outputDescriptor) != 0)
+  {
+    success = false;
+  }
+  if (success)
+  {
+    FILE* original = fopen(sourcePath, "rb");
+    FILE* copy = fopen(temporaryPath, "rb");
+    if (original == NULL || copy == NULL)
+    {
+      success = false;
+      if (original != NULL)
+      {
+        fclose(original);
+      }
+      if (copy != NULL)
+      {
+        fclose(copy);
+      }
+    }
+    else
+    {
+      char originalBuffer[1024];
+      char copyBuffer[1024];
+      size_t originalCount;
+      size_t copyCount;
+      do
+      {
+        originalCount = fread(originalBuffer, 1, sizeof(originalBuffer), original);
+        copyCount = fread(copyBuffer, 1, sizeof(copyBuffer), copy);
+        if (originalCount != copyCount || memcmp(originalBuffer, copyBuffer, originalCount) != 0)
+        {
+          success = false;
+          break;
+        }
+        if (atomic_load(&stopping))
+        {
+          success = false;
+          break;
+        }
+        vTaskDelay(1);
+      } while (originalCount > 0);
+      if (ferror(original) || ferror(copy))
+      {
+        success = false;
+      }
+      if (fclose(original) != 0)
+      {
+        success = false;
+      }
+      if (fclose(copy) != 0)
+      {
+        success = false;
+      }
+    }
+  }
+  if (!success)
+  {
+    ESP_LOGW(fileTransferTag, "Staging copy of %s failed; removed %s", sourcePath, temporaryPath);
+    unlink(temporaryPath);
+  }
+  return success ? stagedCopyOk : stagedCopyFailed;
+}
+
+//-- Checks a drive configuration companion before it may be copied: it must be a regular text
+//-- file that matches the drives.cfg upload rules (1 to 16384 bytes, lines of at most 254
+//-- characters).
+static bool driveConfigurationFileIsValid(const char* path)
+{
+  FILE* file = fopen(path, "rb");
+  if (file == NULL)
+  {
+    return false;
+  }
+  char buffer[1024];
+  size_t lineLength = 0;
+  size_t total = 0;
+  size_t count;
+  while ((count = fread(buffer, 1, sizeof(buffer), file)) > 0)
+  {
+    total += count;
+    if (!driveConfigurationChunkIsValid(buffer, count, &lineLength))
+    {
+      fclose(file);
+      return false;
+    }
+  }
+  bool valid = !ferror(file) && total >= 1 && total <= driveConfigurationMaximumBytes;
+  fclose(file);
+  return valid;
+}
+
 static esp_err_t imageCopyHandler(httpd_req_t* request)
 {
   imageOperationArea sourceArea;
@@ -1108,6 +1271,14 @@ static esp_err_t imageCopyHandler(httpd_req_t* request)
   char destination[absolutePathCapacity];
   char sourceRelative[relativePathCapacity];
   char destinationRelative[relativePathCapacity];
+  bool copyConfiguration = false;
+  bool configurationSkipped = false;
+  bool skipConfiguration = false;
+  char configurationSource[absolutePathCapacity] = "";
+  char configurationDestination[absolutePathCapacity] = "";
+  char configurationTemporary[absolutePathCapacity] = "";
+  char resultMessage[352];
+  uint32_t startedAt = xTaskGetTickCount();
   if (!acceptingRequests(request))
   {
     return ESP_OK;
@@ -1133,8 +1304,9 @@ static esp_err_t imageCopyHandler(httpd_req_t* request)
   esp_err_t response = ESP_OK;
   struct stat sourceInfo;
   struct stat destinationInfo;
-  char copyTemporaryPath[absolutePathCapacity];
-  char backupPath[absolutePathCapacity];
+  char copyTemporaryPath[absolutePathCapacity] = "";
+  char backupPath[absolutePathCapacity] = "";
+  ESP_LOGI(fileTransferTag, "Image copy started: %s -> %s", sourceRelative, destinationRelative);
   if (stat(source, &sourceInfo) != 0 || !S_ISREG(sourceInfo.st_mode) || sourceInfo.st_size < 0)
   {
     response = respond(request, "404 Not Found", "Source disk image is unavailable");
@@ -1146,24 +1318,45 @@ static esp_err_t imageCopyHandler(httpd_req_t* request)
                        "Maximum whole-image size is 4 GiB minus 2 bytes");
     goto done;
   }
-  bool overwriteAllowed = false;
-  char overwriteValue[4] = "";
-  overwriteAllowed = httpd_req_get_hdr_value_str(request, "X-Overwrite", overwriteValue,
-                                                 sizeof(overwriteValue)) == ESP_OK &&
-                     strcmp(overwriteValue, "1") == 0;
+  //-- X-Overwrite names every file the browser may replace (image, config, both, or the legacy
+  //-- value 1 for both). X-Skip names every existing file the user declined so it is left
+  //-- untouched instead of forcing a conflict: the image and drives.cfg are decided
+  //-- independently of each other.
+  bool overwriteImage = false;
+  bool overwriteConfiguration = false;
+  bool skipImageRequested = false;
+  bool skipConfigurationRequested = false;
+  char overwriteValue[32] = "";
+  char skipValue[32] = "";
+  httpd_req_get_hdr_value_str(request, "X-Overwrite", overwriteValue, sizeof(overwriteValue));
+  httpd_req_get_hdr_value_str(request, "X-Skip", skipValue, sizeof(skipValue));
+  overwriteImage = strcmp(overwriteValue, "1") == 0 || strstr(overwriteValue, "image") != NULL;
+  overwriteConfiguration =
+      strcmp(overwriteValue, "1") == 0 || strstr(overwriteValue, "config") != NULL;
+  skipImageRequested = strstr(skipValue, "image") != NULL;
+  skipConfigurationRequested = strstr(skipValue, "config") != NULL;
   bool destinationExists = stat(destination, &destinationInfo) == 0;
-  if (destinationExists && !overwriteAllowed)
+  bool skipImage = false;
+  if (destinationExists && !overwriteImage)
   {
-    response =
-        respond(request, "409 Conflict", "Destination exists; enable OVERWRITE to replace it");
-    goto done;
+    if (!skipImageRequested)
+    {
+      response =
+          respond(request, "409 Conflict", "Destination exists; enable OVERWRITE to replace it");
+      goto done;
+    }
+    skipImage = true;
   }
   if (destinationExists && !S_ISREG(destinationInfo.st_mode))
   {
     response = respond(request, "409 Conflict", "Destination is not a regular file");
     goto done;
   }
-  if (destinationExists && sourceInfo.st_dev == destinationInfo.st_dev &&
+  //-- The identity comparison only makes sense inside one filesystem: a LittleFS path and an SD
+  //-- path can never be the same file, and FAT/LittleFS may also leave st_dev/st_ino at zero.
+  if (destinationExists && sourceArea != operationAreaLittlefs &&
+      destinationArea != operationAreaLittlefs && sourceInfo.st_ino != 0 &&
+      destinationInfo.st_ino != 0 && sourceInfo.st_dev == destinationInfo.st_dev &&
       sourceInfo.st_ino == destinationInfo.st_ino)
   {
     response =
@@ -1197,142 +1390,200 @@ static esp_err_t imageCopyHandler(httpd_req_t* request)
       goto done;
     }
   }
-  if (!buildSiblingPath(destination, "manager-copy-part.tmp", copyTemporaryPath,
-                        sizeof(copyTemporaryPath)) ||
-      !buildSiblingPath(destination, "manager-replace-backup.tmp", backupPath, sizeof(backupPath)))
+  if (!skipImage)
   {
-    response =
-        respond(request, "400 Bad Request", "Cannot prepare image operation temporary paths");
-    goto done;
-  }
-  if (destinationArea == operationAreaLittlefs && stat(copyTemporaryPath, &destinationInfo) == 0)
-  {
-    //-- A whole-image operation is serialized by the image lock, so staging left in LittleFS can
-    //-- only come from an interrupted run; LittleFS offers no browser path to remove it by hand.
-    unlink(copyTemporaryPath);
-  }
-  if (stat(copyTemporaryPath, &destinationInfo) == 0 || errno != ENOENT ||
-      stat(backupPath, &destinationInfo) == 0 || errno != ENOENT)
-  {
-    response = respond(request, "507 Insufficient Storage",
-                       "An image-operation recovery file exists; inspect it before continuing");
-    goto done;
-  }
-  {
-    FILE* input = fopen(source, "rb");
-    int outputDescriptor = open(copyTemporaryPath, O_WRONLY | O_CREAT | O_EXCL, 0600);
-    if (input == NULL || outputDescriptor < 0)
+    if (!buildSiblingPath(destination, "manager-copy-part.tmp", copyTemporaryPath,
+                          sizeof(copyTemporaryPath)) ||
+        !buildSiblingPath(destination, "manager-replace-backup.tmp", backupPath,
+                          sizeof(backupPath)))
     {
-      if (input != NULL)
+      response =
+          respond(request, "400 Bad Request", "Cannot prepare image operation temporary paths");
+      goto done;
+    }
+    if (destinationArea == operationAreaLittlefs && stat(copyTemporaryPath, &destinationInfo) == 0)
+    {
+      //-- A whole-image operation is serialized by the image lock, so staging left in LittleFS can
+      //-- only come from an interrupted run; LittleFS offers no browser path to remove it by hand.
+      unlink(copyTemporaryPath);
+    }
+    if (stat(copyTemporaryPath, &destinationInfo) == 0 || errno != ENOENT ||
+        stat(backupPath, &destinationInfo) == 0 || errno != ENOENT)
+    {
+      response = respond(request, "507 Insufficient Storage",
+                         "An image-operation recovery file exists; inspect it before continuing");
+      goto done;
+    }
+  }
+  //-- Copies between LittleFS and the backups area also carry the OS drive configuration:
+  //-- backing up a system disk stores drives.cfg in the backups directory under its own name,
+  //-- and restoring brings that file back as /littlefs/<OS>/drives.cfg.
+  copyConfiguration =
+      (sourceArea == operationAreaLittlefs || destinationArea == operationAreaLittlefs) &&
+      (sourceArea == operationAreaBackups || destinationArea == operationAreaBackups);
+  if (copyConfiguration)
+  {
+    char osId[16];
+    size_t osLength = (size_t)(strchr(sourceRelative, '/') - sourceRelative);
+    int configurationLength;
+    if (osLength == 0 || osLength >= sizeof(osId))
+    {
+      response = respond(request, "400 Bad Request", "Invalid OS directory");
+      goto done;
+    }
+    memcpy(osId, sourceRelative, osLength);
+    osId[osLength] = '\0';
+    if (sourceArea == operationAreaLittlefs)
+    {
+      configurationLength = snprintf(configurationSource, sizeof(configurationSource),
+                                     "%s/%s/drives.cfg", littlefsRoot, osId);
+      if (configurationLength < 0 || (size_t)configurationLength >= sizeof(configurationSource) ||
+          !buildSiblingPath(destination, "drives.cfg", configurationDestination,
+                            sizeof(configurationDestination)))
       {
-        fclose(input);
+        response = respond(request, "400 Bad Request", "Cannot prepare drives.cfg paths");
+        goto done;
       }
-      if (outputDescriptor >= 0)
+    }
+    else
+    {
+      configurationLength = snprintf(configurationDestination, sizeof(configurationDestination),
+                                     "%s/%s/drives.cfg", littlefsRoot, osId);
+      if (configurationLength < 0 ||
+          (size_t)configurationLength >= sizeof(configurationDestination) ||
+          !buildSiblingPath(source, "drives.cfg", configurationSource, sizeof(configurationSource)))
       {
-        close(outputDescriptor);
-        unlink(copyTemporaryPath);
+        response = respond(request, "400 Bad Request", "Cannot prepare drives.cfg paths");
+        goto done;
       }
+    }
+    struct stat configurationInfo;
+    bool configurationSourceExists = stat(configurationSource, &configurationInfo) == 0;
+    if (!configurationSourceExists)
+    {
+      if (sourceArea != operationAreaLittlefs && errno == ENOENT)
+      {
+        //-- A backup taken before companion files existed carries no drive configuration; the
+        //-- copy then preserves the existing mapping instead of failing.
+        copyConfiguration = false;
+        configurationSkipped = true;
+      }
+      else
+      {
+        response = respond(request, "404 Not Found", "drives.cfg is unavailable for this OS");
+        goto done;
+      }
+    }
+    if (copyConfiguration)
+    {
+      struct stat configurationDestinationInfo;
+      bool configurationDestinationExists =
+          stat(configurationDestination, &configurationDestinationInfo) == 0;
+      if (!configurationDestinationExists && errno != ENOENT)
+      {
+        response = respond(request, "500 Internal Server Error",
+                           "Cannot inspect the drives.cfg destination");
+        goto done;
+      }
+      if (configurationDestinationExists && !overwriteConfiguration)
+      {
+        if (!skipConfigurationRequested)
+        {
+          response = respond(request, "409 Conflict",
+                             "The drives.cfg companion exists; enable OVERWRITE to replace it");
+          goto done;
+        }
+        skipConfiguration = true;
+      }
+      if (!skipConfiguration)
+      {
+        if (!S_ISREG(configurationInfo.st_mode) ||
+            !driveConfigurationFileIsValid(configurationSource))
+        {
+          response = respond(request, "422 Unprocessable Content",
+                             "drives.cfg must be a text file between 1 and 16384 bytes with lines "
+                             "of at most 254 characters");
+          goto done;
+        }
+        if (configurationDestinationExists && !S_ISREG(configurationDestinationInfo.st_mode))
+        {
+          response =
+              respond(request, "409 Conflict", "The drives.cfg companion is not a regular file");
+          goto done;
+        }
+        if (!buildSiblingPath(configurationDestination, "manager-config-part.tmp",
+                              configurationTemporary, sizeof(configurationTemporary)))
+        {
+          response = respond(request, "400 Bad Request", "Cannot prepare drives.cfg staging path");
+          goto done;
+        }
+        if (destinationArea == operationAreaLittlefs &&
+            stat(configurationTemporary, &configurationInfo) == 0)
+        {
+          unlink(configurationTemporary);
+        }
+        if (stat(configurationTemporary, &configurationInfo) == 0 || errno != ENOENT)
+        {
+          response = respond(request, "507 Insufficient Storage",
+                             "An image-operation recovery file exists; inspect it before "
+                             "continuing");
+          goto done;
+        }
+      }
+    }
+  }
+  if (skipImage && (!copyConfiguration || skipConfiguration))
+  {
+    //-- The user declined every existing destination file, so there is nothing left to copy.
+    response = respond(request, "200 OK", "Copy cancelled; existing destination files were kept");
+    goto done;
+  }
+  if (!skipImage)
+  {
+    stagedCopyResult staged = stageFileVerified(source, copyTemporaryPath);
+    if (staged == stagedCopyOpenFailed)
+    {
       response = respond(request, "507 Insufficient Storage",
                          "Cannot open source or temporary image file");
       goto done;
     }
-    char buffer[4096];
-    bool success = true;
-    size_t count;
-    while (!atomic_load(&stopping) && (count = fread(buffer, 1, sizeof(buffer), input)) > 0)
+    if (staged != stagedCopyOk)
     {
-      size_t written = 0;
-      while (written < count)
-      {
-        ssize_t result = write(outputDescriptor, buffer + written, count - written);
-        if (result <= 0)
-        {
-          success = false;
-          break;
-        }
-        written += (size_t)result;
-      }
-      if (!success)
-      {
-        break;
-      }
-      vTaskDelay(1);
+      response = respond(request, "500 Internal Server Error",
+                         "Image copy failed verification; source is unchanged");
+      goto done;
     }
-    success = success && !ferror(input) && !atomic_load(&stopping) && fsync(outputDescriptor) == 0;
-    if (fclose(input) != 0)
+  }
+  if (copyConfiguration && !skipConfiguration)
+  {
+    stagedCopyResult stagedConfiguration =
+        stageFileVerified(configurationSource, configurationTemporary);
+    if (stagedConfiguration == stagedCopyOpenFailed)
     {
-      success = false;
+      unlink(copyTemporaryPath);
+      response = respond(request, "507 Insufficient Storage",
+                         "Cannot open drives.cfg or its temporary file");
+      goto done;
     }
-    if (close(outputDescriptor) != 0)
-    {
-      success = false;
-    }
-    if (success)
-    {
-      FILE* original = fopen(source, "rb");
-      FILE* copy = fopen(copyTemporaryPath, "rb");
-      if (original == NULL || copy == NULL)
-      {
-        success = false;
-        if (original != NULL)
-        {
-          fclose(original);
-        }
-        if (copy != NULL)
-        {
-          fclose(copy);
-        }
-      }
-      else
-      {
-        char originalBuffer[1024];
-        char copyBuffer[1024];
-        size_t originalCount;
-        size_t copyCount;
-        do
-        {
-          originalCount = fread(originalBuffer, 1, sizeof(originalBuffer), original);
-          copyCount = fread(copyBuffer, 1, sizeof(copyBuffer), copy);
-          if (originalCount != copyCount || memcmp(originalBuffer, copyBuffer, originalCount) != 0)
-          {
-            success = false;
-            break;
-          }
-          if (atomic_load(&stopping))
-          {
-            success = false;
-            break;
-          }
-          vTaskDelay(1);
-        } while (originalCount > 0);
-        if (ferror(original) || ferror(copy))
-        {
-          success = false;
-        }
-        if (fclose(original) != 0)
-        {
-          success = false;
-        }
-        if (fclose(copy) != 0)
-        {
-          success = false;
-        }
-      }
-    }
-    if (!success)
+    if (stagedConfiguration != stagedCopyOk)
     {
       unlink(copyTemporaryPath);
       response = respond(request, "500 Internal Server Error",
-                         "Image copy failed verification; source is unchanged");
+                         "drives.cfg copy failed verification; nothing was committed");
       goto done;
     }
   }
   if (atomic_load(&stopping))
   {
     unlink(copyTemporaryPath);
+    if (copyConfiguration && !skipConfiguration)
+    {
+      unlink(configurationTemporary);
+    }
     response = respond(request, "503 Service Unavailable", "Image copy cancelled before commit");
     goto done;
   }
+  if (!skipImage)
   {
     bool backedUp = false;
     //-- A LittleFS rename replaces the old image atomically and LittleFS has little free space,
@@ -1371,10 +1622,72 @@ static esp_err_t imageCopyHandler(httpd_req_t* request)
       goto done;
     }
   }
-  response = respond(request, "201 Created", "Whole-image copy complete and byte-verified");
+  if (copyConfiguration && !skipConfiguration)
+  {
+    struct stat configurationCommitInfo;
+    if (stat(configurationDestination, &configurationCommitInfo) == 0 &&
+        unlink(configurationDestination) != 0 && errno != ENOENT)
+    {
+      unlink(configurationTemporary);
+      response = respond(request, "500 Internal Server Error",
+                         "The previous drives.cfg could not be removed; the staged copy remains "
+                         "in manager-config-part.tmp");
+      goto done;
+    }
+    if (rename(configurationTemporary, configurationDestination) != 0)
+    {
+      response = respond(request, "500 Internal Server Error",
+                         "The copy was verified, but drives.cfg could not be committed; the "
+                         "staged copy remains in manager-config-part.tmp");
+      goto done;
+    }
+  }
+  {
+    char imagePart[144] = "";
+    char configurationPart[176] = "";
+    if (!skipImage)
+    {
+      snprintf(imagePart, sizeof(imagePart), "Whole-image copy complete and byte-verified");
+    }
+    else
+    {
+      const char* imageName =
+          strrchr(destination, '/') != NULL ? strrchr(destination, '/') + 1 : destination;
+      snprintf(imagePart, sizeof(imagePart), "%.104s left unchanged (overwrite declined)",
+               imageName);
+    }
+    if (configurationSkipped)
+    {
+      snprintf(configurationPart, sizeof(configurationPart),
+               "drives.cfg left unchanged (no drives.cfg found beside the backup)");
+    }
+    else if (skipConfiguration)
+    {
+      snprintf(configurationPart, sizeof(configurationPart),
+               "drives.cfg left unchanged (overwrite declined)");
+    }
+    else if (copyConfiguration)
+    {
+      snprintf(configurationPart, sizeof(configurationPart), "drives.cfg %s%s",
+               sourceArea == operationAreaLittlefs ? "was copied to the backups area"
+                                                   : "was restored from the backups area",
+               skipImage ? "" : " too");
+    }
+    if (imagePart[0] != '\0' && configurationPart[0] != '\0')
+    {
+      snprintf(resultMessage, sizeof(resultMessage), "%s; %s", imagePart, configurationPart);
+    }
+    else
+    {
+      snprintf(resultMessage, sizeof(resultMessage), "%s%s", imagePart, configurationPart);
+    }
+  }
+  response = respond(request, "201 Created", resultMessage);
 
 done:
   atomic_flag_clear(&imageOperationActive);
+  ESP_LOGI(fileTransferTag, "Image copy finished in %u ms",
+           (unsigned)((xTaskGetTickCount() - startedAt) * portTICK_PERIOD_MS));
   return response;
 }
 
@@ -2713,7 +3026,9 @@ esp_err_t fileTransferStart(void)
   guestRecoverAllPending();
   atomic_store(&stopping, false);
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.stack_size = 12288;
+  //-- The whole-image copy handler stages two verified files on one task stack; the baseline
+  //-- 12288 bytes overflowed during double staging, so the httpd task gets extra headroom.
+  config.stack_size = 16384;
   config.max_uri_handlers = 20;
   config.max_open_sockets = 7;
   //-- Never purge the socket of an active large transfer; allow slow SD/WiFi stalls.

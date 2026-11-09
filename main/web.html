@@ -780,12 +780,13 @@ function helpContent()
       "<li>Choose the <b>OS</b>; source and destination always stay inside that OS directory.</li>" +
       "<li>Choose the <b>Copy From</b> location (SD images, SD backups or LittleFS system disks) and the <b>source image</b>.</li>" +
       "<li>Choose the <b>Copy To</b> location. The destination defaults to the source image name; pick an existing destination from the list or type a <b>new image file name</b> to store the copy under another name (a missing extension is taken from the source).</li>" +
-      "<li>Press <b>Copy complete image</b>. When the destination already exists the manager asks <b>Overwrite [image-file] (y/N):</b>; type y to replace it, anything else cancels.</li></ol>" +
+      "<li>Press <b>Copy complete image</b>. When a destination already exists the manager asks <b>Overwrite [file] (y/N):</b> once per file; type y to replace that file, anything else leaves it untouched while the other file is still copied.</li></ol>" +
       "<h3>Details</h3><ul>" +
       "<li>The firmware copies in small chunks and verifies the bytes before the new file is committed. The source is never changed.</li>" +
+      "<li>Copies between LittleFS and /retro/backups/ also carry the OS drive configuration: backing up a system disk also copies <b>drives.cfg</b> into the backups folder (keeping its name), and restoring that backup also copies it back as drives.cfg. Each file gets its own <b>Overwrite … (y/N):</b> question and declining one question skips only that file, so you can, for example, refresh just drives.cfg from the backups without touching the system disk; a backup without a drives.cfg restores the image only and leaves the LittleFS drives.cfg unchanged.</li>" +
       "<li>Replacing an image in /retro/images/ or /retro/backups/ preserves the previous destination until the commit succeeds; <b>Restore preserved backup</b> brings that version back while the destination is free.</li>" +
       "<li>Restoring into LittleFS may only replace an existing system disk image (normally the same name); a new file name in LittleFS is refused and LittleFS has little free space. No preserved backup is kept in LittleFS.</li>" +
-      "<li>Drive mappings in drives.cfg are never changed; a restored system disk is used by the emulator at its next start.</li>" +
+      "<li>Copies that do not involve LittleFS never change drives.cfg; a restored system disk is used by the emulator at its next start.</li>" +
       "<li><b>Delete selected backup</b> removes the file chosen in the destination list from /retro/backups/&lt;OS&gt;/ after confirmation.</li></ul>",
     "manage-images":
       "<h3>Purpose</h3><p>Browse the image files of one OS on the SD card and manage them.</p>" +
@@ -1010,7 +1011,18 @@ function renderBackupCopy()
       <button type="button" id="backupRestoreButton">Restore preserved backup</button>
       <button type="button" id="backupDeleteButton">Delete selected backup</button>
     </div>
-    <p class="muted">Source and destination always stay inside the same OS directory. The destination defaults to the source image name; type a new image file name to store the copy under a different name (a missing extension is taken from the source). The firmware copies in small chunks, verifies the bytes and commits atomically; the source is never changed. When the destination already exists you are asked “Overwrite [image-file] (y/N):” and must type y. Copying into LittleFS may only replace an existing system disk image; drives.cfg is never touched.</p>`;
+    <p class="muted">Source and destination always stay inside the same OS directory. The destination defaults to the source image name; type a new image file name to store the copy under a different name (a missing extension is taken from the source). The firmware copies in small chunks, verifies the bytes and commits atomically; the source is never changed. When a destination already exists you are asked “Overwrite [image-file] (y/N):” and must type y. Copying into LittleFS may only replace an existing system disk image. Copies between LittleFS and the backups area also carry the drive configuration: backing up a system disk also copies drives.cfg into the backups folder (keeping its name), and restoring that backup also copies it back as drives.cfg (each with its own overwrite question; declining one skips just that file).</p>`;
+}
+
+function backupIsDiskImage(entry)
+{
+  return !entry.directory && !entry.littlefs && /\.(dsk|img|po|woz|2mg)$/i.test(entry.name);
+}
+
+function backupEntriesHave(entries, name)
+{
+  return entries.some((entry) => !entry.directory &&
+    entry.name.toLowerCase() === name.toLowerCase());
 }
 
 async function loadBackupDirectory(area, machine)
@@ -1019,17 +1031,17 @@ async function loadBackupDirectory(area, machine)
   {
     const response = await api(`/api/guest/images?os=${encodeURIComponent(machine)}`);
     const entries = await response.json();
-    return entries.filter((item) => /\.(dsk|img|po|woz|2mg)$/i.test(item.name));
+    return entries.filter(backupIsDiskImage);
   }
-  const entries = await listPath(area, machine);
-  return entries.filter((item) => !item.directory && !item.littlefs &&
-    /\.(dsk|img|po|woz|2mg)$/i.test(item.name));
+  //-- The raw list is kept so a drives.cfg companion file can be recognised even though the
+  //-- dropdowns only offer disk images.
+  return listPath(area, machine);
 }
 
 function fillBackupSelect(select, entries, placeholder)
 {
   select.replaceChildren(new Option(placeholder, ""));
-  for (const entry of entries)
+  for (const entry of entries.filter(backupIsDiskImage))
   {
     select.add(new Option(`${entry.name} (${entry.size} bytes)`, entry.name));
   }
@@ -1043,30 +1055,52 @@ async function refreshBackupCopy()
   const machine = element("backupMachine").value;
   const sourceArea = element("backupSourceArea").value;
   const destinationArea = element("backupDestinationArea").value;
+  backupSourceEntries = [];
+  backupDestinationEntries = [];
+  fillBackupSelect(element("backupSourceImage"), [], "Select a source image");
+  fillBackupSelect(element("backupDestinationImage"), [], "Defaults to the source name");
+  element("backupDeleteButton").hidden = destinationArea !== "backups";
   if (!machine)
   {
-    backupSourceEntries = [];
-    backupDestinationEntries = [];
-    fillBackupSelect(element("backupSourceImage"), [], "Select a source image");
-    fillBackupSelect(element("backupDestinationImage"), [], "Defaults to the source name");
-    element("backupDeleteButton").hidden = destinationArea !== "backups";
     showStatus("Select an OS directory to list its images, backups and LittleFS system disks.");
     return;
   }
-  //-- Fetch first and only then replace the lists: overlapping refreshes (quick dropdown
-  //-- changes or the refresh after a copy) must never leave an empty or stale list behind.
-  const sourceEntries = await loadBackupDirectory(sourceArea, machine);
-  const destinationEntries = await loadBackupDirectory(destinationArea, machine);
-  if (token !== backupRefreshToken)
+  //-- Each side is fetched and applied independently: one failing or overlapping list request
+  //-- must never leave the other dropdown showing entries from the previous location.
+  let failure = null;
+  try
   {
-    return;
+    const sourceEntries = await loadBackupDirectory(sourceArea, machine);
+    if (token !== backupRefreshToken)
+    {
+      return;
+    }
+    backupSourceEntries = sourceEntries;
+    fillBackupSelect(element("backupSourceImage"), backupSourceEntries, "Select a source image");
   }
-  backupSourceEntries = sourceEntries;
-  backupDestinationEntries = destinationEntries;
-  fillBackupSelect(element("backupSourceImage"), backupSourceEntries, "Select a source image");
-  fillBackupSelect(element("backupDestinationImage"), backupDestinationEntries,
-    "Defaults to the source name");
-  element("backupDeleteButton").hidden = destinationArea !== "backups";
+  catch (error)
+  {
+    failure = `Source list failed: ${error.message}`;
+  }
+  try
+  {
+    const destinationEntries = await loadBackupDirectory(destinationArea, machine);
+    if (token !== backupRefreshToken)
+    {
+      return;
+    }
+    backupDestinationEntries = destinationEntries;
+    fillBackupSelect(element("backupDestinationImage"), backupDestinationEntries,
+      "Defaults to the source name");
+  }
+  catch (error)
+  {
+    failure = `Destination list failed: ${error.message}`;
+  }
+  if (token === backupRefreshToken && failure !== null)
+  {
+    showStatus(`${failure}. Press Refresh lists to try again.`);
+  }
 }
 
 function renderManager()
@@ -3006,6 +3040,9 @@ element("app").addEventListener("change", (event) =>
   }
   if (id === "backupMachine" || id === "backupSourceArea" || id === "backupDestinationArea")
   {
+    element("backupSourceImage").value = "";
+    element("backupDestinationImage").value = "";
+    element("backupDestinationName").value = "";
     run(refreshBackupCopy);
   }
   if (id === "backupSourceImage")
@@ -3182,36 +3219,118 @@ element("app").addEventListener("click", (event) =>
       {
         throw new Error("Source and destination must be different image files.");
       }
-      const destinationExists = backupDestinationEntries.some((entry) =>
-        entry.name.toLowerCase() === destinationName.toLowerCase());
-      let overwrite = false;
+      //-- Copies between LittleFS and the backups area also carry the drive configuration:
+      //-- it keeps its own name drives.cfg inside the backups folder. Each file gets its own
+      //-- overwrite question, and declining one question skips only that file: the other file
+      //-- is still copied or replaced.
+      const carriesConfiguration =
+        (sourceArea === "littlefs" && destinationArea === "backups") ||
+        (sourceArea === "backups" && destinationArea === "littlefs");
+      const configurationCopied = carriesConfiguration &&
+        (sourceArea === "littlefs" || backupEntriesHave(backupSourceEntries, "drives.cfg"));
+      const configurationExists = carriesConfiguration && (sourceArea === "littlefs" ?
+        backupEntriesHave(backupDestinationEntries, "drives.cfg") :
+        backupEntriesHave(backupSourceEntries, "drives.cfg"));
+      const destinationExists = backupEntriesHave(backupDestinationEntries, destinationName);
+      const overwriteTokens = [];
+      const skipTokens = [];
+      let copyImage = true;
       if (destinationExists)
       {
         const answer = prompt(`Overwrite ${destinationName} (y/N): `);
-        if (answer === null || answer.trim().toLowerCase() !== "y")
+        if (answer !== null && answer.trim().toLowerCase() === "y")
         {
-          showStatus(`Copy cancelled; ${destinationName} was not overwritten.`);
-          return;
+          overwriteTokens.push("image");
         }
-        overwrite = true;
+        else
+        {
+          copyImage = false;
+          skipTokens.push("image");
+        }
       }
-      else if (!confirm(`Copy complete image ${backupAreaLocationLabel(sourceArea, machine)}${sourceName} to ${backupAreaLocationLabel(destinationArea, machine)}${destinationName}? The source remains unchanged.`))
+      let copyConfigurationFile = configurationCopied;
+      if (configurationCopied && configurationExists)
       {
+        const answer = prompt("Overwrite drives.cfg (y/N): ");
+        if (answer !== null && answer.trim().toLowerCase() === "y")
+        {
+          overwriteTokens.push("config");
+        }
+        else
+        {
+          copyConfigurationFile = false;
+          skipTokens.push("config");
+        }
+      }
+      if (!copyImage && !copyConfigurationFile)
+      {
+        showStatus("Copy cancelled; nothing was copied.");
         return;
       }
-      showStatus("Copying whole disk image and verifying bytes...");
+      if (!destinationExists && !(configurationCopied && configurationExists))
+      {
+        let note = "The source remains unchanged.";
+        if (carriesConfiguration)
+        {
+          note += sourceArea === "littlefs" ?
+            " drives.cfg is copied along to the backups folder." :
+            (configurationCopied ?
+              " The backup's drives.cfg is copied back as drives.cfg." :
+              " No drives.cfg accompanies this backup; the LittleFS drives.cfg stays unchanged.");
+        }
+        if (!confirm(`Copy complete image ${backupAreaLocationLabel(sourceArea, machine)}${sourceName} to ${backupAreaLocationLabel(destinationArea, machine)}${destinationName}? ${note}`))
+        {
+          return;
+        }
+      }
+      const copyingParts = [];
+      if (copyImage)
+      {
+        copyingParts.push("whole disk image");
+      }
+      if (copyConfigurationFile)
+      {
+        copyingParts.push("drive configuration");
+      }
+      showStatus(`Copying ${copyingParts.join(" and ")}, verifying bytes...`);
+      const headers = {};
+      if (overwriteTokens.length > 0)
+      {
+        headers["X-Overwrite"] = overwriteTokens.join(",");
+      }
+      if (skipTokens.length > 0)
+      {
+        headers["X-Skip"] = skipTokens.join(",");
+      }
       const query = `?sourceArea=${sourceArea}&source=${encodeURIComponent(imagePath(machine, sourceName))}` +
         `&destinationArea=${destinationArea}&destination=${encodeURIComponent(imagePath(machine, destinationName))}`;
       let message;
+      let succeeded = false;
       try
       {
-        const response = await api(`/api/images/copy${query}`,
-          {method: "POST", headers: overwrite ? {"X-Overwrite": "1"} : {}});
+        const response = await api(`/api/images/copy${query}`, {method: "POST", headers});
         message = await response.text();
+        succeeded = true;
       }
       catch (error)
       {
         message = error.message;
+      }
+      if (succeeded)
+      {
+        //-- Name every file that was copied, so the confirmation shows more than the image.
+        const copiedFiles = [];
+        if (copyImage)
+        {
+          copiedFiles.push(sourceName);
+        }
+        if (copyConfigurationFile)
+        {
+          copiedFiles.push("drives.cfg");
+        }
+        message = `Copied ${copiedFiles.join(" and ")} from ` +
+          `${backupAreaLocationLabel(sourceArea, machine)} to ` +
+          `${backupAreaLocationLabel(destinationArea, machine)}. ${message}`;
       }
       showStatus(message);
       //-- Refresh also after a rejection so a stale list (for example an unexpected
